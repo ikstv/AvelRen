@@ -10,7 +10,10 @@ dependencies = [
     "psycopg[binary,pool]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    # google-auth не тягне requests сам, але його транспорт для оновлення
+    # токена без нього не працює.
     "google-auth>=2.35",
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]
