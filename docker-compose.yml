@@ -51,6 +51,19 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Помічає, що система замовкла. Найнебезпечніший збій — тихий.
+  watchdog:
+    build: ./app
+    image: avelren-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "avelren.watchdog"]
+    env_file: .env
+    volumes:
+      - ./secrets:/secrets:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   api:
     build: ./app
     image: avelren-app:latest

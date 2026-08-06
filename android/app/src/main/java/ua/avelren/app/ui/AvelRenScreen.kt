@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -47,6 +48,8 @@ fun AvelRenScreen() {
     var selected by remember { mutableStateOf(DeviceStore.selectedCheckpoint(context)) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showEtaDialog by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         try {
@@ -87,11 +90,43 @@ fun AvelRenScreen() {
                             scope.launch {
                                 DeviceStore.deviceId(context)?.let {
                                     runCatching { Api.subscribe(it, current.checkpoint_id, threshold) }
+                                        .onSuccess { note = "Стежу: поріг $threshold авто" }
+                                        .onFailure { note = "Не вдалося підписатись" }
                                 }
                             }
                         },
                     )
+
+                    Button(
+                        onClick = { showEtaDialog = true },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) { Text("Хочу в'їхати о певній годині") }
+
+                    note?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 6.dp))
+                    }
+
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                }
+
+                if (showEtaDialog && current != null) {
+                    EtaTargetDialog(
+                        checkpointTitle = current.title,
+                        onDismiss = { showEtaDialog = false },
+                        onConfirm = { isoUtc, human ->
+                            showEtaDialog = false
+                            scope.launch {
+                                DeviceStore.deviceId(context)?.let {
+                                    runCatching {
+                                        Api.createEtaTarget(it, current.checkpoint_id, isoUtc)
+                                    }
+                                        .onSuccess { note = "Стежу за в'їздом $human" }
+                                        .onFailure { note = "Не вдалося створити ціль" }
+                                }
+                            }
+                        },
+                    )
                 }
 
                 Text(
