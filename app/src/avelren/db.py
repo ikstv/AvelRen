@@ -6,7 +6,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from .config import settings
-from .models import WorkloadItem
+from .models import Country, WorkloadItem
 
 log = logging.getLogger(__name__)
 
@@ -29,16 +29,41 @@ def get_pool() -> AsyncConnectionPool:
     return _pool
 
 
-async def upsert_checkpoints(conn: AsyncConnection, items: list[WorkloadItem]) -> None:
-    """Довідник живий: назви й координати змінюються, нові пункти з'являються."""
+async def upsert_countries(conn: AsyncConnection, countries: list[Country]) -> None:
+    await conn.cursor().executemany(
+        """
+        INSERT INTO countries (id, name, flag_emoji)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            name       = EXCLUDED.name,
+            flag_emoji = EXCLUDED.flag_emoji,
+            last_seen  = now()
+        """,
+        [(c.id, c.name, c.flag_emoji) for c in countries],
+    )
+
+
+async def upsert_checkpoints(
+    conn: AsyncConnection, items: list[WorkloadItem], countries: list[Country]
+) -> None:
+    """Довідник живий: назви й координати змінюються, нові пункти з'являються.
+
+    `last_seen` оновлюється щоциклу — саме за ним список лишається актуальним
+    без ручного втручання, і зниклі пункти самі відпадають.
+    """
+    by_id = {c.id: c for c in countries}
+
     await conn.cursor().executemany(
         """
         INSERT INTO checkpoints
-            (id, title, country_id, for_vehicle_type, queue_flow, cancel_after, lat, lng)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            (id, title, country_id, country_name, flag_emoji,
+             for_vehicle_type, queue_flow, cancel_after, lat, lng)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (id) DO UPDATE SET
             title        = EXCLUDED.title,
             country_id   = EXCLUDED.country_id,
+            country_name = COALESCE(EXCLUDED.country_name, checkpoints.country_name),
+            flag_emoji   = COALESCE(EXCLUDED.flag_emoji,   checkpoints.flag_emoji),
             queue_flow   = EXCLUDED.queue_flow,
             cancel_after = EXCLUDED.cancel_after,
             lat          = EXCLUDED.lat,
@@ -50,6 +75,8 @@ async def upsert_checkpoints(conn: AsyncConnection, items: list[WorkloadItem]) -
                 i.id,
                 i.title,
                 i.country_id,
+                by_id[i.country_id].name if i.country_id in by_id else None,
+                by_id[i.country_id].flag_emoji if i.country_id in by_id else None,
                 i.for_vehicle_type,
                 i.queue_flow,
                 i.cancel_after,

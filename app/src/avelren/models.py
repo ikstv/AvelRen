@@ -1,4 +1,31 @@
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, computed_field
+
+# Іконки прапорів у джерелі названі кодпоінтами emoji: 1f1f5-1f1f1.png -> 🇵🇱
+_FLAG_CODEPOINTS = re.compile(r"([0-9a-f]{4,5})-([0-9a-f]{4,5})\.png")
+
+
+class Country(BaseModel):
+    id: int
+    name: str
+    icon: str | None = None
+
+    @computed_field
+    @property
+    def flag_emoji(self) -> str | None:
+        """Виводимо emoji з назви файлу, щоб клієнт не тягнув картинку з
+        чужого сервера — див. AGENTS.md, правило 1."""
+        if not self.icon:
+            return None
+        m = _FLAG_CODEPOINTS.search(self.icon)
+        if not m:
+            return None
+        return chr(int(m.group(1), 16)) + chr(int(m.group(2), 16))
+
+
+class Filters(BaseModel):
+    countries: list[Country] = []
 
 
 class WorkloadItem(BaseModel):
@@ -22,3 +49,4 @@ class WorkloadItem(BaseModel):
 
 class WorkloadResponse(BaseModel):
     data: list[WorkloadItem]
+    filters: Filters = Filters()

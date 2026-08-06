@@ -6,7 +6,13 @@ from datetime import UTC, datetime
 import httpx
 
 from .config import settings
-from .db import get_pool, insert_observations, record_run, upsert_checkpoints
+from .db import (
+    get_pool,
+    insert_observations,
+    record_run,
+    upsert_checkpoints,
+    upsert_countries,
+)
 from .echerha import fetch_workload
 
 log = logging.getLogger("avelren.collector")
@@ -35,10 +41,13 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
 
     # Одне з'єднання на весь цикл: і дані, і журнал. Дві окремі спроби
     # означали б подвійне чекання при недоступній БД.
+    countries = result.response.filters.countries if result.response is not None else []
+
     try:
         async with get_pool().connection() as conn:
             if items:
-                await upsert_checkpoints(conn, items)
+                await upsert_countries(conn, countries)
+                await upsert_checkpoints(conn, items, countries)
                 rows = await insert_observations(conn, at, items)
             await record_run(
                 conn, at, result.http_status, result.duration_ms, result.body_sha256, rows, error

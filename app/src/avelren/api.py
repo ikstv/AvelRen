@@ -45,17 +45,27 @@ async def health() -> dict:
 
 
 @app.get("/checkpoints")
-async def checkpoints() -> list[dict]:
+async def checkpoints(include_stale: bool = False) -> list[dict]:
+    """Список вантажних КПП для екрана вибору.
+
+    Актуальність тримається сама: `last_seen` оновлюється щоциклу, тож новий
+    39-й пункт з'явиться тут наступної хвилини після появи в джерелі, а зниклий
+    відпаде. Поріг у добу — щоб коротка аварія нашого збирача не спорожнила
+    список у застосунку.
+    """
     async with get_pool().connection() as conn:
         rows = await (
             await conn.execute(
                 """
-                SELECT id, title, country_id, queue_flow, cancel_after, lat, lng, last_seen
+                SELECT id, title, country_id, country_name, flag_emoji,
+                       queue_flow, cancel_after, lat, lng, first_seen, last_seen,
+                       last_seen > now() - INTERVAL '1 day' AS is_active
                 FROM checkpoints
                 WHERE for_vehicle_type = %s
-                ORDER BY title
+                  AND (%s OR last_seen > now() - INTERVAL '1 day')
+                ORDER BY country_name NULLS LAST, title
                 """,
-                (settings.echerha_vehicle_type,),
+                (settings.echerha_vehicle_type, include_stale),
             )
         ).fetchall()
     return rows
@@ -69,7 +79,8 @@ async def workload() -> list[dict]:
             await conn.execute(
                 """
                 SELECT DISTINCT ON (o.checkpoint_id)
-                    o.checkpoint_id, c.title, c.country_id, c.lat, c.lng,
+                    o.checkpoint_id, c.title, c.country_id, c.country_name,
+                    c.flag_emoji, c.lat, c.lng,
                     o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused
                 FROM observations o
                 JOIN checkpoints c ON c.id = o.checkpoint_id
