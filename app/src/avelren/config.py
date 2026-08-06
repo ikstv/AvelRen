@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     contact_email: str = ""
     log_level: str = "INFO"
 
+    # Службовий ключ Firebase. Лежить на сервері повз git, права 600.
+    fcm_credentials_path: str = ""
+
     # Сповіщення повторюється, доки користувач не натисне «ОК».
     alert_resend_seconds: int = 300
     # Перезарядка після підтвердження: черга має впасти нижче порога із запасом,

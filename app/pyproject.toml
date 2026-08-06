@@ -10,6 +10,7 @@ dependencies = [
     "psycopg[binary,pool]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "google-auth>=2.35",
 ]
 
 [project.optional-dependencies]

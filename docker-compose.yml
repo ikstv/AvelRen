@@ -38,6 +38,19 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Окремо від збирача: історія має накопичуватись, навіть якщо FCM лежить.
+  notifier:
+    build: ./app
+    image: avelren-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "avelren.notifier"]
+    env_file: .env
+    volumes:
+      - ./secrets:/secrets:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   api:
     build: ./app
     image: avelren-app:latest

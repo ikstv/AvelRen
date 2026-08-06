@@ -18,3 +18,8 @@ Thumbs.db
 
 *.log
 data/
+
+# Службові ключі Firebase — ніколи в git
+secrets/
+*service-account*.json
+google-services.json
