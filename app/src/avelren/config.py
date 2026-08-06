@@ -1,0 +1,28 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    database_url: str = "postgresql://avelren@db:5432/avelren"
+
+    echerha_base_url: str = "https://back.echerha.gov.ua/api"
+    echerha_vehicle_type: int = 1  # 1 — вантажівки, 2 — автобуси
+    poll_interval_seconds: int = 60
+    http_timeout_seconds: int = 15
+
+    contact_email: str = ""
+    log_level: str = "INFO"
+
+    @property
+    def workload_url(self) -> str:
+        return f"{self.echerha_base_url}/v4/workload/{self.echerha_vehicle_type}"
+
+    @property
+    def user_agent(self) -> str:
+        """Чесно представляємось: держсервіс має бачити, хто до нього ходить."""
+        contact = f" (+{self.contact_email})" if self.contact_email else ""
+        return f"AvelRen/0.1.0{contact}"
+
+
+settings = Settings()

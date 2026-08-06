@@ -1,0 +1,14 @@
+# Домену ще немає, тож слухаємо порт 80 напряму. Коли з'явиться —
+# замінити :80 на ім'я домену, і Caddy сам випише сертифікат.
+:80 {
+	encode gzip
+
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle {
+		respond "AvelRen" 200
+	}
+}
