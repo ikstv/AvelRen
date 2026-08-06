@@ -1,8 +1,20 @@
-# Домену ще немає, тож слухаємо порт 80 напряму. Коли з'явиться —
-# замінити :80 на ім'я домену, і Caddy сам випише сертифікат.
-:80 {
+# Caddy сам отримує й оновлює сертифікат Let's Encrypt для цього імені.
+api.bordersignal.pp.ua {
 	encode gzip
 
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle {
+		respond "AvelRen API" 200
+	}
+}
+
+# Доступ по голому IP лишаємо для діагностики з самого сервера, але без
+# HTTPS: сертифікат на IP-адресу не випишеш, а застосунок ходить на домен.
+:80 {
 	handle /api/* {
 		uri strip_prefix /api
 		reverse_proxy api:8000
