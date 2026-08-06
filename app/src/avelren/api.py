@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 from .config import settings
 from .db import get_pool
+from .subscriptions_api import router as subscriptions_router
 
 log = logging.getLogger("avelren.api")
 
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AvelRen", version="0.1.0", lifespan=lifespan)
+app.include_router(subscriptions_router)
 
 
 @app.get("/health")
@@ -73,7 +75,13 @@ async def checkpoints(include_stale: bool = False) -> list[dict]:
 
 @app.get("/workload")
 async def workload() -> list[dict]:
-    """Останній зріз по кожній черзі."""
+    """Останній зріз по кожній черзі.
+
+    `entry_eta` — орієнтовний час в'їзду для того, хто стає в чергу зараз.
+    Формула звірена з єЧергою: момент заміру плюс `wait_time`. Для
+    призупиненої черги з нульовим очікуванням прогнозу немає, а не «в'їзд
+    просто зараз», тому там `null`.
+    """
     async with get_pool().connection() as conn:
         rows = await (
             await conn.execute(
@@ -81,7 +89,10 @@ async def workload() -> list[dict]:
                 SELECT DISTINCT ON (o.checkpoint_id)
                     o.checkpoint_id, c.title, c.country_id, c.country_name,
                     c.flag_emoji, c.lat, c.lng,
-                    o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused
+                    o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused,
+                    CASE WHEN o.is_paused AND o.wait_time_seconds = 0 THEN NULL
+                         ELSE o.time + (o.wait_time_seconds * INTERVAL '1 second')
+                    END AS entry_eta
                 FROM observations o
                 JOIN checkpoints c ON c.id = o.checkpoint_id
                 WHERE o.time > now() - INTERVAL '1 hour'
