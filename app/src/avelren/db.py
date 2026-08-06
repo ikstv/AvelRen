@@ -20,6 +20,9 @@ def get_pool() -> AsyncConnectionPool:
             settings.database_url,
             min_size=1,
             max_size=5,
+            # Коротко: цикл збирача має 60 с на все, і чекання з'єднання не
+            # сміє з'їдати цей бюджет — інакше цикл зникає без сліду.
+            timeout=5,
             open=False,
             kwargs={"row_factory": dict_row},
         )

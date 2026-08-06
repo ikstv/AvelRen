@@ -26,29 +26,28 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
     rows = 0
     error = result.error
 
-    if result.response is not None:
-        # Скоуп зараз — лише вантажівки; джерело може підмішати інші типи.
-        items = [
-            i for i in result.response.data if i.for_vehicle_type == settings.echerha_vehicle_type
-        ]
-        try:
-            pool = get_pool()
-            async with pool.connection() as conn:
+    # Скоуп зараз — лише вантажівки; джерело може підмішати інші типи.
+    items = (
+        [i for i in result.response.data if i.for_vehicle_type == settings.echerha_vehicle_type]
+        if result.response is not None
+        else []
+    )
+
+    # Одне з'єднання на весь цикл: і дані, і журнал. Дві окремі спроби
+    # означали б подвійне чекання при недоступній БД.
+    try:
+        async with get_pool().connection() as conn:
+            if items:
                 await upsert_checkpoints(conn, items)
                 rows = await insert_observations(conn, at, items)
-            log.info("цикл ok: %s черг записано", rows)
-        except Exception as exc:  # БД впала — не привід гасити збирач
-            error = f"db: {exc}"
-            log.error("запис у БД не вдався: %s", exc)
-
-    try:
-        pool = get_pool()
-        async with pool.connection() as conn:
             await record_run(
                 conn, at, result.http_status, result.duration_ms, result.body_sha256, rows, error
             )
-    except Exception as exc:
-        log.error("не вдалося записати журнал циклу: %s", exc)
+        if rows:
+            log.info("цикл ok: %s черг записано", rows)
+    except Exception as exc:  # БД впала — не привід гасити збирач
+        # Записати причину нікуди, тож лог — єдиний слід цього циклу.
+        log.error("цикл %s втрачено, БД недоступна: %s", at.isoformat(), exc)
 
 
 async def main() -> None:
