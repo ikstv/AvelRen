@@ -105,3 +105,17 @@ def _feed(conn, sub_id: int, values: list[int]) -> None:
                 await alerts.evaluate(ac, [item])
 
     asyncio.run(run())
+
+
+def test_exact_threshold_fires(conn):
+    """Рівно 50 — це спрацювання, а не «майже»."""
+    sub = _subscription(conn)
+    _feed(conn, sub, [49, 50])
+    assert _pending(conn, sub) == 1
+
+
+def test_jump_over_threshold_fires(conn):
+    """Черга змінюється і на 2 авто за раз, тож 49->51 не сміє проскочити повз."""
+    sub = _subscription(conn)
+    _feed(conn, sub, [49, 51])
+    assert _pending(conn, sub) == 1
