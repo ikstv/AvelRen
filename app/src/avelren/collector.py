@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import httpx
 
+from . import alerts
 from .config import settings
 from .db import (
     get_pool,
@@ -49,6 +50,10 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
                 await upsert_countries(conn, countries)
                 await upsert_checkpoints(conn, items, countries)
                 rows = await insert_observations(conn, at, items)
+                # Значення вже в пам'яті — перевіряємо пороги тут, без
+                # зайвого читання з БД.
+                await alerts.evaluate(conn, items)
+                await alerts.expire_stale(conn)
             await record_run(
                 conn, at, result.http_status, result.duration_ms, result.body_sha256, rows, error
             )

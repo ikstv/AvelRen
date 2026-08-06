@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     contact_email: str = ""
     log_level: str = "INFO"
 
+    # Сповіщення повторюється, доки користувач не натисне «ОК».
+    alert_resend_seconds: int = 300
+    # Перезарядка після підтвердження: черга має впасти нижче порога із запасом,
+    # інакше коливання 49<->51 будили б щохвилини.
+    rearm_factor: float = 0.9
+
     @property
     def workload_url(self) -> str:
         return f"{self.echerha_base_url}/v4/workload/{self.echerha_vehicle_type}"
