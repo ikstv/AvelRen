@@ -8,12 +8,25 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
+
+  # Виконується до кожного старту сервісів і завершується. Так схема БД не
+  # може розійтися з кодом через забуту міграцію.
+  migrate:
+    build: ./app
+    image: avelren-app:latest
+    command: ["python", "-m", "avelren.migrate"]
+    env_file: .env
+    volumes:
+      - ./db/migrations:/migrations:ro
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
 
   collector:
     build: ./app
@@ -22,8 +35,8 @@ services:
     command: ["python", "-m", "avelren.collector"]
     env_file: .env
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   api:
     build: ./app
@@ -34,8 +47,8 @@ services:
     expose:
       - "8000"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   caddy:
     image: caddy:2.9.1-alpine
