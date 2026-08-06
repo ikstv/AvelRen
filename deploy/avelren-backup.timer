@@ -1,0 +1,13 @@
+[Unit]
+Description=Щоденна резервна копія AvelRen
+
+[Timer]
+# 03:20 UTC — ніч у Києві, навантаження на сервіс мінімальне.
+OnCalendar=*-*-* 03:20:00
+# Сервер міг бути вимкнений — не пропускаємо копію мовчки.
+Persistent=true
+# Розкид, щоб не бити в Google Drive точно о тій самій секунді щодня.
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

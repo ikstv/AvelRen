@@ -1,0 +1,11 @@
+[Unit]
+Description=Резервна копія AvelRen на Google Drive
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/avelren-backup
+# Копія не критична за часом, але дамп навантажує БД — не заважаємо збирачу.
+Nice=10
+IOSchedulingClass=idle
