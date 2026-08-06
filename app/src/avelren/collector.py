@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import httpx
 
-from . import alerts
+from . import alerts, eta
 from .config import settings
 from .db import (
     get_pool,
@@ -54,6 +54,8 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
                 # зайвого читання з БД.
                 await alerts.evaluate(conn, items)
                 await alerts.expire_stale(conn)
+                await eta.evaluate(conn, at, items)
+                await eta.expire_passed(conn)
             await record_run(
                 conn, at, result.http_status, result.duration_ms, result.body_sha256, rows, error
             )
