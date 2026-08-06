@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Query
 
+from . import forecast
 from .config import settings
 from .db import get_pool
 from .subscriptions_api import router as subscriptions_router
@@ -153,3 +154,34 @@ async def history(
         "hours": hours,
         "points": rows,
     }
+
+
+@app.get("/forecast/{checkpoint_id}")
+async def forecast_endpoint(checkpoint_id: int, hours: int = Query(24, ge=1, le=168)) -> dict:
+    """Функція №3: прогноз завантаженості.
+
+    Поки історії замало, повертає `status: collecting` і порожній список точок.
+    Це навмисно: прогноз на добі даних виглядав би переконливо й був би
+    вигадкою, а на ньому люди планують рейси.
+    """
+    async with get_pool().connection() as conn:
+        cp = await (
+            await conn.execute(
+                "SELECT id, title, flag_emoji FROM checkpoints WHERE id = %s", (checkpoint_id,)
+            )
+        ).fetchone()
+        if cp is None:
+            raise HTTPException(status_code=404, detail="Пункт пропуску не знайдено")
+
+        result = await forecast.forecast(conn, checkpoint_id, hours)
+
+    result["checkpoint"] = cp
+    return result
+
+
+@app.get("/forecast/{checkpoint_id}/quality")
+async def forecast_quality(checkpoint_id: int) -> dict:
+    """Похибка базової моделі. Без цього числа неможливо сказати, чи майбутня
+    складніша модель узагалі щось покращила."""
+    async with get_pool().connection() as conn:
+        return await forecast.evaluate(conn, checkpoint_id)
