@@ -23,3 +23,11 @@ data/
 secrets/
 *service-account*.json
 google-services.json
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk

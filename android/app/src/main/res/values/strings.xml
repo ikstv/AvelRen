@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AvelRen</string>
+    <string name="alert_channel_id">avelren_alerts</string>
+    <string name="alert_channel_name">Черги на кордоні</string>
+    <string name="alert_channel_description">Сповіщення про зростання черги та час реєстрації</string>
+    <string name="ok">ОК</string>
+</resources>
