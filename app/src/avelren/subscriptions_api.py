@@ -10,10 +10,10 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
+from . import telemetry
 from .alerts import THRESHOLDS
 from .db import get_pool
 from .ratelimit import check as rate_check
-from . import telemetry
 from .schemas import DeviceIn, DeviceOut, EtaTargetIn, SubscriptionIn, TokenIn
 
 router = APIRouter()

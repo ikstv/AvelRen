@@ -31,3 +31,7 @@ android/app/build/
 android/local.properties
 android/.idea/
 *.apk
+
+# Артефакти складання пакета (створюються pip install ./app)
+app/build/
+*.egg-info/

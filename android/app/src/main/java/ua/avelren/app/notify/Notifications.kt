@@ -1,17 +1,35 @@
 package ua.avelren.app.notify
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import ua.avelren.app.MainActivity
 import ua.avelren.app.R
+
+/**
+ * З Android 13 (TIRAMISU) показ сповіщень — це runtime-permission
+ * POST_NOTIFICATIONS. `areNotificationsEnabled()` формально повертає той самий
+ * стан, але lint читає саме @RequiresPermission-анотацію: без явного
+ * checkSelfPermission() перед notify() build падає з MissingPermission.
+ * Це не косметика — permission міг бути відкликаний після старту процесу.
+ */
+private fun canPostNotifications(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+    return ContextCompat.checkSelfPermission(
+        context, Manifest.permission.POST_NOTIFICATIONS
+    ) == PackageManager.PERMISSION_GRANTED
+}
 
 /**
  * Сповіщення, яке не зникає саме.
@@ -71,6 +89,11 @@ object Notifications {
             .createNotificationChannel(channel)
     }
 
+    // Явна перевірка POST_NOTIFICATIONS робиться в canPostNotifications(),
+    // але lint читає лише анотацію @RequiresPermission на самому notify() і не
+    // йде за викликом. Suppression вузьке (одна функція) і має підставу — це
+    // не lint-baseline.
+    @SuppressLint("MissingPermission")
     fun show(context: Context, alertId: Long, kind: String, title: String, body: String) {
         ensureChannel(context)
 
@@ -108,9 +131,7 @@ object Notifications {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
-        ) {
+        if (canPostNotifications(context)) {
             NotificationManagerCompat.from(context).notify(notifId, notification)
         }
     }
@@ -122,6 +143,7 @@ object Notifications {
      * AckReceiver. Раніше health ішло через show() з alert_id=0 — ongoing,
      * яке кнопкою ОК не гасилось узагалі (аудит R-03).
      */
+    @SuppressLint("MissingPermission")
     fun showInfo(context: Context, title: String, body: String) {
         ensureChannel(context)
         val channel = NotificationChannel(
@@ -140,9 +162,7 @@ object Notifications {
             .setAutoCancel(true)
             .build()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
-        ) {
+        if (canPostNotifications(context)) {
             // Стабільний ID по заголовку: «проблема» і «відновився» різні,
             // а повтори тієї самої проблеми схлопуються.
             NotificationManagerCompat.from(context)
