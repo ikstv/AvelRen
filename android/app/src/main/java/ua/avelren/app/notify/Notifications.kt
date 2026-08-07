@@ -1,17 +1,34 @@
 package ua.avelren.app.notify
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import ua.avelren.app.MainActivity
 import ua.avelren.app.R
+
+/**
+ * З Android 13 (TIRAMISU) показ сповіщень — це runtime-permission
+ * POST_NOTIFICATIONS. `areNotificationsEnabled()` формально повертає той самий
+ * стан, але lint читає саме @RequiresPermission-анотацію: без явного
+ * checkSelfPermission() перед notify() build падає з MissingPermission.
+ * Це не косметика — permission міг бути відкликаний після старту процесу.
+ */
+private fun canPostNotifications(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+    return ContextCompat.checkSelfPermission(
+        context, Manifest.permission.POST_NOTIFICATIONS
+    ) == PackageManager.PERMISSION_GRANTED
+}
 
 /**
  * Сповіщення, яке не зникає саме.
@@ -108,9 +125,7 @@ object Notifications {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
-        ) {
+        if (canPostNotifications(context)) {
             NotificationManagerCompat.from(context).notify(notifId, notification)
         }
     }
@@ -140,9 +155,7 @@ object Notifications {
             .setAutoCancel(true)
             .build()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
-        ) {
+        if (canPostNotifications(context)) {
             // Стабільний ID по заголовку: «проблема» і «відновився» різні,
             // а повтори тієї самої проблеми схлопуються.
             NotificationManagerCompat.from(context)
