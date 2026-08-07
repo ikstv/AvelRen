@@ -68,6 +68,10 @@ object Api {
         val wait_time_seconds: Int,
         val is_paused: Boolean,
         val entry_eta: String? = null,
+        // Час фактичного заміру (server observation time). Nullable — щоб старі
+        // fixture/JSON без поля лишалися сумісними. Свіжість рахуємо саме з нього,
+        // а не з часу HTTP-запиту (AND-4).
+        val time: String? = null,
     )
 
     @Serializable

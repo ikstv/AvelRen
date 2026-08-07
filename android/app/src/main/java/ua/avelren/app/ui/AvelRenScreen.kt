@@ -30,13 +30,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import ua.avelren.app.AvelRenApp
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.InstallationState
+import ua.avelren.app.data.LiveRefresh
 import ua.avelren.app.data.ProtectedLoad
+import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -57,6 +62,7 @@ private val FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM 'о' 
 fun AvelRenScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val installation = remember { AvelRenApp.from(context).installation }
     val installState by installation.state.collectAsStateWithLifecycle()
     val authReady = installState is InstallationState.Ready
@@ -65,6 +71,7 @@ fun AvelRenScreen() {
     var selected by remember { mutableStateOf(DeviceStore.selectedCheckpoint(context)) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var refreshError by remember { mutableStateOf(false) }
     var showEtaDialog by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
     var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
@@ -73,13 +80,27 @@ fun AvelRenScreen() {
     var targets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        try {
-            workload = Api.workload()
-        } catch (e: Exception) {
-            error = e.message
-        } finally {
-            loading = false
+    // Живе оновлення (AND-4): refresh одразу при вході/поверненні, далі кожні
+    // 60 c — але ЛИШЕ у foreground (repeatOnLifecycle(RESUMED) паузить при
+    // згортанні й перезапускає при поверненні → миттєвий refresh). Ключ на
+    // `selected`, щоб зміна КПП одразу оновила forecast, не чекаючи циклу.
+    // Workload і forecast — незалежні: збій одного не блокує інший, і при
+    // помилці останні валідні дані НЕ стираються (keep-last).
+    LaunchedEffect(lifecycleOwner, selected) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            LiveRefresh.poll {
+                val wlRes = runCatching { Api.workload() }
+                workload = LiveRefresh.keepOnError(workload, wlRes)
+                wlRes
+                    .onSuccess { error = null; refreshError = false }
+                    .onFailure { e -> if (workload.isEmpty()) error = e.message else refreshError = true }
+
+                if (selected > 0) {
+                    val fcRes: Result<Api.Forecast?> = runCatching { Api.forecast(selected) }
+                    forecast = LiveRefresh.keepOnError(forecast, fcRes)
+                }
+                loading = false
+            }
         }
     }
 
@@ -103,14 +124,6 @@ fun AvelRenScreen() {
         }
     }
 
-    // Прогноз залежить від обраного КПП: модель у кожного пункту своя, бо
-    // Ягодин з тижнем очікування і порожнє Порубне поводяться несумісно.
-    LaunchedEffect(selected) {
-        if (selected > 0) {
-            forecast = runCatching { Api.forecast(selected) }.getOrNull()
-        }
-    }
-
     val current = workload.firstOrNull { it.checkpoint_id == selected }
 
     if (loading) {
@@ -131,10 +144,36 @@ fun AvelRenScreen() {
             }
         }
 
-        error?.let { msg ->
+        // Свіжість за server observation time обраного КПП (без вибору — макс.
+        // по списку). Якщо обраний зник зі snapshot — current==null → time==null
+        // → stale, чужим часом не підміняємо.
+        if (workload.isNotEmpty()) {
             item {
-                Text("Не вдалося завантажити: $msg",
-                    modifier = Modifier.padding(top = 24.dp))
+                val obsTime =
+                    if (selected > 0) current?.time
+                    else workload.mapNotNull { it.time }.maxOrNull()
+                val f = LiveRefresh.freshness(obsTime, Instant.now())
+                val suffix = when {
+                    refreshError -> " · не вдалося оновити"
+                    f.stale -> " · дані застарілі"
+                    else -> ""
+                }
+                Text(
+                    "Оновлено ${f.label}$suffix",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+
+        // Full-screen помилка лише коли даних ще нема взагалі. Якщо є старий
+        // валідний snapshot — не затираємо екран, статус показує рядок вище.
+        if (workload.isEmpty()) {
+            error?.let { msg ->
+                item {
+                    Text("Не вдалося завантажити: $msg",
+                        modifier = Modifier.padding(top = 24.dp))
+                }
             }
         }
 
