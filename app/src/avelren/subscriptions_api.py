@@ -1,14 +1,32 @@
 """Ендпоінти підписок, цілей і підтверджень.
 
-Реєстрація анонімна: пристрій, а не людина. `device_id` — випадковий uuid,
-який фактично працює як ключ доступу до підписок, тому передається заголовком
-`X-Device-Id`, а не в URL: параметри запитів осідають у логах проксі та в
-історії браузера, заголовки — ні.
+**Модель автентифікації.** Реєстрація анонімна: пристрій, а не людина. Кожна
+installation отримує пару `(device_id, device_secret)`. `device_id` — UUID,
+`device_secret` — 32 випадкові байти. У БД зберігається лише SHA-256 hex
+digest секрета, перевірка через `hmac.compare_digest` (constant-time).
+Обґрунтування вибору дайджеста (чому не bcrypt) — у міграції
+`007_device_secret.sql`.
+
+Стан-змінні запити (POST/PUT/DELETE, /ack, /admin) вимагають ОБОХ заголовків:
+`X-Device-Id` і `X-Device-Secret`. Знання лише UUID саме по собі нічого не дає
+— саме це закриває AUTH-1 (аудит): раніше POST /devices повертав існуючий
+device_id за відомим FCM-токеном, а токен — не секрет (живе на клієнті, в
+логах Google, у крешах). Тепер POST /devices завжди створює НОВУ installation
+і повертає нову пару; знання чужого FCM-токена не дає доступу до чужих
+підписок.
+
+Заголовки, а не URL: параметри осідають у логах проксі та в історії, заголовки
+— ні.
 """
 
+import hashlib
+import hmac
 from datetime import UTC, datetime
+from secrets import token_urlsafe
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from psycopg import DataError, OperationalError
+from psycopg.errors import InvalidTextRepresentation
 
 from . import telemetry
 from .alerts import THRESHOLDS
@@ -18,23 +36,74 @@ from .schemas import DeviceIn, DeviceOut, EtaTargetIn, SubscriptionIn, TokenIn
 
 router = APIRouter()
 
+# 32 байти ентропії — 43 символи url-safe base64. Достатньо, щоб перебір був
+# нереальний навіть без rate limit на /ack.
+SECRET_BYTES = 32
 
-async def _device(x_device_id: str | None) -> str:
-    if not x_device_id:
-        raise HTTPException(status_code=401, detail="Потрібен заголовок X-Device-Id")
-    async with get_pool().connection() as conn:
-        try:
+
+def _hash_secret(secret: str) -> str:
+    """SHA-256 hex digest.
+
+    Пояснення вибору — в міграції 007_device_secret.sql: 256-бітний випадковий
+    секрет робить bcrypt зайвим (перебір усе одно нереальний), а bcrypt на
+    кожному захищеному запиті — це готовий CPU-DoS вектор (NEW-AUTH-1).
+    """
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
+    """Двофакторна перевірка installation credential.
+
+    Розділяємо помилки коректно: невалідний UUID у заголовку — 400, БД лежить
+    — 503, невірна пара — 401. До цього виправлення (аудит API-1) будь-яке
+    падіння БД читалося як «поганий device id» і клієнт міг вирішити
+    перереєструватися.
+
+    Порівняння через `hmac.compare_digest` (constant-time), не через
+    `stored == given`: часовий attack на побайтне порівняння тривіальний.
+    """
+    if not x_device_id or not x_device_secret:
+        raise HTTPException(
+            status_code=401, detail="Потрібні заголовки X-Device-Id і X-Device-Secret"
+        )
+    # try огортає ВЕСЬ `async with connection()` — включно з UPDATE last_seen
+    # і виходом з context manager (commit/close). Без цього падіння БД між
+    # SELECT і UPDATE піде як необроблений 500, а не 503 (API-1).
+    try:
+        async with get_pool().connection() as conn:
             row = await (
                 await conn.execute(
-                    "UPDATE devices SET last_seen = now() WHERE id = %s RETURNING id",
+                    """
+                    SELECT secret_hash FROM devices
+                    WHERE id = %s AND secret_hash IS NOT NULL
+                    """,
                     (x_device_id,),
                 )
             ).fetchone()
-        except Exception:  # не-uuid у заголовку
-            raise HTTPException(status_code=400, detail="Некоректний X-Device-Id") from None
-    if row is None:
-        raise HTTPException(status_code=404, detail="Пристрій не знайдено")
-    return str(row["id"])
+
+            if row is None or not hmac.compare_digest(
+                row["secret_hash"], _hash_secret(x_device_secret)
+            ):
+                # І неіснуючий id, і невірний secret ведуть сюди — не
+                # розголошуємо, яка саме частина неправильна, щоб не давати
+                # оракул для перебору.
+                raise HTTPException(
+                    status_code=401, detail="Невірні облікові дані пристрою"
+                )
+
+            # last_seen оновлюємо лише після успішної перевірки — інакше сам
+            # факт оновлення був би оракулом «id існує».
+            await conn.execute(
+                "UPDATE devices SET last_seen = now() WHERE id = %s", (x_device_id,)
+            )
+    except HTTPException:
+        # Наші власні 400/401/503 — прокидаємо як є, не мапимо на 503.
+        raise
+    except (InvalidTextRepresentation, DataError):
+        raise HTTPException(status_code=400, detail="Некоректний X-Device-Id") from None
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="БД недоступна") from exc
+    return x_device_id
 
 
 @router.get("/thresholds")
@@ -44,32 +113,59 @@ async def thresholds() -> dict:
 
 @router.post("/devices", status_code=201)
 async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
+    """Створення installation.
+
+    На відміну від попередньої версії, при співпадінні FCM-токена ми НЕ
+    повертаємо id вже існуючого пристрою — саме це було шляхом AUTH-1. Токен
+    переноситься на нову installation (стара залишається сиротою і буде
+    прибрана retention'ом), а клієнт отримує свіжу пару `(id, secret)`.
+    """
     rate_check(request, "write")
+    secret = token_urlsafe(SECRET_BYTES)
     async with get_pool().connection() as conn:
-        # Перевстановлення застосунку дає новий токен, але повторний запуск із
-        # тим самим токеном не має плодити пристроїв-двійників.
-        row = await (
-            await conn.execute(
-                """
-                INSERT INTO devices (fcm_token, platform)
-                VALUES (%s, %s)
-                ON CONFLICT (fcm_token) DO UPDATE SET last_seen = now()
-                RETURNING id
-                """,
-                (body.fcm_token, body.platform),
-            )
-        ).fetchone()
-    return DeviceOut(device_id=str(row["id"]))
+        async with conn.transaction():
+            # UNIQUE(fcm_token) не дасть залишити токен на двох рядках. Спершу
+            # знімаємо його зі старої installation (якщо був), потім вставляємо
+            # нову з цим самим токеном.
+            if body.fcm_token:
+                await conn.execute(
+                    "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s",
+                    (body.fcm_token,),
+                )
+            row = await (
+                await conn.execute(
+                    """
+                    INSERT INTO devices (fcm_token, platform, secret_hash)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                    """,
+                    (body.fcm_token, body.platform, _hash_secret(secret)),
+                )
+            ).fetchone()
+    # Секрет віддається один-єдиний раз. У БД лежить лише хеш — відновити
+    # неможливо, тільки створити нову installation.
+    return DeviceOut(device_id=str(row["id"]), device_secret=secret)
 
 
 @router.put("/devices/token")
-async def update_token(body: TokenIn, x_device_id: str | None = Header(None)) -> dict:
-    device_id = await _device(x_device_id)
+async def update_token(
+    body: TokenIn,
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> dict:
+    device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
-        await conn.execute(
-            "UPDATE devices SET fcm_token = %s, last_seen = now() WHERE id = %s",
-            (body.fcm_token, device_id),
-        )
+        async with conn.transaction():
+            # Той самий токен може «переходити» з осиротілої installation:
+            # знімаємо, щоб не порушити UNIQUE(fcm_token).
+            await conn.execute(
+                "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s AND id != %s",
+                (body.fcm_token, device_id),
+            )
+            await conn.execute(
+                "UPDATE devices SET fcm_token = %s, last_seen = now() WHERE id = %s",
+                (body.fcm_token, device_id),
+            )
     return {"status": "ok"}
 
 
@@ -77,8 +173,11 @@ async def update_token(body: TokenIn, x_device_id: str | None = Header(None)) ->
 
 
 @router.get("/subscriptions")
-async def list_subscriptions(x_device_id: str | None = Header(None)) -> list[dict]:
-    device_id = await _device(x_device_id)
+async def list_subscriptions(
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> list[dict]:
+    device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         rows = await (
             await conn.execute(
@@ -101,12 +200,15 @@ async def list_subscriptions(x_device_id: str | None = Header(None)) -> list[dic
 
 @router.post("/subscriptions", status_code=201)
 async def create_subscription(
-    request: Request, body: SubscriptionIn, x_device_id: str | None = Header(None)
+    request: Request,
+    body: SubscriptionIn,
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
 ) -> dict:
     rate_check(request, "write")
     if body.threshold not in THRESHOLDS:
         raise HTTPException(status_code=422, detail=f"Поріг має бути одним із {THRESHOLDS}")
-    device_id = await _device(x_device_id)
+    device_id = await _device(x_device_id, x_device_secret)
 
     async with get_pool().connection() as conn:
         exists = await (
@@ -131,8 +233,12 @@ async def create_subscription(
 
 
 @router.delete("/subscriptions/{subscription_id}", status_code=204)
-async def delete_subscription(subscription_id: int, x_device_id: str | None = Header(None)) -> None:
-    device_id = await _device(x_device_id)
+async def delete_subscription(
+    subscription_id: int,
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> None:
+    device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         row = await (
             await conn.execute(
@@ -145,9 +251,13 @@ async def delete_subscription(subscription_id: int, x_device_id: str | None = He
 
 
 @router.post("/alerts/{alert_id}/ack")
-async def acknowledge_alert(alert_id: int, x_device_id: str | None = Header(None)) -> dict:
+async def acknowledge_alert(
+    alert_id: int,
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> dict:
     """Кнопка «ОК». Після неї повтори припиняються назавжди."""
-    device_id = await _device(x_device_id)
+    device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         row = await (
             await conn.execute(
@@ -167,12 +277,15 @@ async def acknowledge_alert(alert_id: int, x_device_id: str | None = Header(None
     return {"status": "acknowledged" if row else "already_closed"}
 
 
-# --- Функція №2: цільовий час в'їзду --------------------------------------
+# --- Функція №2: цільовий час вʼїзду --------------------------------------
 
 
 @router.get("/eta-targets")
-async def list_eta_targets(x_device_id: str | None = Header(None)) -> list[dict]:
-    device_id = await _device(x_device_id)
+async def list_eta_targets(
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> list[dict]:
+    device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         rows = await (
             await conn.execute(
@@ -195,12 +308,15 @@ async def list_eta_targets(x_device_id: str | None = Header(None)) -> list[dict]
 
 @router.post("/eta-targets", status_code=201)
 async def create_eta_target(
-    request: Request, body: EtaTargetIn, x_device_id: str | None = Header(None)
+    request: Request,
+    body: EtaTargetIn,
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
 ) -> dict:
     rate_check(request, "write")
     if body.target_at <= datetime.now(UTC):
         raise HTTPException(status_code=422, detail="Цільовий час має бути в майбутньому")
-    device_id = await _device(x_device_id)
+    device_id = await _device(x_device_id, x_device_secret)
 
     async with get_pool().connection() as conn:
         exists = await (
@@ -227,8 +343,12 @@ async def create_eta_target(
 
 
 @router.delete("/eta-targets/{target_id}", status_code=204)
-async def delete_eta_target(target_id: int, x_device_id: str | None = Header(None)) -> None:
-    device_id = await _device(x_device_id)
+async def delete_eta_target(
+    target_id: int,
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> None:
+    device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         row = await (
             await conn.execute(
@@ -241,8 +361,12 @@ async def delete_eta_target(target_id: int, x_device_id: str | None = Header(Non
 
 
 @router.post("/eta-alerts/{alert_id}/ack")
-async def acknowledge_eta_alert(alert_id: int, x_device_id: str | None = Header(None)) -> dict:
-    device_id = await _device(x_device_id)
+async def acknowledge_eta_alert(
+    alert_id: int,
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> dict:
+    device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         row = await (
             await conn.execute(
@@ -272,14 +396,17 @@ async def acknowledge_eta_alert(alert_id: int, x_device_id: str | None = Header(
 
 
 @router.get("/admin/telemetry")
-async def admin_telemetry(x_device_id: str | None = Header(None)) -> dict:
+async def admin_telemetry(
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> dict:
     """Повний стан сервера.
 
     Доступ лише пристроям з позначкою `is_admin`: телеметрія розкриває
     внутрішній устрій — версії, обсяги, свіжість копій. Стороннім це не
     потрібно, а зловмиснику корисно.
     """
-    device_id = await _device(x_device_id)
+    device_id = await _device(x_device_id, x_device_secret)
 
     async with get_pool().connection() as conn:
         row = await (

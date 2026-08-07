@@ -77,11 +77,11 @@ fun AvelRenScreen() {
     }
 
     LaunchedEffect(reload) {
-        DeviceStore.deviceId(context)?.let { id ->
-            subs = runCatching { Api.subscriptions(id) }.getOrDefault(emptyList())
-            targets = runCatching { Api.etaTargets(id) }.getOrDefault(emptyList())
+        DeviceStore.credentials(context)?.let { creds ->
+            subs = runCatching { Api.subscriptions(creds) }.getOrDefault(emptyList())
+            targets = runCatching { Api.etaTargets(creds) }.getOrDefault(emptyList())
             // 403 для звичайного пристрою — картка просто не зʼявиться.
-            telemetry = runCatching { Api.telemetry(id) }.getOrNull()
+            telemetry = runCatching { Api.telemetry(creds) }.getOrNull()
         }
     }
 
@@ -126,8 +126,8 @@ fun AvelRenScreen() {
             item {
                 ThresholdRow { threshold ->
                     scope.launch {
-                        DeviceStore.deviceId(context)?.let {
-                            runCatching { Api.subscribe(it, current.checkpoint_id, threshold) }
+                        DeviceStore.credentials(context)?.let { creds ->
+                            runCatching { Api.subscribe(creds, current.checkpoint_id, threshold) }
                                 .onSuccess { note = "Стежу: поріг $threshold авто"; reload++ }
                                 .onFailure { note = "Не вдалося підписатись" }
                         }
@@ -155,16 +155,16 @@ fun AvelRenScreen() {
                     targets = targets,
                     onRemoveSubscription = { id ->
                         scope.launch {
-                            DeviceStore.deviceId(context)?.let {
-                                runCatching { Api.unsubscribe(it, id) }
+                            DeviceStore.credentials(context)?.let { creds ->
+                                runCatching { Api.unsubscribe(creds, id) }
                                 reload++
                             }
                         }
                     },
                     onRemoveTarget = { id ->
                         scope.launch {
-                            DeviceStore.deviceId(context)?.let {
-                                runCatching { Api.deleteEtaTarget(it, id) }
+                            DeviceStore.credentials(context)?.let { creds ->
+                                runCatching { Api.deleteEtaTarget(creds, id) }
                                 reload++
                             }
                         }
@@ -202,8 +202,8 @@ fun AvelRenScreen() {
             onConfirm = { isoUtc, human ->
                 showEtaDialog = false
                 scope.launch {
-                    DeviceStore.deviceId(context)?.let {
-                        runCatching { Api.createEtaTarget(it, current.checkpoint_id, isoUtc) }
+                    DeviceStore.credentials(context)?.let { creds ->
+                        runCatching { Api.createEtaTarget(creds, current.checkpoint_id, isoUtc) }
                             .onSuccess { note = "Стежу за в'їздом $human"; reload++ }
                             .onFailure { note = "Не вдалося створити ціль" }
                     }

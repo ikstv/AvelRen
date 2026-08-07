@@ -40,18 +40,33 @@ class AvelRenMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         // Токен змінюється при перевстановленні й очищенні даних. Не оновимо —
         // сповіщення мовчки перестануть приходити.
-        val deviceId = DeviceStore.deviceId(applicationContext)
+        val ctx = applicationContext
+        val existing = DeviceStore.credentials(ctx)
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (deviceId == null) {
-                    val id = Api.registerDevice(token)
-                    DeviceStore.saveDeviceId(applicationContext, id)
+                if (existing == null) {
+                    val creds = Api.registerDevice(token)
+                    DeviceStore.saveCredentials(ctx, creds)
                 } else {
-                    Api.updateToken(deviceId, token)
+                    Api.updateToken(existing, token)
                 }
                 Log.i(TAG, "токен оновлено")
             } catch (e: Exception) {
-                Log.w(TAG, "не вдалося оновити токен: ${e.message}")
+                // Дзеркало recovery в AvelRenApp: після DB restore updateToken
+                // повертає 401, і без очищення credentials наступні push теж
+                // ніколи не доставилися б (NEW-AUTH-2).
+                if (existing != null && Api.isStaleInstallation(e)) {
+                    Log.w(TAG, "installation мертва (401), створюю нову для нового токена")
+                    DeviceStore.clearCredentials(ctx)
+                    try {
+                        val creds = Api.registerDevice(token)
+                        DeviceStore.saveCredentials(ctx, creds)
+                    } catch (retry: Exception) {
+                        Log.w(TAG, "перереєстрація не вдалася: ${retry.message}")
+                    }
+                } else {
+                    Log.w(TAG, "не вдалося оновити токен: ${e.message}")
+                }
             }
         }
     }

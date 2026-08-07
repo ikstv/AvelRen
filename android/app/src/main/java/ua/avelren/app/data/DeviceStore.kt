@@ -6,15 +6,23 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 /**
- * Зберігає `device_id`.
+ * Зберігає облікові дані installation: пару `device_id + device_secret`.
  *
- * Це фактично ключ доступу до підписок користувача: хто його має, той керує
- * ними. Тому шифроване сховище, а не звичайні preferences.
+ * Раніше сервер приймав лише X-Device-Id, і UUID сам по собі відкривав
+ * підписки — це компрометувалось, якщо FCM-токен потрапляв не в ті руки
+ * (аудит AUTH-1). Тепер сервер вимагає X-Device-Secret; знання одного лише
+ * UUID нічого не дає, і зберігати обидва треба з шифруванням.
+ *
+ * `Credentials` — атомарна одиниця: якщо є id, то мусить бути й secret. Без
+ * пари ніяких запитів робити не можна.
  */
 object DeviceStore {
 
+    data class Credentials(val deviceId: String, val deviceSecret: String)
+
     private const val FILE = "avelren_secure"
     private const val KEY_DEVICE_ID = "device_id"
+    private const val KEY_DEVICE_SECRET = "device_secret"
     private const val KEY_SELECTED = "selected_checkpoint"
 
     private var prefs: SharedPreferences? = null
@@ -32,10 +40,30 @@ object DeviceStore {
         ).also { prefs = it }
     }
 
-    fun deviceId(context: Context): String? = prefs(context).getString(KEY_DEVICE_ID, null)
+    fun credentials(context: Context): Credentials? {
+        val p = prefs(context)
+        val id = p.getString(KEY_DEVICE_ID, null) ?: return null
+        val secret = p.getString(KEY_DEVICE_SECRET, null) ?: return null
+        return Credentials(id, secret)
+    }
 
-    fun saveDeviceId(context: Context, id: String) {
-        prefs(context).edit().putString(KEY_DEVICE_ID, id).apply()
+    fun saveCredentials(context: Context, creds: Credentials) {
+        prefs(context).edit()
+            .putString(KEY_DEVICE_ID, creds.deviceId)
+            .putString(KEY_DEVICE_SECRET, creds.deviceSecret)
+            .apply()
+    }
+
+    /**
+     * Очистити збережену пару. Викликаємо, коли сервер сказав 401 на
+     * гарантовано наші заголовки — installation більше не існує (наприклад,
+     * DB restore відкотив реєстрацію). Наступний старт створить нову.
+     */
+    fun clearCredentials(context: Context) {
+        prefs(context).edit()
+            .remove(KEY_DEVICE_ID)
+            .remove(KEY_DEVICE_SECRET)
+            .apply()
     }
 
     fun selectedCheckpoint(context: Context): Int =

@@ -15,14 +15,28 @@
 """
 
 import asyncio
+import hashlib
 import os
 import random
+import secrets
 import sys
+from dataclasses import dataclass
 
 import psycopg
 import pytest
 from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
+
+
+@dataclass(frozen=True)
+class Installation:
+    """Тестова installation: пара, з якою клієнт заходить у захищені ендпоінти."""
+
+    device_id: str
+    device_secret: str
+
+    def headers(self) -> dict[str, str]:
+        return {"X-Device-Id": self.device_id, "X-Device-Secret": self.device_secret}
 
 DSN = os.environ.get("DATABASE_URL", "")
 
@@ -98,14 +112,42 @@ def checkpoint(conn) -> int:
 
 
 @pytest.fixture()
-def device(conn):
-    """Пристрій із унікальним токеном: паралельні прогони не б'ються за рядок."""
+def api_client():
+    """FastAPI TestClient з чистим пулом на кожен тест.
+
+    `avelren.db._pool` — модульний singleton, і lifespan при закритті одного
+    TestClient робить `pool.close()`. Наступний TestClient у тій самій сесії
+    впав би на PoolClosed. Скидання _pool = None перед відкриттям гарантує
+    новий пул на кожен тест — це саме те, чого ми хочемо і в проді, коли
+    процес запускається з нуля.
+    """
+    from fastapi.testclient import TestClient
+
+    from avelren import db
+    from avelren.api import app
+
+    db._pool = None
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture()
+def device(conn) -> Installation:
+    """Пристрій зі своєю парою (id, secret): без secret захищені ендпоінти
+    відповідатимуть 401, тож тести без облікових даних просто б не працювали."""
     token = f"test-{random.randrange(10**12):012d}"
+    secret = secrets.token_urlsafe(32)
+    secret_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()
     row = conn.execute(
-        "INSERT INTO devices (fcm_token) VALUES (%s) RETURNING id", (token,)
+        """
+        INSERT INTO devices (fcm_token, secret_hash)
+        VALUES (%s, %s)
+        RETURNING id
+        """,
+        (token, secret_hash),
     ).fetchone()
-    device_id = row["id"]
+    installation = Installation(device_id=str(row["id"]), device_secret=secret)
     try:
-        yield device_id
+        yield installation
     finally:
-        conn.execute("DELETE FROM devices WHERE id = %s", (device_id,))
+        conn.execute("DELETE FROM devices WHERE id = %s", (installation.device_id,))
