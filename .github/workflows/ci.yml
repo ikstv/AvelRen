@@ -26,7 +26,10 @@ jobs:
             app/src/avelren/watchdog.py \
             db/migrations/001_init.sql \
             deploy/backup.sh \
-            deploy/restore.sh
+            deploy/restore.sh \
+            deploy/telemetry-snapshot.sh \
+            deploy/avelren-telemetry.service \
+            deploy/avelren-telemetry.timer
           do
             git ls-files --error-unmatch "$f" >/dev/null || { echo "ВІДСУТНІЙ У GIT: $f"; exit 1; }
           done
@@ -70,6 +73,28 @@ jobs:
         run: python -m avelren.migrate db/migrations
       - name: Тести
         run: python -m pytest app/tests -q -p no:cacheprovider
+
+      - name: Snapshot script — синтаксис
+        run: bash -n deploy/telemetry-snapshot.sh
+
+      - name: Snapshot script — реальний прогін на runner-хості
+        # Ubuntu-runner має /proc/loadavg, /proc/meminfo, df, openssl тощо —
+        # тобто script може виконатися в тому самому середовищі, що й на
+        # production. Це доводить, що telemetry-pipeline не деградує на нових
+        # версіях coreutils/openssl і що JSON парситься.
+        run: |
+          set -euo pipefail
+          export AVELREN_FS_PROBE=/
+          # Каталог за замовчуванням /var/lib/avelren-telemetry потребує root;
+          # переспрямуємо в user-writable місце.
+          sudo mkdir -p /var/lib/avelren-telemetry
+          sudo chown "$USER" /var/lib/avelren-telemetry
+          bash deploy/telemetry-snapshot.sh
+          python -c "import json; d=json.load(open('/var/lib/avelren-telemetry/host.json')); \
+            assert d['collected_at']; \
+            assert d['system']['cpu_count'] > 0; \
+            assert 'network' in d and 'backups' in d and 'certificate' in d; \
+            print('snapshot ok:', d['system']['cpu_count'], 'CPUs')"
 
   android-build:
     runs-on: ubuntu-latest

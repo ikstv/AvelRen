@@ -1,0 +1,23 @@
+[Unit]
+Description=Знімок host-телеметрії для AvelRen API
+Documentation=file:///opt/avelren/deploy/telemetry-snapshot.sh
+
+# Snapshot корисний тільки коли Docker живий, але не блокує старт хоста.
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/avelren/deploy/telemetry-snapshot.sh
+
+# Мінімум привілеїв: script читає /proc і /run/reboot-required, пише в
+# /var/lib/avelren-telemetry — і все. Обмежуємо доступ до всього іншого.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/avelren-telemetry
+ReadOnlyPaths=/proc /run
+# openssl s_client тягне за собою мережу до api.bordersignal.pp.ua:443.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true

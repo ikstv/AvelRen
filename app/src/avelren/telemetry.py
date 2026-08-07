@@ -1,7 +1,16 @@
 """Телеметрія сервера для застосунку.
 
-Читаємо з `/proc` і файлової системи — це дає стан **хоста**, а не контейнера,
-бо Docker не ізолює ці лічильники.
+**Trust boundary.** Раніше цей модуль читав `/proc`, `/run` та `/secrets`
+безпосередньо з файлової системи. Це означало, що public API-контейнер мусив
+мати bind-mounts до всього перерахованого — включно з каталогом, де лежить
+Firebase service-account. Помилка path-traversal або RCE в API давала доступ
+до FCM-ключа, хоча самому API він не потрібен (аудит SEC-1 / A-01).
+
+Тепер збір host-метрик відбувається на самому хості (`deploy/telemetry-snapshot.sh`
+під systemd-таймером), API читає лише один JSON-файл — і жодного secrets,
+proc чи run у контейнері немає. Свідомо не робимо fallback до старих шляхів:
+"тимчасовий compatibility" — це найгірший спосіб протягнути security-fix у
+production.
 
 Свідомо **не** монтуємо `/var/run/docker.sock`: доступ до нього рівносильний
 root на хості, і віддавати таке заради красивого списку контейнерів — поганий
@@ -9,68 +18,64 @@ root на хості, і віддавати таке заради красиво
 пише спостереження; розсилач живий, якщо надсилає.
 """
 
+import json
 import os
-import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from psycopg import AsyncConnection
 
-# `/secrets` — bind-монтування з хоста, тож statvfs тут показує диск хоста,
-# а не тонкий шар контейнера.
-HOST_FS_PROBE = "/secrets"
-REBOOT_FLAG = Path("/host/run/reboot-required")
+# Каталог bind-mount snapshot-файлу. Змінна для тестів; у docker-compose
+# монтується /var/lib/avelren-telemetry:/telemetry:ro.
+SNAPSHOT_PATH = Path(os.environ.get("AVELREN_TELEMETRY_SNAPSHOT", "/telemetry/host.json"))
+
+# Snapshot старший за 5 хв вважається протухлим: timer має інтервал 1 хв, тож
+# запас чотирикратний і покриває коротку паузу без хибних тривог.
+SNAPSHOT_MAX_AGE_SECONDS = 300
 
 
-def _proc(path: str) -> str:
+def _snapshot() -> dict:
+    """Читає останній host-snapshot. Порожній dict — snapshot відсутній.
+
+    Помилки не роблять exception назовні: API-хендлер має вижити навіть при
+    зникненні snapshot pipeline; клієнт побачить `stale: true` замість 500.
+    """
     try:
-        return Path(path).read_text()
+        raw = SNAPSHOT_PATH.read_text(encoding="utf-8")
     except OSError:
-        return ""
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+
+def _snapshot_age_seconds(snap: dict) -> int | None:
+    ts = snap.get("collected_at")
+    if not ts:
+        return None
+    try:
+        # Формат від snapshot script: ISO-8601 UTC з "Z".
+        collected = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return int((datetime.now(UTC) - collected).total_seconds())
 
 
 def system() -> dict:
-    load = _proc("/proc/loadavg").split()
-    uptime_raw = _proc("/proc/uptime").split()
+    """Стан хоста: load, memory, disk, потреба ребуту.
 
-    mem: dict[str, int] = {}
-    for line in _proc("/proc/meminfo").splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[1].isdigit():
-            mem[parts[0].rstrip(":")] = int(parts[1])  # кілобайти
-
-    total = mem.get("MemTotal", 0)
-    available = mem.get("MemAvailable", 0)
-    swap_total = mem.get("SwapTotal", 0)
-    swap_free = mem.get("SwapFree", 0)
-
-    try:
-        st = os.statvfs(HOST_FS_PROBE)
-        disk_total = st.f_blocks * st.f_frsize
-        disk_free = st.f_bavail * st.f_frsize
-    except OSError:
-        disk_total = disk_free = 0
-
-    return {
-        "uptime_seconds": int(float(uptime_raw[0])) if uptime_raw else None,
-        "load_1m": float(load[0]) if load else None,
-        "load_5m": float(load[1]) if len(load) > 1 else None,
-        "cpu_count": os.cpu_count(),
-        "memory_total_mb": total // 1024,
-        "memory_used_mb": (total - available) // 1024,
-        "swap_total_mb": swap_total // 1024,
-        "swap_used_mb": (swap_total - swap_free) // 1024,
-        "disk_total_gb": round(disk_total / 1024**3, 1),
-        "disk_free_gb": round(disk_free / 1024**3, 1),
-        "disk_used_percent": (
-            round((1 - disk_free / disk_total) * 100) if disk_total else None
-        ),
-        "reboot_required": REBOOT_FLAG.exists(),
-        "reboot_pending_days": (
-            int((time.time() - REBOOT_FLAG.stat().st_mtime) // 86400)
-            if REBOOT_FLAG.exists()
-            else None
-        ),
-    }
+    `stale=true` означає, що snapshot-файл старіший за
+    `SNAPSHOT_MAX_AGE_SECONDS` або відсутній взагалі. Це важливий сигнал:
+    інакше протухлі числа виглядають як свіжі й приховують збій telemetry
+    pipeline.
+    """
+    snap = _snapshot()
+    data = dict(snap.get("system") or {})
+    age = _snapshot_age_seconds(snap)
+    data["snapshot_age_seconds"] = age
+    data["stale"] = age is None or age > SNAPSHOT_MAX_AGE_SECONDS
+    return data
 
 
 async def pipeline(conn: AsyncConnection) -> dict:
@@ -111,69 +116,35 @@ async def pipeline(conn: AsyncConnection) -> dict:
 
 
 def network() -> dict:
-    """Трафік сервера від старту системи.
+    """Трафік сервера від старту системи (з host-snapshot).
 
-    Шлях саме `/host/proc/1/net/dev`, а не `/host/proc/net/dev`: `/proc/net` —
-    символьне посилання на `/proc/self/net`, тож навіть у примонтованому
-    `/proc` хоста воно резолвиться в мережевий простір імен контейнера.
-    Потрібен явний PID 1 хоста.
-
-    Без цього лічильники показували б нулі — що виглядає як справні дані, а
-    не як їх відсутність. Саме така помилка й небезпечна.
+    Раніше API читав `/host/proc/1/net/dev` напряму — це вимагало mount-у
+    цілого хостового `/proc` у public контейнер. Тепер лічильники беруться зі
+    snapshot, зібраного під root на хості.
     """
-    rx = tx = 0
-    for line in _proc("/host/proc/1/net/dev").splitlines()[2:]:
-        name, _, rest = line.partition(":")
-        if name.strip().startswith(("lo", "docker", "br-", "veth")):
-            continue
-        f = rest.split()
-        if len(f) >= 9:
-            rx += int(f[0])
-            tx += int(f[8])
-    return {
-        "rx_total_gb": round(rx / 1024**3, 2),
-        "tx_total_gb": round(tx / 1024**3, 2),
-    }
+    data = dict(_snapshot().get("network") or {})
+    data.setdefault("rx_total_gb", 0.0)
+    data.setdefault("tx_total_gb", 0.0)
+    return data
 
 
 def certificate() -> dict:
-    """Термін сертифіката. Caddy оновлює його сам, але мовчазний збій
-    оновлення покладе застосунок — Android не ходить по простроченому TLS."""
-    import ssl
-    from datetime import UTC, datetime
+    """Термін сертифіката (з host-snapshot).
 
-    try:
-        ctx = ssl.create_default_context()
-        with ctx.wrap_socket(
-            __import__("socket").create_connection(("api.bordersignal.pp.ua", 443), timeout=5),
-            server_hostname="api.bordersignal.pp.ua",
-        ) as s:
-            cert = s.getpeercert()
-        until = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=UTC)
-        return {
-            "expires_at": until,
-            "days_left": (until - datetime.now(UTC)).days,
-            "issuer": dict(x[0] for x in cert["issuer"]).get("organizationName"),
-        }
-    except Exception as exc:
-        return {"error": str(exc)[:120]}
+    Раніше цей виклик робив синхронний ssl-handshake напряму з async
+    FastAPI-хендлера — блокував event loop на секунди і давав API мережеву
+    поверхню назовні. Тепер cert перевіряє host-таймер, API лише читає число.
+    """
+    return dict(_snapshot().get("certificate") or {"error": "snapshot missing"})
 
 
 def backups() -> dict:
-    """Свіжість резервних копій.
+    """Свіжість резервних копій (з host-snapshot).
 
     Копія, про яку ніхто не дивиться, тихо ламається й лишається зламаною
     рівно до дня, коли знадобиться.
     """
-    marker = Path("/host/run/avelren-backup.stamp")
-    if not marker.exists():
-        return {"last_run": None, "age_hours": None}
-    age = time.time() - marker.stat().st_mtime
-    return {
-        "last_run": marker.stat().st_mtime,
-        "age_hours": round(age / 3600, 1),
-        "stale": age > 36 * 3600,  # добова копія, півтора дні — вже тривожно
-    }
+    return dict(_snapshot().get("backups") or {"last_run": None, "age_hours": None})
 
 
 async def health_alerts(conn: AsyncConnection) -> list[dict]:
