@@ -54,6 +54,7 @@ fun AvelRenScreen() {
     var subs by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
     var targets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
+    var telemetry by remember { mutableStateOf<Api.Telemetry?>(null) }
 
     LaunchedEffect(Unit) {
         try {
@@ -69,6 +70,8 @@ fun AvelRenScreen() {
         DeviceStore.deviceId(context)?.let { id ->
             subs = runCatching { Api.subscriptions(id) }.getOrDefault(emptyList())
             targets = runCatching { Api.etaTargets(id) }.getOrDefault(emptyList())
+            // 403 для звичайного пристрою — картка просто не зʼявиться.
+            telemetry = runCatching { Api.telemetry(id) }.getOrNull()
         }
     }
 
@@ -127,6 +130,8 @@ fun AvelRenScreen() {
                     }
 
                     ForecastCard(forecast)
+
+                    TelemetryCard(telemetry)
 
                     SubscriptionsSection(
                         subscriptions = subs,
