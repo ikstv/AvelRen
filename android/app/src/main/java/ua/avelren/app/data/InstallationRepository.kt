@@ -72,10 +72,7 @@ class InstallationRepository(
                     // 401 = сервер відкинув пару (напр. DB restore). Пара
                     // насправді невалідна → мусимо перереєструватись.
                     runCatching { registerFreshLocked(token) }.onFailure {
-                        creds = null
-                        _state.value = InstallationState.Unavailable(
-                            it.message ?: "перереєстрація не вдалася"
-                        )
+                        invalidateLocked("перереєстрація не вдалася: ${it.message}")
                     }
                 }
                 // не-401 (offline/5xx): пара валідна, лишаємось Ready.
@@ -88,10 +85,7 @@ class InstallationRepository(
                 return@withLock
             }
             runCatching { registerFreshLocked(token) }.onFailure {
-                creds = null
-                _state.value = InstallationState.Unavailable(
-                    it.message ?: "реєстрація не вдалася"
-                )
+                invalidateLocked("реєстрація не вдалася: ${it.message}")
             }
         }
     }
@@ -101,18 +95,18 @@ class InstallationRepository(
         val existing = creds ?: store.load()
         if (existing == null) {
             runCatching { registerFreshLocked(token) }.onFailure {
-                if (_state.value !is InstallationState.Ready) {
-                    _state.value = InstallationState.Unavailable(
-                        it.message ?: "реєстрація не вдалася"
-                    )
-                }
+                invalidateLocked("реєстрація не вдалася: ${it.message}")
             }
         } else {
             creds = existing
             try {
                 api.updateToken(existing, token)
             } catch (e: Throwable) {
-                if (api.isStaleInstallation(e)) registerFreshLocked(token)
+                if (api.isStaleInstallation(e)) {
+                    runCatching { registerFreshLocked(token) }.onFailure {
+                        invalidateLocked("перереєстрація не вдалася: ${it.message}")
+                    }
+                }
             }
         }
     }
@@ -124,13 +118,24 @@ class InstallationRepository(
      */
     suspend fun <T> authenticatedCall(block: suspend (DeviceStore.Credentials) -> T): T {
         val c = currentOrRegister() ?: error("installation недоступна")
-        return try {
-            block(c)
+        try {
+            return block(c)
         } catch (e: Throwable) {
             if (!api.isStaleInstallation(e)) throw e
-            recoverFrom(c)
-            val fresh = creds ?: throw e
-            block(fresh)
+        }
+        // 401 №1 → recovery. recoverFrom при провалі реєстрації сам переведе в
+        // Unavailable і кине — тоді операція чесно падає, а не «висить» Ready.
+        recoverFrom(c)
+        val fresh = creds ?: error("installation недоступна після recovery")
+        try {
+            return block(fresh)
+        } catch (e: Throwable) {
+            if (api.isStaleInstallation(e)) {
+                // 401 №2 на щойно зареєстрованій парі — сервер відкинув і її.
+                // НЕ ретраїмо ще раз: installation недійсна.
+                invalidateIf(fresh, "сервер відкинув свіжозареєстровану installation")
+            }
+            throw e
         }
     }
 
@@ -154,12 +159,27 @@ class InstallationRepository(
             val token = tokens.currentToken()
             registerFreshLocked(token)
         } catch (e: Throwable) {
-            // Провал recovery: пара недійсна. Занулюємо, щоб інші waiter'и
-            // отримали той самий failure-результат, а не пробували ще раз.
-            creds = null
+            // Провал recovery: пара недійсна. Єдиний invalidate-path — щоб не
+            // лишити брехливий Ready і щоб інші waiter'и отримали той самий
+            // результат, а не пробували ще раз.
+            invalidateLocked("recovery не вдалася: ${e.message}")
             throw e
         }
     }
+
+    /** Мусить викликатися під `mutex`. Єдиний перехід у недоступний стан. */
+    private fun invalidateLocked(reason: String) {
+        store.clear()
+        creds = null
+        _state.value = InstallationState.Unavailable(reason)
+    }
+
+    /** Invalidate лише якщо поточна пара — та сама, що використав викликач. */
+    private suspend fun invalidateIf(used: DeviceStore.Credentials, reason: String) =
+        mutex.withLock {
+            if (creds != used) return@withLock
+            invalidateLocked(reason)
+        }
 
     /**
      * Мусить викликатися під `mutex`. Реєструє нову пару. Стару in-memory `creds`

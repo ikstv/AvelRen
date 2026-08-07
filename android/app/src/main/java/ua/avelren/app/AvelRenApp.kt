@@ -17,6 +17,7 @@ import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.FcmTokenProvider
 import ua.avelren.app.data.InstallationApi
 import ua.avelren.app.data.InstallationRepository
+import ua.avelren.app.data.ProtectedLoad
 import ua.avelren.app.notify.NotificationReconciler
 import ua.avelren.app.notify.Notifications
 
@@ -69,6 +70,17 @@ class AvelRenApp : Application() {
         )
         installation.start()
 
+        // Reconcile на КОЖЕН новий Ready (у т.ч. після recovery-перереєстрації).
+        // Закриває startup-race (A-02): foreground onResume міг спрацювати ще до
+        // появи credentials і той reconcile вийшов рано; тепер перехід
+        // Initializing→Ready сам запускає звірку. Mutex у reconciler дедупить із
+        // foreground-шляхом.
+        appScope.launch {
+            ProtectedLoad.observe(installation.state) {
+                NotificationReconciler.reconcile(ctx, installation)
+            }
+        }
+
         // Reconciliation при поверненні у foreground (A-02, шар 2): якщо
         // cancel-push загубився, звіряємо показані сповіщення з сервером. На
         // рівні application, а не Compose-екрана: це не UI-стан.
@@ -84,6 +96,14 @@ class AvelRenApp : Application() {
     /** FCM-сервіс делегує сюди — весь register/recovery централізовано в repository. */
     fun handleNewFcmToken(token: String) {
         appScope.launch { installation.onNewFcmToken(token) }
+    }
+
+    /**
+     * Запуск короткої фонової роботи в application-scope (напр. server-ack із
+     * `AckReceiver`), щоб компоненти не плодили власні `CoroutineScope`.
+     */
+    fun launchInScope(block: suspend () -> Unit) {
+        appScope.launch { block() }
     }
 
     companion object {

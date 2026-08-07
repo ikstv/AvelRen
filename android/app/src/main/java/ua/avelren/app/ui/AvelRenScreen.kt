@@ -36,6 +36,7 @@ import ua.avelren.app.AvelRenApp
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.InstallationState
+import ua.avelren.app.data.ProtectedLoad
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -59,7 +60,6 @@ fun AvelRenScreen() {
     val installation = remember { AvelRenApp.from(context).installation }
     val installState by installation.state.collectAsStateWithLifecycle()
     val authReady = installState is InstallationState.Ready
-    val readyDeviceId = (installState as? InstallationState.Ready)?.deviceId
 
     var workload by remember { mutableStateOf<List<Api.Workload>>(emptyList()) }
     var selected by remember { mutableStateOf(DeviceStore.selectedCheckpoint(context)) }
@@ -83,12 +83,13 @@ fun AvelRenScreen() {
         }
     }
 
-    // Protected-дані завантажуються, коли installation стає Ready (поява
-    // credentials після cold start ретригерить сама, без reload/restart) або
-    // після локальної мутації (reload). readyDeviceId змінюється й після
-    // recovery-перереєстрації, тож дані оновляться без перезапуску процесу.
-    LaunchedEffect(readyDeviceId, reload) {
-        if (readyDeviceId != null) {
+    // Protected-дані завантажуються тим самим seam, що покритий тестом
+    // (ProtectedLoad.observe): щойно installation стає Ready — вантажимо; новий
+    // Ready після recovery-перереєстрації ретригерить сам, без restart. `reload`
+    // перезапускає effect (StateFlow одразу реплеїть поточний Ready), тож
+    // локальна мутація теж оновлює дані.
+    LaunchedEffect(reload) {
+        ProtectedLoad.observe(installation.state) {
             subs = runCatching {
                 installation.authenticatedCall { Api.subscriptions(it) }
             }.getOrDefault(emptyList())
@@ -183,6 +184,7 @@ fun AvelRenScreen() {
                 SubscriptionsSection(
                     subscriptions = subs,
                     targets = targets,
+                    enabled = authReady,
                     onRemoveSubscription = { id ->
                         scope.launch {
                             runCatching { installation.authenticatedCall { Api.unsubscribe(it, id) } }

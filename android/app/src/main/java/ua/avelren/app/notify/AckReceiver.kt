@@ -4,9 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import ua.avelren.app.AvelRenApp
 import ua.avelren.app.data.Api
 
@@ -30,11 +27,11 @@ class AckReceiver : BroadcastReceiver() {
         // Локальне сповіщення вже погашено. Серверний ACK — через repository
         // (централізований 401-recovery). Якщо немає installation або запит
         // не пройде, сервер повторить пуш — нічого не губиться.
-        val installation = (context.applicationContext as? AvelRenApp)?.installation ?: return
+        val app = context.applicationContext as? AvelRenApp ?: return
         val pending = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
+        app.launchInScope {
             try {
-                installation.authenticatedCall { creds -> Api.ack(creds, alertId, kind) }
+                app.installation.authenticatedCall { creds -> Api.ack(creds, alertId, kind) }
                 Log.i(TAG, "підтверджено алерт $alertId")
             } catch (e: Exception) {
                 Log.w(TAG, "не вдалося підтвердити $alertId, сервер повторить: ${e.message}")

@@ -244,6 +244,61 @@ class InstallationRepositoryTest {
         assertNull(store.current)                // невалідну пару прибрано, не Ready з нею
     }
 
+    // 13 (B1) — провал runtime-recovery не лишає брехливий Ready
+    @Test
+    fun `authenticatedCall recovery failure goes Unavailable with cleared creds`() = runTest {
+        val api = FakeApi().apply { registerBehavior = { throw RuntimeException("net down") } }
+        val store = FakeStore(Credentials("dev-old", "sec-old"))
+        val r = repo(api, store, FakeTokens("tok-1"), backgroundScope)
+        r.initialize()   // updateToken ok → Ready(dev-old)
+
+        try {
+            r.authenticatedCall<String> { _ -> throw Stale() }
+            throw AssertionError("мав кинути")
+        } catch (e: RuntimeException) {
+            // очікувано — реєстрація впала
+        }
+
+        assertTrue(r.state.value is InstallationState.Unavailable)  // НЕ Ready
+        assertNull(store.current)
+    }
+
+    // 14 (B1) — другий 401 після успішного retry → Unavailable, без 2-ї реєстрації
+    @Test
+    fun `authenticatedCall second 401 invalidates and does not re-register`() = runTest {
+        val api = FakeApi()
+        val store = FakeStore(Credentials("dev-old", "sec-old"))
+        val r = repo(api, store, FakeTokens("tok-1"), backgroundScope)
+        r.initialize()
+
+        try {
+            r.authenticatedCall<String> { _ -> throw Stale() }  // 401 щоразу
+            throw AssertionError("мав кинути")
+        } catch (e: Stale) {
+            // очікувано
+        }
+
+        assertEquals(1, api.registerCount)                          // рівно одна реєстрація
+        assertTrue(r.state.value is InstallationState.Unavailable)  // свіжу пару теж відкинуто
+        assertNull(store.current)
+    }
+
+    // 15 (B1) — провал FCM stale-recovery → Unavailable + store очищено
+    @Test
+    fun `onNewFcmToken stale recovery failure goes Unavailable`() = runTest {
+        val api = FakeApi().apply {
+            updateBehavior = { throw Stale() }
+            registerBehavior = { throw RuntimeException("net down") }
+        }
+        val store = FakeStore(Credentials("dev-A", "sec-A"))
+        val r = repo(api, store, FakeTokens("tok-1"), backgroundScope)
+
+        r.onNewFcmToken("tok-new")   // update→401→register→fail
+
+        assertTrue(r.state.value is InstallationState.Unavailable)
+        assertNull(store.current)
+    }
+
     // 12 (seam для UI без instrumented Compose)
     @Test
     fun `protected load runs when installation becomes Ready`() = runTest(UnconfinedTestDispatcher()) {
