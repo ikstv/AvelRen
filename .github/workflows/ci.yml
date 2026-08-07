@@ -33,7 +33,10 @@ jobs:
             db/migrations/008_notification_cancels.sql \
             app/src/avelren/cancels.py \
             android/app/src/main/java/ua/avelren/app/notify/AlertReconciliation.kt \
-            android/app/src/test/java/ua/avelren/app/notify/AlertReconciliationTest.kt
+            android/app/src/test/java/ua/avelren/app/notify/AlertReconciliationTest.kt \
+            app/src/avelren/schema_verify.py \
+            app/src/avelren/restore_smoke.py \
+            deploy/restore-verify.sh
           do
             git ls-files --error-unmatch "$f" >/dev/null || { echo "ВІДСУТНІЙ У GIT: $f"; exit 1; }
           done
@@ -77,6 +80,9 @@ jobs:
         run: python -m avelren.migrate db/migrations
       - name: Тести
         run: python -m pytest app/tests -q -p no:cacheprovider
+
+      - name: DR restore-verify — синтаксис
+        run: bash -n deploy/restore-verify.sh
 
       - name: Snapshot script — синтаксис
         run: bash -n deploy/telemetry-snapshot.sh

@@ -6,6 +6,25 @@ Docker виконує файли з db/migrations лише при створен
 
 Тут кожна міграція застосовується рівно один раз, факт фіксується в БД, а
 запуск на актуальній базі нічого не робить. Безпечно викликати щодеплою.
+
+**A-07 — fail-closed.** Раніше при порожньому `schema_migrations`, але наявній
+таблиці `checkpoints`, застосовувач позначав УСІ файли застосованими на
+евристику по одній таблиці. Після битого/старого restore це створювало дуже
+переконливу брехню: історія каже «001..NNN застосовано», а структур насправді
+нема. Тепер:
+
+  * чиста БД (жодного відомого AvelRen-обʼєкта) → створюємо історію й
+    застосовуємо все;
+  * коректна історія → звичайний шлях (SHA-перевірка + застосування нових);
+  * будь-який AvelRen-обʼєкт існує, а довіреної історії нема → **FAIL CLOSED**.
+
+Автоматичного baseline більше немає. Якщо колись треба узаконити legacy-БД без
+історії — це свідома ручна процедура оператора (перевірити структуру, вставити
+рядки в schema_migrations), а не щось, що відбувається саме собою на deploy.
+
+Після застосування схема звіряється з історією (`schema_verify`): якщо
+`schema_migrations` каже одне, а фізична схема інше (напр. restore втратив
+колонку) — теж exit 1.
 """
 
 import hashlib
@@ -15,6 +34,7 @@ from pathlib import Path
 
 import psycopg
 
+from . import schema_verify
 from .config import settings
 
 log = logging.getLogger("avelren.migrate")
@@ -29,14 +49,29 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 )
 """
 
+# Повний набір відомих AvelRen-обʼєктів. Наявність БУДЬ-ЯКОГО з них при
+# порожній історії — ознака legacy/часткового стану, а не чистої БД. Дивитися
+# лише на `checkpoints` мало: битий restore міг мати `devices`/`alerts` без
+# `checkpoints`.
+KNOWN_OBJECTS = [
+    "checkpoints", "observations", "collector_runs", "countries",
+    "devices", "subscriptions", "alerts", "subscription_state",
+    "eta_targets", "eta_alerts", "health_alerts", "notification_cancels",
+    "observations_hourly",
+]
+
 
 def _discover(directory: Path) -> list[Path]:
     return sorted(directory.glob("*.sql"))
 
 
-def _schema_exists(conn: psycopg.Connection) -> bool:
-    row = conn.execute("SELECT to_regclass('public.checkpoints') IS NOT NULL").fetchone()
-    return bool(row and row[0])
+def _existing_objects(conn: psycopg.Connection) -> list[str]:
+    found = []
+    for name in KNOWN_OBJECTS:
+        row = conn.execute("SELECT to_regclass(%s)", (f"public.{name}",)).fetchone()
+        if row and row[0] is not None:
+            found.append(name)
+    return found
 
 
 def run(directory: Path = MIGRATIONS_DIR) -> int:
@@ -59,20 +94,20 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
             for row in conn.execute("SELECT version, sha256 FROM schema_migrations").fetchall()
         }
 
-        # Разова прив'язка до вже наповненої БД: схема створена до появи цього
-        # застосовувача, тож повторний прогін 001/002 нічого б не виправив, а
-        # міг би впасти на вже стиснутих чанках. Фіксуємо їх як застосовані.
-        if not known and _schema_exists(conn):
-            log.warning("схема вже існує — позначаю наявні міграції як застосовані")
-            for path in files:
-                body = path.read_text(encoding="utf-8")
-                digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-                conn.execute(
-                    "INSERT INTO schema_migrations (version, sha256) VALUES (%s, %s)",
-                    (path.stem, digest),
+        # A-07 fail-closed: історія порожня — вирішуємо за фактичним станом
+        # схеми, а не за однією таблицею.
+        if not known:
+            existing = _existing_objects(conn)
+            if existing:
+                log.error(
+                    "У БД існує схема AvelRen (%s), але довіреної історії міграцій нема. "
+                    "Автоматичний baseline заборонено (A-07): невідомий/частковий стан "
+                    "не можна оголошувати застосованим. Якщо це відома legacy-БД — "
+                    "узаконьте baseline вручну за runbook, звіривши структуру.",
+                    ", ".join(existing),
                 )
-                known[path.stem] = digest
-            conn.commit()
+                return 1
+            log.info("чиста БД — застосовую всі міграції з нуля")
 
         for path in files:
             version = path.stem
@@ -102,6 +137,15 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
                 conn.rollback()
                 log.error("міграція %s не вдалася: %s", version, exc)
                 return 1
+
+        # Історія тепер повна — але чи погоджується з нею фізична схема?
+        # Битий restore міг мати правильні SHA й водночас втратити колонку.
+        problems = schema_verify.verify(conn, directory)
+        if problems:
+            log.error("схема суперечить історії міграцій (A-07):")
+            for p in problems:
+                log.error("  - %s", p)
+            return 1
 
     log.info("готово: застосовано %s, усього %s", applied, len(files))
     return 0
