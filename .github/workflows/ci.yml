@@ -1,0 +1,100 @@
+# CI зʼявився за підсумком аудиту: файли Android випали з git через .gitignore,
+# і без перевірки чистого клону цього не міг помітити ніхто. Кожна робота тут
+# відповідає на конкретний спосіб зламатися, який уже траплявся або майже.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Спосіб зламатися №1 (уже траплявся): критичні файли не потрапили в git,
+  # локальна збірка працює, репозиторій — ні.
+  completeness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Критичні файли присутні в дереві git
+        run: |
+          set -e
+          for f in \
+            android/app/src/main/java/ua/avelren/app/data/Api.kt \
+            android/app/src/main/java/ua/avelren/app/data/DeviceStore.kt \
+            app/src/avelren/collector.py \
+            app/src/avelren/notifier.py \
+            app/src/avelren/watchdog.py \
+            db/migrations/001_init.sql \
+            deploy/backup.sh \
+            deploy/restore.sh
+          do
+            git ls-files --error-unmatch "$f" >/dev/null || { echo "ВІДСУТНІЙ У GIT: $f"; exit 1; }
+          done
+      - name: Секрети не закомічені
+        run: |
+          set -e
+          if git ls-files | grep -qE '(^|/)(google-services\.json|.*service-account.*\.json|\.env)$'; then
+            echo "У git знайдено секрети:"; git ls-files | grep -E '(^|/)(google-services\.json|.*service-account.*\.json|\.env)$'
+            exit 1
+          fi
+
+  backend-tests:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: avelren
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: avelren
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U avelren -d avelren"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://avelren:ci@localhost:5432/avelren
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Установка
+        run: pip install -q ./app pytest
+      - name: Міграції на порожній БД
+        run: python -m avelren.migrate db/migrations
+      - name: Тести
+        run: python -m pytest app/tests -q -p no:cacheprovider
+
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Заглушка google-services.json
+        # Справжній файл — секрет і в git не живе. Для перевірки компіляції
+        # достатньо синтаксично валідної заглушки з правильним package.
+        run: |
+          cat > android/app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "ci-stub",
+              "storage_bucket": "ci-stub.appspot.com"
+            },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                "android_client_info": { "package_name": "ua.avelren.app" }
+              },
+              "oauth_client": [],
+              "api_key": [{ "current_key": "AIza-ci-stub-not-a-real-key-000000000" }],
+              "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+            }],
+            "configuration_version": "1"
+          }
+          EOF
+      - name: Збірка
+        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon -q

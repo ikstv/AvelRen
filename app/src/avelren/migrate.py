@@ -108,4 +108,6 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    # Необовʼязковий аргумент — шлях до міграцій: у контейнері це /migrations,
+    # а CI запускає з кореня репозиторію.
+    sys.exit(run(Path(sys.argv[1]) if len(sys.argv) > 1 else MIGRATIONS_DIR))
