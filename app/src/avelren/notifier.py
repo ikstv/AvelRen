@@ -93,7 +93,15 @@ async def run_cycle(client: httpx.AsyncClient) -> int:
                 payload = fcm.eta_payload(r["id"], r["title"], eta_local)
 
             try:
-                await fcm.send(client, r["fcm_token"], payload)
+                # collapse_key: повтори того самого алерта схлопуються у FCM,
+                # ttl трохи більший за інтервал повтору — протухле не доставляється.
+                await fcm.send(
+                    client,
+                    r["fcm_token"],
+                    payload,
+                    collapse_key=f"{r['kind']}:{r['id']}",
+                    ttl_seconds=settings.alert_resend_seconds + 60,
+                )
             except fcm.FcmError as exc:
                 if exc.dead_token:
                     await _disable_device(conn, r["device_id"])

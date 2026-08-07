@@ -20,11 +20,19 @@ class AvelRenMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        val alertId = data["alert_id"]?.toLongOrNull() ?: return
         val kind = data["type"] ?: "threshold"
         val title = data["title"] ?: "AvelRen"
         val body = data["body"] ?: ""
 
+        // Health — інформація, а не алерт із підтвердженням: без ongoing,
+        // без кнопки ОК, змахується як звичайне сповіщення.
+        if (kind == "health") {
+            Log.i(TAG, "отримано health-повідомлення")
+            Notifications.showInfo(applicationContext, title, body)
+            return
+        }
+
+        val alertId = data["alert_id"]?.toLongOrNull() ?: return
         Log.i(TAG, "отримано $kind-алерт $alertId")
         Notifications.show(applicationContext, alertId, kind, title, body)
     }

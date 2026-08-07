@@ -49,19 +49,36 @@ def _creds() -> tuple[service_account.Credentials, str]:
     return _credentials, _project_id  # type: ignore[return-value]
 
 
-async def send(client: httpx.AsyncClient, token: str, data: dict[str, str]) -> None:
-    """Надсилає одне повідомлення. Кидає FcmError, якщо не вийшло."""
+async def send(
+    client: httpx.AsyncClient,
+    token: str,
+    data: dict[str, str],
+    collapse_key: str | None = None,
+    ttl_seconds: int = 600,
+) -> None:
+    """Надсилає одне повідомлення. Кидає FcmError, якщо не вийшло.
+
+    `ttl` і `collapse_key` — не опції, а вимога до часових алертів (аудит R-04):
+    без них FCM тримає повідомлення до чотирьох тижнів, і телефон, що
+    повернувся з офлайну, отримав би пачку протухлих повторів про чергу, якої
+    вже немає. З collapse_key офлайн-пристрій отримує ОДНЕ, останнє.
+    """
     creds, project_id = _creds()
+
+    android: dict[str, Any] = {
+        # Високий пріоритет будить пристрій у режимі сну — без цього
+        # сповіщення про чергу прийшло б із запізненням на годину.
+        "priority": "high",
+        "ttl": f"{ttl_seconds}s",
+    }
+    if collapse_key:
+        android["collapse_key"] = collapse_key
 
     payload: dict[str, Any] = {
         "message": {
             "token": token,
             "data": data,
-            "android": {
-                # Високий пріоритет будить пристрій у режимі сну — без цього
-                # сповіщення про чергу прийшло б із запізненням на годину.
-                "priority": "high",
-            },
+            "android": android,
         }
     }
 

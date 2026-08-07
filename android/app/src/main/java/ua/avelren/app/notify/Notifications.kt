@@ -31,6 +31,23 @@ import ua.avelren.app.R
 object Notifications {
 
     const val CHANNEL_ID = "avelren_alerts"
+    const val INFO_CHANNEL_ID = "avelren_info"
+
+    /**
+     * Глобально унікальний ID сповіщення.
+     *
+     * alerts.id та eta_alerts.id — незалежні послідовності БД, тож threshold №1
+     * і ETA №1 з голим id перезаписували б одне одного на телефоні (знахідка
+     * аудиту R-03). Простір ділиться префіксом типу.
+     */
+    fun notificationId(kind: String, alertId: Long): Int {
+        val kindCode = when (kind) {
+            "threshold" -> 1
+            "eta" -> 2
+            else -> 3
+        }
+        return kindCode * 10_000_000 + (alertId % 10_000_000).toInt()
+    }
 
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
@@ -57,18 +74,21 @@ object Notifications {
     fun show(context: Context, alertId: Long, kind: String, title: String, body: String) {
         ensureChannel(context)
 
+        val notifId = notificationId(kind, alertId)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
         val ackIntent = Intent(context, AckReceiver::class.java).apply {
             putExtra(AckReceiver.EXTRA_ALERT_ID, alertId)
             putExtra(AckReceiver.EXTRA_KIND, kind)
         }
+        // requestCode теж композитний: однаковий код з FLAG_UPDATE_CURRENT
+        // підмінив би extras чужого PendingIntent.
         val ackPending = PendingIntent.getBroadcast(
-            context, alertId.toInt(), ackIntent, flags
+            context, notifId, ackIntent, flags
         )
 
         val openPending = PendingIntent.getActivity(
-            context, alertId.toInt(),
+            context, notifId,
             Intent(context, MainActivity::class.java),
             flags,
         )
@@ -91,11 +111,46 @@ object Notifications {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             NotificationManagerCompat.from(context).areNotificationsEnabled()
         ) {
-            NotificationManagerCompat.from(context).notify(alertId.toInt(), notification)
+            NotificationManagerCompat.from(context).notify(notifId, notification)
         }
     }
 
-    fun cancel(context: Context, alertId: Long) {
-        NotificationManagerCompat.from(context).cancel(alertId.toInt())
+    /**
+     * Інформаційне сповіщення (health-тривоги сторожа).
+     *
+     * Це НЕ алерт із підтвердженням: воно не ongoing, змахується, без
+     * AckReceiver. Раніше health ішло через show() з alert_id=0 — ongoing,
+     * яке кнопкою ОК не гасилось узагалі (аудит R-03).
+     */
+    fun showInfo(context: Context, title: String, body: String) {
+        ensureChannel(context)
+        val channel = NotificationChannel(
+            INFO_CHANNEL_ID,
+            "Стан сервера",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(channel)
+
+        val notification = NotificationCompat.Builder(context, INFO_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+        ) {
+            // Стабільний ID по заголовку: «проблема» і «відновився» різні,
+            // а повтори тієї самої проблеми схлопуються.
+            NotificationManagerCompat.from(context)
+                .notify(notificationId("health", (title.hashCode().toLong() and 0xFFFFF)), notification)
+        }
+    }
+
+    fun cancel(context: Context, kind: String, alertId: Long) {
+        NotificationManagerCompat.from(context).cancel(notificationId(kind, alertId))
     }
 }

@@ -177,7 +177,9 @@ async def _notify(
             await fcm.send(
                 client,
                 token,
-                {"type": "health", "alert_id": "0", "title": title, "body": body},
+                {"type": "health", "title": title, "body": body},
+                collapse_key="health",
+                ttl_seconds=1800,
             )
             delivered = True
         except Exception as exc:

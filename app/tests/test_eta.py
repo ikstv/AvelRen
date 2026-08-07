@@ -122,3 +122,28 @@ def test_paused_queue_does_not_fire(conn):
 
     _observe(now, wait_seconds=0, is_paused=True)
     assert _pending(conn, tid) == 0
+
+
+def test_no_refire_after_ack_in_same_window(conn):
+    """Регресія на знахідку аудиту R-05: після ОК у тому самому вікні НЕ
+    створюється новий алерт. Вимога власника пряма: після ОК сповіщення
+    більше не потрібне."""
+    now = datetime.now(UTC)
+    tid = _target(conn, now + timedelta(hours=10))
+
+    _observe(now, wait_seconds=10 * 3600)
+    assert _pending(conn, tid) == 1
+
+    # Підтвердження робить те саме, що ендпоінт /eta-alerts/{id}/ack:
+    # закриває алерт і деактивує ціль.
+    conn.execute(
+        "UPDATE eta_alerts SET status = 'acknowledged', acknowledged_at = now() "
+        "WHERE target_id = %s",
+        (tid,),
+    )
+    conn.execute("UPDATE eta_targets SET is_active = false WHERE id = %s", (tid,))
+
+    # Наступні цикли в тому самому вікні — тиша.
+    for i in range(1, 4):
+        _observe(now + timedelta(minutes=i), wait_seconds=10 * 3600)
+    assert _pending(conn, tid) == 0

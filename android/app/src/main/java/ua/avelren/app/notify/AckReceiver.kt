@@ -25,7 +25,7 @@ class AckReceiver : BroadcastReceiver() {
         val kind = intent.getStringExtra(EXTRA_KIND) ?: "threshold"
         if (alertId <= 0) return
 
-        Notifications.cancel(context, alertId)
+        Notifications.cancel(context, kind, alertId)
 
         val deviceId = DeviceStore.deviceId(context) ?: return
         val pending = goAsync()

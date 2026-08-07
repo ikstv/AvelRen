@@ -252,11 +252,19 @@ async def acknowledge_eta_alert(alert_id: int, x_device_id: str | None = Header(
                 FROM eta_targets t
                 WHERE a.id = %s AND a.target_id = t.id
                   AND t.device_id = %s AND a.status = 'pending'
-                RETURNING a.id
+                RETURNING a.target_id
                 """,
                 (alert_id, device_id),
             )
         ).fetchone()
+        if row:
+            # Ціль виконала призначення. Без цього наступний цикл у тому ж
+            # вікні створив би НОВИЙ алерт (аудит R-05) — а вимога власника
+            # пряма: після ОК сповіщення більше не потрібне.
+            await conn.execute(
+                "UPDATE eta_targets SET is_active = false WHERE id = %s",
+                (row["target_id"],),
+            )
     return {"status": "acknowledged" if row else "already_closed"}
 
 

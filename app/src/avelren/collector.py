@@ -40,22 +40,18 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
         else []
     )
 
-    # Одне з'єднання на весь цикл: і дані, і журнал. Дві окремі спроби
-    # означали б подвійне чекання при недоступній БД.
     countries = result.response.filters.countries if result.response is not None else []
 
+    # Первинний запис (спостереження + журнал) комітиться ОКРЕМО від логіки
+    # алертів. Інакше збій другорядного — скажімо, помилка в eta.evaluate —
+    # відкотив би найцінніше: хвилинне спостереження, якого джерело вдруге
+    # не віддасть (аудит R-06).
     try:
         async with get_pool().connection() as conn:
             if items:
                 await upsert_countries(conn, countries)
                 await upsert_checkpoints(conn, items, countries)
                 rows = await insert_observations(conn, at, items)
-                # Значення вже в пам'яті — перевіряємо пороги тут, без
-                # зайвого читання з БД.
-                await alerts.evaluate(conn, items)
-                await alerts.expire_stale(conn)
-                await eta.evaluate(conn, at, items)
-                await eta.expire_passed(conn)
             await record_run(
                 conn, at, result.http_status, result.duration_ms, result.body_sha256, rows, error
             )
@@ -64,6 +60,19 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
     except Exception as exc:  # БД впала — не привід гасити збирач
         # Записати причину нікуди, тож лог — єдиний слід цього циклу.
         log.error("цикл %s втрачено, БД недоступна: %s", at.isoformat(), exc)
+        return
+
+    # Алерти — окрема транзакція: їхній збій коштує максимум запізнілого
+    # сповіщення, яке наступний цикл надолужить. Спостереження вже в базі.
+    if items:
+        try:
+            async with get_pool().connection() as conn:
+                await alerts.evaluate(conn, items)
+                await alerts.expire_stale(conn)
+                await eta.evaluate(conn, at, items)
+                await eta.expire_passed(conn)
+        except Exception as exc:
+            log.error("алерти циклу %s пропущено: %s", at.isoformat(), exc)
 
 
 async def main() -> None:
