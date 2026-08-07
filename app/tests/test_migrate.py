@@ -244,6 +244,70 @@ def test_verify_contract_detects_nonunique_invariant_index(scratch_dsn):
     )
 
 
+def test_verify_contract_detects_wrong_predicate_on_invariant_index(scratch_dsn):
+    """Same-name UNIQUE partial index, але з іншим predicate → FAIL.
+
+    Тільки uniqueness+partial недостатньо: DROP+CREATE із тим же іменем, але
+    predicate `status = 'acknowledged'` замість `status = 'pending'` тримає
+    зовсім інший інваріант; API продовжуватиме генерувати pending-дублікати.
+    """
+    assert migrate.run(MIGRATIONS) == 0
+    with psycopg.connect(scratch_dsn, autocommit=True) as c:
+        c.execute("DROP INDEX alerts_one_pending_per_subscription")
+        c.execute(
+            "CREATE UNIQUE INDEX alerts_one_pending_per_subscription "
+            "ON alerts (subscription_id) WHERE status = 'acknowledged'"
+        )
+        problems = schema_verify.verify_contract(c)
+    assert any(
+        "alerts_one_pending_per_subscription" in p and "predicate" in p
+        for p in problems
+    ), problems
+
+
+def test_verify_contract_detects_wrong_columns_on_invariant_index(scratch_dsn):
+    """Same-name UNIQUE partial index на інших columns → FAIL."""
+    assert migrate.run(MIGRATIONS) == 0
+    with psycopg.connect(scratch_dsn, autocommit=True) as c:
+        c.execute("DROP INDEX alerts_one_pending_per_subscription")
+        c.execute(
+            "CREATE UNIQUE INDEX alerts_one_pending_per_subscription "
+            "ON alerts (checkpoint_id) WHERE status = 'pending'"
+        )
+        problems = schema_verify.verify_contract(c)
+    assert any(
+        "alerts_one_pending_per_subscription" in p and "columns" in p
+        for p in problems
+    ), problems
+
+
+def test_verify_contract_detects_wrong_columns_on_named_constraint(scratch_dsn):
+    """Same-name UNIQUE constraint на інших columns → FAIL.
+
+    ON CONFLICT (device_id, checkpoint_id, threshold) у API покладається саме
+    на ці columns; constraint з тим же іменем але (device_id) впаде на проді
+    з неочікуваною помилкою "no unique constraint matching...".
+    """
+    assert migrate.run(MIGRATIONS) == 0
+    with psycopg.connect(scratch_dsn, autocommit=True) as c:
+        c.execute(
+            "ALTER TABLE subscriptions "
+            "DROP CONSTRAINT subscriptions_device_id_checkpoint_id_threshold_key"
+        )
+        # Створюємо constraint з тим самим іменем, але зовсім іншими columns.
+        # Спершу треба звільнити device_id від дубль-значень (у чистій БД він порожній).
+        c.execute(
+            "ALTER TABLE subscriptions "
+            "ADD CONSTRAINT subscriptions_device_id_checkpoint_id_threshold_key "
+            "UNIQUE (device_id)"
+        )
+        problems = schema_verify.verify_contract(c)
+    assert any(
+        "subscriptions_device_id_checkpoint_id_threshold_key" in p and "columns" in p
+        for p in problems
+    ), problems
+
+
 # --- restore smoke ----------------------------------------------------------
 
 

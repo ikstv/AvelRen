@@ -73,12 +73,17 @@ _COLUMNS_V: list[tuple[str | None, str, str]] = [
     ("008_notification_cancels", "notification_cancels", "abandoned_at"),
 ]
 
-# Інваріант-захисні індекси: перевіряємо що вони UNIQUE і PARTIAL (є WHERE-умова).
-# Втрата uniqueness або predicate = сервіс може вставити дублікати, API впаде.
-_UNIQUE_PARTIAL_INDEXES_V: list[tuple[str, str]] = [
-    ("004_alerts", "alerts_one_pending_per_subscription"),
-    ("005_eta_targets", "eta_alerts_one_pending_per_target"),
-    ("006_admin_devices", "health_alerts_one_open_per_kind"),
+# Інваріант-захисні індекси: перевіряємо exact semantic definition —
+# table + columns + partial predicate. Той самий name з іншими columns або
+# іншим WHERE — вже не той інваріант (напр. "один pending" перестає гарантуватись).
+# (version, index_name, table, columns, predicate_expr_normalized)
+_UNIQUE_PARTIAL_INDEXES_V: list[tuple[str, str, str, tuple[str, ...], str]] = [
+    ("004_alerts", "alerts_one_pending_per_subscription", "alerts",
+     ("subscription_id",), "(status = 'pending'::text)"),
+    ("005_eta_targets", "eta_alerts_one_pending_per_target", "eta_alerts",
+     ("target_id",), "(status = 'pending'::text)"),
+    ("006_admin_devices", "health_alerts_one_open_per_kind", "health_alerts",
+     ("kind",), "(resolved_at IS NULL)"),
 ]
 
 # Звичайні (не-unique) індекси: лише перевірка існування.
@@ -87,10 +92,13 @@ _INDEXES_V: list[tuple[str, str]] = [
 ]
 
 # Іменовані UNIQUE-обмеження. ON CONFLICT у API прямо покладається на них;
-# якщо constraint загубився при restore — наступний POST впаде з неочікуваною помилкою.
-_CONSTRAINTS_V: list[tuple[str, str]] = [
-    ("004_alerts", "subscriptions_device_id_checkpoint_id_threshold_key"),
-    ("008_notification_cancels", "notification_cancels_kind_alert_id_key"),
+# якщо constraint загубився при restore або має інші columns — POST впаде.
+# (version, constraint_name, table, columns)
+_CONSTRAINTS_V: list[tuple[str, str, str, tuple[str, ...]]] = [
+    ("004_alerts", "subscriptions_device_id_checkpoint_id_threshold_key",
+     "subscriptions", ("device_id", "checkpoint_id", "threshold")),
+    ("008_notification_cancels", "notification_cancels_kind_alert_id_key",
+     "notification_cancels", ("kind", "alert_id")),
 ]
 
 _HYPERTABLES_V: list[tuple[str, str]] = [
@@ -177,25 +185,53 @@ def verify_contract(
         if not row:
             problems.append(f"нема колонки {table}.{column}")
 
-    # Інваріант-індекси: перевіряємо uniqueness і partiality, а не лише існування.
-    for since, index in _UNIQUE_PARTIAL_INDEXES_V:
+    # Інваріант-індекси: exact semantic definition — same name недостатньо.
+    # Хтось міг DROP+CREATE із тим же іменем, але іншими columns/predicate;
+    # інваріант зникає, а тільки uniqueness+partial це не ловить.
+    for since, index, want_table, want_cols, want_pred in _UNIQUE_PARTIAL_INDEXES_V:
         if not want(since):
             continue
         row = conn.execute(
             """
-            SELECT i.indisunique, i.indpred IS NOT NULL AS is_partial
+            SELECT
+                t.relname AS table_name,
+                i.indisunique,
+                i.indpred IS NOT NULL AS is_partial,
+                pg_get_expr(i.indpred, i.indrelid) AS predicate,
+                (
+                    SELECT array_agg(a.attname ORDER BY x.ord)
+                    FROM unnest(i.indkey::int[]) WITH ORDINALITY AS x(attnum, ord)
+                    JOIN pg_attribute a
+                      ON a.attrelid = i.indrelid AND a.attnum = x.attnum
+                ) AS columns
             FROM pg_class c
             JOIN pg_index i ON i.indexrelid = c.oid
+            JOIN pg_class t ON t.oid = i.indrelid
             WHERE c.relname = %s AND c.relkind = 'i'
             """,
             (index,),
         ).fetchone()
         if not row:
             problems.append(f"нема індексу {index}")
-        elif not row[0]:
+            continue
+        table_name, is_unique, is_partial, predicate, columns = row
+        if table_name != want_table:
+            problems.append(
+                f"індекс {index} на таблиці {table_name}, очікували {want_table}"
+            )
+        if not is_unique:
             problems.append(f"індекс {index} не є UNIQUE (інваріант порушено)")
-        elif not row[1]:
+        if not is_partial:
             problems.append(f"індекс {index} не є partial — нема WHERE-умови")
+        actual_cols = tuple(columns or ())
+        if actual_cols != want_cols:
+            problems.append(
+                f"індекс {index}: columns {actual_cols}, очікували {want_cols}"
+            )
+        if is_partial and predicate != want_pred:
+            problems.append(
+                f"індекс {index}: predicate {predicate!r}, очікували {want_pred!r}"
+            )
 
     for since, index in _INDEXES_V:
         if not want(since):
@@ -204,14 +240,46 @@ def verify_contract(
         if not row or row[0] is None:
             problems.append(f"нема індексу {index}")
 
-    for since, constraint in _CONSTRAINTS_V:
+    # UNIQUE-constraints: exact table + contype='u' + columns. Тільки name
+    # недостатньо: rename+recreate з іншими columns дає той же conname, але
+    # ON CONFLICT (want_cols) впаде на проді.
+    for since, constraint, want_table, want_cols in _CONSTRAINTS_V:
         if not want(since):
             continue
         row = conn.execute(
-            "SELECT 1 FROM pg_constraint WHERE conname = %s", (constraint,)
+            """
+            SELECT
+                c.contype,
+                t.relname AS table_name,
+                (
+                    SELECT array_agg(a.attname ORDER BY x.ord)
+                    FROM unnest(c.conkey::int[]) WITH ORDINALITY AS x(attnum, ord)
+                    JOIN pg_attribute a
+                      ON a.attrelid = c.conrelid AND a.attnum = x.attnum
+                ) AS columns
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            WHERE c.conname = %s
+            """,
+            (constraint,),
         ).fetchone()
         if not row:
             problems.append(f"нема обмеження {constraint}")
+            continue
+        contype, table_name, columns = row
+        if contype != "u":
+            problems.append(
+                f"обмеження {constraint}: contype={contype!r}, очікували 'u' (UNIQUE)"
+            )
+        if table_name != want_table:
+            problems.append(
+                f"обмеження {constraint} на таблиці {table_name}, очікували {want_table}"
+            )
+        actual_cols = tuple(columns or ())
+        if actual_cols != want_cols:
+            problems.append(
+                f"обмеження {constraint}: columns {actual_cols}, очікували {want_cols}"
+            )
 
     for since, ht in _HYPERTABLES_V:
         if not want(since):
