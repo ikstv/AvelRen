@@ -30,9 +30,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import ua.avelren.app.AvelRenApp
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
+import ua.avelren.app.data.InstallationState
+import ua.avelren.app.data.ProtectedLoad
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -53,6 +57,9 @@ private val FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM 'о' 
 fun AvelRenScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val installation = remember { AvelRenApp.from(context).installation }
+    val installState by installation.state.collectAsStateWithLifecycle()
+    val authReady = installState is InstallationState.Ready
 
     var workload by remember { mutableStateOf<List<Api.Workload>>(emptyList()) }
     var selected by remember { mutableStateOf(DeviceStore.selectedCheckpoint(context)) }
@@ -76,12 +83,23 @@ fun AvelRenScreen() {
         }
     }
 
+    // Protected-дані завантажуються тим самим seam, що покритий тестом
+    // (ProtectedLoad.observe): щойно installation стає Ready — вантажимо; новий
+    // Ready після recovery-перереєстрації ретригерить сам, без restart. `reload`
+    // перезапускає effect (StateFlow одразу реплеїть поточний Ready), тож
+    // локальна мутація теж оновлює дані.
     LaunchedEffect(reload) {
-        DeviceStore.credentials(context)?.let { creds ->
-            subs = runCatching { Api.subscriptions(creds) }.getOrDefault(emptyList())
-            targets = runCatching { Api.etaTargets(creds) }.getOrDefault(emptyList())
+        ProtectedLoad.observe(installation.state) {
+            subs = runCatching {
+                installation.authenticatedCall { Api.subscriptions(it) }
+            }.getOrDefault(emptyList())
+            targets = runCatching {
+                installation.authenticatedCall { Api.etaTargets(it) }
+            }.getOrDefault(emptyList())
             // 403 для звичайного пристрою — картка просто не зʼявиться.
-            telemetry = runCatching { Api.telemetry(creds) }.getOrNull()
+            telemetry = runCatching {
+                installation.authenticatedCall { Api.telemetry(it) }
+            }.getOrNull()
         }
     }
 
@@ -124,13 +142,15 @@ fun AvelRenScreen() {
             item { SelectedCard(current) }
 
             item {
-                ThresholdRow { threshold ->
+                ThresholdRow(enabled = authReady) { threshold ->
                     scope.launch {
-                        DeviceStore.credentials(context)?.let { creds ->
-                            runCatching { Api.subscribe(creds, current.checkpoint_id, threshold) }
-                                .onSuccess { note = "Стежу: поріг $threshold авто"; reload++ }
-                                .onFailure { note = "Не вдалося підписатись" }
+                        runCatching {
+                            installation.authenticatedCall {
+                                Api.subscribe(it, current.checkpoint_id, threshold)
+                            }
                         }
+                            .onSuccess { note = "Стежу: поріг $threshold авто"; reload++ }
+                            .onFailure { note = "Не вдалося підписатись" }
                     }
                 }
             }
@@ -138,8 +158,19 @@ fun AvelRenScreen() {
             item {
                 Button(
                     onClick = { showEtaDialog = true },
+                    enabled = authReady,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text("Хочу в'їхати о певній годині") }
+            }
+
+            if (!authReady) {
+                item {
+                    Text(
+                        "Підключення…",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
 
             note?.let { text ->
@@ -153,20 +184,17 @@ fun AvelRenScreen() {
                 SubscriptionsSection(
                     subscriptions = subs,
                     targets = targets,
+                    enabled = authReady,
                     onRemoveSubscription = { id ->
                         scope.launch {
-                            DeviceStore.credentials(context)?.let { creds ->
-                                runCatching { Api.unsubscribe(creds, id) }
-                                reload++
-                            }
+                            runCatching { installation.authenticatedCall { Api.unsubscribe(it, id) } }
+                            reload++
                         }
                     },
                     onRemoveTarget = { id ->
                         scope.launch {
-                            DeviceStore.credentials(context)?.let { creds ->
-                                runCatching { Api.deleteEtaTarget(creds, id) }
-                                reload++
-                            }
+                            runCatching { installation.authenticatedCall { Api.deleteEtaTarget(it, id) } }
+                            reload++
                         }
                     },
                 )
@@ -202,11 +230,13 @@ fun AvelRenScreen() {
             onConfirm = { isoUtc, human ->
                 showEtaDialog = false
                 scope.launch {
-                    DeviceStore.credentials(context)?.let { creds ->
-                        runCatching { Api.createEtaTarget(creds, current.checkpoint_id, isoUtc) }
-                            .onSuccess { note = "Стежу за в'їздом $human"; reload++ }
-                            .onFailure { note = "Не вдалося створити ціль" }
+                    runCatching {
+                        installation.authenticatedCall {
+                            Api.createEtaTarget(it, current.checkpoint_id, isoUtc)
+                        }
                     }
+                        .onSuccess { note = "Стежу за в'їздом $human"; reload++ }
+                        .onFailure { note = "Не вдалося створити ціль" }
                 }
             },
         )
@@ -241,7 +271,7 @@ private fun SelectedCard(item: Api.Workload) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ThresholdRow(onPick: (Int) -> Unit) {
+private fun ThresholdRow(enabled: Boolean, onPick: (Int) -> Unit) {
     Column {
         Text("Сповістити, коли черга зросте до:",
             style = MaterialTheme.typography.bodyMedium)
@@ -249,7 +279,11 @@ private fun ThresholdRow(onPick: (Int) -> Unit) {
         // був вкладений список — саме він і ламав прокручування всього екрана.
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             THRESHOLDS.forEach { t ->
-                AssistChip(onClick = { onPick(t) }, label = { Text("$t") })
+                AssistChip(
+                    onClick = { onPick(t) },
+                    enabled = enabled,
+                    label = { Text("$t") },
+                )
             }
         }
     }

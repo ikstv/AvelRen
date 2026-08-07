@@ -6,7 +6,8 @@ import android.util.Log
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ua.avelren.app.data.Api
-import ua.avelren.app.data.DeviceStore
+import ua.avelren.app.data.InstallationRepository
+import ua.avelren.app.data.InstallationState
 
 /**
  * Другий шар A-02: приводить показані сповіщення до canonical server-стану.
@@ -31,8 +32,10 @@ object NotificationReconciler {
     // можуть настати майже одночасно — Mutex не дає їм бігти паралельно.
     private val mutex = Mutex()
 
-    suspend fun reconcile(context: Context) {
-        val creds = DeviceStore.credentials(context) ?: return // ще не зареєстровані
+    suspend fun reconcile(context: Context, installation: InstallationRepository) {
+        // Ще не готові (немає installation) — нема що звіряти. Не форсуємо
+        // реєстрацію заради reconciliation: це best-effort шар.
+        if (installation.state.value !is InstallationState.Ready) return
 
         mutex.withLock {
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
@@ -46,22 +49,23 @@ object NotificationReconciler {
                 ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras))
             }
 
-            // 2. Лише тепер питаємо сервер.
-            val server = try {
-                Api.activeAlerts(creds)
+            // 2. Лише тепер питаємо сервер — через repository, тож 401 (DB
+            //    restore) централізовано відновлюється й ретраїться. Будь-який
+            //    невдалий результат → serverKeys=null (fail-safe нижче).
+            val serverKeys: Set<AlertKey>? = try {
+                val server = installation.authenticatedCall { creds -> Api.activeAlerts(creds) }
+                buildSet {
+                    server.threshold.forEach { add(AlertKey("threshold", it)) }
+                    server.eta.forEach { add(AlertKey("eta", it)) }
+                }
             } catch (e: Exception) {
-                // FAIL-SAFE: без підтвердженого 200 нічого не чіпаємо.
                 Log.w(TAG, "не вдалося отримати active-alerts, лишаю все як є: ${e.message}")
-                return
+                null
             }
 
-            val serverKeys = buildSet {
-                server.threshold.forEach { add(AlertKey("threshold", it)) }
-                server.eta.forEach { add(AlertKey("eta", it)) }
-            }
-
-            // 3. Diff саме знімка (не свіжого читання) проти server-стану.
-            val stale = AlertReconciliation.staleNotificationIds(snapshot, serverKeys)
+            // 3. FAIL-SAFE: serverKeys==null (fetch/recovery впав) → не гасимо
+            //    нічого. Diff саме знімка (не свіжого читання) проти server-стану.
+            val stale = AlertReconciliation.staleNotificationIdsOrNothing(snapshot, serverKeys)
             for (id in stale) {
                 nm.cancel(id)
                 Log.i(TAG, "погашено застаріле сповіщення id=$id")

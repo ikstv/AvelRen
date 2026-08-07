@@ -35,6 +35,7 @@ fun SubscriptionsSection(
     targets: List<Api.EtaTarget>,
     onRemoveSubscription: (Long) -> Unit,
     onRemoveTarget: (Long) -> Unit,
+    enabled: Boolean = true,
 ) {
     if (subscriptions.isEmpty() && targets.isEmpty()) return
 
@@ -47,6 +48,7 @@ fun SubscriptionsSection(
                 RemovableRow(
                     text = "${s.flag_emoji ?: ""} ${s.title}",
                     detail = "поріг ${s.threshold} авто",
+                    enabled = enabled,
                     onRemove = { onRemoveSubscription(s.id) },
                 )
             }
@@ -55,6 +57,7 @@ fun SubscriptionsSection(
                 RemovableRow(
                     text = "${t.flag_emoji ?: ""} ${t.title}",
                     detail = "в'їзд ${formatTarget(t.target_at)}",
+                    enabled = enabled,
                     onRemove = { onRemoveTarget(t.id) },
                 )
             }
@@ -63,7 +66,7 @@ fun SubscriptionsSection(
 }
 
 @Composable
-private fun RemovableRow(text: String, detail: String, onRemove: () -> Unit) {
+private fun RemovableRow(text: String, detail: String, enabled: Boolean, onRemove: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -73,7 +76,8 @@ private fun RemovableRow(text: String, detail: String, onRemove: () -> Unit) {
             Text(text, style = MaterialTheme.typography.bodyMedium)
             Text(detail, style = MaterialTheme.typography.bodySmall)
         }
-        TextButton(onClick = onRemove) { Text("Прибрати") }
+        // Protected-дія: у non-Ready стані delete неактивний (B4).
+        TextButton(onClick = onRemove, enabled = enabled) { Text("Прибрати") }
     }
 }
 

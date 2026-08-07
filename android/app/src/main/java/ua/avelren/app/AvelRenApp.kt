@@ -1,21 +1,39 @@
 package ua.avelren.app
 
 import android.app.Application
-import android.util.Log
+import android.content.Context
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import ua.avelren.app.data.Api
+import ua.avelren.app.data.CredentialStore
 import ua.avelren.app.data.DeviceStore
+import ua.avelren.app.data.FcmTokenProvider
+import ua.avelren.app.data.InstallationApi
+import ua.avelren.app.data.InstallationRepository
+import ua.avelren.app.data.ProtectedLoad
 import ua.avelren.app.notify.NotificationReconciler
 import ua.avelren.app.notify.Notifications
 
+/**
+ * Власник процес-скоупного [InstallationRepository] — єдиного джерела істини про
+ * installation. Раніше реєстрація/recovery жили тут і дублювалися в
+ * `AvelRenMessagingService`, а UI напряму читав `DeviceStore`. Тепер усі шляхи
+ * (cold start, FCM-токен, 401-recovery, protected-виклики) сходяться в repository.
+ */
 class AvelRenApp : Application() {
+
+    /** Один SupervisorJob-скоуп на весь процес — без розсипаних CoroutineScope. */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    lateinit var installation: InstallationRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -24,77 +42,72 @@ class AvelRenApp : Application() {
         // сповіщення просто не з'явиться.
         Notifications.ensureChannel(this)
 
-        CoroutineScope(Dispatchers.IO).launch { registerOrRecover() }
+        val ctx: Context = this
+        installation = InstallationRepository(
+            api = object : InstallationApi {
+                override suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials =
+                    Api.registerDevice(fcmToken)
 
-        // Reconciliation при поверненні застосунку у foreground (A-02, шар 2):
-        // якщо cancel-push загубився, звіряємо показані сповіщення з сервером.
-        // На рівні application, а не Compose-екрана: це не UI-стан.
+                override suspend fun updateToken(
+                    creds: DeviceStore.Credentials,
+                    fcmToken: String,
+                ) = Api.updateToken(creds, fcmToken)
+
+                override fun isStaleInstallation(exc: Throwable): Boolean =
+                    Api.isStaleInstallation(exc)
+            },
+            store = object : CredentialStore {
+                override fun load(): DeviceStore.Credentials? = DeviceStore.credentials(ctx)
+                override fun save(creds: DeviceStore.Credentials) =
+                    DeviceStore.saveCredentials(ctx, creds)
+                override fun clear() = DeviceStore.clearCredentials(ctx)
+            },
+            tokens = object : FcmTokenProvider {
+                override suspend fun currentToken(): String =
+                    FirebaseMessaging.getInstance().token.await()
+            },
+            scope = appScope,
+        )
+        installation.start()
+
+        // Reconcile на КОЖЕН новий Ready (у т.ч. після recovery-перереєстрації).
+        // Закриває startup-race (A-02): foreground onResume міг спрацювати ще до
+        // появи credentials і той reconcile вийшов рано; тепер перехід
+        // Initializing→Ready сам запускає звірку. Mutex у reconciler дедупить із
+        // foreground-шляхом.
+        appScope.launch {
+            ProtectedLoad.observe(installation.state) {
+                NotificationReconciler.reconcile(ctx, installation)
+            }
+        }
+
+        // Reconciliation при поверненні у foreground (A-02, шар 2): якщо
+        // cancel-push загубився, звіряємо показані сповіщення з сервером. На
+        // рівні application, а не Compose-екрана: це не UI-стан.
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onResume(owner: LifecycleOwner) {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        NotificationReconciler.reconcile(this@AvelRenApp)
-                    }
+                    appScope.launch { NotificationReconciler.reconcile(ctx, installation) }
                 }
             }
         )
     }
 
-    /**
-     * Реєстрація або відновлення після DB restore.
-     *
-     * Раніше updateToken() при 401 навіть не кидав exception (Ktor без
-     * expectSuccess), тож клієнт лишався з мертвою парою назавжди
-     * (NEW-AUTH-2). Тепер Ktor кидає ClientRequestException на 4xx; при 401
-     * ми свідомо викидаємо стару installation і створюємо нову — саме той
-     * recovery-flow, який DeviceStore.clearCredentials обіцяє в docstring.
-     *
-     * `FirebaseMessaging.token.await()` теж під `try`: без цього одна помилка
-     * Google Play services (offline при холодному старті, застаріла версія
-     * сервісів, чорний тайм-аут) роняла весь launch-корутина без жодного
-     * логу — і повторної спроби вже не було до перезапуску процесу.
-     */
-    private suspend fun registerOrRecover() {
-        val existing = DeviceStore.credentials(this)
-        val token = try {
-            FirebaseMessaging.getInstance().token.await()
-        } catch (e: Exception) {
-            Log.w(TAG, "не вдалося отримати FCM-токен: ${e.message}")
-            return
-        }
-        try {
-            if (existing == null) {
-                val creds = Api.registerDevice(token)
-                DeviceStore.saveCredentials(this, creds)
-                Log.i(TAG, "пристрій зареєстровано")
-            } else {
-                Api.updateToken(existing, token)
-            }
-        } catch (e: Exception) {
-            if (existing != null && Api.isStaleInstallation(e)) {
-                Log.w(TAG, "installation мертва (401), створюю нову")
-                DeviceStore.clearCredentials(this)
-                try {
-                    val creds = Api.registerDevice(token)
-                    DeviceStore.saveCredentials(this, creds)
-                    Log.i(TAG, "пристрій перереєстровано")
-                } catch (retry: Exception) {
-                    Log.w(TAG, "перереєстрація не вдалася: ${retry.message}")
-                    return
-                }
-            } else {
-                Log.w(TAG, "реєстрація не вдалася: ${e.message}")
-                return
-            }
-        }
+    /** FCM-сервіс делегує сюди — весь register/recovery централізовано в repository. */
+    fun handleNewFcmToken(token: String) {
+        appScope.launch { installation.onNewFcmToken(token) }
+    }
 
-        // Startup race: onResume міг спрацювати до появи credentials і той
-        // reconcile вийшов рано. Тепер, коли пара точно є, звіряємо ще раз.
-        // Reconcile ідемпотентний і захищений Mutex-ом.
-        NotificationReconciler.reconcile(this)
+    /**
+     * Запуск короткої фонової роботи в application-scope (напр. server-ack із
+     * `AckReceiver`), щоб компоненти не плодили власні `CoroutineScope`.
+     */
+    fun launchInScope(block: suspend () -> Unit) {
+        appScope.launch { block() }
     }
 
     companion object {
-        private const val TAG = "AvelRen"
+        fun from(context: Context): AvelRenApp =
+            context.applicationContext as AvelRenApp
     }
 }

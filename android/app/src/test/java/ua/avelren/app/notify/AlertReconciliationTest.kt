@@ -104,6 +104,24 @@ class AlertReconciliationTest {
     }
 
     @Test
+    fun `fetch failure cancels nothing - fail-safe A-02 with null server set`() {
+        // AND-1: reconciler дістає active-alerts через InstallationRepository.
+        // Якщо fetch/recovery впав, серверний набір = null (а не порожній), і
+        // жодне локальне сповіщення не гаситься — інакше мережевий збій погасив
+        // би справжні тривоги.
+        val active = listOf(
+            withKey(id = 10, kind = "threshold", alertId = 5),
+            withKey(id = 20, kind = "eta", alertId = 9),
+        )
+        assertTrue(AlertReconciliation.staleNotificationIdsOrNothing(active, null).isEmpty())
+        // А підтверджений порожній набір (200 «активних нема») — таки гасить.
+        assertEquals(
+            listOf(10, 20),
+            AlertReconciliation.staleNotificationIdsOrNothing(active, emptySet()),
+        )
+    }
+
+    @Test
     fun `legacy key parsing recognizes kinds and skips health`() {
         assertEquals(
             AlertKey("threshold", 42),
