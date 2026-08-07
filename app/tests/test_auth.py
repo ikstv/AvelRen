@@ -6,6 +6,7 @@
 """
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 
 def test_repeat_registration_with_known_token_does_not_leak_device_id(
@@ -122,6 +123,27 @@ def test_stale_installation_returns_401_and_reregistration_works(conn, device, a
         headers={"X-Device-Id": new_id, "X-Device-Secret": new_secret},
     )
     assert r.status_code == 200
+
+
+def test_db_outage_after_select_is_503_not_500(device, api_client):
+    """API-1 регресія — раніше `UPDATE devices SET last_seen` виконувався поза
+    `try/except OperationalError`, тож падіння БД між SELECT (перевірка
+    secret) і UPDATE давало необроблений 500 замість 503."""
+    from psycopg import AsyncConnection, OperationalError
+
+    original = AsyncConnection.execute
+
+    async def flaky(self, query, params=None, *args, **kwargs):
+        if "UPDATE devices SET last_seen" in str(query):
+            raise OperationalError("simulated: connection lost between SELECT and UPDATE")
+        return await original(self, query, params, *args, **kwargs)
+
+    with patch.object(AsyncConnection, "execute", flaky):
+        r = api_client.get("/subscriptions", headers=device.headers())
+
+    assert r.status_code == 503, (
+        f"падіння БД між SELECT і UPDATE мусить бути 503, отримали {r.status_code}"
+    )
 
 
 def test_naive_target_at_is_422_not_500(device, api_client):

@@ -2,7 +2,10 @@
 
 **Модель автентифікації.** Реєстрація анонімна: пристрій, а не людина. Кожна
 installation отримує пару `(device_id, device_secret)`. `device_id` — UUID,
-`device_secret` — 32 випадкові байти, збережені в БД лише як bcrypt-хеш.
+`device_secret` — 32 випадкові байти. У БД зберігається лише SHA-256 hex
+digest секрета, перевірка через `hmac.compare_digest` (constant-time).
+Обґрунтування вибору дайджеста (чому не bcrypt) — у міграції
+`007_device_secret.sql`.
 
 Стан-змінні запити (POST/PUT/DELETE, /ack, /admin) вимагають ОБОХ заголовків:
 `X-Device-Id` і `X-Device-Secret`. Знання лише UUID саме по собі нічого не дає
@@ -63,8 +66,11 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
         raise HTTPException(
             status_code=401, detail="Потрібні заголовки X-Device-Id і X-Device-Secret"
         )
-    async with get_pool().connection() as conn:
-        try:
+    # try огортає ВЕСЬ `async with connection()` — включно з UPDATE last_seen
+    # і виходом з context manager (commit/close). Без цього падіння БД між
+    # SELECT і UPDATE піде як необроблений 500, а не 503 (API-1).
+    try:
+        async with get_pool().connection() as conn:
             row = await (
                 await conn.execute(
                     """
@@ -74,23 +80,29 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
                     (x_device_id,),
                 )
             ).fetchone()
-        except (InvalidTextRepresentation, DataError):
-            raise HTTPException(status_code=400, detail="Некоректний X-Device-Id") from None
-        except OperationalError as exc:
-            raise HTTPException(status_code=503, detail="БД недоступна") from exc
 
-        if row is None or not hmac.compare_digest(
-            row["secret_hash"], _hash_secret(x_device_secret)
-        ):
-            # І неіснуючий id, і невірний secret ведуть сюди — не розголошуємо,
-            # яка саме частина неправильна, щоб не давати оракул для перебору.
-            raise HTTPException(status_code=401, detail="Невірні облікові дані пристрою")
+            if row is None or not hmac.compare_digest(
+                row["secret_hash"], _hash_secret(x_device_secret)
+            ):
+                # І неіснуючий id, і невірний secret ведуть сюди — не
+                # розголошуємо, яка саме частина неправильна, щоб не давати
+                # оракул для перебору.
+                raise HTTPException(
+                    status_code=401, detail="Невірні облікові дані пристрою"
+                )
 
-        # last_seen оновлюємо лише після успішної перевірки — інакше сам факт
-        # оновлення був би оракулом «id існує».
-        await conn.execute(
-            "UPDATE devices SET last_seen = now() WHERE id = %s", (x_device_id,)
-        )
+            # last_seen оновлюємо лише після успішної перевірки — інакше сам
+            # факт оновлення був би оракулом «id існує».
+            await conn.execute(
+                "UPDATE devices SET last_seen = now() WHERE id = %s", (x_device_id,)
+            )
+    except HTTPException:
+        # Наші власні 400/401/503 — прокидаємо як є, не мапимо на 503.
+        raise
+    except (InvalidTextRepresentation, DataError):
+        raise HTTPException(status_code=400, detail="Некоректний X-Device-Id") from None
+    except OperationalError as exc:
+        raise HTTPException(status_code=503, detail="БД недоступна") from exc
     return x_device_id
 
 
