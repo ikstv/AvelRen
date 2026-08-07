@@ -13,6 +13,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from .alerts import THRESHOLDS
 from .db import get_pool
 from .ratelimit import check as rate_check
+from . import telemetry
 from .schemas import DeviceIn, DeviceOut, EtaTargetIn, SubscriptionIn, TokenIn
 
 router = APIRouter()
@@ -257,3 +258,33 @@ async def acknowledge_eta_alert(alert_id: int, x_device_id: str | None = Header(
             )
         ).fetchone()
     return {"status": "acknowledged" if row else "already_closed"}
+
+
+# --- Телеметрія (лише для адмін-пристроїв) --------------------------------
+
+
+@router.get("/admin/telemetry")
+async def admin_telemetry(x_device_id: str | None = Header(None)) -> dict:
+    """Повний стан сервера.
+
+    Доступ лише пристроям з позначкою `is_admin`: телеметрія розкриває
+    внутрішній устрій — версії, обсяги, свіжість копій. Стороннім це не
+    потрібно, а зловмиснику корисно.
+    """
+    device_id = await _device(x_device_id)
+
+    async with get_pool().connection() as conn:
+        row = await (
+            await conn.execute("SELECT is_admin FROM devices WHERE id = %s", (device_id,))
+        ).fetchone()
+        if not row or not row["is_admin"]:
+            raise HTTPException(status_code=403, detail="Потрібен адміністративний пристрій")
+
+        return {
+            "system": telemetry.system(),
+            "network": telemetry.network(),
+            "pipeline": await telemetry.pipeline(conn),
+            "certificate": telemetry.certificate(),
+            "backups": telemetry.backups(),
+            "problems": await telemetry.health_alerts(conn),
+        }

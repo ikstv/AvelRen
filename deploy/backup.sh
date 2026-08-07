@@ -69,4 +69,6 @@ rclone lsf "$REMOTE/$TIER/" --config /root/.config/rclone/rclone.conf \
     done
 
 rm -f "$DUMP"
+# Позначка для телеметрії: копія, про яку ніхто не дивиться, тихо ламається.
+touch /run/avelren-backup.stamp
 log "готово"
