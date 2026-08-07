@@ -3,6 +3,7 @@ package ua.avelren.app.data
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -11,6 +12,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
@@ -29,9 +31,25 @@ object Api {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
         }
+        // Без цього Ktor 3 повертає non-2xx як «успіх» — виклики без body<>()
+        // (updateToken, ack, delete) не помітили б 401 взагалі, і клієнт
+        // після DB restore потрапляв у вічний loop 401 без re-registration
+        // (NEW-AUTH-2). Тепер будь-який 4xx кидає ClientRequestException,
+        // 5xx — ServerResponseException.
+        expectSuccess = true
     }
 
     private val base = BuildConfig.API_BASE_URL
+
+    /**
+     * Розпізнає 401 будь-де в API-виклику. `AvelRenApp` та
+     * `AvelRenMessagingService` використовують це, щоб очистити збережені
+     * credentials і зареєструватися заново — типовий сценарій DB restore.
+     * Ktor кидає `ClientRequestException` і на 4xx з body-decode, і на 4xx
+     * без body — це одна точка обробки.
+     */
+    fun isStaleInstallation(exc: Throwable): Boolean =
+        exc is ClientRequestException && exc.response.status == HttpStatusCode.Unauthorized
 
     @Serializable
     data class Checkpoint(

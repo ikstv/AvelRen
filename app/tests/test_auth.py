@@ -93,6 +93,37 @@ def test_invalid_uuid_is_400_not_500(device, api_client):
     assert r.status_code == 400
 
 
+def test_stale_installation_returns_401_and_reregistration_works(conn, device, api_client):
+    """NEW-AUTH-2 регресія — контракт «401 → перереєструватись».
+
+    Імітуємо ефект DB restore: рядок `devices` зник, а клієнт усе ще має
+    старі headers. Сервер має повернути 401 (а не 500 і не 400), щоб Android
+    міг спрацювати clearCredentials + registerDevice. Другий крок — новий
+    POST /devices повертає свіжу пару, і вона одразу авторизує API-виклики.
+    """
+    stale_headers = device.headers()
+
+    # Ефект DB restore: рядка більше немає.
+    conn.execute("DELETE FROM devices WHERE id = %s", (device.device_id,))
+
+    r = api_client.get("/subscriptions", headers=stale_headers)
+    assert r.status_code == 401, "мертва installation мусить давати 401, не 400/500"
+
+    # Клієнт очищає credentials і реєструється знову.
+    reg = api_client.post("/devices", json={"fcm_token": "recovered-token-32chars-abcdefgh"})
+    assert reg.status_code == 201
+    new_id = reg.json()["device_id"]
+    new_secret = reg.json()["device_secret"]
+    assert new_id != device.device_id
+
+    # Свіжа пара одразу авторизує захищений виклик.
+    r = api_client.get(
+        "/subscriptions",
+        headers={"X-Device-Id": new_id, "X-Device-Secret": new_secret},
+    )
+    assert r.status_code == 200
+
+
 def test_naive_target_at_is_422_not_500(device, api_client):
     """API-3: раніше naive datetime доходив до порівняння з aware now() і
     падав у 500. Pydantic AwareDatetime тепер повертає 422 до виклику."""

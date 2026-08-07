@@ -16,6 +16,8 @@ device_id за відомим FCM-токеном, а токен — не сек�
 — ні.
 """
 
+import hashlib
+import hmac
 from datetime import UTC, datetime
 from secrets import token_urlsafe
 
@@ -36,6 +38,16 @@ router = APIRouter()
 SECRET_BYTES = 32
 
 
+def _hash_secret(secret: str) -> str:
+    """SHA-256 hex digest.
+
+    Пояснення вибору — в міграції 007_device_secret.sql: 256-бітний випадковий
+    секрет робить bcrypt зайвим (перебір усе одно нереальний), а bcrypt на
+    кожному захищеному запиті — це готовий CPU-DoS вектор (NEW-AUTH-1).
+    """
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
 async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
     """Двофакторна перевірка installation credential.
 
@@ -43,6 +55,9 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
     — 503, невірна пара — 401. До цього виправлення (аудит API-1) будь-яке
     падіння БД читалося як «поганий device id» і клієнт міг вирішити
     перереєструватися.
+
+    Порівняння через `hmac.compare_digest` (constant-time), не через
+    `stored == given`: часовий attack на побайтне порівняння тривіальний.
     """
     if not x_device_id or not x_device_secret:
         raise HTTPException(
@@ -53,28 +68,30 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
             row = await (
                 await conn.execute(
                     """
-                    UPDATE devices
-                       SET last_seen = now()
-                     WHERE id = %s
-                       AND secret_hash IS NOT NULL
-                       AND secret_hash = crypt(%s, secret_hash)
-                     RETURNING id
+                    SELECT secret_hash FROM devices
+                    WHERE id = %s AND secret_hash IS NOT NULL
                     """,
-                    (x_device_id, x_device_secret),
+                    (x_device_id,),
                 )
             ).fetchone()
         except (InvalidTextRepresentation, DataError):
-            # Синтаксично поганий UUID у заголовку — це помилка запиту.
             raise HTTPException(status_code=400, detail="Некоректний X-Device-Id") from None
         except OperationalError as exc:
-            # БД недоступна — це наша проблема, не клієнтова: 503, а не 400,
-            # інакше клієнт може вирішити перереєструватись і втратити стан.
             raise HTTPException(status_code=503, detail="БД недоступна") from exc
-    if row is None:
-        # І неіснуючий id, і невірний secret ведуть сюди — не розголошуємо,
-        # яка саме частина неправильна, щоб не давати оракул для перебору.
-        raise HTTPException(status_code=401, detail="Невірні облікові дані пристрою")
-    return str(row["id"])
+
+        if row is None or not hmac.compare_digest(
+            row["secret_hash"], _hash_secret(x_device_secret)
+        ):
+            # І неіснуючий id, і невірний secret ведуть сюди — не розголошуємо,
+            # яка саме частина неправильна, щоб не давати оракул для перебору.
+            raise HTTPException(status_code=401, detail="Невірні облікові дані пристрою")
+
+        # last_seen оновлюємо лише після успішної перевірки — інакше сам факт
+        # оновлення був би оракулом «id існує».
+        await conn.execute(
+            "UPDATE devices SET last_seen = now() WHERE id = %s", (x_device_id,)
+        )
+    return x_device_id
 
 
 @router.get("/thresholds")
@@ -107,10 +124,10 @@ async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
                 await conn.execute(
                     """
                     INSERT INTO devices (fcm_token, platform, secret_hash)
-                    VALUES (%s, %s, crypt(%s, gen_salt('bf', 10)))
+                    VALUES (%s, %s, %s)
                     RETURNING id
                     """,
-                    (body.fcm_token, body.platform, secret),
+                    (body.fcm_token, body.platform, _hash_secret(secret)),
                 )
             ).fetchone()
     # Секрет віддається один-єдиний раз. У БД лежить лише хеш — відновити

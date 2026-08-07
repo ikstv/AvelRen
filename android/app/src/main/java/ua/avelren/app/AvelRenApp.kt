@@ -21,17 +21,41 @@ class AvelRenApp : Application() {
         Notifications.ensureChannel(this)
 
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val token = FirebaseMessaging.getInstance().token.await()
-                val existing = DeviceStore.credentials(this@AvelRenApp)
-                if (existing == null) {
+            registerOrRecover(FirebaseMessaging.getInstance().token.await())
+        }
+    }
+
+    /**
+     * Реєстрація або відновлення після DB restore.
+     *
+     * Раніше updateToken() при 401 навіть не кидав exception (Ktor без
+     * expectSuccess), тож клієнт лишався з мертвою парою назавжди
+     * (NEW-AUTH-2). Тепер Ktor кидає ClientRequestException на 4xx; при 401
+     * ми свідомо викидаємо стару installation і створюємо нову — саме той
+     * recovery-flow, який DeviceStore.clearCredentials обіцяє в docstring.
+     */
+    private suspend fun registerOrRecover(token: String) {
+        val existing = DeviceStore.credentials(this)
+        try {
+            if (existing == null) {
+                val creds = Api.registerDevice(token)
+                DeviceStore.saveCredentials(this, creds)
+                Log.i(TAG, "пристрій зареєстровано")
+            } else {
+                Api.updateToken(existing, token)
+            }
+        } catch (e: Exception) {
+            if (existing != null && Api.isStaleInstallation(e)) {
+                Log.w(TAG, "installation мертва (401), створюю нову")
+                DeviceStore.clearCredentials(this)
+                try {
                     val creds = Api.registerDevice(token)
-                    DeviceStore.saveCredentials(this@AvelRenApp, creds)
-                    Log.i(TAG, "пристрій зареєстровано")
-                } else {
-                    Api.updateToken(existing, token)
+                    DeviceStore.saveCredentials(this, creds)
+                    Log.i(TAG, "пристрій перереєстровано")
+                } catch (retry: Exception) {
+                    Log.w(TAG, "перереєстрація не вдалася: ${retry.message}")
                 }
-            } catch (e: Exception) {
+            } else {
                 Log.w(TAG, "реєстрація не вдалася: ${e.message}")
             }
         }

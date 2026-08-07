@@ -15,6 +15,7 @@
 """
 
 import asyncio
+import hashlib
 import os
 import random
 import secrets
@@ -136,13 +137,14 @@ def device(conn) -> Installation:
     відповідатимуть 401, тож тести без облікових даних просто б не працювали."""
     token = f"test-{random.randrange(10**12):012d}"
     secret = secrets.token_urlsafe(32)
+    secret_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()
     row = conn.execute(
         """
         INSERT INTO devices (fcm_token, secret_hash)
-        VALUES (%s, crypt(%s, gen_salt('bf', 4)))
+        VALUES (%s, %s)
         RETURNING id
         """,
-        (token, secret),
+        (token, secret_hash),
     ).fetchone()
     installation = Installation(device_id=str(row["id"]), device_secret=secret)
     try:
