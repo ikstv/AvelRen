@@ -3,6 +3,8 @@ package ua.avelren.app.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import java.time.OffsetDateTime
@@ -39,6 +41,14 @@ private val THRESHOLDS = listOf(50, 100, 150, 200, 250, 300, 350, 400, 450, 500)
 private val KYIV: ZoneId = ZoneId.of("Europe/Kyiv")
 private val FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM 'о' HH:mm")
 
+/**
+ * Головний екран.
+ *
+ * Увесь вміст — один `LazyColumn`, а не `Column` із вкладеними списками.
+ * Інакше картки, що не вмістились у висоту екрана, мовчки обрізаються: вони
+ * намальовані, але їх не видно й не доскролиш. Саме так зникла телеметрія,
+ * коли карток стало більше трьох.
+ */
 @Composable
 fun AvelRenScreen() {
     val context = LocalContext.current
@@ -51,10 +61,10 @@ fun AvelRenScreen() {
     var showEtaDialog by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
     var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
+    var telemetry by remember { mutableStateOf<Api.Telemetry?>(null) }
     var subs by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
     var targets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
-    var telemetry by remember { mutableStateOf<Api.Telemetry?>(null) }
 
     LaunchedEffect(Unit) {
         try {
@@ -85,113 +95,121 @@ fun AvelRenScreen() {
 
     val current = workload.firstOrNull { it.checkpoint_id == selected }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("AvelRen", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "Черги на кордоні — вантажівки",
-            style = MaterialTheme.typography.bodySmall,
-        )
+    if (loading) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) { CircularProgressIndicator() }
+        return
+    }
 
-        when {
-            loading -> Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) { CircularProgressIndicator() }
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        item {
+            Column(modifier = Modifier.padding(top = 16.dp)) {
+                Text("AvelRen", style = MaterialTheme.typography.headlineMedium)
+                Text("Черги на кордоні — вантажівки",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
-            error != null -> Text(
-                "Не вдалося завантажити: $error",
-                modifier = Modifier.padding(top = 24.dp),
-            )
+        error?.let { msg ->
+            item {
+                Text("Не вдалося завантажити: $msg",
+                    modifier = Modifier.padding(top = 24.dp))
+            }
+        }
 
-            else -> {
-                if (current != null) {
-                    SelectedCard(current)
-                    ThresholdRow(
-                        onPick = { threshold ->
-                            scope.launch {
-                                DeviceStore.deviceId(context)?.let {
-                                    runCatching { Api.subscribe(it, current.checkpoint_id, threshold) }
-                                        .onSuccess { note = "Стежу: поріг $threshold авто"; reload++ }
-                                        .onFailure { note = "Не вдалося підписатись" }
-                                }
-                            }
-                        },
-                    )
+        if (current != null) {
+            item { SelectedCard(current) }
 
-                    Button(
-                        onClick = { showEtaDialog = true },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    ) { Text("Хочу в'їхати о певній годині") }
-
-                    note?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 6.dp))
-                    }
-
-                    ForecastCard(forecast)
-
-                    TelemetryCard(telemetry)
-
-                    SubscriptionsSection(
-                        subscriptions = subs,
-                        targets = targets,
-                        onRemoveSubscription = { id ->
-                            scope.launch {
-                                DeviceStore.deviceId(context)?.let {
-                                    runCatching { Api.unsubscribe(it, id) }
-                                    reload++
-                                }
-                            }
-                        },
-                        onRemoveTarget = { id ->
-                            scope.launch {
-                                DeviceStore.deviceId(context)?.let {
-                                    runCatching { Api.deleteEtaTarget(it, id) }
-                                    reload++
-                                }
-                            }
-                        },
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                }
-
-                if (showEtaDialog && current != null) {
-                    EtaTargetDialog(
-                        checkpointTitle = current.title,
-                        onDismiss = { showEtaDialog = false },
-                        onConfirm = { isoUtc, human ->
-                            showEtaDialog = false
-                            scope.launch {
-                                DeviceStore.deviceId(context)?.let {
-                                    runCatching {
-                                        Api.createEtaTarget(it, current.checkpoint_id, isoUtc)
-                                    }
-                                        .onSuccess { note = "Стежу за в'їздом $human"; reload++ }
-                                        .onFailure { note = "Не вдалося створити ціль" }
-                                }
-                            }
-                        },
-                    )
-                }
-
-                Text(
-                    if (current == null) "Оберіть пункт пропуску" else "Змінити пункт",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-
-                LazyColumn {
-                    items(workload.sortedByDescending { it.vehicles_in_queue }) { item ->
-                        CheckpointRow(item) {
-                            selected = item.checkpoint_id
-                            DeviceStore.saveSelectedCheckpoint(context, item.checkpoint_id)
+            item {
+                ThresholdRow { threshold ->
+                    scope.launch {
+                        DeviceStore.deviceId(context)?.let {
+                            runCatching { Api.subscribe(it, current.checkpoint_id, threshold) }
+                                .onSuccess { note = "Стежу: поріг $threshold авто"; reload++ }
+                                .onFailure { note = "Не вдалося підписатись" }
                         }
                     }
                 }
             }
+
+            item {
+                Button(
+                    onClick = { showEtaDialog = true },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text("Хочу в'їхати о певній годині") }
+            }
+
+            note?.let { text ->
+                item {
+                    Text(text, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+
+            item {
+                SubscriptionsSection(
+                    subscriptions = subs,
+                    targets = targets,
+                    onRemoveSubscription = { id ->
+                        scope.launch {
+                            DeviceStore.deviceId(context)?.let {
+                                runCatching { Api.unsubscribe(it, id) }
+                                reload++
+                            }
+                        }
+                    },
+                    onRemoveTarget = { id ->
+                        scope.launch {
+                            DeviceStore.deviceId(context)?.let {
+                                runCatching { Api.deleteEtaTarget(it, id) }
+                                reload++
+                            }
+                        }
+                    },
+                )
+            }
+
+            item { ForecastCard(forecast) }
+            item { TelemetryCard(telemetry) }
+            item { HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp)) }
         }
+
+        item {
+            Text(
+                if (current == null) "Оберіть пункт пропуску" else "Змінити пункт",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
+
+        items(workload.sortedByDescending { it.vehicles_in_queue }) { item ->
+            CheckpointRow(item) {
+                selected = item.checkpoint_id
+                DeviceStore.saveSelectedCheckpoint(context, item.checkpoint_id)
+            }
+        }
+
+        item { Column(modifier = Modifier.padding(bottom = 32.dp)) {} }
+    }
+
+    if (showEtaDialog && current != null) {
+        EtaTargetDialog(
+            checkpointTitle = current.title,
+            onDismiss = { showEtaDialog = false },
+            onConfirm = { isoUtc, human ->
+                showEtaDialog = false
+                scope.launch {
+                    DeviceStore.deviceId(context)?.let {
+                        runCatching { Api.createEtaTarget(it, current.checkpoint_id, isoUtc) }
+                            .onSuccess { note = "Стежу за в'їздом $human"; reload++ }
+                            .onFailure { note = "Не вдалося створити ціль" }
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -221,25 +239,17 @@ private fun SelectedCard(item: Api.Workload) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ThresholdRow(onPick: (Int) -> Unit) {
-    Text("Сповістити, коли черга зросте до:", style = MaterialTheme.typography.bodyMedium)
-    LazyColumn(modifier = Modifier.padding(top = 4.dp)) {
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                THRESHOLDS.take(5).forEach { t ->
-                    AssistChip(onClick = { onPick(t) }, label = { Text("$t") })
-                }
-            }
-        }
-        item {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 4.dp),
-            ) {
-                THRESHOLDS.drop(5).forEach { t ->
-                    AssistChip(onClick = { onPick(t) }, label = { Text("$t") })
-                }
+    Column {
+        Text("Сповістити, коли черга зросте до:",
+            style = MaterialTheme.typography.bodyMedium)
+        // FlowRow сам переносить чипи на потрібну кількість рядів. Раніше тут
+        // був вкладений список — саме він і ламав прокручування всього екрана.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            THRESHOLDS.forEach { t ->
+                AssistChip(onClick = { onPick(t) }, label = { Text("$t") })
             }
         }
     }
@@ -255,7 +265,8 @@ private fun CheckpointRow(item: Api.Workload, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text("${item.flag_emoji ?: ""} ${item.title}", style = MaterialTheme.typography.bodyMedium)
+            Text("${item.flag_emoji ?: ""} ${item.title}",
+                style = MaterialTheme.typography.bodyMedium)
             Text(
                 if (item.entry_eta != null) "в'їзд ${formatEta(item.entry_eta)}" else "призупинено",
                 style = MaterialTheme.typography.bodySmall,

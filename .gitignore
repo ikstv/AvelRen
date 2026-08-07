@@ -17,7 +17,7 @@ venv/
 Thumbs.db
 
 *.log
-data/
+/data/
 
 # Службові ключі Firebase — ніколи в git
 secrets/
