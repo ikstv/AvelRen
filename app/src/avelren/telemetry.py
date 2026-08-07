@@ -113,12 +113,16 @@ async def pipeline(conn: AsyncConnection) -> dict:
 def network() -> dict:
     """Трафік сервера від старту системи.
 
-    Читаємо з `/host/proc`, а не `/proc`: мережеві лічильники ізольовані
-    простором імен контейнера, і власний `/proc` показав би трафік самого
-    контейнера — тобто майже нуль, що виглядало б як справні дані.
+    Шлях саме `/host/proc/1/net/dev`, а не `/host/proc/net/dev`: `/proc/net` —
+    символьне посилання на `/proc/self/net`, тож навіть у примонтованому
+    `/proc` хоста воно резолвиться в мережевий простір імен контейнера.
+    Потрібен явний PID 1 хоста.
+
+    Без цього лічильники показували б нулі — що виглядає як справні дані, а
+    не як їх відсутність. Саме така помилка й небезпечна.
     """
     rx = tx = 0
-    for line in _proc("/host/proc/net/dev").splitlines()[2:]:
+    for line in _proc("/host/proc/1/net/dev").splitlines()[2:]:
         name, _, rest = line.partition(":")
         if name.strip().startswith(("lo", "docker", "br-", "veth")):
             continue
