@@ -21,6 +21,9 @@ OUT=$OUT_DIR/host.json
 TMP=$OUT.tmp
 FS_PROBE=${AVELREN_FS_PROBE:-/opt/avelren}
 API_HOST=${AVELREN_CERT_HOST:-api.bordersignal.pp.ua}
+# Перевизначається лише в CI, щоб прогнати фільтрацію інтерфейсів на
+# синтетичному файлі — тестувати треба цей script, а не його копію в workflow.
+NET_DEV=${AVELREN_NET_DEV:-/proc/1/net/dev}
 
 mkdir -p "$OUT_DIR"
 
@@ -49,22 +52,35 @@ if [ -e /run/reboot-required ]; then
 fi
 
 # --- network (RX/TX через host PID 1) ---
+#
+# Парситься через awk, а не bash-підстановки: у /proc/net/dev назви
+# інтерфейсів вирівняні пробілами ("    lo:"), і ${name## } зрізає рівно один
+# пробіл, тож фільтр lo/docker*/br-*/veth* мовчки не спрацьовував і локальний
+# та docker-трафік потрапляв у лічильник зовнішнього.
+#
+# `index($0, ":")` ріже саме на двокрапці — це переживає і довгі назви
+# інтерфейсів, що зливаються з першим числом. `split(rest, f, " ")` з
+# однопробільним роздільником використовує дефолтну семантику awk: зрізає
+# краї і ділить по групах пробілів. f[1]=rx_bytes, f[9]=tx_bytes.
 rx_total=0
 tx_total=0
-if [ -r /proc/1/net/dev ]; then
-    while IFS= read -r line; do
-        name=${line%%:*}
-        name=${name## }
-        case "$name" in
-            lo|docker*|br-*|veth*) continue ;;
-        esac
-        rest=${line#*:}
-        # shellcheck disable=SC2086
-        set -- $rest
-        # $1=rx_bytes, $9=tx_bytes
-        rx_total=$(( rx_total + $1 ))
-        tx_total=$(( tx_total + $9 ))
-    done < <(tail -n +3 /proc/1/net/dev)
+if [ -r "$NET_DEV" ]; then
+    read -r rx_total tx_total < <(
+        awk 'NR > 2 {
+            idx = index($0, ":")
+            if (idx == 0) next
+            name = substr($0, 1, idx - 1)
+            gsub(/[ \t]/, "", name)
+            if (name == "lo") next
+            if (name ~ /^docker/ || name ~ /^br-/ || name ~ /^veth/) next
+            rest = substr($0, idx + 1)
+            n = split(rest, f, " ")
+            if (n < 9) next
+            rx += f[1]
+            tx += f[9]
+        }
+        END { printf "%d %d\n", rx + 0, tx + 0 }' "$NET_DEV"
+    )
 fi
 
 # --- backup stamp ---

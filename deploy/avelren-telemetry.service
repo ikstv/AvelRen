@@ -8,7 +8,11 @@ Wants=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/avelren/deploy/telemetry-snapshot.sh
+# Шлях збігається з тим, куди runbook ставить script. Свідомо НЕ вказуємо
+# /opt/avelren/deploy/…: unit не має залежати від git-каталогу, а deploy не
+# має sed-ом мутувати встановлений unit — інакше те, що лежить у systemd,
+# розходиться з тим, що лежить у Git.
+ExecStart=/usr/local/sbin/avelren-telemetry-snapshot
 
 # Мінімум привілеїв: script читає /proc і /run/reboot-required, пише в
 # /var/lib/avelren-telemetry — і все. Обмежуємо доступ до всього іншого.

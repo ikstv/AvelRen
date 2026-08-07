@@ -147,6 +147,35 @@ def backups() -> dict:
     return dict(_snapshot().get("backups") or {"last_run": None, "age_hours": None})
 
 
+def snapshot_problem(system_data: dict) -> dict | None:
+    """Синтетична проблема, коли host-snapshot протух або зник.
+
+    Без цього збій telemetry-таймера виглядав би на телефоні як здоровий
+    сервер: поля з відсутнього snapshot стають нулями за замовчуванням, а
+    застосунок ще й пише «Проблем немає». Мовчазний збій моніторингу — гірший
+    за відсутність моніторингу, тож stale має потрапити саме в той список,
+    який користувач читає першим.
+
+    Форма збігається з рядками `health_alerts`, тож клієнту не потрібно нічого
+    знати про нове поле — він відмалює це як звичайну проблему.
+    """
+    if not system_data.get("stale"):
+        return None
+
+    age = system_data.get("snapshot_age_seconds")
+    if age is None:
+        detail = "Host-телеметрія не збирається: snapshot відсутній"
+    else:
+        detail = f"Host-телеметрія не оновлювалась {age // 60} хв"
+
+    return {
+        "kind": "telemetry_snapshot_stale",
+        "detail": detail,
+        "first_seen": None,
+        "send_count": 0,
+    }
+
+
 async def health_alerts(conn: AsyncConnection) -> list[dict]:
     rows = await (
         await conn.execute(

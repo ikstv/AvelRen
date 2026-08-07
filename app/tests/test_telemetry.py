@@ -121,6 +121,50 @@ def test_certificate_reports_snapshot_missing(tmp_path, monkeypatch):
     assert result == {"error": "snapshot missing"}
 
 
+def test_stale_snapshot_becomes_a_visible_problem(snapshot):
+    """Регресія на review PR #3: без цього зламаний timer виглядав на телефоні
+    як здоровий сервер — поля ставали нулями, а застосунок писав «Проблем
+    немає». Android має `ignoreUnknownKeys`, тож нове поле `stale` він просто
+    викидав; єдиний спосіб донести це без зміни клієнта — список `problems`."""
+    snapshot(
+        {"system": {"cpu_count": 2}},
+        collected_at=datetime.now(UTC) - timedelta(minutes=17),
+    )
+    problem = telemetry.snapshot_problem(telemetry.system())
+    assert problem is not None
+    assert problem["kind"] == "telemetry_snapshot_stale"
+    # Форма збігається з рядками health_alerts — клієнт відмалює як звичайну.
+    assert set(problem) == {"kind", "detail", "first_seen", "send_count"}
+    assert "17" in problem["detail"]
+
+
+def test_missing_snapshot_becomes_a_visible_problem(tmp_path, monkeypatch):
+    monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
+    problem = telemetry.snapshot_problem(telemetry.system())
+    assert problem is not None
+    assert problem["kind"] == "telemetry_snapshot_stale"
+    assert "відсутній" in problem["detail"]
+
+
+def test_fresh_snapshot_produces_no_problem(snapshot):
+    """Здоровий timer не має засмічувати список проблем."""
+    snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
+    assert telemetry.snapshot_problem(telemetry.system()) is None
+
+
+def test_admin_telemetry_surfaces_stale_snapshot(device, api_client, conn, monkeypatch, tmp_path):
+    """Наскрізно: /admin/telemetry має віддати stale як проблему, а не мовчати."""
+    conn.execute("UPDATE devices SET is_admin = true WHERE id = %s", (device.device_id,))
+    monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
+
+    r = api_client.get("/admin/telemetry", headers=device.headers())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["system"]["stale"] is True
+    kinds = [p["kind"] for p in body["problems"]]
+    assert "telemetry_snapshot_stale" in kinds
+
+
 def test_snapshot_survives_partial_json(tmp_path, monkeypatch):
     """Пошкоджений JSON не має валити API. Читач бачить «snapshot відсутній»."""
     path = tmp_path / "host.json"
