@@ -23,10 +23,10 @@ class AvelRenApp : Application() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val token = FirebaseMessaging.getInstance().token.await()
-                val existing = DeviceStore.deviceId(this@AvelRenApp)
+                val existing = DeviceStore.credentials(this@AvelRenApp)
                 if (existing == null) {
-                    val id = Api.registerDevice(token)
-                    DeviceStore.saveDeviceId(this@AvelRenApp, id)
+                    val creds = Api.registerDevice(token)
+                    DeviceStore.saveCredentials(this@AvelRenApp, creds)
                     Log.i(TAG, "пристрій зареєстровано")
                 } else {
                     Api.updateToken(existing, token)

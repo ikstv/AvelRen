@@ -63,7 +63,7 @@ def test_eta_formula_matches_source():
 
 def test_fires_inside_window(conn, device, checkpoint):
     now = datetime.now(UTC)
-    tid = _target(conn, device, checkpoint, now + timedelta(hours=10))
+    tid = _target(conn, device.device_id, checkpoint, now + timedelta(hours=10))
 
     _observe(checkpoint, now, wait_seconds=10 * 3600)  # рівно в ціль
     assert _pending(conn, tid) == 1
@@ -72,7 +72,7 @@ def test_fires_inside_window(conn, device, checkpoint):
 def test_fires_at_window_edge(conn, device, checkpoint):
     """14 хвилин розбіжності при допуску 15 — це ще потрапляння."""
     now = datetime.now(UTC)
-    tid = _target(conn, device, checkpoint, now + timedelta(hours=10))
+    tid = _target(conn, device.device_id, checkpoint, now + timedelta(hours=10))
 
     _observe(checkpoint, now, wait_seconds=10 * 3600 + 14 * 60)
     assert _pending(conn, tid) == 1
@@ -81,7 +81,7 @@ def test_fires_at_window_edge(conn, device, checkpoint):
 def test_silent_outside_window(conn, device, checkpoint):
     """16 хвилин — уже повз. Хибне спрацювання гірше за мовчання."""
     now = datetime.now(UTC)
-    tid = _target(conn, device, checkpoint, now + timedelta(hours=10))
+    tid = _target(conn, device.device_id, checkpoint, now + timedelta(hours=10))
 
     _observe(checkpoint, now, wait_seconds=10 * 3600 + 16 * 60)
     assert _pending(conn, tid) == 0
@@ -90,7 +90,7 @@ def test_silent_outside_window(conn, device, checkpoint):
 def test_no_duplicates_while_pending(conn, device, checkpoint):
     """Вікно триває багато хвилин; щохвилинне сповіщення було б спамом."""
     now = datetime.now(UTC)
-    tid = _target(conn, device, checkpoint, now + timedelta(hours=10))
+    tid = _target(conn, device.device_id, checkpoint, now + timedelta(hours=10))
 
     for i in range(5):
         _observe(checkpoint, now + timedelta(minutes=i), wait_seconds=10 * 3600)
@@ -100,25 +100,21 @@ def test_no_duplicates_while_pending(conn, device, checkpoint):
 def test_paused_queue_does_not_fire(conn, device, checkpoint):
     """Пауза з нульовим очікуванням — це відсутність прогнозу, а не «в'їзд зараз»."""
     now = datetime.now(UTC)
-    tid = _target(conn, device, checkpoint, now, tolerance=900)
+    tid = _target(conn, device.device_id, checkpoint, now, tolerance=900)
 
     _observe(checkpoint, now, wait_seconds=0, is_paused=True)
     assert _pending(conn, tid) == 0
 
 
-def test_no_refire_after_ack_in_same_window(conn, device, checkpoint):
+def test_no_refire_after_ack_in_same_window(conn, device, checkpoint, api_client):
     """Регресія на знахідку аудиту R-05.
 
     Підтвердження йде через справжній ендпоінт `/eta-alerts/{id}/ack`, а не
     через ті самі два UPDATE, які він виконує: інакше тест перевіряв би сам
     себе й не помітив би, якби ендпоінт перестав деактивувати ціль.
     """
-    from fastapi.testclient import TestClient
-
-    from avelren.api import app
-
     now = datetime.now(UTC)
-    tid = _target(conn, device, checkpoint, now + timedelta(hours=10))
+    tid = _target(conn, device.device_id, checkpoint, now + timedelta(hours=10))
 
     _observe(checkpoint, now, wait_seconds=10 * 3600)
     assert _pending(conn, tid) == 1
@@ -127,10 +123,9 @@ def test_no_refire_after_ack_in_same_window(conn, device, checkpoint):
         "SELECT id FROM eta_alerts WHERE target_id = %s AND status = 'pending'", (tid,)
     ).fetchone()["id"]
 
-    with TestClient(app) as client:
-        response = client.post(
-            f"/eta-alerts/{alert_id}/ack", headers={"X-Device-Id": str(device)}
-        )
+    response = api_client.post(
+        f"/eta-alerts/{alert_id}/ack", headers=device.headers()
+    )
     assert response.status_code == 200
     assert response.json()["status"] == "acknowledged"
 

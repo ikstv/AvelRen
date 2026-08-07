@@ -146,11 +146,24 @@ object Api {
     @Serializable
     private data class DeviceIn(val fcm_token: String, val platform: String = "android")
 
+    /** Сервер повертає secret ЄДИНИЙ раз — у відповідь на POST /devices. */
     @Serializable
-    private data class DeviceOut(val device_id: String)
+    private data class DeviceOut(val device_id: String, val device_secret: String)
 
     @Serializable
     private data class TokenIn(val fcm_token: String)
+
+    /**
+     * Додає до запиту обидва заголовки автентифікації installation. Одного
+     * X-Device-Id для стан-змінних викликів сервер більше не приймає
+     * (закриття AUTH-1).
+     */
+    private fun io.ktor.client.request.HttpRequestBuilder.auth(
+        creds: DeviceStore.Credentials
+    ) {
+        header("X-Device-Id", creds.deviceId)
+        header("X-Device-Secret", creds.deviceSecret)
+    }
 
     @Serializable
     private data class SubscriptionIn(val checkpoint_id: Int, val threshold: Int)
@@ -162,15 +175,17 @@ object Api {
         val tolerance_seconds: Int = 900,
     )
 
-    suspend fun registerDevice(fcmToken: String): String =
-        client.post("$base/devices") {
+    suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials {
+        val out = client.post("$base/devices") {
             contentType(ContentType.Application.Json)
             setBody(DeviceIn(fcmToken))
-        }.body<DeviceOut>().device_id
+        }.body<DeviceOut>()
+        return DeviceStore.Credentials(out.device_id, out.device_secret)
+    }
 
-    suspend fun updateToken(deviceId: String, fcmToken: String) {
+    suspend fun updateToken(creds: DeviceStore.Credentials, fcmToken: String) {
         client.put("$base/devices/token") {
-            header("X-Device-Id", deviceId)
+            auth(creds)
             contentType(ContentType.Application.Json)
             setBody(TokenIn(fcmToken))
         }
@@ -181,47 +196,47 @@ object Api {
     suspend fun workload(): List<Workload> = client.get("$base/workload").body()
 
     /** Телеметрія доступна лише адмін-пристроям; для решти сервер віддає 403. */
-    suspend fun telemetry(deviceId: String): Telemetry =
-        client.get("$base/admin/telemetry") { header("X-Device-Id", deviceId) }.body()
+    suspend fun telemetry(creds: DeviceStore.Credentials): Telemetry =
+        client.get("$base/admin/telemetry") { auth(creds) }.body()
 
     suspend fun forecast(checkpointId: Int, hours: Int = 24): Forecast =
         client.get("$base/forecast/$checkpointId?hours=$hours").body()
 
-    suspend fun subscriptions(deviceId: String): List<Subscription> =
-        client.get("$base/subscriptions") { header("X-Device-Id", deviceId) }.body()
+    suspend fun subscriptions(creds: DeviceStore.Credentials): List<Subscription> =
+        client.get("$base/subscriptions") { auth(creds) }.body()
 
-    suspend fun subscribe(deviceId: String, checkpointId: Int, threshold: Int) {
+    suspend fun subscribe(creds: DeviceStore.Credentials, checkpointId: Int, threshold: Int) {
         client.post("$base/subscriptions") {
-            header("X-Device-Id", deviceId)
+            auth(creds)
             contentType(ContentType.Application.Json)
             setBody(SubscriptionIn(checkpointId, threshold))
         }
     }
 
-    suspend fun unsubscribe(deviceId: String, subscriptionId: Long) {
-        client.delete("$base/subscriptions/$subscriptionId") {
-            header("X-Device-Id", deviceId)
-        }
+    suspend fun unsubscribe(creds: DeviceStore.Credentials, subscriptionId: Long) {
+        client.delete("$base/subscriptions/$subscriptionId") { auth(creds) }
     }
 
-    suspend fun etaTargets(deviceId: String): List<EtaTarget> =
-        client.get("$base/eta-targets") { header("X-Device-Id", deviceId) }.body()
+    suspend fun etaTargets(creds: DeviceStore.Credentials): List<EtaTarget> =
+        client.get("$base/eta-targets") { auth(creds) }.body()
 
-    suspend fun deleteEtaTarget(deviceId: String, targetId: Long) {
-        client.delete("$base/eta-targets/$targetId") { header("X-Device-Id", deviceId) }
+    suspend fun deleteEtaTarget(creds: DeviceStore.Credentials, targetId: Long) {
+        client.delete("$base/eta-targets/$targetId") { auth(creds) }
     }
 
-    suspend fun createEtaTarget(deviceId: String, checkpointId: Int, targetAtIso: String) {
+    suspend fun createEtaTarget(
+        creds: DeviceStore.Credentials, checkpointId: Int, targetAtIso: String
+    ) {
         client.post("$base/eta-targets") {
-            header("X-Device-Id", deviceId)
+            auth(creds)
             contentType(ContentType.Application.Json)
             setBody(EtaTargetIn(checkpointId, targetAtIso))
         }
     }
 
     /** Кнопка «ОК». Після неї сервер припиняє повтори. */
-    suspend fun ack(deviceId: String, alertId: Long, kind: String) {
+    suspend fun ack(creds: DeviceStore.Credentials, alertId: Long, kind: String) {
         val path = if (kind == "eta") "eta-alerts" else "alerts"
-        client.post("$base/$path/$alertId/ack") { header("X-Device-Id", deviceId) }
+        client.post("$base/$path/$alertId/ack") { auth(creds) }
     }
 }

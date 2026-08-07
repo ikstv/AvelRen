@@ -27,11 +27,11 @@ class AckReceiver : BroadcastReceiver() {
 
         Notifications.cancel(context, kind, alertId)
 
-        val deviceId = DeviceStore.deviceId(context) ?: return
+        val creds = DeviceStore.credentials(context) ?: return
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                Api.ack(deviceId, alertId, kind)
+                Api.ack(creds, alertId, kind)
                 Log.i(TAG, "підтверджено алерт $alertId")
             } catch (e: Exception) {
                 Log.w(TAG, "не вдалося підтвердити $alertId, сервер повторить: ${e.message}")

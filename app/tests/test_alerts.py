@@ -59,21 +59,21 @@ def _feed(checkpoint_id: int, values: list[int]) -> None:
 
 
 def test_crossing_upward_creates_one_alert(conn, device, checkpoint):
-    sub = _subscription(conn, device, checkpoint)
+    sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 51])
     assert _pending(conn, sub) == 1
 
 
 def test_flapping_does_not_spam(conn, device, checkpoint):
     """49->51->49->51->49->51 має дати рівно один алерт, а не три."""
-    sub = _subscription(conn, device, checkpoint)
+    sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 51, 49, 51, 49, 51])
     assert _pending(conn, sub) == 1
 
 
 def test_rearm_requires_margin(conn, device, checkpoint):
     """Після підтвердження поріг 50 перезаряджається лише нижче 45."""
-    sub = _subscription(conn, device, checkpoint)
+    sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 51])
     conn.execute(
         "UPDATE alerts SET status = 'acknowledged', acknowledged_at = now() "
@@ -89,20 +89,20 @@ def test_rearm_requires_margin(conn, device, checkpoint):
 
 
 def test_no_alert_below_threshold(conn, device, checkpoint):
-    sub = _subscription(conn, device, checkpoint)
+    sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [10, 20, 49])
     assert _pending(conn, sub) == 0
 
 
 def test_exact_threshold_fires(conn, device, checkpoint):
     """Рівно 50 — це спрацювання, а не «майже»."""
-    sub = _subscription(conn, device, checkpoint)
+    sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 50])
     assert _pending(conn, sub) == 1
 
 
 def test_jump_over_threshold_fires(conn, device, checkpoint):
     """Черга змінюється і на 2 авто за раз, тож 49->51 не сміє проскочити повз."""
-    sub = _subscription(conn, device, checkpoint)
+    sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 51])
     assert _pending(conn, sub) == 1
