@@ -35,3 +35,6 @@ android/.idea/
 # Артефакти складання пакета (створюються pip install ./app)
 app/build/
 *.egg-info/
+
+# superpowers brainstorm runtime state
+.superpowers/

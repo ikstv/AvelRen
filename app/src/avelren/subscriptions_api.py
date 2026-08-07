@@ -28,7 +28,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from psycopg import DataError, OperationalError
 from psycopg.errors import InvalidTextRepresentation
 
-from . import telemetry
+from . import cancels, telemetry
 from .alerts import THRESHOLDS
 from .db import get_pool
 from .ratelimit import check as rate_check
@@ -240,12 +240,28 @@ async def delete_subscription(
 ) -> None:
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
-        row = await (
+        async with conn.transaction():
+            # Enqueue cancel'ів ДО видалення, в одній транзакції: інакше
+            # каскадне видалення прибрало б рядки alert'ів, і телефон лишився б
+            # з ongoing-сповіщенням, яке нема як закрити (аудит A-02).
             await conn.execute(
-                "DELETE FROM subscriptions WHERE id = %s AND device_id = %s RETURNING id",
+                """
+                INSERT INTO notification_cancels (kind, alert_id, device_id)
+                SELECT 'threshold', a.id, s.device_id
+                FROM alerts a
+                JOIN subscriptions s ON s.id = a.subscription_id
+                WHERE a.subscription_id = %s AND s.device_id = %s
+                  AND a.status = 'pending'
+                ON CONFLICT (kind, alert_id) DO NOTHING
+                """,
                 (subscription_id, device_id),
             )
-        ).fetchone()
+            row = await (
+                await conn.execute(
+                    "DELETE FROM subscriptions WHERE id = %s AND device_id = %s RETURNING id",
+                    (subscription_id, device_id),
+                )
+            ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Підписку не знайдено")
 
@@ -275,6 +291,26 @@ async def acknowledge_alert(
     # Повторне підтвердження не помилка: користувач міг натиснути двічі, а
     # застосунок — повторити запит після втрати мережі.
     return {"status": "acknowledged" if row else "already_closed"}
+
+
+# --- Reconciliation активних сповіщень (A-02) -----------------------------
+
+
+@router.get("/active-alerts")
+async def active_alerts(
+    x_device_id: str | None = Header(None),
+    x_device_secret: str | None = Header(None),
+) -> dict[str, list[int]]:
+    """Canonical перелік активних (pending) alert'ів пристрою.
+
+    Клієнт при поверненні у foreground звіряє показані ongoing-сповіщення з
+    цим списком і гасить ті, яких тут немає — гарантія збіжності, коли
+    cancel-push загубився (Doze/offline/force-stop). Сервер лишається єдиним
+    джерелом істини; телефон лише приводить локальний стан до нього.
+    """
+    device_id = await _device(x_device_id, x_device_secret)
+    async with get_pool().connection() as conn:
+        return await cancels.active_alert_keys(conn, device_id)
 
 
 # --- Функція №2: цільовий час вʼїзду --------------------------------------
@@ -350,12 +386,27 @@ async def delete_eta_target(
 ) -> None:
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
-        row = await (
+        async with conn.transaction():
+            # Дзеркало delete_subscription: enqueue cancel'ів ДО каскадного
+            # видалення, в одній транзакції, зі скоупом за власністю (аудит A-02).
             await conn.execute(
-                "DELETE FROM eta_targets WHERE id = %s AND device_id = %s RETURNING id",
+                """
+                INSERT INTO notification_cancels (kind, alert_id, device_id)
+                SELECT 'eta', a.id, t.device_id
+                FROM eta_alerts a
+                JOIN eta_targets t ON t.id = a.target_id
+                WHERE a.target_id = %s AND t.device_id = %s
+                  AND a.status = 'pending'
+                ON CONFLICT (kind, alert_id) DO NOTHING
+                """,
                 (target_id, device_id),
             )
-        ).fetchone()
+            row = await (
+                await conn.execute(
+                    "DELETE FROM eta_targets WHERE id = %s AND device_id = %s RETURNING id",
+                    (target_id, device_id),
+                )
+            ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Ціль не знайдено")
 

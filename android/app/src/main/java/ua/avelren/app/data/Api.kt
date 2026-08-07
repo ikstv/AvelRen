@@ -130,6 +130,13 @@ object Api {
         val problems: List<HealthProblem> = emptyList(),
     )
 
+    /** Canonical перелік активних (pending) alert'ів для reconciliation (A-02). */
+    @Serializable
+    data class ActiveAlerts(
+        val threshold: List<Long> = emptyList(),
+        val eta: List<Long> = emptyList(),
+    )
+
     @Serializable
     data class EtaTarget(
         val id: Long,
@@ -237,6 +244,11 @@ object Api {
 
     suspend fun etaTargets(creds: DeviceStore.Credentials): List<EtaTarget> =
         client.get("$base/eta-targets") { auth(creds) }.body()
+
+    /** Canonical pending-стан для reconciliation. 401/5xx/offline кидають —
+     * викликач (NotificationReconciler) на будь-якому винятку нічого не гасить. */
+    suspend fun activeAlerts(creds: DeviceStore.Credentials): ActiveAlerts =
+        client.get("$base/active-alerts") { auth(creds) }.body()
 
     suspend fun deleteEtaTarget(creds: DeviceStore.Credentials, targetId: Long) {
         client.delete("$base/eta-targets/$targetId") { auth(creds) }

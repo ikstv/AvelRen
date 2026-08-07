@@ -2,6 +2,9 @@ package ua.avelren.app
 
 import android.app.Application
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -9,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
+import ua.avelren.app.notify.NotificationReconciler
 import ua.avelren.app.notify.Notifications
 
 class AvelRenApp : Application() {
@@ -21,6 +25,19 @@ class AvelRenApp : Application() {
         Notifications.ensureChannel(this)
 
         CoroutineScope(Dispatchers.IO).launch { registerOrRecover() }
+
+        // Reconciliation при поверненні застосунку у foreground (A-02, шар 2):
+        // якщо cancel-push загубився, звіряємо показані сповіщення з сервером.
+        // На рівні application, а не Compose-екрана: це не UI-стан.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onResume(owner: LifecycleOwner) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        NotificationReconciler.reconcile(this@AvelRenApp)
+                    }
+                }
+            }
+        )
     }
 
     /**
@@ -63,11 +80,18 @@ class AvelRenApp : Application() {
                     Log.i(TAG, "пристрій перереєстровано")
                 } catch (retry: Exception) {
                     Log.w(TAG, "перереєстрація не вдалася: ${retry.message}")
+                    return
                 }
             } else {
                 Log.w(TAG, "реєстрація не вдалася: ${e.message}")
+                return
             }
         }
+
+        // Startup race: onResume міг спрацювати до появи credentials і той
+        // reconcile вийшов рано. Тепер, коли пара точно є, звіряємо ще раз.
+        // Reconcile ідемпотентний і захищений Mutex-ом.
+        NotificationReconciler.reconcile(this)
     }
 
     companion object {

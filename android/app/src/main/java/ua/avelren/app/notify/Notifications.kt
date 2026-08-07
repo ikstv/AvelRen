@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -50,6 +51,12 @@ object Notifications {
 
     const val CHANNEL_ID = "avelren_alerts"
     const val INFO_CHANNEL_ID = "avelren_info"
+
+    // Повні kind + alertId у extras сповіщення. Reconciliation читає саме їх, а
+    // не display-id: notificationId() необоротний (усічення alertId % 10^7),
+    // тож відновити повний alertId з нього неможливо (аудит A-02).
+    const val EXTRA_KIND = "avelren_kind"
+    const val EXTRA_ALERT_ID = "avelren_alert_id"
 
     /**
      * Глобально унікальний ID сповіщення.
@@ -116,6 +123,12 @@ object Notifications {
             flags,
         )
 
+        // Повний ключ для reconciliation — саме тут, бо display-id усічений.
+        val extras = Bundle().apply {
+            putString(EXTRA_KIND, kind)
+            putLong(EXTRA_ALERT_ID, alertId)
+        }
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -129,6 +142,7 @@ object Notifications {
             .setContentIntent(openPending)
             .addAction(0, context.getString(R.string.ok), ackPending)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addExtras(extras)
             .build()
 
         if (canPostNotifications(context)) {
