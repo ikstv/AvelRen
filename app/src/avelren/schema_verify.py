@@ -1,9 +1,9 @@
 """Перевірка, що фактична схема БД узгоджена з історією міграцій (A-07).
 
 Використовується двічі, з одного джерела істини:
-  * `migrate.py` — ПІСЛЯ застосування/перевірки міграцій. Ловить стан, де
-    `schema_migrations` каже «009 застосовано», а фізично (напр. після битого
-    restore) колонки чи індексу нема. Історія без фактичної схеми — брехня.
+  * `migrate.py` — ДО застосування нових міграцій (prefix-aware verify_contract),
+    щоб виявити битий restore ДО того, як нові файли будуть застосовані; і ПІСЛЯ
+    (повний verify), щоб зловити будь-яку розбіжність схеми з повною історією.
   * `deploy/restore-verify.sh` (через `python -m avelren.schema_verify`) — щоб
     restore_test доводив не counts, а реальний контракт.
 
@@ -13,6 +13,10 @@
 Контракт свідомо перелічений явно, а не виводиться з тіл міграцій: мета —
 незалежна перевірка того, що ключові структури реально на місці, навіть якщо
 хтось відредагував міграцію або restore втратив частину схеми.
+
+Кожен запис анотований версією міграції, яка його створює. verify_contract()
+приймає recorded_versions; якщо None — перевіряє все (post-apply). Якщо множина
+— перевіряє лише об'єкти, введені тими версіями (pre-apply prefix gate).
 """
 
 import hashlib
@@ -26,48 +30,88 @@ from .config import settings
 
 log = logging.getLogger("avelren.schema_verify")
 
-# --- Фізичний контракт: що МУСИТЬ існувати на повністю змігрованій БД --------
+# --- Version-annotated physical contract ------------------------------------
+# Формат: (since_version | None, ...деталі об'єкта)
+# since=None → always required (schema_migrations).
+# Prefix gate в migrate.py фільтрує за recorded_versions.
 
-REQUIRED_TABLES = [
-    "checkpoints", "observations", "collector_runs", "countries",
-    "devices", "subscriptions", "alerts", "subscription_state",
-    "eta_targets", "eta_alerts", "health_alerts", "notification_cancels",
-    "observations_hourly",  # continuous aggregate — теж relation
-    "schema_migrations",
+_TABLES_V: list[tuple[str | None, str]] = [
+    ("001_init", "checkpoints"),
+    ("001_init", "observations"),
+    ("001_init", "collector_runs"),
+    ("002_countries", "countries"),
+    ("004_alerts", "devices"),
+    ("004_alerts", "subscriptions"),
+    ("004_alerts", "alerts"),
+    ("004_alerts", "subscription_state"),
+    ("005_eta_targets", "eta_targets"),
+    ("005_eta_targets", "eta_alerts"),
+    ("006_admin_devices", "health_alerts"),
+    ("008_notification_cancels", "notification_cancels"),
+    ("001_init", "observations_hourly"),   # continuous aggregate, 001_init
+    (None, "schema_migrations"),
 ]
 
-# Колонки, які додали пізніші міграції — саме їх втрачає частковий restore.
-REQUIRED_COLUMNS = [
-    ("checkpoints", "country_name"), ("checkpoints", "flag_emoji"),   # 002
-    ("devices", "fcm_token"), ("devices", "platform"),               # 004
-    ("devices", "is_admin"),                                         # 006
-    ("devices", "secret_hash"),                                      # 007
-    ("alerts", "status"), ("alerts", "send_count"),                  # 004
-    ("eta_alerts", "status"),                                        # 005
-    ("collector_runs", "derived_processed_at"),                      # 009
-    ("collector_runs", "derived_error"),                            # 009
-    ("health_alerts", "recovery_notified_at"),                       # 009
-    ("health_alerts", "recovery_abandoned_at"),                      # 009
-    ("notification_cancels", "kind"), ("notification_cancels", "alert_id"),
-    ("notification_cancels", "device_id"), ("notification_cancels", "accepted_at"),
-    ("notification_cancels", "abandoned_at"),                        # 008
+_COLUMNS_V: list[tuple[str | None, str, str]] = [
+    ("002_countries", "checkpoints", "country_name"),
+    ("002_countries", "checkpoints", "flag_emoji"),
+    ("004_alerts", "devices", "fcm_token"),
+    ("004_alerts", "devices", "platform"),
+    ("006_admin_devices", "devices", "is_admin"),
+    ("007_device_secret", "devices", "secret_hash"),
+    ("004_alerts", "alerts", "status"),
+    ("004_alerts", "alerts", "send_count"),
+    ("005_eta_targets", "eta_alerts", "status"),
+    ("009_observability", "collector_runs", "derived_processed_at"),
+    ("009_observability", "collector_runs", "derived_error"),
+    ("009_observability", "health_alerts", "recovery_notified_at"),
+    ("009_observability", "health_alerts", "recovery_abandoned_at"),
+    ("008_notification_cancels", "notification_cancels", "kind"),
+    ("008_notification_cancels", "notification_cancels", "alert_id"),
+    ("008_notification_cancels", "notification_cancels", "device_id"),
+    ("008_notification_cancels", "notification_cancels", "accepted_at"),
+    ("008_notification_cancels", "notification_cancels", "abandoned_at"),
 ]
 
-# Часткові унікальні індекси — саме вони тримають головні інваріанти
-# (один pending-алерт, один відкритий cancel тощо).
-REQUIRED_INDEXES = [
-    "alerts_one_pending_per_subscription",   # 004
-    "eta_alerts_one_pending_per_target",     # 005
-    "health_alerts_one_open_per_kind",       # 006
-    "notification_cancels_open_idx",         # 008
+# Інваріант-захисні індекси: перевіряємо що вони UNIQUE і PARTIAL (є WHERE-умова).
+# Втрата uniqueness або predicate = сервіс може вставити дублікати, API впаде.
+_UNIQUE_PARTIAL_INDEXES_V: list[tuple[str, str]] = [
+    ("004_alerts", "alerts_one_pending_per_subscription"),
+    ("005_eta_targets", "eta_alerts_one_pending_per_target"),
+    ("006_admin_devices", "health_alerts_one_open_per_kind"),
 ]
 
-REQUIRED_CONSTRAINTS = [
-    "notification_cancels_kind_alert_id_key",  # 008 UNIQUE(kind, alert_id)
+# Звичайні (не-unique) індекси: лише перевірка існування.
+_INDEXES_V: list[tuple[str, str]] = [
+    ("008_notification_cancels", "notification_cancels_open_idx"),
 ]
 
-HYPERTABLES = ["observations"]
-CONTINUOUS_AGGREGATES = ["observations_hourly"]
+# Іменовані UNIQUE-обмеження. ON CONFLICT у API прямо покладається на них;
+# якщо constraint загубився при restore — наступний POST впаде з неочікуваною помилкою.
+_CONSTRAINTS_V: list[tuple[str, str]] = [
+    ("004_alerts", "subscriptions_device_id_checkpoint_id_threshold_key"),
+    ("008_notification_cancels", "notification_cancels_kind_alert_id_key"),
+]
+
+_HYPERTABLES_V: list[tuple[str, str]] = [
+    ("001_init", "observations"),
+]
+
+_CONTINUOUS_AGGREGATES_V: list[tuple[str, str]] = [
+    ("001_init", "observations_hourly"),
+]
+
+
+def _want(since: str | None, recorded: set[str] | None) -> bool:
+    """Чи треба перевіряти цей об'єкт при заданому наборі recorded versions."""
+    if recorded is None:
+        return True
+    if since is None:
+        return True
+    return since in recorded
+
+
+# ---------------------------------------------------------------------------
 
 
 def expected_migrations(directory: Path) -> dict[str, str]:
@@ -99,16 +143,30 @@ def verify_history(conn: psycopg.Connection, directory: Path) -> list[str]:
     return problems
 
 
-def verify_contract(conn: psycopg.Connection) -> list[str]:
-    """Фізична схема: критичні таблиці/колонки/індекси/Timescale-обʼєкти."""
-    problems: list[str] = []
+def verify_contract(
+    conn: psycopg.Connection,
+    recorded_versions: set[str] | None = None,
+) -> list[str]:
+    """Фізична схема: таблиці/колонки/індекси/constraints/Timescale-об'єкти.
 
-    for table in REQUIRED_TABLES:
+    recorded_versions=None → повна перевірка (post-apply, всі об'єкти).
+    recorded_versions=set  → лише об'єкти, введені тими версіями (pre-apply
+    prefix gate: виявити битий restore ДО застосування нових файлів).
+    """
+    problems: list[str] = []
+    def want(since: str | None) -> bool:
+        return _want(since, recorded_versions)
+
+    for since, table in _TABLES_V:
+        if not want(since):
+            continue
         row = conn.execute("SELECT to_regclass(%s)", (f"public.{table}",)).fetchone()
         if not row or row[0] is None:
             problems.append(f"нема таблиці/relation {table}")
 
-    for table, column in REQUIRED_COLUMNS:
+    for since, table, column in _COLUMNS_V:
+        if not want(since):
+            continue
         row = conn.execute(
             """
             SELECT 1 FROM information_schema.columns
@@ -119,19 +177,45 @@ def verify_contract(conn: psycopg.Connection) -> list[str]:
         if not row:
             problems.append(f"нема колонки {table}.{column}")
 
-    for index in REQUIRED_INDEXES:
+    # Інваріант-індекси: перевіряємо uniqueness і partiality, а не лише існування.
+    for since, index in _UNIQUE_PARTIAL_INDEXES_V:
+        if not want(since):
+            continue
+        row = conn.execute(
+            """
+            SELECT i.indisunique, i.indpred IS NOT NULL AS is_partial
+            FROM pg_class c
+            JOIN pg_index i ON i.indexrelid = c.oid
+            WHERE c.relname = %s AND c.relkind = 'i'
+            """,
+            (index,),
+        ).fetchone()
+        if not row:
+            problems.append(f"нема індексу {index}")
+        elif not row[0]:
+            problems.append(f"індекс {index} не є UNIQUE (інваріант порушено)")
+        elif not row[1]:
+            problems.append(f"індекс {index} не є partial — нема WHERE-умови")
+
+    for since, index in _INDEXES_V:
+        if not want(since):
+            continue
         row = conn.execute("SELECT to_regclass(%s)", (f"public.{index}",)).fetchone()
         if not row or row[0] is None:
             problems.append(f"нема індексу {index}")
 
-    for constraint in REQUIRED_CONSTRAINTS:
+    for since, constraint in _CONSTRAINTS_V:
+        if not want(since):
+            continue
         row = conn.execute(
             "SELECT 1 FROM pg_constraint WHERE conname = %s", (constraint,)
         ).fetchone()
         if not row:
             problems.append(f"нема обмеження {constraint}")
 
-    for ht in HYPERTABLES:
+    for since, ht in _HYPERTABLES_V:
+        if not want(since):
+            continue
         row = conn.execute(
             "SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_name = %s",
             (ht,),
@@ -139,7 +223,9 @@ def verify_contract(conn: psycopg.Connection) -> list[str]:
         if not row:
             problems.append(f"{ht} не є гіпертаблицею")
 
-    for cagg in CONTINUOUS_AGGREGATES:
+    for since, cagg in _CONTINUOUS_AGGREGATES_V:
+        if not want(since):
+            continue
         row = conn.execute(
             "SELECT 1 FROM timescaledb_information.continuous_aggregates WHERE view_name = %s",
             (cagg,),

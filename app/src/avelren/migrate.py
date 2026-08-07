@@ -13,16 +13,17 @@ Docker виконує файли з db/migrations лише при створен
 переконливу брехню: історія каже «001..NNN застосовано», а структур насправді
 нема. Тепер:
 
+  * порожній каталог міграцій → **FAIL CLOSED** (не можна довести стан);
   * чиста БД (жодного відомого AvelRen-обʼєкта) → створюємо історію й
     застосовуємо все;
-  * коректна історія → звичайний шлях (SHA-перевірка + застосування нових);
+  * коректна історія → prefix-gate + pre-apply physical check, потім нові файли;
   * будь-який AvelRen-обʼєкт існує, а довіреної історії нема → **FAIL CLOSED**.
 
 Автоматичного baseline більше немає. Якщо колись треба узаконити legacy-БД без
 історії — це свідома ручна процедура оператора (перевірити структуру, вставити
 рядки в schema_migrations), а не щось, що відбувається саме собою на deploy.
 
-Після застосування схема звіряється з історією (`schema_verify`): якщо
+Після застосування схема звіряється з повним контрактом (`schema_verify`): якщо
 `schema_migrations` каже одне, а фізична схема інше (напр. restore втратив
 колонку) — теж exit 1.
 """
@@ -81,8 +82,11 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
 
     files = _discover(directory)
     if not files:
-        log.warning("міграцій не знайдено в %s", directory)
-        return 0
+        # Порожній каталог означає, що /migrations не змонтувався, шлях
+        # хибний або каталог видалили. Дозволяти старт API на невідомій схемі
+        # небезпечно — fail closed.
+        log.error("міграцій не знайдено в %s — зупиняємо (fail-closed)", directory)
+        return 1
 
     applied = 0
     with psycopg.connect(settings.database_url, autocommit=False) as conn:
@@ -108,6 +112,43 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
                 )
                 return 1
             log.info("чиста БД — застосовую всі міграції з нуля")
+
+        # A-07 prefix gate: якщо щось вже записано, перевіряємо що записане
+        # є коректним contiguous prefix файлів — без пропуску і без майбутніх
+        # версій. Лише потім (і лише при коректному prefix) перевіряємо фізичну
+        # схему, щоб виявити битий restore ДО того, як нові файли застосуються.
+        if known:
+            sorted_stems = [f.stem for f in files]
+            known_set = set(known.keys())
+
+            future = known_set - set(sorted_stems)
+            if future:
+                log.error(
+                    "в БД записані невідомі/майбутні міграції (файлів нема в репо): %s",
+                    ", ".join(sorted(future)),
+                )
+                return 1
+
+            n = len(known_set)
+            expected_prefix = {sorted_stems[i] for i in range(n)}
+            gaps = expected_prefix - known_set
+            if gaps:
+                log.error(
+                    "в записаній історії є пропуски (відсутні з першого prefix): %s",
+                    ", ".join(sorted(gaps)),
+                )
+                return 1
+
+            # Фізичний контракт для поточного prefix — до застосування нових файлів.
+            pre_problems = schema_verify.verify_contract(conn, recorded_versions=known_set)
+            if pre_problems:
+                log.error(
+                    "фізична схема суперечить записаній PREFIX-історії "
+                    "(A-07, до нових міграцій):"
+                )
+                for p in pre_problems:
+                    log.error("  - %s", p)
+                return 1
 
         for path in files:
             version = path.stem
@@ -138,8 +179,7 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
                 log.error("міграція %s не вдалася: %s", version, exc)
                 return 1
 
-        # Історія тепер повна — але чи погоджується з нею фізична схема?
-        # Битий restore міг мати правильні SHA й водночас втратити колонку.
+        # Повний post-apply verify: історія + фізичний контракт усіх версій.
         problems = schema_verify.verify(conn, directory)
         if problems:
             log.error("схема суперечить історії міграцій (A-07):")
