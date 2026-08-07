@@ -74,11 +74,11 @@ services:
     command: ["uvicorn", "avelren.api:app", "--host", "0.0.0.0", "--port", "8000"]
     env_file: .env
     volumes:
-      # Для телеметрії: /secrets дає statvfs диска хоста, /run — прапорець
-      # ребуту й позначку часу останньої резервної копії. Обидва на читання.
-      - ./secrets:/secrets:ro
-      - /run:/host/run:ro
-      - /proc:/host/proc:ro
+      # Тільки host-telemetry snapshot: JSON пише systemd-таймер на хості
+      # (deploy/telemetry-snapshot.sh), API його лише читає. Ніяких /secrets,
+      # /proc, /run у public контейнері — RCE у FastAPI більше не веде до
+      # Firebase service-account (аудит SEC-1 / A-01).
+      - /var/lib/avelren-telemetry:/telemetry:ro
     expose:
       - "8000"
     depends_on:

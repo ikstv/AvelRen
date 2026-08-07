@@ -26,7 +26,10 @@ jobs:
             app/src/avelren/watchdog.py \
             db/migrations/001_init.sql \
             deploy/backup.sh \
-            deploy/restore.sh
+            deploy/restore.sh \
+            deploy/telemetry-snapshot.sh \
+            deploy/avelren-telemetry.service \
+            deploy/avelren-telemetry.timer
           do
             git ls-files --error-unmatch "$f" >/dev/null || { echo "ВІДСУТНІЙ У GIT: $f"; exit 1; }
           done
@@ -70,6 +73,63 @@ jobs:
         run: python -m avelren.migrate db/migrations
       - name: Тести
         run: python -m pytest app/tests -q -p no:cacheprovider
+
+      - name: Snapshot script — синтаксис
+        run: bash -n deploy/telemetry-snapshot.sh
+
+      - name: Snapshot script — реальний прогін на runner-хості
+        # Ubuntu-runner має /proc/loadavg, /proc/meminfo, df, openssl тощо —
+        # тобто script може виконатися в тому самому середовищі, що й на
+        # production. Це доводить, що telemetry-pipeline не деградує на нових
+        # версіях coreutils/openssl і що JSON парситься.
+        run: |
+          set -euo pipefail
+          export AVELREN_FS_PROBE=/
+          # Каталог за замовчуванням /var/lib/avelren-telemetry потребує root;
+          # переспрямуємо в user-writable місце.
+          sudo mkdir -p /var/lib/avelren-telemetry
+          sudo chown "$USER" /var/lib/avelren-telemetry
+          bash deploy/telemetry-snapshot.sh
+          python -c "import json; d=json.load(open('/var/lib/avelren-telemetry/host.json')); \
+            assert d['collected_at']; \
+            assert d['system']['cpu_count'] > 0; \
+            assert 'network' in d and 'backups' in d and 'certificate' in d; \
+            print('snapshot ok:', d['system']['cpu_count'], 'CPUs')"
+
+      - name: Snapshot script — фільтрація мережевих інтерфейсів
+        # Регресія на review PR #3: у /proc/net/dev назви вирівняні пробілами
+        # ("    lo:"), і bash-варіант ${name## } зрізав лише один пробіл, тож
+        # lo/docker*/br-*/veth* мовчки потрапляли в лічильник зовнішнього
+        # трафіку. CI-прогін вище цього не ловив — він перевіряв лише
+        # наявність ключа "network". Тут перевіряємо саме відбір.
+        run: |
+          set -euo pipefail
+          # Синтетичний /proc/net/dev. eth0 — рівно 1 ГБ rx / 2 ГБ tx;
+          # lo, docker0, veth9a, br-abc мають бути відкинуті (у них сотні ГБ,
+          # тож будь-яка домішка одразу зіб'є точні 1.00/2.00). Асершн виду
+          # "== 0" пройшов би й при зламаному відборі, який викидає геть усе,
+          # тому перевіряємо саме точні значення eth0.
+          #
+          # Провідні пробіли навмисні — у справжньому /proc/net/dev назви
+          # вирівняні саме так, і це та деталь, на якій фільтр і зламався.
+          cat > /tmp/fake_net_dev <<'NETDEV'
+          Inter-|   Receive                                                |  Transmit
+           face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+              lo: 500000000000  100    0    0    0     0          0         0 500000000000   100    0    0    0     0       0          0
+          docker0: 400000000000  200    0    0    0     0          0         0 400000000000   200    0    0    0     0       0          0
+           veth9a: 300000000000  200    0    0    0     0          0         0 300000000000   200    0    0    0     0       0          0
+           br-abc: 200000000000  200    0    0    0     0          0         0 200000000000   200    0    0    0     0       0          0
+            eth0: 1073741824  300    0    0    0     0          0         0 2147483648   300    0    0    0     0       0          0
+          NETDEV
+          # Прогін САМОГО script (через AVELREN_NET_DEV), а не його копії:
+          # інакше правка script не ламала б цей тест.
+          export AVELREN_FS_PROBE=/ AVELREN_NET_DEV=/tmp/fake_net_dev
+          bash deploy/telemetry-snapshot.sh
+          python -c "import json; \
+            net = json.load(open('/var/lib/avelren-telemetry/host.json'))['network']; \
+            assert net['rx_total_gb'] == 1.0, 'rx має бути 1.00 ГБ (лише eth0): %r' % net; \
+            assert net['tx_total_gb'] == 2.0, 'tx має бути 2.00 ГБ (лише eth0): %r' % net; \
+            print('interface filtering ok:', net)"
 
   android-build:
     runs-on: ubuntu-latest

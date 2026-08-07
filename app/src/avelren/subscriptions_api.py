@@ -415,11 +415,20 @@ async def admin_telemetry(
         if not row or not row["is_admin"]:
             raise HTTPException(status_code=403, detail="Потрібен адміністративний пристрій")
 
+        system = telemetry.system()
+        problems = await telemetry.health_alerts(conn)
+
+        # Протухлий host-snapshot підіймаємо в той самий список проблем:
+        # інакше збій telemetry-таймера виглядає як здоровий сервер із нулями.
+        stale = telemetry.snapshot_problem(system)
+        if stale is not None:
+            problems = [stale, *problems]
+
         return {
-            "system": telemetry.system(),
+            "system": system,
             "network": telemetry.network(),
             "pipeline": await telemetry.pipeline(conn),
             "certificate": telemetry.certificate(),
             "backups": telemetry.backups(),
-            "problems": await telemetry.health_alerts(conn),
+            "problems": problems,
         }
