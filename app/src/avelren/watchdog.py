@@ -12,7 +12,9 @@
 import asyncio
 import logging
 import signal
+import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 from psycopg import AsyncConnection
@@ -24,6 +26,8 @@ from .db import get_pool
 log = logging.getLogger("avelren.watchdog")
 
 CHECK_INTERVAL = 300
+# Ребут — справа планова, а не термінова: даємо кілька діб на зручний момент.
+REBOOT_GRACE_DAYS = 3
 RESEND_INTERVAL = 3600  # тривогу повторюємо раз на годину, а не щоп'ять хвилин
 
 _stop = asyncio.Event()
@@ -71,7 +75,28 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     if gb > 20:
         problems["db_size"] = f"база розрослась до {gb:.1f} ГБ"
 
+    reboot = _reboot_pending()
+    if reboot is not None and reboot >= REBOOT_GRACE_DAYS:
+        problems["reboot_required"] = (
+            f"оновлення чекає перезавантаження {reboot} дн. "
+            "Ядро з виправленням встановлене, але працює старе"
+        )
+
     return problems
+
+
+def _reboot_pending() -> int | None:
+    """Скільки діб сервер просить перезавантаження, або None.
+
+    Автоматичний ребут ми свідомо не вмикаємо: сервіс лягав би вночі без
+    попередження. Але тоді хтось має помічати цей файл — інакше ядро з
+    відомою вразливістю встановлене, а працює старе, і так місяцями.
+    """
+    flag = Path("/host/run/reboot-required")
+    if not flag.exists():
+        return None
+    age = time.time() - flag.stat().st_mtime
+    return int(age // 86400)
 
 
 async def _open_alerts(conn: AsyncConnection) -> dict[str, dict]:
