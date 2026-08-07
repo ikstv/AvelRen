@@ -98,11 +98,21 @@ async def expire_passed(conn: AsyncConnection) -> int:
             SET is_active = false
             WHERE is_active AND target_at < now()
             RETURNING id
+        ),
+        expired AS (
+            UPDATE eta_alerts a
+            SET status = 'expired', expired_at = now()
+            WHERE a.status = 'pending' AND a.target_id IN (SELECT id FROM stale)
+            RETURNING a.id, a.target_id
+        ),
+        enqueued AS (
+            INSERT INTO notification_cancels (kind, alert_id, device_id)
+            SELECT 'eta', e.id, t.device_id
+            FROM expired e
+            JOIN eta_targets t ON t.id = e.target_id
+            ON CONFLICT (kind, alert_id) DO NOTHING
         )
-        UPDATE eta_alerts
-        SET status = 'expired', expired_at = now()
-        WHERE status = 'pending' AND target_id IN (SELECT id FROM stale)
-        RETURNING id
+        SELECT id FROM expired
         """
     )
     rows = await cur.fetchall()

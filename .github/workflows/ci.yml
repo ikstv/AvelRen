@@ -29,7 +29,11 @@ jobs:
             deploy/restore.sh \
             deploy/telemetry-snapshot.sh \
             deploy/avelren-telemetry.service \
-            deploy/avelren-telemetry.timer
+            deploy/avelren-telemetry.timer \
+            db/migrations/008_notification_cancels.sql \
+            app/src/avelren/cancels.py \
+            android/app/src/main/java/ua/avelren/app/notify/AlertReconciliation.kt \
+            android/app/src/test/java/ua/avelren/app/notify/AlertReconciliationTest.kt
           do
             git ls-files --error-unmatch "$f" >/dev/null || { echo "ВІДСУТНІЙ У GIT: $f"; exit 1; }
           done
@@ -164,6 +168,12 @@ jobs:
           EOF
       - name: Збірка
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon -q
+
+      - name: JVM unit-тести
+        # Досі Android перевірявся лише компіляцією й lint — поведінка не
+        # тестувалась. Reconciliation-логіка A-02 крихка (розбір ключів,
+        # set-diff, no-truncation), тож її прогін тут обов'язковий.
+        run: cd android && ./gradlew testDebugUnitTest --no-daemon -q
 
       - name: Лінтер Android
         run: cd android && ./gradlew lintDebug --no-daemon -q

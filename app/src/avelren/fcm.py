@@ -123,3 +123,18 @@ def eta_payload(alert_id: int, title: str, eta_local: str) -> dict[str, str]:
         "title": "Час реєструватися",
         "body": f"{title}: зареєструйся зараз — в'їзд орієнтовно {eta_local}",
     }
+
+
+def cancel_payload(kind: str, alert_id: int) -> dict[str, str]:
+    """Скасування вже показаної нотифікації (A-02).
+
+    `kind` тут — тип алерта (threshold|eta), а не тип повідомлення: telefon
+    рахує з нього той самий notification id, що й для оригіналу, і гасить його.
+    Той самий collapse_key, що й у оригінального push, тож cancel заміщує
+    будь-який недоставлений повтор.
+    """
+    return {
+        "type": "cancel",
+        "kind": kind,
+        "alert_id": str(alert_id),
+    }

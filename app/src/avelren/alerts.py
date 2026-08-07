@@ -120,21 +120,36 @@ async def expire_stale(conn: AsyncConnection) -> int:
     """Закриває непідтверджені алерти, чия черга вже впала нижче порога.
 
     Будити людину новиною про чергу, якої більше немає, — шкода, а не користь.
+
+    Перехід pending → expired і enqueue cancel'а йдуть однією транзакцією
+    (CTE): інакше падіння процесу між ними лишило б телефон із ongoing-
+    сповіщенням, яке сервер уже закрив (аудит A-02). Cancel enqueue-иться
+    незалежно від send_count — див. cancels / міграцію 008.
     """
     cur = await conn.execute(
         """
-        UPDATE alerts a
-        SET status = 'expired', expired_at = now()
-        FROM (
-            SELECT DISTINCT ON (checkpoint_id) checkpoint_id, vehicles_in_queue
-            FROM observations
-            WHERE time > now() - INTERVAL '10 minutes'
-            ORDER BY checkpoint_id, time DESC
-        ) o
-        WHERE a.status = 'pending'
-          AND a.checkpoint_id = o.checkpoint_id
-          AND o.vehicles_in_queue < a.threshold
-        RETURNING a.id
+        WITH expired AS (
+            UPDATE alerts a
+            SET status = 'expired', expired_at = now()
+            FROM (
+                SELECT DISTINCT ON (checkpoint_id) checkpoint_id, vehicles_in_queue
+                FROM observations
+                WHERE time > now() - INTERVAL '10 minutes'
+                ORDER BY checkpoint_id, time DESC
+            ) o
+            WHERE a.status = 'pending'
+              AND a.checkpoint_id = o.checkpoint_id
+              AND o.vehicles_in_queue < a.threshold
+            RETURNING a.id, a.subscription_id
+        ),
+        enqueued AS (
+            INSERT INTO notification_cancels (kind, alert_id, device_id)
+            SELECT 'threshold', e.id, s.device_id
+            FROM expired e
+            JOIN subscriptions s ON s.id = e.subscription_id
+            ON CONFLICT (kind, alert_id) DO NOTHING
+        )
+        SELECT id FROM expired
         """
     )
     rows = await cur.fetchall()
