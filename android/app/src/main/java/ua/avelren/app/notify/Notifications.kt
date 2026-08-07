@@ -1,6 +1,7 @@
 package ua.avelren.app.notify
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -88,6 +89,11 @@ object Notifications {
             .createNotificationChannel(channel)
     }
 
+    // Явна перевірка POST_NOTIFICATIONS робиться в canPostNotifications(),
+    // але lint читає лише анотацію @RequiresPermission на самому notify() і не
+    // йде за викликом. Suppression вузьке (одна функція) і має підставу — це
+    // не lint-baseline.
+    @SuppressLint("MissingPermission")
     fun show(context: Context, alertId: Long, kind: String, title: String, body: String) {
         ensureChannel(context)
 
@@ -137,6 +143,7 @@ object Notifications {
      * AckReceiver. Раніше health ішло через show() з alert_id=0 — ongoing,
      * яке кнопкою ОК не гасилось узагалі (аудит R-03).
      */
+    @SuppressLint("MissingPermission")
     fun showInfo(context: Context, title: String, body: String) {
         ensureChannel(context)
         val channel = NotificationChannel(
