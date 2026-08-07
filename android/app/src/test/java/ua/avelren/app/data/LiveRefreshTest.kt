@@ -80,6 +80,53 @@ class LiveRefreshTest {
         assertEquals("fc-new", forecast)          // оновлено попри workload-fail
     }
 
+    // --- B2: freshness рухається з годинником навіть за незмінного snapshot ---
+
+    @Test
+    fun `stale flips as clock advances for unchanged observation`() {
+        val obs = "2026-08-07T12:00:00Z"  // той самий observation snapshot
+        assertFalse(LiveRefresh.freshness(obs, Instant.parse("2026-08-07T12:00:30Z")).stale)  // 30 c
+        assertFalse(LiveRefresh.freshness(obs, Instant.parse("2026-08-07T12:02:00Z")).stale)  // 120 c
+        assertTrue(LiveRefresh.freshness(obs, Instant.parse("2026-08-07T12:03:30Z")).stale)   // 210 c
+    }
+
+    // --- B1: forecast keep-last прив'язаний саме до вибраного КПП -----------
+
+    private fun forecast(cp: Int) = Api.Forecast(
+        checkpoint_id = cp, status = "ready", weeks_collected = 4.0, weeks_needed = 4,
+    )
+
+    @Test
+    fun `scopedForecast drops previous checkpoint on failure of new one`() {
+        // Кеш для A, вибрано B, запит forecast(B) впав → прогнозу A НЕ показуємо.
+        val kept = LiveRefresh.scopedForecast(
+            previous = forecast(cp = 1),
+            attempt = Result.failure(RuntimeException("slow/fail")),
+            selectedCheckpoint = 2,
+        )
+        assertEquals(null, kept)
+    }
+
+    @Test
+    fun `scopedForecast takes new forecast on success`() {
+        val kept = LiveRefresh.scopedForecast(
+            previous = forecast(cp = 1),
+            attempt = Result.success(forecast(cp = 2)),
+            selectedCheckpoint = 2,
+        )
+        assertEquals(2, kept?.checkpoint_id)
+    }
+
+    @Test
+    fun `scopedForecast keeps previous when same checkpoint and request fails`() {
+        val kept = LiveRefresh.scopedForecast(
+            previous = forecast(cp = 2),
+            attempt = Result.failure(RuntimeException("net")),
+            selectedCheckpoint = 2,
+        )
+        assertEquals(2, kept?.checkpoint_id)  // той самий КПП — cached валідний
+    }
+
     // --- polling ----------------------------------------------------------
 
     @Test

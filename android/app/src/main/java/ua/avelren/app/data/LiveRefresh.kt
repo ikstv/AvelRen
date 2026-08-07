@@ -34,7 +34,7 @@ object LiveRefresh {
     ): Freshness {
         val obs = observationIso
             ?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() }
-            ?: return Freshness("оновлення невідоме", stale = true)
+            ?: return Freshness("невідомо", stale = true)
 
         val ageSec = Duration.between(obs, now).seconds.coerceAtLeast(0)
         val label = if (ageSec < 60) "щойно" else "${ageSec / 60} хв тому"
@@ -48,6 +48,21 @@ object LiveRefresh {
      */
     fun <T> keepOnError(previous: T, attempt: Result<T>): T =
         attempt.getOrDefault(previous)
+
+    /**
+     * Keep-last для forecast, прив'язаний саме до обраного КПП. Інакше повільний
+     * або впалий запит forecast нового КПП залишив би на екрані прогноз
+     * попереднього — а під карткою вже інший пункт (люди на цьому планують час).
+     * Cached приймаємо лише якщо він того ж checkpoint, що й обраний.
+     */
+    fun scopedForecast(
+        previous: Api.Forecast?,
+        attempt: Result<Api.Forecast?>,
+        selectedCheckpoint: Int,
+    ): Api.Forecast? {
+        val previousForSelected = previous?.takeIf { it.checkpoint_id == selectedCheckpoint }
+        return attempt.getOrDefault(previousForSelected)
+    }
 
     /**
      * Foreground-цикл: refresh ОДРАЗУ, потім кожні [intervalMs]. Скасування

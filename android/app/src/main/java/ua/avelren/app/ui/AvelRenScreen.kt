@@ -72,6 +72,11 @@ fun AvelRenScreen() {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var refreshError by remember { mutableStateOf(false) }
+    var forecastError by remember { mutableStateOf(false) }
+    // Оновлюється КОЖЕН poll (навіть якщо payload не змінився), щоб freshness
+    // рухалась і UI переходив у stale, коли collector завис, а API віддає той
+    // самий snapshot (B2).
+    var freshnessNow by remember { mutableStateOf(Instant.now()) }
     var showEtaDialog by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
     var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
@@ -97,8 +102,16 @@ fun AvelRenScreen() {
 
                 if (selected > 0) {
                     val fcRes: Result<Api.Forecast?> = runCatching { Api.forecast(selected) }
-                    forecast = LiveRefresh.keepOnError(forecast, fcRes)
+                    // keep-last лише для того самого КПП: forecast(A) не має
+                    // лишитися під карткою КПП B (B1).
+                    forecast = LiveRefresh.scopedForecast(forecast, fcRes, selected)
+                    forecastError = fcRes.isFailure
+                } else {
+                    forecast = null
+                    forecastError = false
                 }
+                // Годинник свіжості рухається щополл, незалежно від payload.
+                freshnessNow = Instant.now()
                 loading = false
             }
         }
@@ -152,9 +165,10 @@ fun AvelRenScreen() {
                 val obsTime =
                     if (selected > 0) current?.time
                     else workload.mapNotNull { it.time }.maxOrNull()
-                val f = LiveRefresh.freshness(obsTime, Instant.now())
+                val f = LiveRefresh.freshness(obsTime, freshnessNow)
                 val suffix = when {
                     refreshError -> " · не вдалося оновити"
+                    forecastError -> " · прогноз не оновився"
                     f.stale -> " · дані застарілі"
                     else -> ""
                 }
@@ -239,7 +253,9 @@ fun AvelRenScreen() {
                 )
             }
 
-            item { ForecastCard(forecast) }
+            // Defense-in-depth (B1): навіть якщо в стан просочився прогноз
+            // іншого КПП — під карткою обраного його не показуємо.
+            item { ForecastCard(forecast?.takeIf { it.checkpoint_id == selected }) }
             item { TelemetryCard(telemetry) }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp)) }
         }
