@@ -29,6 +29,13 @@ CHECK_INTERVAL = 300
 # Ребут — справа планова, а не термінова: даємо кілька діб на зручний момент.
 REBOOT_GRACE_DAYS = 3
 RESEND_INTERVAL = 3600  # тривогу повторюємо раз на годину, а не щоп'ять хвилин
+# Якщо recovery так і не доставлено за стільки діб — здаємось (напр. адмін-
+# пристрій зник). Інакше ретраїли б вічно.
+RECOVERY_GIVE_UP_DAYS = 1
+# Скільки незавершених secondary-циклів після grace вважати проблемою. Кілька,
+# а не один: під час deploy старий колектор устигає записати 1–2 рядки без
+# derived-статусу, і це не має піднімати тривогу.
+DERIVED_STUCK_THRESHOLD = 3
 
 _stop = asyncio.Event()
 
@@ -65,6 +72,46 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     ).fetchone()
     if row and row["failed"] >= 10:
         problems["collector_errors"] = f"{row['failed']} помилок за півгодини"
+
+    # Вторинний конвеєр (alerts/ETA) — окремо від fetch. Без цієї перевірки
+    # observations свіжі, collector_errors чистий, а сповіщення тихо не
+    # працюють (аудит OBS-1). Дзеркало перевірки вище, але по derived_error.
+    row = await (
+        await conn.execute(
+            """
+            SELECT count(*) AS failed
+            FROM collector_runs
+            WHERE time > now() - INTERVAL '30 minutes' AND derived_error IS NOT NULL
+            """
+        )
+    ).fetchone()
+    if row and row["failed"] >= 10:
+        problems["derived_errors"] = (
+            f"обробка алертів/ETA впала {row['failed']} разів за півгодини"
+        )
+
+    # Hard-crash secondary-фази: SIGKILL/OOM між primary-комітом і кінцем
+    # secondary лишає derived_processed_at=NULL і derived_error=NULL — виняток
+    # не спрацював, тож попередня перевірка це не ловить. Після grace-періоду
+    # (in-flight цикл ще міг не дописати статус) такі рядки — реальний сигнал,
+    # що вторинний конвеєр systematically не завершується (аудит OBS-1 / B3).
+    row = await (
+        await conn.execute(
+            """
+            SELECT count(*) AS stuck
+            FROM collector_runs
+            WHERE time > now() - INTERVAL '30 minutes'
+              AND time < now() - INTERVAL '2 minutes'
+              AND derived_processed_at IS NULL
+              AND derived_error IS NULL
+            """
+        )
+    ).fetchone()
+    if row and row["stuck"] >= DERIVED_STUCK_THRESHOLD:
+        problems["derived_stuck"] = (
+            f"обробка алертів/ETA не завершилась {row['stuck']} разів за півгодини "
+            "(ймовірно, контейнер падає у вторинній фазі)"
+        )
 
     row = await (
         await conn.execute(
@@ -122,14 +169,19 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
         problems = await _checks(conn)
         open_alerts = await _open_alerts(conn)
 
-        # Проблема зникла — закриваємо тривогу й повідомляємо про відновлення.
+        # Проблема зникла — закриваємо тривогу ОДРАЗУ (стан системи не має
+        # брехати). Recovery-повідомлення НЕ шлемо тут: раніше resolved_at
+        # ставився незалежно від результату _notify, і якщо push падав, адмін
+        # не дізнавався про відновлення, а повтору не було (аудит OBS-2).
+        # Доставку recovery веде окрема фаза нижче.
         for kind, alert in open_alerts.items():
             if kind not in problems:
                 await conn.execute(
                     "UPDATE health_alerts SET resolved_at = now() WHERE id = %s", (alert["id"],)
                 )
                 log.info("проблема %s зникла", kind)
-                await _notify(conn, client, "AvelRen відновився", f"{kind}: усе гаразд")
+
+        await _deliver_recoveries(conn, client)
 
         for kind, detail in problems.items():
             alert = open_alerts.get(kind)
@@ -161,6 +213,47 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
                         """,
                         (alert["id"],),
                     )
+
+
+async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) -> None:
+    """Доставляє recovery-повідомлення для вже закритих проблем (OBS-2).
+
+    resolved_at ставиться одразу, коли проблема зникла, а recovery_notified_at
+    — лише після фактичної доставки. Ретраїмо щоциклу, поки не вийде; якщо за
+    RECOVERY_GIVE_UP_DAYS так і не доставили (напр. немає адмін-пристрою),
+    здаємось, щоб не намагатися вічно.
+    """
+    rows = await (
+        await conn.execute(
+            """
+            SELECT id, kind, resolved_at
+            FROM health_alerts
+            WHERE resolved_at IS NOT NULL
+              AND recovery_notified_at IS NULL
+              AND recovery_abandoned_at IS NULL
+            ORDER BY resolved_at
+            """
+        )
+    ).fetchall()
+
+    for r in rows:
+        age_days = (datetime.now(UTC) - r["resolved_at"]).total_seconds() / 86400
+        if await _notify(conn, client, "AvelRen відновився", f"{r['kind']}: усе гаразд"):
+            # notified — ЛИШЕ по факту доставки. Give-up іде в окреме поле,
+            # щоб по БД можна було відрізнити «доставлено» від «здалися» (B2).
+            await conn.execute(
+                "UPDATE health_alerts SET recovery_notified_at = now() WHERE id = %s",
+                (r["id"],),
+            )
+            log.info("доставлено recovery %s", r["kind"])
+        elif age_days > RECOVERY_GIVE_UP_DAYS:
+            await conn.execute(
+                "UPDATE health_alerts SET recovery_abandoned_at = now() WHERE id = %s",
+                (r["id"],),
+            )
+            log.warning(
+                "здаюся з recovery %s: не доставлено за %d дн", r["kind"], RECOVERY_GIVE_UP_DAYS
+            )
 
 
 async def _notify(
