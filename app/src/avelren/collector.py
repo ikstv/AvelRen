@@ -10,6 +10,7 @@ from .config import settings
 from .db import (
     get_pool,
     insert_observations,
+    record_derived,
     record_run,
     upsert_checkpoints,
     upsert_countries,
@@ -63,16 +64,28 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
         return
 
     # Алерти — окрема транзакція: їхній збій коштує максимум запізнілого
-    # сповіщення, яке наступний цикл надолужить. Спостереження вже в базі.
-    if items:
-        try:
-            async with get_pool().connection() as conn:
+    # сповіщення, яке наступний цикл надолужить. Спостереження вже в базі
+    # (розділення R-06 не відкочуємо). Але тепер результат цієї фази durable:
+    # раніше збій ішов лише в лог, і watchdog його не бачив — вторинний
+    # конвеєр міг тихо померти при свіжих observations (аудит OBS-1).
+    try:
+        async with get_pool().connection() as conn:
+            if items:
                 await alerts.evaluate(conn, items)
                 await alerts.expire_stale(conn)
                 await eta.evaluate(conn, at, items)
                 await eta.expire_passed(conn)
-        except Exception as exc:
-            log.error("алерти циклу %s пропущено: %s", at.isoformat(), exc)
+            # Порожній цикл — теж успішно оброблений: роботи не було.
+            await record_derived(conn, at, error=None)
+    except Exception as exc:
+        log.error("алерти циклу %s пропущено: %s", at.isoformat(), exc)
+        # Окрема транзакція: попередня відкотилась, статус пишемо чистим
+        # з'єднанням, щоб watchdog побачив саме derived-помилку.
+        try:
+            async with get_pool().connection() as conn:
+                await record_derived(conn, at, error=str(exc)[:500])
+        except Exception as exc2:
+            log.error("не вдалося зафіксувати derived-помилку циклу %s: %s", at.isoformat(), exc2)
 
 
 async def main() -> None:

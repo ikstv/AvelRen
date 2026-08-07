@@ -123,3 +123,21 @@ async def record_run(
         """,
         (at, http_status, duration_ms, body_sha256, rows_written, error),
     )
+
+
+async def record_derived(conn: AsyncConnection, at: datetime, error: str | None) -> None:
+    """Статус вторинної фази (alerts/ETA) того самого циклу (OBS-1).
+
+    Пишеться ОКРЕМОЮ транзакцією після primary-коміту, у той самий рядок
+    collector_runs. `error=None` — фаза відпрацювала (навіть якщо роботи не
+    було); текст — впала, і саме це має побачити watchdog.
+    """
+    await conn.execute(
+        """
+        UPDATE collector_runs
+        SET derived_processed_at = now(),
+            derived_error = %s
+        WHERE time = %s
+        """,
+        (error, at),
+    )
