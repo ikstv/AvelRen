@@ -128,13 +128,20 @@ def eta_payload(alert_id: int, title: str, eta_local: str) -> dict[str, str]:
 def cancel_payload(kind: str, alert_id: int) -> dict[str, str]:
     """Скасування вже показаної нотифікації (A-02).
 
-    `kind` тут — тип алерта (threshold|eta), а не тип повідомлення: telefon
+    `kind` тут — тип алерта (threshold|eta), а не тип повідомлення: телефон
     рахує з нього той самий notification id, що й для оригіналу, і гасить його.
     Той самий collapse_key, що й у оригінального push, тож cancel заміщує
     будь-який недоставлений повтор.
+
+    ВАЖЛИВО: id лежить у `cancel_alert_id`, а НЕ у legacy-полі `alert_id`.
+    Старий клієнт (baseline c7d2e1f) не знає type=cancel і трактував би
+    будь-який non-health push із `alert_id` як звичайну тривогу — показав би
+    нову ongoing-нотифікацію замість гасіння. Без `alert_id` він доходить до
+    `data["alert_id"] ?: return` і мовчки ігнорує cancel. Collapse_key усе одно
+    витісняє queued normal push. (аудит A-02 / B1)
     """
     return {
         "type": "cancel",
         "kind": kind,
-        "alert_id": str(alert_id),
+        "cancel_alert_id": str(alert_id),
     }

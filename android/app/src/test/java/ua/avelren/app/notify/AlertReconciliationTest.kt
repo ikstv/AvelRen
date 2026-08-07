@@ -88,6 +88,22 @@ class AlertReconciliationTest {
     }
 
     @Test
+    fun `result never contains an id absent from the snapshot`() {
+        // B2-регресія: reconciliation працює зі знімком, зробленим ДО запиту
+        // до сервера. Навіть якщо server-набір не містить якогось alert'а,
+        // погасити можна лише те, що є у знятому списку. Тобто нова
+        // нотифікація, яка прийшла вже після знімка (її немає у `active`),
+        // не може опинитися в результаті — інваріант самої функції.
+        val active = listOf(withKey(id = 10, kind = "threshold", alertId = 5))
+        val server = emptySet<AlertKey>() // сервер «нічого не має»
+        val stale = AlertReconciliation.staleNotificationIds(active, server)
+        val activeIds = active.map { it.notificationId }.toSet()
+        assertTrue(stale.all { it in activeIds })
+        // Конкретно: id 11 (гіпотетична нова нотифікація поза знімком) не тут.
+        assertFalse(stale.contains(11))
+    }
+
+    @Test
     fun `legacy key parsing recognizes kinds and skips health`() {
         assertEquals(
             AlertKey("threshold", 42),

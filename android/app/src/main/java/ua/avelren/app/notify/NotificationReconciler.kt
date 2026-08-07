@@ -35,10 +35,22 @@ object NotificationReconciler {
         val creds = DeviceStore.credentials(context) ?: return // ще не зареєстровані
 
         mutex.withLock {
+            val nm = context.getSystemService(NotificationManager::class.java) ?: return
+
+            // 1. Знімок локальних сповіщень ДО запиту до сервера. Це закриває
+            //    race (аудит A-02 / B2): якщо новий валідний alert прийде вже
+            //    ПІСЛЯ того, як сервер сформував відповідь, він не буде в
+            //    цьому знімку, тож reconciliation його не погасить. Гасимо
+            //    лише те, що показувалось на момент до запиту.
+            val snapshot = nm.activeNotifications.map { sbn ->
+                ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras))
+            }
+
+            // 2. Лише тепер питаємо сервер.
             val server = try {
                 Api.activeAlerts(creds)
             } catch (e: Exception) {
-                // FAIL-SAFE: не чіпаємо локальні сповіщення без підтвердженого стану.
+                // FAIL-SAFE: без підтвердженого 200 нічого не чіпаємо.
                 Log.w(TAG, "не вдалося отримати active-alerts, лишаю все як є: ${e.message}")
                 return
             }
@@ -48,12 +60,8 @@ object NotificationReconciler {
                 server.eta.forEach { add(AlertKey("eta", it)) }
             }
 
-            val nm = context.getSystemService(NotificationManager::class.java) ?: return
-            val active = nm.activeNotifications.map { sbn ->
-                ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras))
-            }
-
-            val stale = AlertReconciliation.staleNotificationIds(active, serverKeys)
+            // 3. Diff саме знімка (не свіжого читання) проти server-стану.
+            val stale = AlertReconciliation.staleNotificationIds(snapshot, serverKeys)
             for (id in stale) {
                 nm.cancel(id)
                 Log.i(TAG, "погашено застаріле сповіщення id=$id")

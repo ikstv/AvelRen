@@ -279,7 +279,7 @@ def test_notifier_sends_cancel_and_marks_accepted(conn, device, checkpoint, monk
     assert len(calls) == 1
     token, data, collapse = calls[0]
     assert token == "tok-cancel"
-    assert data == {"type": "cancel", "kind": "threshold", "alert_id": "42"}
+    assert data == {"type": "cancel", "kind": "threshold", "cancel_alert_id": "42"}
     assert collapse == "threshold:42"
     assert conn.execute(
         "SELECT accepted_at IS NOT NULL AS ok FROM notification_cancels WHERE id=%s",
@@ -306,12 +306,31 @@ def test_notifier_abandons_cancel_for_dead_token(conn, device):
     ).fetchone()["ok"] is True
 
 
-def test_cancel_abandoned_after_max_attempts(conn, device):
-    conn.execute("UPDATE devices SET fcm_token='tok' WHERE id=%s", (device.device_id,))
+def test_cancel_not_abandoned_while_young(conn, device):
+    """Свіжий cancel після невдалої спроби НЕ здається — ретраїмо далі (B3)."""
     row = conn.execute(
-        "INSERT INTO notification_cancels (kind, alert_id, device_id, attempt_count) "
-        "VALUES ('threshold', 55, %s, %s) RETURNING id",
-        (device.device_id, cancels.MAX_ATTEMPTS - 1),
+        "INSERT INTO notification_cancels (kind, alert_id, device_id) "
+        "VALUES ('threshold', 55, %s) RETURNING id",
+        (device.device_id,),
+    ).fetchone()
+
+    _run(lambda ac: cancels.record_attempt(ac, row["id"]))
+
+    r = conn.execute(
+        "SELECT abandoned_at, attempt_count FROM notification_cancels WHERE id=%s",
+        (row["id"],),
+    ).fetchone()
+    assert r["abandoned_at"] is None
+    assert r["attempt_count"] == 1
+
+
+def test_cancel_abandoned_after_age_window(conn, device):
+    """Cancel, старший за ABANDON_AFTER, здається — далі підстрахує
+    reconciliation (B3). Час старіння емулюємо зсувом created_at."""
+    row = conn.execute(
+        "INSERT INTO notification_cancels (kind, alert_id, device_id, created_at) "
+        "VALUES ('threshold', 56, %s, now() - INTERVAL '61 minutes') RETURNING id",
+        (device.device_id,),
     ).fetchone()
 
     _run(lambda ac: cancels.record_attempt(ac, row["id"]))
@@ -320,6 +339,17 @@ def test_cancel_abandoned_after_max_attempts(conn, device):
         "SELECT abandoned_at IS NOT NULL AS ok FROM notification_cancels WHERE id=%s",
         (row["id"],),
     ).fetchone()["ok"] is True
+
+
+def test_cancel_payload_uses_cancel_alert_id_not_legacy():
+    """B1: cancel НЕ містить legacy-поля alert_id — старий APK (baseline
+    c7d2e1f) на такому повідомленні нічого не показує, бо доходить до
+    `data["alert_id"] ?: return`."""
+    from avelren import fcm
+
+    p = fcm.cancel_payload("eta", 42)
+    assert p == {"type": "cancel", "kind": "eta", "cancel_alert_id": "42"}
+    assert "alert_id" not in p
 
 
 # --- race normal ↔ expire ↔ cancel -----------------------------------------

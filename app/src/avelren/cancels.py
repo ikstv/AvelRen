@@ -19,9 +19,12 @@ from psycopg import AsyncConnection
 
 log = logging.getLogger("avelren.cancels")
 
-# Скільки разів пробуємо доставити cancel, перш ніж здатися. Після цього
-# reconciliation при наступному foreground прибере stale-нотифікацію.
-MAX_ATTEMPTS = 5
+# Як довго пробуємо доставити cancel, перш ніж здатися. Age-based, а не
+# лічильник спроб: notifier ходить раз на хвилину, тож 5 спроб = ~5 хв, і
+# коротка перерва FCM залишила б ongoing-нотифікацію висіти надовго. Година
+# ретраїв покриває типовий FCM-збій; після неї підстрахує reconciliation при
+# наступному foreground (аудит A-02 / B3).
+ABANDON_AFTER = "1 hour"
 
 
 async def fetch_open(conn: AsyncConnection) -> list[dict]:
@@ -48,19 +51,23 @@ async def mark_accepted(conn: AsyncConnection, cancel_id: int) -> None:
 
 
 async def record_attempt(conn: AsyncConnection, cancel_id: int) -> None:
-    """Фіксує невдалу спробу; після MAX_ATTEMPTS закриває запис abandoned."""
+    """Фіксує невдалу спробу; здаємось лише коли запис старший за ABANDON_AFTER.
+
+    attempt_count лишається для діагностики, але рішення про abandon — за віком
+    created_at, а не за кількістю спроб (див. ABANDON_AFTER).
+    """
     await conn.execute(
-        """
+        f"""
         UPDATE notification_cancels
         SET attempt_count = attempt_count + 1,
             last_attempt_at = now(),
             abandoned_at = CASE
-                WHEN attempt_count + 1 >= %s THEN now()
+                WHEN created_at < now() - INTERVAL '{ABANDON_AFTER}' THEN now()
                 ELSE NULL
             END
         WHERE id = %s
         """,
-        (MAX_ATTEMPTS, cancel_id),
+        (cancel_id,),
     )
 
 
