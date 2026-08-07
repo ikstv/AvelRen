@@ -139,9 +139,8 @@ def network() -> dict:
 def certificate() -> dict:
     """Термін сертифіката. Caddy оновлює його сам, але мовчазний збій
     оновлення покладе застосунок — Android не ходить по простроченому TLS."""
-    from datetime import UTC, datetime
-
     import ssl
+    from datetime import UTC, datetime
 
     try:
         ctx = ssl.create_default_context()

@@ -46,20 +46,26 @@ jobs:
         env:
           POSTGRES_USER: avelren
           POSTGRES_PASSWORD: ci
-          POSTGRES_DB: avelren
+          POSTGRES_DB: avelren_ci
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U avelren -d avelren"
+          --health-cmd "pg_isready -U avelren -d avelren_ci"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      DATABASE_URL: postgresql://avelren:ci@localhost:5432/avelren
+      # Назва бази містить "ci", і AVELREN_TEST_DB=1 задано явно — без
+      # обох ознак conftest.py зупиняє pytest до першого запиту.
+      DATABASE_URL: postgresql://avelren:ci@localhost:5432/avelren_ci
+      AVELREN_TEST_DB: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Установка
-        run: pip install -q ./app pytest
+        run: pip install -q ./app pytest ruff
+      - name: Лінтер
+        run: ruff check app/src app/tests
+
       - name: Міграції на порожній БД
         run: python -m avelren.migrate db/migrations
       - name: Тести
@@ -98,3 +104,6 @@ jobs:
           EOF
       - name: Збірка
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon -q
+
+      - name: Лінтер Android
+        run: cd android && ./gradlew lintDebug --no-daemon -q

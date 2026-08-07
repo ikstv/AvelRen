@@ -20,7 +20,6 @@ from psycopg.rows import dict_row
 from avelren import forecast
 
 DSN = os.environ["DATABASE_URL"]
-CHECKPOINT_ID = 1
 
 
 def _run(coro):
@@ -53,9 +52,9 @@ def test_weekday_conversion_matches_postgres():
     assert _run(check) == []
 
 
-def test_readiness_reports_progress():
+def test_readiness_reports_progress(checkpoint):
     async def check(conn):
-        return await forecast.readiness(conn, CHECKPOINT_ID)
+        return await forecast.readiness(conn, checkpoint)
 
     state = _run(check)
     assert state.status in {"collecting", "preliminary", "ready"}
@@ -63,11 +62,11 @@ def test_readiness_reports_progress():
     assert state.weeks_needed == forecast.MIN_SAMPLES_READY
 
 
-def test_no_points_while_collecting():
+def test_no_points_while_collecting(checkpoint):
     """Поки даних замало — жодної точки. Мовчання чесніше за вигадку."""
 
     async def check(conn):
-        return await forecast.forecast(conn, CHECKPOINT_ID, hours_ahead=24)
+        return await forecast.forecast(conn, checkpoint, hours_ahead=24)
 
     result = _run(check)
     if result["status"] == "collecting":
@@ -76,12 +75,12 @@ def test_no_points_while_collecting():
         assert result["points"], "у стані preliminary/ready точки мають бути"
 
 
-def test_ready_at_is_in_the_future_or_none():
+def test_ready_at_is_in_the_future_or_none(checkpoint):
     """Дата готовності — орієнтир для користувача, вона не має бути в минулому,
     поки прогноз ще не готовий."""
 
     async def check(conn):
-        return await forecast.readiness(conn, CHECKPOINT_ID)
+        return await forecast.readiness(conn, checkpoint)
 
     state = _run(check)
     if state.status != "ready" and state.ready_at is not None:
@@ -97,12 +96,12 @@ def test_unknown_checkpoint_does_not_crash():
     assert result["points"] == []
 
 
-def test_evaluate_returns_honest_note():
+def test_evaluate_returns_honest_note(checkpoint):
     """Похибка, порахована на тих самих даних, завжди оптимістична — і це
     має бути видно тому, хто читає число."""
 
     async def check(conn):
-        return await forecast.evaluate(conn, CHECKPOINT_ID)
+        return await forecast.evaluate(conn, checkpoint)
 
     result = _run(check)
     assert result["method"] == "seasonal_naive"
