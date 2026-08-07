@@ -51,6 +51,9 @@ fun AvelRenScreen() {
     var showEtaDialog by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
     var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
+    var subs by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
+    var targets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
+    var reload by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         try {
@@ -59,6 +62,13 @@ fun AvelRenScreen() {
             error = e.message
         } finally {
             loading = false
+        }
+    }
+
+    LaunchedEffect(reload) {
+        DeviceStore.deviceId(context)?.let { id ->
+            subs = runCatching { Api.subscriptions(id) }.getOrDefault(emptyList())
+            targets = runCatching { Api.etaTargets(id) }.getOrDefault(emptyList())
         }
     }
 
@@ -99,7 +109,7 @@ fun AvelRenScreen() {
                             scope.launch {
                                 DeviceStore.deviceId(context)?.let {
                                     runCatching { Api.subscribe(it, current.checkpoint_id, threshold) }
-                                        .onSuccess { note = "Стежу: поріг $threshold авто" }
+                                        .onSuccess { note = "Стежу: поріг $threshold авто"; reload++ }
                                         .onFailure { note = "Не вдалося підписатись" }
                                 }
                             }
@@ -118,6 +128,27 @@ fun AvelRenScreen() {
 
                     ForecastCard(forecast)
 
+                    SubscriptionsSection(
+                        subscriptions = subs,
+                        targets = targets,
+                        onRemoveSubscription = { id ->
+                            scope.launch {
+                                DeviceStore.deviceId(context)?.let {
+                                    runCatching { Api.unsubscribe(it, id) }
+                                    reload++
+                                }
+                            }
+                        },
+                        onRemoveTarget = { id ->
+                            scope.launch {
+                                DeviceStore.deviceId(context)?.let {
+                                    runCatching { Api.deleteEtaTarget(it, id) }
+                                    reload++
+                                }
+                            }
+                        },
+                    )
+
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 }
 
@@ -132,7 +163,7 @@ fun AvelRenScreen() {
                                     runCatching {
                                         Api.createEtaTarget(it, current.checkpoint_id, isoUtc)
                                     }
-                                        .onSuccess { note = "Стежу за в'їздом $human" }
+                                        .onSuccess { note = "Стежу за в'їздом $human"; reload++ }
                                         .onFailure { note = "Не вдалося створити ціль" }
                                 }
                             }

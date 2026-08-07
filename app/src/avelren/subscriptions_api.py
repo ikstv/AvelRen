@@ -8,10 +8,11 @@
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 
 from .alerts import THRESHOLDS
 from .db import get_pool
+from .ratelimit import check as rate_check
 from .schemas import DeviceIn, DeviceOut, EtaTargetIn, SubscriptionIn, TokenIn
 
 router = APIRouter()
@@ -41,7 +42,8 @@ async def thresholds() -> dict:
 
 
 @router.post("/devices", status_code=201)
-async def create_device(body: DeviceIn) -> DeviceOut:
+async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
+    rate_check(request, "write")
     async with get_pool().connection() as conn:
         # Перевстановлення застосунку дає новий токен, але повторний запуск із
         # тим самим токеном не має плодити пристроїв-двійників.
@@ -97,7 +99,10 @@ async def list_subscriptions(x_device_id: str | None = Header(None)) -> list[dic
 
 
 @router.post("/subscriptions", status_code=201)
-async def create_subscription(body: SubscriptionIn, x_device_id: str | None = Header(None)) -> dict:
+async def create_subscription(
+    request: Request, body: SubscriptionIn, x_device_id: str | None = Header(None)
+) -> dict:
+    rate_check(request, "write")
     if body.threshold not in THRESHOLDS:
         raise HTTPException(status_code=422, detail=f"Поріг має бути одним із {THRESHOLDS}")
     device_id = await _device(x_device_id)
@@ -188,7 +193,10 @@ async def list_eta_targets(x_device_id: str | None = Header(None)) -> list[dict]
 
 
 @router.post("/eta-targets", status_code=201)
-async def create_eta_target(body: EtaTargetIn, x_device_id: str | None = Header(None)) -> dict:
+async def create_eta_target(
+    request: Request, body: EtaTargetIn, x_device_id: str | None = Header(None)
+) -> dict:
+    rate_check(request, "write")
     if body.target_at <= datetime.now(UTC):
         raise HTTPException(status_code=422, detail="Цільовий час має бути в майбутньому")
     device_id = await _device(x_device_id)
