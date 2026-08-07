@@ -111,9 +111,14 @@ async def pipeline(conn: AsyncConnection) -> dict:
 
 
 def network() -> dict:
-    """Лічильники мережі з /proc — накопичувальні від старту системи."""
+    """Трафік сервера від старту системи.
+
+    Читаємо з `/host/proc`, а не `/proc`: мережеві лічильники ізольовані
+    простором імен контейнера, і власний `/proc` показав би трафік самого
+    контейнера — тобто майже нуль, що виглядало б як справні дані.
+    """
     rx = tx = 0
-    for line in _proc("/proc/net/dev").splitlines()[2:]:
+    for line in _proc("/host/proc/net/dev").splitlines()[2:]:
         name, _, rest = line.partition(":")
         if name.strip().startswith(("lo", "docker", "br-", "veth")):
             continue

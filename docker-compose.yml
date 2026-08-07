@@ -78,6 +78,7 @@ services:
       # ребуту й позначку часу останньої резервної копії. Обидва на читання.
       - ./secrets:/secrets:ro
       - /run:/host/run:ro
+      - /proc:/host/proc:ro
     expose:
       - "8000"
     depends_on:
