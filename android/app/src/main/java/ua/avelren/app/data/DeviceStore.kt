@@ -24,6 +24,12 @@ object DeviceStore {
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_DEVICE_SECRET = "device_secret"
     private const val KEY_SELECTED = "selected_checkpoint"
+    // AND-2. Свідомо НЕ чіпається clearCredentials(): історія запитів дозволу
+    // не має скидатися при 401-перереєстрації installation — інакше після
+    // кожного DB restore ми знову питали б дозвіл у того, хто вже відмовив.
+    private const val KEY_NOTIF_ASKED = "notif_asked"
+    private const val KEY_NOTIF_DENIED = "notif_denied_once"
+    private const val KEY_NOTIF_GRANTED = "notif_ever_granted"
 
     private var prefs: SharedPreferences? = null
 
@@ -63,6 +69,23 @@ object DeviceStore {
         prefs(context).edit()
             .remove(KEY_DEVICE_ID)
             .remove(KEY_DEVICE_SECRET)
+            .apply()
+    }
+
+    fun notificationHistory(context: Context): NotificationPermission.History {
+        val p = prefs(context)
+        return NotificationPermission.History(
+            asked = p.getBoolean(KEY_NOTIF_ASKED, false),
+            deniedOnce = p.getBoolean(KEY_NOTIF_DENIED, false),
+            everGranted = p.getBoolean(KEY_NOTIF_GRANTED, false),
+        )
+    }
+
+    fun saveNotificationHistory(context: Context, h: NotificationPermission.History) {
+        prefs(context).edit()
+            .putBoolean(KEY_NOTIF_ASKED, h.asked)
+            .putBoolean(KEY_NOTIF_DENIED, h.deniedOnce)
+            .putBoolean(KEY_NOTIF_GRANTED, h.everGranted)
             .apply()
     }
 

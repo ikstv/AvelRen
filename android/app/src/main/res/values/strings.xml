@@ -5,4 +5,11 @@
     <string name="alert_channel_name">Черги на кордоні</string>
     <string name="alert_channel_description">Сповіщення про зростання черги та час реєстрації</string>
     <string name="ok">ОК</string>
+
+    <!-- AND-2: відновлення дозволу на сповіщення. Алерт — сенс застосунку,
+         тож мовчазне блокування треба показати й дати шлях назад. -->
+    <string name="notif_blocked_title">Сповіщення вимкнені — алерти не прийдуть</string>
+    <string name="notif_channel_blocked_title">Канал алертів вимкнений — сповіщення про чергу не прийдуть</string>
+    <string name="notif_allow">Дозволити</string>
+    <string name="notif_open_settings">Відкрити налаштування</string>
 </resources>
