@@ -3,11 +3,7 @@ package ua.avelren.app.notify
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import ua.avelren.app.data.Api
-import ua.avelren.app.data.DeviceStore
+import ua.avelren.app.AvelRenApp
 
 /**
  * Приймає пуші від сервера.
@@ -55,36 +51,11 @@ class AvelRenMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         // Токен змінюється при перевстановленні й очищенні даних. Не оновимо —
-        // сповіщення мовчки перестануть приходити.
-        val ctx = applicationContext
-        val existing = DeviceStore.credentials(ctx)
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                if (existing == null) {
-                    val creds = Api.registerDevice(token)
-                    DeviceStore.saveCredentials(ctx, creds)
-                } else {
-                    Api.updateToken(existing, token)
-                }
-                Log.i(TAG, "токен оновлено")
-            } catch (e: Exception) {
-                // Дзеркало recovery в AvelRenApp: після DB restore updateToken
-                // повертає 401, і без очищення credentials наступні push теж
-                // ніколи не доставилися б (NEW-AUTH-2).
-                if (existing != null && Api.isStaleInstallation(e)) {
-                    Log.w(TAG, "installation мертва (401), створюю нову для нового токена")
-                    DeviceStore.clearCredentials(ctx)
-                    try {
-                        val creds = Api.registerDevice(token)
-                        DeviceStore.saveCredentials(ctx, creds)
-                    } catch (retry: Exception) {
-                        Log.w(TAG, "перереєстрація не вдалася: ${retry.message}")
-                    }
-                } else {
-                    Log.w(TAG, "не вдалося оновити токен: ${e.message}")
-                }
-            }
-        }
+        // сповіщення мовчки перестануть приходити. Жодної власної
+        // register/recovery логіки: делегуємо централізованому repository
+        // (AND-1) — інакше два джерела 401-recovery розходяться.
+        Log.i(TAG, "новий FCM-токен, делегую repository")
+        (applicationContext as? AvelRenApp)?.handleNewFcmToken(token)
     }
 
     companion object {

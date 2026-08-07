@@ -67,6 +67,20 @@ object AlertReconciliation {
     }
 
     /**
+     * Fail-safe обгортка (A-02): `serverPending == null` означає, що canonical
+     * стан отримати НЕ вдалося (offline / 5xx / 401 до завершення recovery) —
+     * тоді не гасимо нічого. Порожній набір (не null) — це підтверджене «сервер
+     * каже: активних немає», і воно таки гасить. Викликач передає null саме на
+     * будь-якому винятку fetch-у.
+     */
+    fun staleNotificationIdsOrNothing(
+        active: List<ActiveNotification>,
+        serverPending: Set<AlertKey>?,
+    ): List<Int> =
+        if (serverPending == null) emptyList()
+        else staleNotificationIds(active, serverPending)
+
+    /**
      * Відновлює усічений ключ зі старого display-id (сповіщення без extras).
      * Повертає null для health (kindCode=3) і будь-чого невідомого.
      */

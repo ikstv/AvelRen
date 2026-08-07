@@ -7,8 +7,8 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import ua.avelren.app.AvelRenApp
 import ua.avelren.app.data.Api
-import ua.avelren.app.data.DeviceStore
 
 /**
  * Кнопка «ОК» зі шторки.
@@ -27,11 +27,14 @@ class AckReceiver : BroadcastReceiver() {
 
         Notifications.cancel(context, kind, alertId)
 
-        val creds = DeviceStore.credentials(context) ?: return
+        // Локальне сповіщення вже погашено. Серверний ACK — через repository
+        // (централізований 401-recovery). Якщо немає installation або запит
+        // не пройде, сервер повторить пуш — нічого не губиться.
+        val installation = (context.applicationContext as? AvelRenApp)?.installation ?: return
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                Api.ack(creds, alertId, kind)
+                installation.authenticatedCall { creds -> Api.ack(creds, alertId, kind) }
                 Log.i(TAG, "підтверджено алерт $alertId")
             } catch (e: Exception) {
                 Log.w(TAG, "не вдалося підтвердити $alertId, сервер повторить: ${e.message}")
