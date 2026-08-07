@@ -237,8 +237,18 @@ def verify_contract(
 
 
 def verify(conn: psycopg.Connection, directory: Path) -> list[str]:
-    """Повна перевірка: історія + фізичний контракт. Порожньо = все узгоджено."""
-    return verify_history(conn, directory) + verify_contract(conn)
+    """Повна перевірка: історія + фізичний контракт для фактично записаних версій.
+
+    Контракт фільтрується за recorded versions, а не жорстко по всіх _V записах:
+    коли `directory` містить lише prefix (партіальний набір міграцій, напр. у
+    тестах), verify не повинен вимагати об'єкти майбутніх міграцій. Розбіжність
+    між файлами й записаним ловить verify_history."""
+    history_problems = verify_history(conn, directory)
+    recorded = {
+        row[0]
+        for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
+    }
+    return history_problems + verify_contract(conn, recorded_versions=recorded)
 
 
 def main(directory: Path) -> int:
