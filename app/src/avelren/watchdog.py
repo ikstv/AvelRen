@@ -32,6 +32,10 @@ RESEND_INTERVAL = 3600  # тривогу повторюємо раз на год
 # Якщо recovery так і не доставлено за стільки діб — здаємось (напр. адмін-
 # пристрій зник). Інакше ретраїли б вічно.
 RECOVERY_GIVE_UP_DAYS = 1
+# Скільки незавершених secondary-циклів після grace вважати проблемою. Кілька,
+# а не один: під час deploy старий колектор устигає записати 1–2 рядки без
+# derived-статусу, і це не має піднімати тривогу.
+DERIVED_STUCK_THRESHOLD = 3
 
 _stop = asyncio.Event()
 
@@ -84,6 +88,29 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     if row and row["failed"] >= 10:
         problems["derived_errors"] = (
             f"обробка алертів/ETA впала {row['failed']} разів за півгодини"
+        )
+
+    # Hard-crash secondary-фази: SIGKILL/OOM між primary-комітом і кінцем
+    # secondary лишає derived_processed_at=NULL і derived_error=NULL — виняток
+    # не спрацював, тож попередня перевірка це не ловить. Після grace-періоду
+    # (in-flight цикл ще міг не дописати статус) такі рядки — реальний сигнал,
+    # що вторинний конвеєр systematically не завершується (аудит OBS-1 / B3).
+    row = await (
+        await conn.execute(
+            """
+            SELECT count(*) AS stuck
+            FROM collector_runs
+            WHERE time > now() - INTERVAL '30 minutes'
+              AND time < now() - INTERVAL '2 minutes'
+              AND derived_processed_at IS NULL
+              AND derived_error IS NULL
+            """
+        )
+    ).fetchone()
+    if row and row["stuck"] >= DERIVED_STUCK_THRESHOLD:
+        problems["derived_stuck"] = (
+            f"обробка алертів/ETA не завершилась {row['stuck']} разів за півгодини "
+            "(ймовірно, контейнер падає у вторинній фазі)"
         )
 
     row = await (
@@ -201,7 +228,9 @@ async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) 
             """
             SELECT id, kind, resolved_at
             FROM health_alerts
-            WHERE resolved_at IS NOT NULL AND recovery_notified_at IS NULL
+            WHERE resolved_at IS NOT NULL
+              AND recovery_notified_at IS NULL
+              AND recovery_abandoned_at IS NULL
             ORDER BY resolved_at
             """
         )
@@ -210,6 +239,8 @@ async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) 
     for r in rows:
         age_days = (datetime.now(UTC) - r["resolved_at"]).total_seconds() / 86400
         if await _notify(conn, client, "AvelRen відновився", f"{r['kind']}: усе гаразд"):
+            # notified — ЛИШЕ по факту доставки. Give-up іде в окреме поле,
+            # щоб по БД можна було відрізнити «доставлено» від «здалися» (B2).
             await conn.execute(
                 "UPDATE health_alerts SET recovery_notified_at = now() WHERE id = %s",
                 (r["id"],),
@@ -217,7 +248,7 @@ async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) 
             log.info("доставлено recovery %s", r["kind"])
         elif age_days > RECOVERY_GIVE_UP_DAYS:
             await conn.execute(
-                "UPDATE health_alerts SET recovery_notified_at = now() WHERE id = %s",
+                "UPDATE health_alerts SET recovery_abandoned_at = now() WHERE id = %s",
                 (r["id"],),
             )
             log.warning(
