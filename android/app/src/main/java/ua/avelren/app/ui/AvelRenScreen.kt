@@ -50,6 +50,7 @@ fun AvelRenScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var showEtaDialog by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
+    var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
 
     LaunchedEffect(Unit) {
         try {
@@ -58,6 +59,14 @@ fun AvelRenScreen() {
             error = e.message
         } finally {
             loading = false
+        }
+    }
+
+    // Прогноз залежить від обраного КПП: модель у кожного пункту своя, бо
+    // Ягодин з тижнем очікування і порожнє Порубне поводяться несумісно.
+    LaunchedEffect(selected) {
+        if (selected > 0) {
+            forecast = runCatching { Api.forecast(selected) }.getOrNull()
         }
     }
 
@@ -106,6 +115,8 @@ fun AvelRenScreen() {
                         Text(it, style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(top = 6.dp))
                     }
+
+                    ForecastCard(forecast)
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 }
