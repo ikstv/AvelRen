@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+readonly ROOT
+
+[ "${AVELREN_ADOPTION_SCENARIO:-}" = before_commit ] || {
+    echo 'Task 6 integration supports only AVELREN_ADOPTION_SCENARIO=before_commit' >&2
+    exit 2
+}
+
+ROOT_FOR_COMPOSE=$ROOT
+if command -v cygpath >/dev/null 2>&1; then
+    ROOT_FOR_COMPOSE=$(cygpath -w "$ROOT")
+fi
+readonly ROOT_FOR_COMPOSE
+
+PROJECT="avelren-adoption-${RANDOM}-${RANDOM}"
+COMPOSE_FILE_POSIX=$(mktemp)
+COMPOSE_PROJECT_DIR_POSIX=$(mktemp -d)
+COMPOSE_ENV_FILE_POSIX="$COMPOSE_PROJECT_DIR_POSIX/compose.env"
+WORK=$(mktemp -d)
+readonly PROJECT COMPOSE_FILE_POSIX COMPOSE_PROJECT_DIR_POSIX COMPOSE_ENV_FILE_POSIX WORK
+
+printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=isolated' >"$COMPOSE_ENV_FILE_POSIX"
+printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=poison' >"$COMPOSE_PROJECT_DIR_POSIX/.env"
+
+COMPOSE_FILE=$COMPOSE_FILE_POSIX
+COMPOSE_PROJECT_DIR=$COMPOSE_PROJECT_DIR_POSIX
+COMPOSE_ENV_FILE=$COMPOSE_ENV_FILE_POSIX
+if command -v cygpath >/dev/null 2>&1; then
+    COMPOSE_FILE=$(cygpath -w "$COMPOSE_FILE_POSIX")
+    COMPOSE_PROJECT_DIR=$(cygpath -w "$COMPOSE_PROJECT_DIR_POSIX")
+    COMPOSE_ENV_FILE=$(cygpath -w "$COMPOSE_ENV_FILE_POSIX")
+fi
+readonly COMPOSE_FILE COMPOSE_PROJECT_DIR COMPOSE_ENV_FILE
+
+REAL_DOCKER=$(command -v docker)
+readonly REAL_DOCKER
+
+real_compose() {
+    MSYS_NO_PATHCONV=1 "$REAL_DOCKER" compose \
+        --project-directory "$COMPOSE_PROJECT_DIR" --env-file "$COMPOSE_ENV_FILE" \
+        -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
+}
+
+cleanup() {
+    local status=$?
+    trap - EXIT
+    real_compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+    rm -f "$COMPOSE_FILE_POSIX"
+    rm -rf "$COMPOSE_PROJECT_DIR_POSIX" "$WORK"
+    exit "$status"
+}
+trap cleanup EXIT
+
+cat >"$COMPOSE_FILE_POSIX" <<EOF
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: postgres
+      AVELREN_COMPOSE_ENV_GUARD: \${AVELREN_COMPOSE_ENV_GUARD:?missing disposable Compose env guard}
+    volumes:
+      - '$ROOT_FOR_COMPOSE:/workspace:ro'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  test:
+    build:
+      context: '$ROOT_FOR_COMPOSE'
+      dockerfile: app/Dockerfile.test
+    depends_on:
+      db:
+        condition: service_healthy
+EOF
+
+readonly TARGET_DB=avelren_adoption_test
+readonly ADMIN_PASSWORD=ci-only
+readonly ADMIN_DSN="postgresql://avelren_admin:ci-only@localhost:5432/$TARGET_DB"
+readonly BOOTSTRAP_DSN='postgresql://avelren_admin:ci-only@localhost:5432/postgres'
+readonly MIGRATOR_DSN="postgresql://avelren_migrator:ci-only@db:5432/$TARGET_DB"
+
+real_compose up --detach --wait db
+for _ in $(seq 1 30); do
+    if PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+        psql -U postgres -d postgres -At -c 'SELECT 1;' >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q \
+    -c 'DROP EXTENSION IF EXISTS timescaledb;' \
+    -c "CREATE ROLE avelren_admin LOGIN SUPERUSER PASSWORD 'ci-only';"
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U postgres -d template1 -v ON_ERROR_STOP=1 -q \
+    -c 'DROP EXTENSION IF EXISTS timescaledb;'
+AVELREN_ADMIN_DSN="$BOOTSTRAP_DSN" AVELREN_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+AVELREN_MIGRATOR_PASSWORD=ci-only AVELREN_BACKUP_PASSWORD=ci-only \
+AVELREN_COLLECTOR_PASSWORD=ci-only AVELREN_NOTIFIER_PASSWORD=ci-only \
+AVELREN_WATCHDOG_PASSWORD=ci-only AVELREN_API_PASSWORD=ci-only \
+real_compose exec -T \
+    -e AVELREN_ADMIN_DSN -e AVELREN_ADMIN_PASSWORD -e AVELREN_MIGRATOR_PASSWORD \
+    -e AVELREN_BACKUP_PASSWORD -e AVELREN_COLLECTOR_PASSWORD -e AVELREN_NOTIFIER_PASSWORD \
+    -e AVELREN_WATCHDOG_PASSWORD -e AVELREN_API_PASSWORD \
+    -e AVELREN_DB_NAME="$TARGET_DB" -e AVELREN_TEST_DB=1 \
+    db bash /workspace/deploy/postgres-bootstrap.sh fresh
+
+MIGRATIONS="$WORK/migrations-001-009"
+mkdir -p "$MIGRATIONS"
+cp "$ROOT"/db/migrations/00[1-9]_*.sql "$MIGRATIONS/"
+MIGRATIONS_FOR_COMPOSE=$MIGRATIONS
+if command -v cygpath >/dev/null 2>&1; then
+    MIGRATIONS_FOR_COMPOSE=$(cygpath -w "$MIGRATIONS")
+fi
+DATABASE_URL="$MIGRATOR_DSN" real_compose run --rm --no-deps -T \
+    -v "$MIGRATIONS_FOR_COMPOSE:/prefix-migrations:ro" -e DATABASE_URL \
+    test python -m avelren.migrate /prefix-migrations
+
+# Make a production-like pre-adoption database: legacy owns the database,
+# schema, Timescale extension, application objects, and Timescale dependants.
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d postgres -v ON_ERROR_STOP=1 -q <<SQL
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'avelren') THEN
+        CREATE ROLE avelren LOGIN SUPERUSER PASSWORD 'legacy-ci-only';
+    END IF;
+END
+\$\$;
+ALTER DATABASE "$TARGET_DB" OWNER TO avelren;
+SQL
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+REASSIGN OWNED BY avelren_admin TO avelren;
+REASSIGN OWNED BY avelren_migrator TO avelren;
+SQL
+
+BIN="$WORK/bin"
+mkdir -p "$BIN"
+cat >"$BIN/psql" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+MSYS_NO_PATHCONV=1 "$ADOPTION_REAL_DOCKER" compose \
+    --project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE" \
+    -p "$ADOPTION_PROJECT" -f "$ADOPTION_COMPOSE_FILE" \
+    exec -T -e PGPASSWORD=ci-only db \
+    psql -U avelren_admin -d avelren_adoption_test "$@"
+SH
+cat >"$BIN/docker" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$ADOPTION_SERVICE_LOG"
+state=$(cat "$ADOPTION_SERVICE_STATE" 2>/dev/null || printf running)
+case " $* " in
+    *' ps --status running --services '*)
+        if [ "$state" = running ]; then
+            printf '%s\n' db caddy api collector notifier watchdog
+        else
+            printf '%s\n' db
+        fi
+        ;;
+    *' stop caddy api collector notifier watchdog '*) printf '%s\n' stopped >"$ADOPTION_SERVICE_STATE" ;;
+    *' stop '*) printf '%s\n' stopped >"$ADOPTION_SERVICE_STATE" ;;
+    *' up '*) echo 'unexpected optimistic restart' >&2; exit 91 ;;
+esac
+SH
+chmod +x "$BIN/psql" "$BIN/docker"
+
+EVIDENCE="$WORK/evidence"
+PREFLIGHT="$WORK/recovery-preflight"
+HEAD=$(git -C "$ROOT" rev-parse HEAD)
+cat >"$PREFLIGHT" <<EOF
+status=PASS
+backup_recovery=PASS
+exact_commit=$HEAD
+EOF
+chmod 600 "$PREFLIGHT"
+
+run_adoption() {
+    env PATH="$BIN:$PATH" AVELREN_PSQL_BIN="$BIN/psql" AVELREN_DOCKER_BIN="$BIN/docker" \
+        ADOPTION_REAL_DOCKER="$REAL_DOCKER" ADOPTION_PROJECT_DIR="$COMPOSE_PROJECT_DIR" \
+        ADOPTION_ENV_FILE="$COMPOSE_ENV_FILE" ADOPTION_PROJECT="$PROJECT" \
+        ADOPTION_COMPOSE_FILE="$COMPOSE_FILE" ADOPTION_SERVICE_LOG="$WORK/services.log" \
+        ADOPTION_SERVICE_STATE="$WORK/services.state" \
+        AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
+        AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
+        AVELREN_RECOVERY_PREFLIGHT_FILE="$PREFLIGHT" AVELREN_EVIDENCE_DIR="$EVIDENCE" \
+        AVELREN_TEST_DB=1 AVELREN_ALLOW_DIRTY_TEST=1 AVELREN_ADOPTION_FAILPOINT=before_commit \
+        bash "$ROOT/deploy/postgres-adopt.sh" --confirm-adoption AVELREN-POSTGRES-ADOPTION
+}
+
+# Unknown application relations fail before client stop and before any ownership mutation.
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q \
+    -c 'CREATE TABLE public.unexpected_relation(id integer); ALTER TABLE public.unexpected_relation OWNER TO avelren;'
+: >"$WORK/services.log"
+if run_adoption >"$WORK/unknown.out" 2>&1; then
+    echo 'unexpected application relation should fail closed' >&2
+    exit 1
+fi
+[ ! -s "$WORK/services.log" ] || { echo 'unknown relation reached compose stop' >&2; exit 1; }
+unexpected_owner=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT tableowner FROM pg_tables WHERE schemaname='public' AND tablename='unexpected_relation';")
+[ "$unexpected_owner" = avelren ] || { echo 'unknown relation ownership was mutated' >&2; exit 1; }
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q \
+    -c 'DROP TABLE public.unexpected_relation;'
+
+# Canonical before_commit scenario must mutate inside one transaction, fail,
+# and leave the exact original owner/ACL fingerprint intact with runtime stopped.
+: >"$WORK/services.log"
+printf '%s\n' running >"$WORK/services.state"
+if run_adoption >"$WORK/before-commit.out" 2>&1; then
+    echo 'before_commit failpoint should abort adoption' >&2
+    exit 1
+fi
+[ "$(cat "$WORK/services.state")" = stopped ] || {
+    echo 'runtime was not left stopped' >&2
+    sed -n '1,240p' "$WORK/before-commit.out" >&2 || true
+    exit 1
+}
+grep -q 'stop caddy api collector notifier watchdog' "$WORK/services.log"
+! grep -q ' up ' "$WORK/services.log" || { echo 'runtime was optimistically restarted' >&2; exit 1; }
+
+cmp "$EVIDENCE/original.tsv" "$EVIDENCE/after-failure.tsv" || {
+    echo 'owner/ACL manifest changed after transactional failure' >&2
+    exit 1
+}
+[ "$(cat "$EVIDENCE/original.sha256")" = "$(cat "$EVIDENCE/after-failure.sha256")" ] || {
+    echo 'owner/ACL fingerprint changed after transactional failure' >&2
+    exit 1
+}
+grep -q 'before_commit rollback verified' "$WORK/before-commit.out"
+! grep -q 'ci-only' "$WORK/before-commit.out" "$WORK/services.log" || {
+    echo 'credential leaked to integration evidence' >&2
+    exit 1
+}
+
+echo 'postgres adoption before_commit integration: PASS'
