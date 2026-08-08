@@ -132,8 +132,13 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'avelren') THEN
         CREATE ROLE avelren LOGIN SUPERUSER PASSWORD 'legacy-ci-only';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'unexpected_acl_role') THEN
+        CREATE ROLE unexpected_acl_role NOLOGIN;
+    END IF;
 END
 \$\$;
+DROP DATABASE IF EXISTS avelren_residual_test;
+CREATE DATABASE avelren_residual_test OWNER postgres;
 ALTER DATABASE "$TARGET_DB" OWNER TO avelren;
 SQL
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
@@ -172,6 +177,131 @@ case " $* " in
 esac
 SH
 chmod +x "$BIN/psql" "$BIN/docker"
+export AVELREN_PSQL_BIN="$BIN/psql"
+export ADOPTION_REAL_DOCKER="$REAL_DOCKER"
+export ADOPTION_PROJECT_DIR="$COMPOSE_PROJECT_DIR"
+export ADOPTION_ENV_FILE="$COMPOSE_ENV_FILE"
+export ADOPTION_PROJECT="$PROJECT"
+export ADOPTION_COMPOSE_FILE="$COMPOSE_FILE"
+
+# shellcheck source=deploy/postgres-ownership.lib.sh
+source "$ROOT/deploy/postgres-ownership.lib.sh"
+
+PLAN_EVIDENCE="$WORK/plan-evidence"
+prepare_evidence_dir "$PLAN_EVIDENCE"
+AVELREN_TARGET_DB="$TARGET_DB" capture_manifest "$ADMIN_DSN" "$PLAN_EVIDENCE/original.tsv"
+AVELREN_TARGET_DB="$TARGET_DB" build_forward_plan \
+    "$PLAN_EVIDENCE/original.tsv" "$PLAN_EVIDENCE/forward.sql" \
+    "$ROOT/db/migrations/010_postgresql_least_privilege.sql"
+AVELREN_TARGET_DB="$TARGET_DB" build_inverse_plan \
+    "$PLAN_EVIDENCE/original.tsv" "$PLAN_EVIDENCE/inverse.sql"
+
+assert_target_check_rejects() {
+    local name=$1 tamper=$2 expected_error=$3 driver output
+    driver="$WORK/$name.driver.sql"
+    output="$WORK/$name.out"
+    {
+        printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
+        cat "$PLAN_EVIDENCE/forward.sql"
+        cat "$tamper"
+        _target_ownership_sql
+        printf '%s\n' "SELECT 'TARGET_CHECK_ACCEPTED';" "SELECT 'INVERSE_STARTED';"
+        cat "$PLAN_EVIDENCE/inverse.sql"
+        printf '%s\n' 'ROLLBACK;'
+    } >"$driver"
+    if _adoption_psql "$ADMIN_DSN" <"$driver" >"$output" 2>&1; then
+        echo "$name target-state drift should fail closed" >&2
+        exit 1
+    fi
+    ! grep -q 'INVERSE_STARTED' "$output" || {
+        echo "$name reached inverse progression" >&2
+        exit 1
+    }
+    grep -q "$expected_error" "$output" || {
+        echo "$name failed for the wrong reason" >&2
+        sed -n '1,120p' "$output" >&2 || true
+        exit 1
+    }
+}
+
+cat >"$WORK/acl-unknown-grantee.sql" <<'SQL'
+GRANT SELECT ON TABLE public.alerts TO unexpected_acl_role;
+SQL
+assert_target_check_rejects acl-unknown-grantee "$WORK/acl-unknown-grantee.sql" \
+    'target ACL exact-set mismatch'
+
+cat >"$WORK/acl-table-drift.sql" <<'SQL'
+GRANT UPDATE ON TABLE public.alerts TO avelren_watchdog;
+SQL
+assert_target_check_rejects acl-table-drift "$WORK/acl-table-drift.sql" \
+    'target ACL exact-set mismatch'
+
+cat >"$WORK/acl-column-drift.sql" <<'SQL'
+GRANT SELECT (fcm_token) ON TABLE public.devices TO avelren_collector;
+SQL
+assert_target_check_rejects acl-column-drift "$WORK/acl-column-drift.sql" \
+    'target ACL exact-set mismatch'
+
+cat >"$WORK/acl-grant-option-drift.sql" <<'SQL'
+GRANT SELECT ON TABLE public.checkpoints TO avelren_api WITH GRANT OPTION;
+SQL
+assert_target_check_rejects acl-grant-option-drift "$WORK/acl-grant-option-drift.sql" \
+    'target ACL exact-set mismatch'
+
+cat >"$WORK/acl-grantor-drift.sql" <<'SQL'
+GRANT USAGE ON SCHEMA public TO unexpected_acl_role;
+GRANT SELECT ON TABLE public.alerts TO unexpected_acl_role WITH GRANT OPTION;
+SET ROLE unexpected_acl_role;
+GRANT SELECT ON TABLE public.alerts TO avelren_notifier;
+RESET ROLE;
+SQL
+assert_target_check_rejects acl-grantor-drift "$WORK/acl-grantor-drift.sql" \
+    'target ACL exact-set mismatch'
+
+cat >"$WORK/default-acl-drift.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator IN SCHEMA public
+    GRANT SELECT ON TABLES TO avelren_watchdog;
+SQL
+assert_target_check_rejects default-acl-drift "$WORK/default-acl-drift.sql" \
+    'target default-privilege'
+
+cat >"$WORK/residual-non-public-relation.sql" <<'SQL'
+CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
+CREATE TABLE residual_test.unexpected_relation(id integer);
+ALTER TABLE residual_test.unexpected_relation OWNER TO avelren;
+SQL
+assert_target_check_rejects residual-non-public-relation \
+    "$WORK/residual-non-public-relation.sql" 'residual legacy ownership detected'
+
+cat >"$WORK/residual-routine.sql" <<'SQL'
+CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
+CREATE FUNCTION residual_test.unexpected_function() RETURNS integer
+    LANGUAGE sql AS 'SELECT 1';
+ALTER FUNCTION residual_test.unexpected_function() OWNER TO avelren;
+SQL
+assert_target_check_rejects residual-routine "$WORK/residual-routine.sql" \
+    'residual legacy ownership detected'
+
+cat >"$WORK/residual-type.sql" <<'SQL'
+CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
+CREATE TYPE residual_test.unexpected_type AS ENUM ('unexpected');
+ALTER TYPE residual_test.unexpected_type OWNER TO avelren;
+SQL
+assert_target_check_rejects residual-type "$WORK/residual-type.sql" \
+    'residual legacy ownership detected'
+
+cat >"$WORK/residual-timescale.sql" <<'SQL'
+CREATE TABLE _timescaledb_internal.unexpected_relation(id integer);
+ALTER TABLE _timescaledb_internal.unexpected_relation OWNER TO avelren;
+SQL
+assert_target_check_rejects residual-timescale "$WORK/residual-timescale.sql" \
+    'residual legacy ownership detected'
+
+cat >"$WORK/residual-shared.sql" <<'SQL'
+ALTER DATABASE avelren_residual_test OWNER TO avelren;
+SQL
+assert_target_check_rejects residual-shared "$WORK/residual-shared.sql" \
+    'residual legacy ownership detected'
 
 EVIDENCE="$WORK/evidence"
 PREFLIGHT="$WORK/recovery-preflight"

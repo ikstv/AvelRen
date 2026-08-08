@@ -524,14 +524,22 @@ EOF
 }
 
 build_forward_plan() {
-    local manifest=$1 output=$2 migration=$3 temporary schema name kind keyword
+    local manifest=$1 output=$2 migration=$3 temporary schema name kind keyword database_identity subject
     validate_owned_object_allowlist "$manifest"
+    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" {print $14}' "$manifest")
+    [ -n "$database_identity" ] || ownership_fail 'validated database identity missing from manifest'
     [ "$(basename "$migration")" = 010_postgresql_least_privilege.sql ] || ownership_fail 'unexpected ACL migration path'
     [ -f "$migration" ] || ownership_fail 'ACL migration not found'
     temporary=$(_evidence_temp "$output")
     {
         _write_plan_header
         printf 'REASSIGN OWNED BY "%s" TO "%s";\n' "$AVELREN_LEGACY_ROLE" "$AVELREN_ADMIN_ROLE"
+        printf 'REVOKE ALL PRIVILEGES ON DATABASE %s FROM PUBLIC, "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$database_identity"
+        printf 'GRANT CONNECT ON DATABASE %s TO "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$database_identity"
+        printf '%s\n' \
+            'REVOKE ALL PRIVILEGES ON SCHEMA "public" FROM PUBLIC, "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";' \
+            'GRANT USAGE, CREATE ON SCHEMA "public" TO "avelren_migrator";' \
+            'GRANT USAGE ON SCHEMA "public" TO "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";'
         while IFS=$'\t' read -r schema name kind; do
             case "$kind" in
                 S) keyword=SEQUENCE ;;
@@ -545,6 +553,15 @@ build_forward_plan() {
             printf 'ALTER %s "%s"."%s" OWNER TO "%s";\n' "$keyword" "$schema" "$name" "$AVELREN_MIGRATOR_ROLE"
         done < <(_canonical_relations)
         printf 'SET ROLE "%s";\n' "$AVELREN_MIGRATOR_ROLE"
+        while IFS=$'\t' read -r schema name kind; do
+            if [ "$kind" = S ]; then keyword=SEQUENCE; else keyword=TABLE; fi
+            printf 'REVOKE ALL PRIVILEGES ON %s "%s"."%s" FROM PUBLIC, "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' \
+                "$keyword" "$schema" "$name"
+        done < <(_canonical_relations)
+        while IFS=$'\t' read -r schema name subject; do
+            printf 'REVOKE ALL PRIVILEGES ("%s") ON TABLE "%s"."%s" FROM PUBLIC, "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' \
+                "${subject//\"/\"\"}" "$schema" "$name"
+        done < <(awk -F '\t' '$1=="acl" && $2=="relation" && $8!="object" && $13=="application" {print $4,$5,$8}' OFS='\t' "$manifest" | LC_ALL=C sort -u)
         cat "$migration"
         printf '\n%s\n' 'RESET ROLE;'
     } >"$temporary"
@@ -591,7 +608,9 @@ build_inverse_plan() {
             grantee_sql=$(_role_sql "$grantee")
             grantor_sql=$(_role_sql "$grantor")
             option=
-            [ "$grantable" = t ] && option=' WITH GRANT OPTION'
+            case "$grantable" in
+                t|true) option=' WITH GRANT OPTION' ;;
+            esac
             printf 'SET ROLE %s;\n' "$grantor_sql"
             case "$scope:$subject:$kind" in
                 database:object:*) printf 'GRANT %s ON DATABASE %s TO %s%s;\n' "$privilege" "$identity" "$grantee_sql" "$option" ;;
@@ -606,7 +625,230 @@ build_inverse_plan() {
     _publish_evidence_file "$temporary" "$output"
 }
 
+_emit_target_acl() {
+    local scope=$1 schema=$2 name=$3 kind=$4 subject=$5 grantor=$6 grantee=$7
+    shift 7
+    local privilege
+    for privilege in "$@"; do
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tfalse\n' \
+            "$scope" "$schema" "$name" "$kind" "$subject" "$grantor" "$grantee" "$privilege"
+    done
+}
+
+_emit_target_relation_acl() {
+    local name=$1 subject=$2 grantee=$3 kind=r
+    shift 3
+    case "$name" in
+        *_id_seq) kind=S ;;
+        observations_hourly) kind=v ;;
+    esac
+    _emit_target_acl relation public "$name" "$kind" "$subject" \
+        "$AVELREN_MIGRATOR_ROLE" "$grantee" "$@"
+}
+
+_canonical_target_acl_rows() {
+    local role name column
+    for role in avelren_migrator avelren_backup avelren_collector avelren_notifier avelren_watchdog avelren_api; do
+        _emit_target_acl database - - database object avelren_admin "$role" CONNECT
+    done
+    _emit_target_acl schema public public schema object avelren_admin avelren_migrator USAGE CREATE
+    for role in avelren_backup avelren_collector avelren_notifier avelren_watchdog avelren_api; do
+        _emit_target_acl schema public public schema object avelren_admin "$role" USAGE
+    done
+
+    for name in countries checkpoints observations observations_hourly collector_runs devices subscriptions subscription_state alerts eta_targets eta_alerts health_alerts notification_cancels schema_migrations \
+        alerts_id_seq eta_alerts_id_seq health_alerts_id_seq notification_cancels_id_seq subscriptions_id_seq eta_targets_id_seq; do
+        _emit_target_relation_acl "$name" object avelren_backup SELECT
+    done
+
+    for name in countries checkpoints observations collector_runs; do
+        _emit_target_relation_acl "$name" object avelren_collector SELECT INSERT UPDATE
+    done
+    for name in subscriptions subscription_state alerts eta_targets eta_alerts; do
+        _emit_target_relation_acl "$name" object avelren_collector SELECT
+    done
+    for name in subscription_state alerts eta_targets eta_alerts; do
+        _emit_target_relation_acl "$name" object avelren_collector INSERT UPDATE
+    done
+    _emit_target_relation_acl notification_cancels object avelren_collector INSERT
+    for column in kind alert_id; do
+        _emit_target_relation_acl notification_cancels "$column" avelren_collector SELECT
+    done
+    for name in alerts_id_seq eta_alerts_id_seq notification_cancels_id_seq; do
+        _emit_target_relation_acl "$name" object avelren_collector USAGE
+    done
+
+    for name in alerts eta_alerts subscriptions eta_targets checkpoints notification_cancels; do
+        _emit_target_relation_acl "$name" object avelren_notifier SELECT
+    done
+    for column in id fcm_token; do
+        _emit_target_relation_acl devices "$column" avelren_notifier SELECT
+    done
+    _emit_target_relation_acl devices fcm_token avelren_notifier UPDATE
+    for name in alerts eta_alerts; do
+        for column in last_sent_at send_count; do
+            _emit_target_relation_acl "$name" "$column" avelren_notifier UPDATE
+        done
+    done
+    for column in attempt_count last_attempt_at accepted_at abandoned_at; do
+        _emit_target_relation_acl notification_cancels "$column" avelren_notifier UPDATE
+    done
+    _emit_target_relation_acl notification_cancels object avelren_notifier DELETE
+
+    for name in observations collector_runs health_alerts; do
+        _emit_target_relation_acl "$name" object avelren_watchdog SELECT
+    done
+    for column in id is_admin fcm_token; do
+        _emit_target_relation_acl devices "$column" avelren_watchdog SELECT
+    done
+    _emit_target_relation_acl health_alerts object avelren_watchdog INSERT UPDATE
+    _emit_target_relation_acl health_alerts_id_seq object avelren_watchdog USAGE
+
+    for name in countries checkpoints observations observations_hourly collector_runs subscriptions alerts eta_targets eta_alerts health_alerts; do
+        _emit_target_relation_acl "$name" object avelren_api SELECT
+    done
+    for column in id fcm_token platform secret_hash is_admin last_seen; do
+        _emit_target_relation_acl devices "$column" avelren_api SELECT
+    done
+    for column in fcm_token platform secret_hash; do
+        _emit_target_relation_acl devices "$column" avelren_api INSERT
+    done
+    for column in fcm_token last_seen; do
+        _emit_target_relation_acl devices "$column" avelren_api UPDATE
+    done
+    for name in subscriptions eta_targets; do
+        _emit_target_relation_acl "$name" object avelren_api INSERT UPDATE DELETE
+    done
+    for name in alerts eta_alerts; do
+        for column in status acknowledged_at; do
+            _emit_target_relation_acl "$name" "$column" avelren_api UPDATE
+        done
+    done
+    _emit_target_relation_acl notification_cancels object avelren_api INSERT
+    for column in kind alert_id; do
+        _emit_target_relation_acl notification_cancels "$column" avelren_api SELECT
+    done
+    for name in subscriptions_id_seq eta_targets_id_seq notification_cancels_id_seq; do
+        _emit_target_relation_acl "$name" object avelren_api USAGE
+    done
+}
+
+_target_acl_sql() {
+    cat <<'SQL'
+CREATE TEMP TABLE avelren_expected_acl (
+    scope text NOT NULL,
+    schema_name text NOT NULL,
+    object_name text NOT NULL,
+    object_kind text NOT NULL,
+    subject text NOT NULL,
+    grantor_name text NOT NULL,
+    grantee_name text NOT NULL,
+    privilege_type text NOT NULL,
+    is_grantable text NOT NULL
+) ON COMMIT DROP;
+COPY avelren_expected_acl FROM STDIN;
+SQL
+    _canonical_target_acl_rows | LC_ALL=C sort
+    printf '%s\n' '\.'
+    cat <<'SQL'
+DO $avelren_acl_verify$
+DECLARE
+    mismatch_count bigint;
+BEGIN
+    WITH actual_acl AS (
+        SELECT 'database'::text AS scope, '-'::text AS schema_name, '-'::text AS object_name,
+               'database'::text AS object_kind, 'object'::text AS subject,
+               pg_get_userbyid(acl.grantor) AS grantor_name,
+               CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END AS grantee_name,
+               acl.privilege_type, acl.is_grantable::text
+        FROM pg_database AS database
+        CROSS JOIN LATERAL aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS acl
+        WHERE database.datname = current_database() AND acl.grantee <> database.datdba
+        UNION ALL
+        SELECT 'schema', namespace.nspname, namespace.nspname, 'schema', 'object',
+               pg_get_userbyid(acl.grantor),
+               CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
+               acl.privilege_type, acl.is_grantable::text
+        FROM pg_namespace AS namespace
+        CROSS JOIN LATERAL aclexplode(COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))) AS acl
+        WHERE namespace.nspname = 'public' AND acl.grantee <> namespace.nspowner
+        UNION ALL
+        SELECT 'relation', namespace.nspname, relation.relname, relation.relkind::text, 'object',
+               pg_get_userbyid(acl.grantor),
+               CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
+               acl.privilege_type, acl.is_grantable::text
+        FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        CROSS JOIN LATERAL aclexplode(COALESCE(
+            relation.relacl,
+            acldefault(CASE WHEN relation.relkind = 'S' THEN 's' ELSE 'r' END::"char", relation.relowner)
+        )) AS acl
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r','p','S','v','m')
+          AND acl.grantee <> relation.relowner
+        UNION ALL
+        SELECT 'relation', namespace.nspname, relation.relname, relation.relkind::text, attribute.attname,
+               pg_get_userbyid(acl.grantor),
+               CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
+               acl.privilege_type, acl.is_grantable::text
+        FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        JOIN pg_attribute AS attribute ON attribute.attrelid = relation.oid
+        CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r','p','S','v','m')
+          AND attribute.attnum > 0 AND NOT attribute.attisdropped
+          AND attribute.attacl IS NOT NULL
+          AND acl.grantee <> relation.relowner
+    ), mismatch AS (
+        (SELECT 'missing'::text AS direction, expected.* FROM avelren_expected_acl AS expected
+         EXCEPT SELECT 'missing', actual.* FROM actual_acl AS actual)
+        UNION ALL
+        (SELECT 'unexpected'::text AS direction, actual.* FROM actual_acl AS actual
+         EXCEPT SELECT 'unexpected', expected.* FROM avelren_expected_acl AS expected)
+    )
+    SELECT count(*) INTO mismatch_count FROM mismatch;
+    IF mismatch_count <> 0 THEN
+        RAISE EXCEPTION 'target ACL exact-set mismatch (% rows)', mismatch_count;
+    END IF;
+
+    IF EXISTS (
+        (SELECT pg_get_userbyid(defaclrole), COALESCE(namespace.nspname, '-'), defaclobjtype::text
+         FROM pg_default_acl
+         LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaclnamespace)
+        EXCEPT
+        (VALUES ('avelren_migrator','-','f'), ('avelren_migrator','-','T'))
+    ) OR EXISTS (
+        (VALUES ('avelren_migrator','-','f'), ('avelren_migrator','-','T'))
+        EXCEPT
+        (SELECT pg_get_userbyid(defaclrole), COALESCE(namespace.nspname, '-'), defaclobjtype::text
+         FROM pg_default_acl
+         LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaclnamespace)
+    ) THEN
+        RAISE EXCEPTION 'target default-privilege identity exact-set mismatch';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM pg_default_acl AS defaults
+        CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
+        WHERE pg_get_userbyid(defaults.defaclrole) <> 'avelren_migrator'
+           OR pg_get_userbyid(acl.grantor) <> 'avelren_migrator'
+           OR acl.grantee <> defaults.defaclrole
+           OR acl.is_grantable
+           OR (defaults.defaclobjtype = 'f' AND acl.privilege_type <> 'EXECUTE')
+           OR (defaults.defaclobjtype = 'T' AND acl.privilege_type <> 'USAGE')
+           OR defaults.defaclobjtype NOT IN ('f','T')
+    ) THEN
+        RAISE EXCEPTION 'target default-privilege ACL exact-set mismatch';
+    END IF;
+END
+$avelren_acl_verify$;
+DROP TABLE avelren_expected_acl;
+SQL
+}
+
 _target_ownership_sql() {
+    _target_acl_sql
     cat <<'SQL'
 DO $avelren_verify$
 BEGIN
@@ -625,6 +867,20 @@ BEGIN
           AND pg_get_userbyid(c.relowner) <> 'avelren_migrator'
     ) THEN
         RAISE EXCEPTION 'application owner mismatch';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM pg_shdepend AS dependency
+        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
+        WHERE dependency.refclassid = 'pg_authid'::regclass
+          AND dependency.deptype = 'o'
+          AND owner_role.rolname = 'avelren'
+          AND (
+              dependency.dbid = 0
+              OR dependency.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+          )
+    ) THEN
+        RAISE EXCEPTION 'residual legacy ownership detected';
     END IF;
 END
 $avelren_verify$;

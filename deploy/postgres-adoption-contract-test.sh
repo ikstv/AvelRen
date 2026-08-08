@@ -147,6 +147,16 @@ grep -q '^REASSIGN OWNED BY "avelren_migrator" TO "avelren";' "$EVIDENCE/inverse
 grep -q '^REASSIGN OWNED BY "avelren_admin" TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks admin/extension rollback boundary'
 grep -q 'GRANT SELECT ON TABLE "public"\."devices" TO "avelren_api"' "$EVIDENCE/inverse.sql" || fail 'inverse plan was not generated from original ACL manifest'
 
+GRANT_OPTION_MANIFEST="$EVIDENCE/grant-option-source.tsv"
+cp "$EVIDENCE/original.tsv" "$GRANT_OPTION_MANIFEST"
+printf '%s\n' $'acl\trelation\tavelren_adoption_test\tpublic\talerts\tr\tavelren\tobject\tavelren\tavelren_notifier\tSELECT\ttrue\tapplication\t"public"."alerts"' \
+    >>"$GRANT_OPTION_MANIFEST"
+LC_ALL=C sort -o "$GRANT_OPTION_MANIFEST" "$GRANT_OPTION_MANIFEST"
+chmod 600 "$GRANT_OPTION_MANIFEST"
+build_inverse_plan "$GRANT_OPTION_MANIFEST" "$EVIDENCE/grant-option-inverse.sql"
+grep -q 'GRANT SELECT ON TABLE "public"\."alerts" TO "avelren_notifier" WITH GRANT OPTION;' \
+    "$EVIDENCE/grant-option-inverse.sql" || fail 'inverse plan lost source grant option semantics'
+
 QUOTED_DB_MANIFEST="$EVIDENCE/quoted-database.tsv"
 awk -F '\t' 'BEGIN { OFS="\t" }
     {
