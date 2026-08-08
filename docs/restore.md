@@ -1,39 +1,44 @@
 # Restore procedure
 
-The default restore target is the disposable `restore_test` database. A
-production restore is never enabled by a timeout or an interactive prompt.
+The public low-level restore target is exclusively the disposable `restore_test`
+database. Its source-only engine has no executable production CLI. Production
+restore is destructive and is allowed only through
+`deploy/restore-production.sh`; never invoke the low-level engine directly as
+an operational production procedure.
 
-Before any database is dropped or created, `deploy/restore.sh` requires:
-
-1. an explicit target;
-2. the exact production confirmation token;
-3. an existing backup artifact;
-4. successful gzip integrity validation.
-
-The production contract is:
-
-```bash
-avelren-restore backup.sql.gz \
-  --target avelren \
-  --confirm-production-restore AVELREN-PRODUCTION-RESTORE
-```
-
-To test the full pre-destructive contract without touching a database:
-
-```bash
-avelren-restore backup.sql.gz \
-  --target avelren \
-  --confirm-production-restore AVELREN-PRODUCTION-RESTORE \
-  --dry-run
-```
-
-Normal development verification uses the disposable target:
+## Disposable verification
 
 ```bash
 avelren-restore backup.sql.gz --target restore_test
 deploy/restore-verify.sh restore_test
 ```
 
-The restore order is confirmation, target validation, backup validation,
-integrity check, restore, then schema and application verification. Production
-restore is never executed by CI.
+The engine validates the target, exact production confirmation (when relevant),
+artifact existence, and gzip integrity before destructive work. Once
+`timescaledb_pre_restore()` succeeds, every failing exit attempts
+`timescaledb_post_restore()` without masking the primary restore status.
+
+## Production entrypoint
+
+```bash
+deploy/restore-production.sh backup.sql.gz \
+  --confirm-production-restore AVELREN-PRODUCTION-RESTORE
+```
+
+The orchestrator stops public ingress first, stops all known PostgreSQL clients,
+and aborts if unknown target sessions remain. It then invokes the restore
+engine, runs the migrate gate before exact schema verification (so retained
+backups may contain an older contiguous migration prefix), executes a GET-only
+application smoke, restarts services in a controlled order, and validates the
+canonical `/api/health` JSON endpoint plus a new successful collector run with
+rows written after the pre-restart watermark.
+
+On any failure, application DB clients and ingress remain stopped. The operator
+must diagnose and explicitly resume; there is no optimistic restart.
+
+CI runs this flow only against isolated disposable databases and fake service
+boundaries. It never performs a live production restore.
+
+See [disaster-recovery.md](disaster-recovery.md) for the full operator runbook
+and [backup-key-escrow.md](backup-key-escrow.md) for the external key evidence
+gate.

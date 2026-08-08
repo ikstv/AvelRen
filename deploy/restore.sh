@@ -1,84 +1,37 @@
 #!/usr/bin/env bash
-#
-# Відновлення AvelRen з резервної копії.
-#
-# Звичайний psql на дампі TimescaleDB дає помилки на гіпертаблицях і
-# стисненні: розширення намагається застосувати політики до того, як таблиці
-# готові. Правильний шлях — timescaledb_pre_restore() до і
-# timescaledb_post_restore() після.
-#
-# Використання:
-#   avelren-restore <файл.sql.gz> [ім'я_бази]
-#   avelren-restore <файл.sql.gz> --target avelren \
-#       --confirm-production-restore AVELREN-PRODUCTION-RESTORE
-#
-# Без другого аргументу відновлює в restore_test, а не в бойову базу:
-# помилитись і затерти прод має бути важче, ніж перевірити копію.
-#
+# Public low-level restore CLI. It intentionally supports only restore_test.
 set -euo pipefail
 
 STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
 COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
 COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
 DB_SERVICE=${AVELREN_DB_SERVICE:-db}
-PRODUCTION_TARGET=avelren
-PRODUCTION_CONFIRMATION=AVELREN-PRODUCTION-RESTORE
 DUMP=${1:?вкажіть файл дампа}
 shift
 TARGET=restore_test
-CONFIRMATION=
 DRY_RUN=false
-
-if [ "$DUMP" = "--help" ]; then
-    sed -n '1,24p' "$0"
-    exit 0
-fi
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --target)
             [ "$#" -ge 2 ] || { echo "помилка: --target потребує значення" >&2; exit 2; }
-            TARGET=$2
-            shift 2
-            ;;
+            TARGET=$2; shift 2 ;;
         --confirm-production-restore)
+            # Parse the historical option only to return an explicit fail-closed denial.
             [ "$#" -ge 2 ] || { echo "помилка: confirmation token відсутній" >&2; exit 2; }
-            CONFIRMATION=$2
-            shift 2
-            ;;
-        --dry-run)
-            DRY_RUN=true
-            shift
-            ;;
-        *)
-            echo "помилка: невідомий аргумент: $1" >&2
-            exit 2
-            ;;
+            shift 2 ;;
+        --dry-run) DRY_RUN=true; shift ;;
+        *) echo "помилка: невідомий аргумент: $1" >&2; exit 2 ;;
     esac
 done
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
-
-if [ ! -f "$DUMP" ]; then
-    log "ВІДМОВА: backup artifact не знайдено: $DUMP"
-    exit 1
-fi
-if [ "$TARGET" != "restore_test" ] && [ "$TARGET" != "$PRODUCTION_TARGET" ]; then
-    log "ВІДМОВА: дозволені target лише restore_test або $PRODUCTION_TARGET"
+[ -f "$DUMP" ] || { log "ВІДМОВА: backup artifact не знайдено: $DUMP"; exit 1; }
+if [ "$TARGET" != restore_test ]; then
+    log "ВІДМОВА: direct production restore заборонений; використовуйте deploy/restore-production.sh"
     exit 2
 fi
-if [ "$TARGET" = "$PRODUCTION_TARGET" ] && [ "$CONFIRMATION" != "$PRODUCTION_CONFIRMATION" ]; then
-    log "ВІДМОВА: production restore потребує exact explicit confirmation token"
-    exit 2
-fi
-if [ "$TARGET" != "$PRODUCTION_TARGET" ] && [ -n "$CONFIRMATION" ]; then
-    log "ВІДМОВА: production confirmation не дозволена для test target"
-    exit 2
-fi
-if ! gzip -t "$DUMP"; then
-    log "ВІДМОВА: backup artifact не пройшов gzip integrity validation"
-    exit 1
-fi
+gzip -t "$DUMP" || { log "ВІДМОВА: backup artifact не пройшов gzip integrity validation"; exit 1; }
 
 log "preflight OK: target=$TARGET, backup=$DUMP"
 if [ "$DRY_RUN" = true ]; then
@@ -86,40 +39,6 @@ if [ "$DRY_RUN" = true ]; then
     exit 0
 fi
 
-cd "$STACK_DIR"
-compose() {
-    local args=(docker compose)
-    if [ -n "$COMPOSE_FILE" ]; then
-        args+=(-f "$COMPOSE_FILE")
-    fi
-    if [ -n "$COMPOSE_PROJECT" ]; then
-        args+=(-p "$COMPOSE_PROJECT")
-    fi
-    "${args[@]}" "$@"
-}
-psql() { compose exec -T "$DB_SERVICE" psql -U avelren "$@"; }
-
-log "готую базу $TARGET"
-psql -d postgres -v target="$TARGET" -q <<'SQL'
-DROP DATABASE IF EXISTS :"target";
-CREATE DATABASE :"target";
-SQL
-psql -d "$TARGET" -q -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
-
-log "timescaledb_pre_restore"
-psql -d "$TARGET" -q -c "SELECT timescaledb_pre_restore();"
-
-log "відновлення даних"
-gunzip -c "$DUMP" | psql -d "$TARGET" -q
-
-log "timescaledb_post_restore"
-psql -d "$TARGET" -q -c "SELECT timescaledb_post_restore();"
-
-log "перевірка"
-psql -d "$TARGET" -c "
-SELECT (SELECT count(*) FROM observations)  AS спостережень,
-       (SELECT count(*) FROM checkpoints)   AS кпп,
-       (SELECT count(*) FROM timescaledb_information.hypertables) AS гіпертаблиць,
-       (SELECT count(*) FROM timescaledb_information.continuous_aggregates) AS агрегатів;"
-
-log "готово: база $TARGET"
+# shellcheck source=deploy/restore-engine.lib.sh
+source "$STACK_DIR/deploy/restore-engine.lib.sh"
+avelren_restore_engine "$DUMP" "$TARGET" "$STACK_DIR" "$COMPOSE_FILE" "$COMPOSE_PROJECT" "$DB_SERVICE"

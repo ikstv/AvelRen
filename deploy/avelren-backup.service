@@ -6,6 +6,11 @@ Requires=docker.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/avelren-backup
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
 # Копія не критична за часом, але дамп навантажує БД — не заважаємо збирачу.
 Nice=10
 IOSchedulingClass=idle

@@ -28,8 +28,14 @@ denied "$WORK/corrupt.sql.gz" --target restore_test
 denied "$WORK/missing.sql.gz" --target restore_test
 # F: disposable restore path still passes its pre-destructive contract.
 bash "$ROOT/deploy/restore.sh" "$valid" --target restore_test --dry-run >/dev/null
-# G: valid simulated production contract reaches the pre-destructive boundary.
-bash "$ROOT/deploy/restore.sh" "$valid" --target avelren \
-    --confirm-production-restore AVELREN-PRODUCTION-RESTORE --dry-run >/dev/null
+# G: even the historical public phrase cannot authorize direct production.
+denied "$valid" --target avelren \
+    --confirm-production-restore AVELREN-PRODUCTION-RESTORE --dry-run
 
-echo "restore contract tests: 7 passed"
+# H: the source-only engine has no executable production CLI.
+if bash "$ROOT/deploy/restore-engine.lib.sh" >/dev/null 2>&1; then
+    echo "source-only restore engine unexpectedly executed" >&2
+    exit 1
+fi
+
+echo "restore contract tests: 8 passed"

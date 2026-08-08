@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+make_tools() {
+    local bin=$1 remote=$2
+    mkdir -p "$bin" "$remote"
+    cat >"$bin/docker" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "${FAKE_DUMP_FAIL:-0}" != 1 ] || { printf 'partial'; exit 9; }
+if [ "${FAKE_SMALL_DUMP:-0}" = 1 ]; then
+    printf 'SELECT 1;\n'
+else
+    head -c 30000 /dev/urandom | base64
+fi
+SH
+    cat >"$bin/rclone" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+cmd=$1; shift
+path() { printf '%s/%s' "$FAKE_REMOTE" "${1#*:}"; }
+case "$cmd" in
+copyto)
+    src=$1; dst=$(path "$2")
+    [ "${FAKE_UPLOAD_FAIL:-0}" != 1 ] || exit 10
+    mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"
+    ;;
+cat)
+    file=$(path "$1")
+    if [[ "$file" == *.sha256 ]]; then
+        if [ "${FAKE_VERIFY_MISMATCH:-0}" = 1 ]; then printf 'mismatch\n'; else cat "$file"; fi
+    else
+        [ "${FAKE_REMOTE_CAT_FAIL:-0}" != 1 ] || exit 13
+        if [ "${FAKE_SAME_SIZE_CORRUPTION:-0}" = 1 ]; then
+            python3 - "$file" <<'PY'
+import pathlib
+import sys
+
+data = bytearray(pathlib.Path(sys.argv[1]).read_bytes())
+data[len(data) // 2] ^= 1
+sys.stdout.buffer.write(data)
+PY
+        else
+            cat "$file"
+        fi
+    fi
+    ;;
+size)
+    file=$(path "$1"); size=$(stat -c %s "$file")
+    [ "${FAKE_SIZE_MISMATCH:-0}" != 1 ] || size=$((size + 1))
+    printf '{"count":1,"bytes":%s}\n' "$size"
+    ;;
+lsf)
+    printf 'RETENTION\n' >>"${FAKE_CALL_LOG:-/dev/null}"
+    dir=$(path "$1")
+    [ "${FAKE_RETENTION_FAIL:-0}" != 1 ] || exit 11
+    find "$dir" -maxdepth 1 -type f -name 'avelren-*.sql.gz' -printf '%f\n' 2>/dev/null || true
+    ;;
+deletefile)
+    rm -f -- "$(path "$1")"
+    ;;
+*) exit 12 ;;
+esac
+SH
+    chmod +x "$bin/docker" "$bin/rclone"
+}
+
+run_case() {
+    local name=$1; shift
+    local case_dir="$WORK/$name" bin="$WORK/$name/bin" remote="$WORK/$name/remote"
+    mkdir -p "$case_dir/stack"
+    make_tools "$bin" "$remote"
+    env PATH="$bin:$PATH" FAKE_REMOTE="$remote" \
+        AVELREN_STACK_DIR="$case_dir/stack" \
+        AVELREN_BACKUP_WORK_DIR="$case_dir/work" \
+        AVELREN_BACKUP_REMOTE="fake:$remote" \
+        AVELREN_RCLONE_CONFIG="$case_dir/rclone.conf" \
+        AVELREN_BACKUP_STAMP="$case_dir/stamp" \
+        FAKE_CALL_LOG="$case_dir/calls.log" \
+        "$@" bash "$ROOT/deploy/backup.sh"
+}
+
+assert_no_plaintext() {
+    local dir=$1
+    [ -d "$dir" ] || return 0
+    ! find "$dir" -maxdepth 1 -type f \( -name '*.sql.gz' -o -name '*.sha256' \) | grep -q .
+}
+
+run_case success
+[ "$(stat -c %a "$WORK/success/work")" = 700 ]
+[ -e "$WORK/success/stamp" ]
+assert_no_plaintext "$WORK/success/work"
+remote_dump=$(find "$WORK/success/remote" -type f -name '*.sql.gz' | head -1)
+[ -n "$remote_dump" ] && [ -f "$remote_dump.sha256" ]
+
+for item in \
+    'dump:FAKE_DUMP_FAIL=1' \
+    'small:FAKE_SMALL_DUMP=1' \
+    'upload:FAKE_UPLOAD_FAIL=1' \
+    'verify:FAKE_VERIFY_MISMATCH=1' \
+    'same-size:FAKE_SAME_SIZE_CORRUPTION=1' \
+    'remote-cat:FAKE_REMOTE_CAT_FAIL=1' \
+    'size:FAKE_SIZE_MISMATCH=1' \
+    'retention:FAKE_RETENTION_FAIL=1'
+do
+    name=${item%%:*}; flag=${item#*:}
+    if run_case "$name" "$flag"; then
+        echo "expected backup failure: $name" >&2; exit 1
+    fi
+    [ ! -e "$WORK/$name/stamp" ]
+    assert_no_plaintext "$WORK/$name/work"
+    if [ "$name" = same-size ] || [ "$name" = remote-cat ]; then
+        ! grep -q RETENTION "$WORK/$name/calls.log" 2>/dev/null
+    fi
+done
+
+# Corrupt gzip validator: test the actual script while replacing only gzip.
+case_dir="$WORK/gzip"; mkdir -p "$case_dir/stack"; make_tools "$case_dir/bin" "$case_dir/remote"
+cat >"$case_dir/bin/gzip" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -t ]; then exit 1; fi
+exec /usr/bin/gzip "$@"
+SH
+chmod +x "$case_dir/bin/gzip"
+if env PATH="$case_dir/bin:$PATH" FAKE_REMOTE="$case_dir/remote" \
+    AVELREN_STACK_DIR="$case_dir/stack" AVELREN_BACKUP_WORK_DIR="$case_dir/work" \
+    AVELREN_BACKUP_REMOTE="fake:$case_dir/remote" AVELREN_RCLONE_CONFIG=x \
+    AVELREN_BACKUP_STAMP="$case_dir/stamp" bash "$ROOT/deploy/backup.sh"; then
+    echo "expected gzip validation failure" >&2; exit 1
+fi
+[ ! -e "$case_dir/stamp" ]; assert_no_plaintext "$case_dir/work"
+
+# Cleanup is scoped: unrelated operator file survives every trap.
+mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-note"
+run_case unrelated
+[ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
+
+echo "backup contract tests: 13 passed"
