@@ -92,7 +92,12 @@ assert_failed_closed() {
     fi
 }
 
-run_fake success
+if ! run_fake success; then
+    echo 'success scenario unexpectedly failed' >&2
+    sed -n '1,240p' "$WORK/success.log" >&2 || true
+    sed -n '1,240p' "$WORK/success.out" >&2 || true
+    exit 1
+fi
 grep -q ENGINE "$WORK/success.log"; grep -q VERIFY "$WORK/success.log"
 
 if run_fake sessions FAKE_SESSIONS=1; then echo "session gate should fail" >&2; exit 1; fi
