@@ -812,33 +812,31 @@ BEGIN
         RAISE EXCEPTION 'target ACL exact-set mismatch (% rows)', mismatch_count;
     END IF;
 
-    WITH expected_default_acl (
-        owner_name, namespace_name, object_type, grantor_name, grantee_name,
-        privilege_type, is_grantable
-    ) AS (
-        VALUES
-            ('avelren_migrator','-','f','avelren_migrator','avelren_migrator','EXECUTE','false'),
-            ('avelren_migrator','-','T','avelren_migrator','avelren_migrator','USAGE','false')
+    WITH migrator AS (
+        SELECT oid AS role_oid FROM pg_roles WHERE rolname = 'avelren_migrator'
+    ), expected_default_acl AS (
+        SELECT role_oid AS owner_oid, 0::oid AS namespace_oid, 'f'::"char" AS object_type,
+               role_oid AS grantor_oid, role_oid AS grantee_oid,
+               'EXECUTE'::text AS privilege_type, false AS is_grantable
+        FROM migrator
+        UNION ALL
+        SELECT role_oid, 0::oid, 'T'::"char", role_oid, role_oid, 'USAGE'::text, false
+        FROM migrator
     ), actual_default_acl AS (
-        SELECT pg_get_userbyid(defaults.defaclrole),
-               COALESCE(namespace.nspname, '-'),
-               defaults.defaclobjtype::text,
-               pg_get_userbyid(acl.grantor),
-               CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
-               acl.privilege_type,
-               acl.is_grantable::text
+        SELECT defaults.defaclrole, defaults.defaclnamespace, defaults.defaclobjtype,
+               acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable
         FROM pg_default_acl AS defaults
-        LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+        JOIN migrator ON migrator.role_oid = defaults.defaclrole
         CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
     ), mismatch AS (
         (SELECT 'missing'::text AS direction, expected.*
          FROM expected_default_acl AS expected
-         EXCEPT
+         EXCEPT ALL
          SELECT 'missing', actual.* FROM actual_default_acl AS actual)
         UNION ALL
         (SELECT 'unexpected'::text AS direction, actual.*
          FROM actual_default_acl AS actual
-         EXCEPT
+         EXCEPT ALL
          SELECT 'unexpected', expected.* FROM expected_default_acl AS expected)
     )
     SELECT count(*) INTO mismatch_count FROM mismatch;
@@ -846,20 +844,31 @@ BEGIN
         RAISE EXCEPTION 'target default-privilege ACL exact-set mismatch (% rows)', mismatch_count;
     END IF;
 
-    IF EXISTS (
-        (SELECT pg_get_userbyid(defaclrole), COALESCE(namespace.nspname, '-'), defaclobjtype::text
-         FROM pg_default_acl
-         LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaclnamespace)
-        EXCEPT
-        (VALUES ('avelren_migrator','-','f'), ('avelren_migrator','-','T'))
-    ) OR EXISTS (
-        (VALUES ('avelren_migrator','-','f'), ('avelren_migrator','-','T'))
-        EXCEPT
-        (SELECT pg_get_userbyid(defaclrole), COALESCE(namespace.nspname, '-'), defaclobjtype::text
-         FROM pg_default_acl
-         LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaclnamespace)
-    ) THEN
-        RAISE EXCEPTION 'target default-privilege identity exact-set mismatch';
+    WITH migrator AS (
+        SELECT oid AS role_oid FROM pg_roles WHERE rolname = 'avelren_migrator'
+    ), expected_identity AS (
+        SELECT role_oid AS owner_oid, 0::oid AS namespace_oid, 'f'::"char" AS object_type
+        FROM migrator
+        UNION ALL
+        SELECT role_oid, 0::oid, 'T'::"char" FROM migrator
+    ), actual_identity AS (
+        SELECT defaults.defaclrole, defaults.defaclnamespace, defaults.defaclobjtype
+        FROM pg_default_acl AS defaults
+        JOIN migrator ON migrator.role_oid = defaults.defaclrole
+    ), mismatch AS (
+        (SELECT 'missing'::text AS direction, expected.*
+         FROM expected_identity AS expected
+         EXCEPT ALL
+         SELECT 'missing', actual.* FROM actual_identity AS actual)
+        UNION ALL
+        (SELECT 'unexpected'::text AS direction, actual.*
+         FROM actual_identity AS actual
+         EXCEPT ALL
+         SELECT 'unexpected', expected.* FROM expected_identity AS expected)
+    )
+    SELECT count(*) INTO mismatch_count FROM mismatch;
+    IF mismatch_count <> 0 THEN
+        RAISE EXCEPTION 'target default-privilege identity exact-set mismatch (% rows)', mismatch_count;
     END IF;
 END
 $avelren_acl_verify$;

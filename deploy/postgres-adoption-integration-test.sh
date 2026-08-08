@@ -230,6 +230,36 @@ assert_target_check_rejects() {
     }
 }
 
+assert_target_check_accepts() {
+    local name=$1 tamper=$2 driver output after_manifest
+    driver="$WORK/$name.driver.sql"
+    output="$WORK/$name.out"
+    after_manifest="$WORK/$name.after.tsv"
+    {
+        printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
+        cat "$PLAN_EVIDENCE/forward.sql"
+        cat "$tamper"
+        _target_ownership_sql
+        printf '%s\n' "SELECT 'TARGET_CHECK_ACCEPTED';"
+        cat "$PLAN_EVIDENCE/inverse.sql"
+        printf '%s\n' 'ROLLBACK;'
+    } >"$driver"
+    _adoption_psql "$ADMIN_DSN" <"$driver" >"$output" 2>&1 || {
+        echo "$name canonical target state should be accepted" >&2
+        sed -n '1,160p' "$output" >&2 || true
+        exit 1
+    }
+    grep -q 'TARGET_CHECK_ACCEPTED' "$output" || {
+        echo "$name did not execute the target verifier" >&2
+        exit 1
+    }
+    AVELREN_TARGET_DB="$TARGET_DB" capture_manifest "$ADMIN_DSN" "$after_manifest"
+    cmp "$PLAN_EVIDENCE/original.tsv" "$after_manifest" || {
+        echo "$name left ownership or ACL mutation after rollback" >&2
+        exit 1
+    }
+}
+
 cat >"$WORK/acl-unknown-grantee.sql" <<'SQL'
 GRANT SELECT ON TABLE public.alerts TO unexpected_acl_role;
 SQL
@@ -286,6 +316,97 @@ SQL
 assert_target_check_rejects default-type-owner-missing \
     "$WORK/default-type-owner-missing.sql" \
     'target default-privilege ACL exact-set mismatch'
+
+cat >"$WORK/default-function-schema-dash-substitution.sql" <<'SQL'
+CREATE SCHEMA "-" AUTHORIZATION avelren_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator IN SCHEMA "-"
+    GRANT EXECUTE ON FUNCTIONS TO avelren_migrator;
+SQL
+assert_target_check_rejects default-function-schema-dash-substitution \
+    "$WORK/default-function-schema-dash-substitution.sql" \
+    'target default-privilege'
+
+cat >"$WORK/default-type-empty-schema-dash-substitution.sql" <<'SQL'
+CREATE SCHEMA "-" AUTHORIZATION avelren_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    REVOKE USAGE ON TYPES FROM avelren_migrator;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator IN SCHEMA "-"
+    GRANT USAGE ON TYPES TO avelren_migrator;
+SQL
+assert_target_check_rejects default-type-empty-schema-dash-substitution \
+    "$WORK/default-type-empty-schema-dash-substitution.sql" \
+    'target default-privilege'
+
+cat >"$WORK/default-function-schema-dash-duplicate.sql" <<'SQL'
+CREATE SCHEMA "-" AUTHORIZATION avelren_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator IN SCHEMA "-"
+    GRANT EXECUTE ON FUNCTIONS TO avelren_migrator;
+SQL
+assert_target_check_rejects default-function-schema-dash-duplicate \
+    "$WORK/default-function-schema-dash-duplicate.sql" \
+    'target default-privilege'
+
+cat >"$WORK/default-function-public.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+SQL
+assert_target_check_rejects default-function-public "$WORK/default-function-public.sql" \
+    'target default-privilege'
+
+cat >"$WORK/default-type-public.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    GRANT USAGE ON TYPES TO PUBLIC;
+SQL
+assert_target_check_rejects default-type-public "$WORK/default-type-public.sql" \
+    'target default-privilege'
+
+cat >"$WORK/default-table-public.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator IN SCHEMA public
+    GRANT SELECT ON TABLES TO PUBLIC;
+SQL
+assert_target_check_rejects default-table-public "$WORK/default-table-public.sql" \
+    'target default-privilege'
+
+cat >"$WORK/default-sequence-public.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator IN SCHEMA public
+    GRANT USAGE ON SEQUENCES TO PUBLIC;
+SQL
+assert_target_check_rejects default-sequence-public "$WORK/default-sequence-public.sql" \
+    'target default-privilege'
+
+cat >"$WORK/default-unexpected-grantee.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    GRANT EXECUTE ON FUNCTIONS TO unexpected_acl_role;
+SQL
+assert_target_check_rejects default-unexpected-grantee \
+    "$WORK/default-unexpected-grantee.sql" 'target default-privilege'
+
+cat >"$WORK/default-unexpected-grant-option.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    GRANT EXECUTE ON FUNCTIONS TO unexpected_acl_role WITH GRANT OPTION;
+SQL
+assert_target_check_rejects default-unexpected-grant-option \
+    "$WORK/default-unexpected-grant-option.sql" 'target default-privilege'
+
+cat >"$WORK/default-unrelated-role.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE unexpected_acl_role IN SCHEMA public
+    GRANT SELECT ON TABLES TO avelren_watchdog;
+SQL
+assert_target_check_accepts default-unrelated-role "$WORK/default-unrelated-role.sql"
+
+cat >"$WORK/default-equivalent-regrant.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    REVOKE EXECUTE ON FUNCTIONS FROM avelren_migrator;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    GRANT EXECUTE ON FUNCTIONS TO avelren_migrator;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    REVOKE USAGE ON TYPES FROM avelren_migrator;
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    GRANT USAGE ON TYPES TO avelren_migrator;
+SQL
+assert_target_check_accepts default-equivalent-regrant "$WORK/default-equivalent-regrant.sql"
 
 cat >"$WORK/residual-non-public-relation.sql" <<'SQL'
 CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
