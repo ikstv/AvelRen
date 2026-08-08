@@ -75,16 +75,19 @@ fun TelemetryCard(t: Api.Telemetry?) {
             t.backups.age_hours?.let {
                 Line("Остання копія", if (it < 1) "щойно" else "$it год тому")
             } ?: Line("Остання копія", "немає")
-            // Оновлення пакетів. Показуємо завжди — «немає» теж інформація:
-            // порожній рядок не відрізниш від «дані не дійшли». Security
-            // виносимо окремо: саме вони визначають терміновість.
+            // Оновлення пакетів. Показуємо завжди. Три різні стани: null =
+            // «невідомо» (probe не спрацював / старий сервер), 0 = «немає», >0 =
+            // кількість. Security виносимо окремо — саме вони визначають терміновість.
             Line(
                 "Оновлення",
-                when {
-                    t.system.updates_pending == 0 -> "немає"
-                    t.system.updates_security > 0 ->
-                        "${t.system.updates_pending} (${t.system.updates_security} безпекових)"
-                    else -> "${t.system.updates_pending}"
+                t.system.updates_pending.let { pending ->
+                    val security = t.system.updates_security ?: 0
+                    when {
+                        pending == null -> "невідомо"
+                        pending == 0 -> "немає"
+                        security > 0 -> "$pending ($security безпекових)"
+                        else -> "$pending"
+                    }
                 },
             )
             if (t.system.reboot_required) {
