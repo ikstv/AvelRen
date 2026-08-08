@@ -84,9 +84,10 @@ remote_bytes=$(printf '%s\n' "$remote_size_json" | sed -n 's/.*"bytes"[[:space:]
 [ "$remote_bytes" = "$bytes" ] || fail "remote size mismatch: local=$bytes remote=$remote_bytes"
 
 log "verified remote artifact; ротація: лишаю $KEEP у $TIER"
+remote_listing=$(rclone lsf "$REMOTE/$TIER/" --files-only --include 'avelren-*.sql.gz' \
+    --config "$RCLONE_CONFIG") || fail "remote retention listing failed"
 mapfile -t old_names < <(
-    rclone lsf "$REMOTE/$TIER/" --files-only --include 'avelren-*.sql.gz' \
-        --config "$RCLONE_CONFIG" | sort -r | tail -n +$((KEEP + 1))
+    printf '%s\n' "$remote_listing" | sort -r | tail -n +$((KEEP + 1))
 )
 for old in "${old_names[@]}"; do
     [ -n "$old" ] || continue
