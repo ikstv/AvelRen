@@ -57,6 +57,7 @@ if AVELREN_STACK_DIR="$ROOT" \
     echo "restore failure after pre_restore was expected" >&2
     exit 1
 fi
+cat "$failure_log"
 grep -q 'primary restore failure' "$failure_log"
 grep -q 'timescaledb_post_restore cleanup succeeded' "$failure_log"
 echo "restore failure cleanup passed: post_restore attempted, primary failure preserved"
