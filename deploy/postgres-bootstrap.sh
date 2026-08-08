@@ -65,51 +65,196 @@ admin_psql_maintenance() {
 
 admin_psql_target() {
     PGPASSWORD="$AVELREN_ADMIN_PASSWORD" psql -X -v ON_ERROR_STOP=1 \
-        --dbname="$AVELREN_ADMIN_DSN" --dbname="$DB_NAME" "$@"
+        --dbname="$AVELREN_ADMIN_DSN" --set=target_db_name="$DB_NAME" "$@"
 }
 
 database_exists() {
     admin_psql_maintenance --set=bootstrap_stage=cleanup --set=db_name="$DB_NAME" \
         --tuples-only --no-align <<'SQL'
 -- bootstrap-stage:cleanup
+-- bootstrap-cleanup:database-exists
 SELECT EXISTS (SELECT FROM pg_database WHERE datname = :'db_name');
 SQL
 }
 
-database_is_empty() {
+database_is_disposable_empty() {
     admin_psql_target --set=bootstrap_stage=cleanup --tuples-only --no-align <<'SQL'
 -- bootstrap-stage:cleanup
+\connect :target_db_name
+-- bootstrap-cleanup:disposable-empty
 SELECT
-    NOT EXISTS (
+    (SELECT database.datallowconn
+     FROM pg_database AS database
+     WHERE database.datname = current_database())
+    AND NOT (SELECT database.datistemplate
+             FROM pg_database AS database
+             WHERE database.datname = current_database())
+    AND (SELECT database.datconnlimit
+         FROM pg_database AS database
+         WHERE database.datname = current_database()) = -1
+    AND (SELECT database.datacl IS NULL
+         FROM pg_database AS database
+         WHERE database.datname = current_database())
+    AND (SELECT owner.rolname
+         FROM pg_database AS database
+         JOIN pg_roles AS owner ON owner.oid = database.datdba
+         WHERE database.datname = current_database()) = 'avelren_admin'
+    AND (SELECT database.dattablespace
+         FROM pg_database AS database
+         WHERE database.datname = current_database()) = 0
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_db_role_setting AS setting
+        JOIN pg_database AS database ON database.oid = setting.setdatabase
+        WHERE database.datname = current_database()
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_shdescription AS description
+        JOIN pg_database AS database ON database.oid = description.objoid
+        WHERE description.classoid = 'pg_database'::regclass
+          AND database.datname = current_database()
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity AS activity
+        WHERE activity.datname = current_database()
+          AND activity.pid <> pg_backend_pid()
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_namespace AS namespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema', 'public')
+          AND namespace.nspname <> 'pg_toast'
+          AND namespace.nspname NOT LIKE 'pg_toast_temp_%'
+          AND namespace.nspname NOT LIKE 'pg_temp_%'
+    )
+    AND NOT EXISTS (
         SELECT 1
         FROM pg_class AS relation
         JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-        WHERE namespace.nspname = 'public'
-          AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND namespace.nspname <> 'pg_toast'
+          AND namespace.nspname NOT LIKE 'pg_toast_temp_%'
+          AND namespace.nspname NOT LIKE 'pg_temp_%'
     )
     AND NOT EXISTS (
         SELECT 1
         FROM pg_proc AS routine
         JOIN pg_namespace AS namespace ON namespace.oid = routine.pronamespace
-        WHERE namespace.nspname = 'public'
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND namespace.nspname <> 'pg_toast'
+          AND namespace.nspname NOT LIKE 'pg_toast_temp_%'
+          AND namespace.nspname NOT LIKE 'pg_temp_%'
     )
     AND NOT EXISTS (
         SELECT 1
         FROM pg_type AS type
         JOIN pg_namespace AS namespace ON namespace.oid = type.typnamespace
-        WHERE namespace.nspname = 'public'
-          AND type.typtype IN ('b', 'c', 'd', 'e', 'r')
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND namespace.nspname <> 'pg_toast'
+          AND namespace.nspname NOT LIKE 'pg_toast_temp_%'
+          AND namespace.nspname NOT LIKE 'pg_temp_%'
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_collation AS collation
+        JOIN pg_namespace AS namespace ON namespace.oid = collation.collnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_conversion AS conversion
+        JOIN pg_namespace AS namespace ON namespace.oid = conversion.connamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_operator AS operator
+        JOIN pg_namespace AS namespace ON namespace.oid = operator.oprnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_opclass AS opclass
+        JOIN pg_namespace AS namespace ON namespace.oid = opclass.opcnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_opfamily AS opfamily
+        JOIN pg_namespace AS namespace ON namespace.oid = opfamily.opfnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_ts_config AS configuration
+        JOIN pg_namespace AS namespace ON namespace.oid = configuration.cfgnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_ts_dict AS dictionary
+        JOIN pg_namespace AS namespace ON namespace.oid = dictionary.dictnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_ts_parser AS parser
+        JOIN pg_namespace AS namespace ON namespace.oid = parser.prsnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_ts_template AS template
+        JOIN pg_namespace AS namespace ON namespace.oid = template.tmplnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_statistic_ext AS statistic
+        JOIN pg_namespace AS namespace ON namespace.oid = statistic.stxnamespace
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+    )
+    AND NOT EXISTS (SELECT 1 FROM pg_largeobject_metadata)
+    AND NOT EXISTS (SELECT 1 FROM pg_default_acl)
+    AND NOT EXISTS (SELECT 1 FROM pg_event_trigger)
+    AND NOT EXISTS (SELECT 1 FROM pg_foreign_data_wrapper)
+    AND NOT EXISTS (SELECT 1 FROM pg_foreign_server)
+    AND NOT EXISTS (SELECT 1 FROM pg_publication)
+    AND NOT EXISTS (SELECT 1 FROM pg_subscription)
+    AND EXISTS (
+        SELECT 1
+        FROM pg_extension AS extension
+        JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+        WHERE extension.extname = 'plpgsql'
+          AND namespace.nspname = 'pg_catalog'
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_extension AS extension
+        JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+        WHERE extension.extname <> 'plpgsql'
+           OR namespace.nspname <> 'pg_catalog'
     );
 SQL
 }
 
 cleanup_disposable_empty_test() {
+    local exists empty
     [[ "$DB_NAME" == *_test ]] || fail 'cleanup requires a *_test database name'
     [ "${AVELREN_TEST_DB:-}" = 1 ] || fail 'cleanup requires AVELREN_TEST_DB=1'
-    [ "$(database_exists)" = t ] || return 0
-    [ "$(database_is_empty)" = t ] || fail 'cleanup requires an empty target database'
+    if ! exists=$(database_exists); then
+        fail 'cleanup could not verify target database existence'
+    fi
+    [ "$exists" = t ] || return 0
+    if ! empty=$(database_is_disposable_empty); then
+        fail 'cleanup could not prove a newly created, disposable empty target database'
+    fi
+    [ "$empty" = t ] || fail 'cleanup requires a newly created, disposable empty target database'
     admin_psql_maintenance --set=bootstrap_stage=cleanup --set=db_name="$DB_NAME" <<'SQL'
 -- bootstrap-stage:cleanup
+-- bootstrap-cleanup:drop
 SELECT format('DROP DATABASE %I', :'db_name') \gexec
 SQL
 }
@@ -128,13 +273,17 @@ SQL
 }
 
 provision_extension() {
-    admin_psql_target --set=bootstrap_stage=extension --command \
-        'CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;'
+    admin_psql_target --set=bootstrap_stage=extension <<'SQL'
+-- bootstrap-stage:extension
+\connect :target_db_name
+CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;
+SQL
 }
 
 apply_acl() {
     admin_psql_target --set=bootstrap_stage=acl <<'SQL'
 -- bootstrap-stage:acl
+\connect :target_db_name
 SELECT format('ALTER DATABASE %I OWNER TO avelren_admin', current_database()) \gexec
 ALTER SCHEMA public OWNER TO avelren_admin;
 
@@ -162,6 +311,7 @@ SQL
 verify_owners() {
     admin_psql_target --set=bootstrap_stage=verify <<'SQL'
 -- bootstrap-stage:verify
+\connect :target_db_name
 DO $$
 BEGIN
     IF (SELECT owner.rolname

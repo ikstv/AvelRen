@@ -17,6 +17,7 @@ make_fake_psql() {
 set -euo pipefail
 
 stage=
+input=$(cat)
 for arg in "$@"; do
     case "$arg" in
         *bootstrap.sql) stage=roles ;;
@@ -30,8 +31,49 @@ for arg in "$@"; do
 done
 
 [ -n "$stage" ] || { printf 'fake psql received an unlabelled statement\n' >&2; exit 97; }
+if [ "$stage" = cleanup ]; then
+    case "$input" in
+        *bootstrap-cleanup:database-exists*) stage=cleanup_exists ;;
+        *bootstrap-cleanup:disposable-empty*) stage=cleanup_proof ;;
+        *bootstrap-cleanup:drop*) stage=cleanup_drop ;;
+        *) printf 'fake psql received an unlabelled cleanup statement\n' >&2; exit 96 ;;
+    esac
+fi
+
+target_stage=0
+case "$stage" in
+    extension|acl|verify) target_stage=1 ;;
+    cleanup_proof) target_stage=1 ;;
+esac
+if [ "$target_stage" -eq 1 ]; then
+    dbname_count=0
+    dbname_value=
+    for arg in "$@"; do
+        case "$arg" in
+            --dbname=*)
+                dbname_count=$((dbname_count + 1))
+                dbname_value=${arg#--dbname=}
+                ;;
+        esac
+    done
+    [ "$dbname_count" -eq 1 ] || { printf 'target stage must receive exactly one dbname option\n' >&2; exit 95; }
+    [ "$dbname_value" = "$FAKE_ADMIN_DSN" ] || { printf 'target stage changed the admin connection options\n' >&2; exit 94; }
+    [[ " $* " == *" --set=target_db_name=$FAKE_TARGET_DB "* ]] || {
+        printf 'target stage omitted the target database variable\n' >&2; exit 93;
+    }
+    [[ "$input" == *'\connect :target_db_name'* ]] || {
+        printf 'target stage did not reconnect with the previous connection options\n' >&2; exit 92;
+    }
+fi
+
 printf '%s\n' "$stage" >>"$FAKE_CALLS"
-[ "${PSQL_FAIL_ON:-}" != "$stage" ] || exit 91
+if [ "${PSQL_FAIL_ON:-}" = "$stage" ] || [ "${PSQL_FAIL_ON:-}" = cleanup ]; then
+    exit 91
+fi
+case "$stage" in
+    cleanup_exists) printf '%s\n' "${FAKE_DATABASE_EXISTS:-t}" ;;
+    cleanup_proof) printf '%s\n' "${FAKE_CLEANUP_PROOF:-t}" ;;
+esac
 SH
     chmod +x "$WORK/bin/psql"
 }
@@ -62,7 +104,9 @@ assert_not_contains() {
 
 bootstrap_env() {
     env PATH="$WORK/bin:$PATH" FAKE_CALLS="${FAKE_CALLS:?FAKE_CALLS is required}" \
-        AVELREN_ADMIN_DSN='postgresql://admin@fake/postgres' \
+        FAKE_ADMIN_DSN="${FAKE_ADMIN_DSN:-postgresql://admin@fake.example:6543/postgres?sslmode=require}" \
+        FAKE_TARGET_DB="${FAKE_TARGET_DB:-avelren_contract}" \
+        AVELREN_ADMIN_DSN="${FAKE_ADMIN_DSN:-postgresql://admin@fake.example:6543/postgres?sslmode=require}" \
         AVELREN_DB_NAME='avelren_contract' \
         AVELREN_ADMIN_PASSWORD='admin-secret-not-for-output' \
         AVELREN_MIGRATOR_PASSWORD='migrator-secret-not-for-output' \
@@ -81,6 +125,15 @@ run_bootstrap() {
     FAKE_CALLS="$calls" bootstrap_env bash "$ROOT/deploy/postgres-bootstrap.sh" "$@"
 }
 
+run_disposable_bootstrap() {
+    local calls=$1
+    shift
+    : >"$calls"
+    FAKE_CALLS="$calls" FAKE_TARGET_DB=avelren_cleanup_test bootstrap_env \
+        env AVELREN_DB_NAME=avelren_cleanup_test AVELREN_TEST_DB=1 "$@" \
+        bash "$ROOT/deploy/postgres-bootstrap.sh" fresh --disposable-empty-test
+}
+
 make_fake_psql
 
 missing_calls="$WORK/missing-password.calls"
@@ -96,7 +149,10 @@ FAKE_CALLS="$test_target_calls" assert_fails bootstrap_env env -u AVELREN_TEST_D
 [ ! -s "$test_target_calls" ] || fail 'psql was called for an unmarked test database'
 
 calls="$WORK/success.calls"
-run_bootstrap "$calls" fresh >"$WORK/success.out" 2>&1
+if ! run_bootstrap "$calls" fresh >"$WORK/success.out" 2>&1; then
+    cat "$WORK/success.out" >&2
+    fail 'fresh bootstrap unexpectedly failed'
+fi
 assert_order "$calls" roles create_database extension acl verify
 grep -Fxq migrate_handoff "$WORK/success.out" || fail 'missing migrate handoff'
 
@@ -120,9 +176,29 @@ assert_order "$calls" roles acl verify
 assert_not_contains "$calls" create_database
 assert_not_contains "$calls" extension
 
+calls="$WORK/cleanup-success.calls"
+run_disposable_bootstrap "$calls" >"$WORK/cleanup-success.out" 2>&1
+assert_order "$calls" roles cleanup_exists cleanup_proof cleanup_drop create_database extension acl verify
+
+calls="$WORK/cleanup-not-empty.calls"
+if FAKE_CLEANUP_PROOF=f run_disposable_bootstrap "$calls" >"$WORK/cleanup-not-empty.out" 2>&1; then
+    fail 'cleanup accepted a non-empty target'
+fi
+assert_order "$calls" roles cleanup_exists cleanup_proof
+assert_not_contains "$calls" cleanup_drop
+assert_not_contains "$calls" create_database
+
+for stage in cleanup_exists cleanup_proof cleanup_drop; do
+    calls="$WORK/fail-${stage}.calls"
+    if PSQL_FAIL_ON="$stage" run_disposable_bootstrap "$calls" >"$WORK/fail-${stage}.out" 2>&1; then
+        fail "expected cleanup failure: $stage"
+    fi
+    assert_not_contains "$calls" create_database
+done
+
 all_output=$(cat "$WORK"/*.out 2>/dev/null || true)
 for secret in admin migrator backup collector notifier watchdog api; do
     [[ "$all_output" != *"${secret}-secret-not-for-output"* ]] || fail 'secret appeared in output'
 done
 
-echo 'postgres bootstrap contract tests: 15 passed'
+echo 'postgres bootstrap contract tests: 20 passed'
