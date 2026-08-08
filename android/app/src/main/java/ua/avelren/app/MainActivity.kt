@@ -81,13 +81,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshPermissionState() {
+        val runtimeGranted = Notifications.runtimePermissionGranted(this)
+
+        // Фіксуємо вже виданий дозвіл: після оновлення APK поверх установки, де
+        // все було дозволено, callback запиту не спрацює ніколи, і пізніший
+        // revoke виглядав би як «ще не питали». Пишемо лише коли реально
+        // змінилось — щоб не смикати сховище на кожному onResume.
+        val stored = DeviceStore.notificationHistory(this)
+        val history = NotificationPermission.observeCurrentGrant(
+            Build.VERSION.SDK_INT, runtimeGranted, stored
+        )
+        if (history != stored) DeviceStore.saveNotificationHistory(this, history)
+
         permissionState = NotificationPermission.evaluate(
             sdkInt = Build.VERSION.SDK_INT,
-            runtimeGranted = Notifications.runtimePermissionGranted(this),
+            runtimeGranted = runtimeGranted,
             appNotificationsEnabled = Notifications.appNotificationsEnabled(this),
             alertChannelBlocked = Notifications.alertChannelBlocked(this),
             showRationale = rationaleForNotifications(),
-            history = DeviceStore.notificationHistory(this),
+            history = history,
         )
     }
 

@@ -82,6 +82,33 @@ object NotificationPermission {
     }
 
     /**
+     * Фіксує факт **уже виданого** дозволу в історії.
+     *
+     * `everGranted` інакше пишеться лише в callback запиту — а він не спрацює
+     * ніколи, якщо дозвіл видали до появи цього коду (оновлення APK поверх
+     * установки, де все вже було дозволено) або через системні налаштування.
+     * Тоді пізніший revoke виглядав би як «ще ніколи не питали» і вів у
+     * NeedsRequest замість NeedsAppSettings — тобто саме той сценарій, який
+     * AND-2 мав закрити, для наявних установок не працював би.
+     *
+     * Нижче API 33 `runtimeGranted` синтезується як `true` (runtime-permission
+     * не існує), тож сідувати з нього не можна — це не доказ реального grant.
+     *
+     * Повертає ту саму історію, якщо змінювати нічого — викликач за цим
+     * розуміє, що записувати в сховище не треба.
+     */
+    fun observeCurrentGrant(
+        sdkInt: Int,
+        runtimeGranted: Boolean,
+        history: History,
+    ): History =
+        if (sdkInt >= RUNTIME_PERMISSION_SDK && runtimeGranted && !history.everGranted) {
+            history.copy(everGranted = true)
+        } else {
+            history
+        }
+
+    /**
      * Оновлення історії за результатом системного діалогу.
      *
      * `showRationaleNow` читається ПІСЛЯ результату — саме він відрізняє явну

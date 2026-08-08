@@ -136,6 +136,64 @@ class NotificationPermissionTest {
         )
     }
 
+    // --- міграція вже виданого дозволу (upgrade-установка) ----------------
+
+    @Test
+    fun `existing install with granted permission seeds everGranted`() {
+        // Історія стартує порожньою після оновлення APK поверх установки, де
+        // дозвіл уже був виданий: callback запиту не спрацює ніколи, тож факт
+        // grant треба зафіксувати з фактичного стану.
+        val fresh = History()
+        assertEquals(
+            History(asked = false, deniedOnce = false, everGranted = true),
+            NotificationPermission.observeCurrentGrant(33, runtimeGranted = true, history = fresh),
+        )
+    }
+
+    @Test
+    fun `existing grant then revoke needs app settings`() {
+        // Наскрізний сценарій, заради якого потрібен seeding.
+        val seeded = NotificationPermission.observeCurrentGrant(33, true, History())
+        val afterRevoke = NotificationPermission.evaluate(
+            sdkInt = 33,
+            runtimeGranted = false,          // відкликали в Settings
+            appNotificationsEnabled = true,
+            alertChannelBlocked = false,
+            showRationale = false,
+            history = seeded,
+        )
+        assertEquals(S.NeedsAppSettings, afterRevoke)  // а не NeedsRequest
+    }
+
+    @Test
+    fun `grant in settings after deny seeds everGranted`() {
+        val denied = History(asked = true, deniedOnce = true, everGranted = false)
+        assertEquals(
+            History(asked = true, deniedOnce = true, everGranted = true),
+            NotificationPermission.observeCurrentGrant(33, runtimeGranted = true, history = denied),
+        )
+    }
+
+    @Test
+    fun `no seeding below api 33`() {
+        // Нижче 33 runtimeGranted синтезується як true (runtime-permission не
+        // існує) — це НЕ доказ реального grant, сідувати з нього не можна.
+        val fresh = History()
+        assertEquals(
+            fresh,
+            NotificationPermission.observeCurrentGrant(30, runtimeGranted = true, history = fresh),
+        )
+    }
+
+    @Test
+    fun `no seeding when not granted`() {
+        val fresh = History()
+        assertEquals(
+            fresh,
+            NotificationPermission.observeCurrentGrant(33, runtimeGranted = false, history = fresh),
+        )
+    }
+
     // --- запис історії ----------------------------------------------------
 
     @Test
