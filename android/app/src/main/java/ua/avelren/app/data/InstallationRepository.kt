@@ -56,23 +56,51 @@ class InstallationRepository(
     internal suspend fun syncPendingTokenOnce(): PendingTokenSyncOutcome = tokenSyncMutex.withLock {
         val token = pendingTokenMutex.withLock { pendingTokens.load() }
             ?: return@withLock PendingTokenSyncOutcome.NothingPending
-        val current = mutex.withLock { creds ?: store.load()?.also { creds = it } }
         try {
-            if (current == null) mutex.withLock { if (creds == null) registerFreshLocked(token) }
-            else try { api.updateToken(current, token) } catch (e: Throwable) {
-                if (!api.isStaleInstallation(e)) throw e
-                recoverFromToken(current, token)
-            }
+            syncToken(token)
             pendingTokenMutex.withLock { pendingTokens.clearIfMatches(token) }
             PendingTokenSyncOutcome.Synced
         } catch (e: CancellationException) { throw e }
         catch (e: Throwable) { classifyTokenSyncFailure(e) }
     }
 
-    private suspend fun recoverFromToken(stale: DeviceStore.Credentials, token: String) = mutex.withLock {
-        if (creds != stale) api.updateToken(creds ?: error("installation unavailable"), token)
-        else try { registerFreshLocked(token) }
-        catch (e: Throwable) { invalidateLocked("перереєстрація не вдалась: ${e.message}"); throw e }
+    private suspend fun syncToken(token: String) {
+        val current = creds ?: store.load()?.also { creds = it }
+        if (current == null) {
+            mutex.withLock {
+                val latest = creds ?: store.load()?.also { creds = it }
+                if (latest == null) registerFreshLocked(token)
+                else updateFreshTokenLocked(latest, token)
+            }
+            return
+        }
+        try {
+            api.updateToken(current, token)
+        } catch (e: Throwable) {
+            if (!api.isStaleInstallation(e)) throw e
+            mutex.withLock {
+                // The register-vs-existing decision is atomic. If another operation recovered
+                // while the first PUT was in flight, synchronize X on that fresh pair instead.
+                val latest = creds
+                if (latest != null && latest != current) updateFreshTokenLocked(latest, token)
+                else try { registerFreshLocked(token) }
+                catch (recoveryError: Throwable) {
+                    invalidateLocked("перереєстрація не вдалась: ${recoveryError.message}")
+                    throw recoveryError
+                }
+            }
+        }
+    }
+
+    private suspend fun updateFreshTokenLocked(fresh: DeviceStore.Credentials, token: String) {
+        try {
+            api.updateToken(fresh, token)
+        } catch (e: Throwable) {
+            if (api.isStaleInstallation(e)) {
+                invalidateIfLocked(fresh, "сервер відкинув щойно зареєстровану installation")
+            }
+            throw e
+        }
     }
 
     suspend fun <T> authenticatedCall(block: suspend (DeviceStore.Credentials) -> T): T {
@@ -102,6 +130,9 @@ class InstallationRepository(
     }
 
     private fun invalidateLocked(reason: String) { store.clear(); creds = null; _state.value = InstallationState.Unavailable(reason) }
+    private fun invalidateIfLocked(used: DeviceStore.Credentials, reason: String) {
+        if (creds == used) invalidateLocked(reason)
+    }
     private suspend fun invalidateIf(used: DeviceStore.Credentials, reason: String) = mutex.withLock { if (creds == used) invalidateLocked(reason) }
 
     private suspend fun registerFreshLocked(token: String) {
