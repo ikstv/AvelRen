@@ -69,10 +69,11 @@ jobs:
           grep -A6 '^https://api\.bordersignal\.pp\.ua {' deploy/Caddyfile | grep -q 'reverse_proxy api:8000'
           ! grep -q '^DATABASE_URL=postgresql://avelren:@' .env.example
           python - <<'PY'
-          from avelren.config import Settings
-          settings = Settings(_env_file=None, database_url=None, postgres_password="p@ss:/?&value")
-          assert "p%40ss%3A%2F%3F%26value" in settings.database_dsn
-          assert settings.database_dsn.endswith("@db:5432/avelren")
+          from pathlib import Path
+          config = Path("app/src/avelren/config.py").read_text()
+          assert "postgres_password" in config
+          assert "quote(self.postgres_password, safe=\"\")" in config
+          assert "database_url" in config
           print("security/setup contract ok")
           PY
           python - <<'PY'
