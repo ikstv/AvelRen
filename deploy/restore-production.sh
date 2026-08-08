@@ -79,16 +79,19 @@ for service in $INGRESS_SERVICE $KNOWN_CLIENTS; do
     fi
 done
 
-session_count=$(db_psql -d postgres -At -v target="$PRODUCTION_TARGET" -c \
-    "SELECT count(*) FROM pg_stat_activity
-     WHERE datname = :'target' AND pid <> pg_backend_pid();")
+session_count=$(db_psql -d postgres -At -v target="$PRODUCTION_TARGET" <<'SQL'
+SELECT count(*) FROM pg_stat_activity
+WHERE datname = :'target' AND pid <> pg_backend_pid();
+SQL
+)
 if [ "$session_count" != 0 ]; then
     log "ВІДМОВА: production target має active sessions: $session_count"
-    db_psql -d postgres -P pager=off -c \
-        "SELECT pid, usename, application_name, client_addr, state
-         FROM pg_stat_activity
-         WHERE datname = '$PRODUCTION_TARGET' AND pid <> pg_backend_pid()
-         ORDER BY pid;" >&2 || true
+    db_psql -d postgres -P pager=off -v target="$PRODUCTION_TARGET" >&2 <<'SQL' || true
+SELECT pid, usename, application_name, client_addr, state
+FROM pg_stat_activity
+WHERE datname = :'target' AND pid <> pg_backend_pid()
+ORDER BY pid;
+SQL
     exit 1
 fi
 
