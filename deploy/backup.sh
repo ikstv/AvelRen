@@ -1,74 +1,101 @@
 #!/usr/bin/env bash
-#
-# Резервна копія AvelRen на Google Drive.
-#
-# Копія шифрується до відправки: у дампі лежать FCM-токени пристроїв, а сам
-# архів їде в чужу хмару. Ключ шифрування залишається на сервері.
-#
-# Схема зберігання: 7 денних, 4 тижневі, 3 місячні.
-#
+# Encrypted off-host backup with a guaranteed local plaintext cleanup contract.
 set -euo pipefail
 
-STACK_DIR=/opt/avelren
-WORK_DIR=/var/lib/avelren-backup
-REMOTE=gdrive-crypt:avelren
-KEEP_DAILY=7
-KEEP_WEEKLY=4
-KEEP_MONTHLY=3
+umask 077
+
+STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
+WORK_DIR=${AVELREN_BACKUP_WORK_DIR:-/var/lib/avelren-backup}
+REMOTE=${AVELREN_BACKUP_REMOTE:-gdrive-crypt:avelren}
+RCLONE_CONFIG=${AVELREN_RCLONE_CONFIG:-/root/.config/rclone/rclone.conf}
+STAMP_FILE=${AVELREN_BACKUP_STAMP:-/run/avelren-backup.stamp}
+MIN_BYTES=${AVELREN_BACKUP_MIN_BYTES:-10240}
+KEEP_DAILY=${AVELREN_KEEP_DAILY:-7}
+KEEP_WEEKLY=${AVELREN_KEEP_WEEKLY:-4}
+KEEP_MONTHLY=${AVELREN_KEEP_MONTHLY:-3}
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
+fail() { log "ПОМИЛКА: $*" >&2; exit 1; }
 
-mkdir -p "$WORK_DIR"
+DUMP=
+MANIFEST=
+cleanup() {
+    local status=$?
+    trap - EXIT HUP INT TERM
+    [ -z "$DUMP" ] || rm -f -- "$DUMP"
+    [ -z "$MANIFEST" ] || rm -f -- "$MANIFEST"
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+mkdir -p -- "$WORK_DIR"
+chmod 0700 -- "$WORK_DIR"
+[ "$(stat -c %a "$WORK_DIR")" = 700 ] || fail "work directory не має mode 0700"
 cd "$STACK_DIR"
 
 STAMP=$(date -u +%Y%m%d-%H%M%S)
-DOW=$(date -u +%u)   # 7 = неділя
+DOW=$(date -u +%u)
 DOM=$(date -u +%d)
-
-if [ "$DOM" = "01" ]; then
+if [ "$DOM" = 01 ]; then
     TIER=monthly
-elif [ "$DOW" = "7" ]; then
+elif [ "$DOW" = 7 ]; then
     TIER=weekly
 else
     TIER=daily
 fi
-
-DUMP="$WORK_DIR/avelren-$STAMP.sql.gz"
-
-log "дамп бази..."
-# Через контейнер, щоб не залежати від версії psql на хості.
-docker compose exec -T db pg_dump -U avelren -d avelren --no-owner \
-    | gzip -9 > "$DUMP"
-
-SIZE=$(du -h "$DUMP" | cut -f1)
-log "дамп готовий: $SIZE"
-
-# Порожній або підозріло малий дамп — привід зупинитись, а не залити сміття
-# поверх робочих копій.
-MIN_BYTES=10240
-if [ "$(stat -c%s "$DUMP")" -lt "$MIN_BYTES" ]; then
-    log "ПОМИЛКА: дамп менший за $MIN_BYTES байт, копію не відправляю"
-    rm -f "$DUMP"
-    exit 1
-fi
-
-log "відправка в $REMOTE/$TIER ..."
-rclone copy "$DUMP" "$REMOTE/$TIER/" --config /root/.config/rclone/rclone.conf
-
 case "$TIER" in
-    daily)   KEEP=$KEEP_DAILY ;;
-    weekly)  KEEP=$KEEP_WEEKLY ;;
+    daily) KEEP=$KEEP_DAILY ;;
+    weekly) KEEP=$KEEP_WEEKLY ;;
     monthly) KEEP=$KEEP_MONTHLY ;;
 esac
 
-log "ротація: лишаю $KEEP у $TIER"
-rclone lsf "$REMOTE/$TIER/" --config /root/.config/rclone/rclone.conf \
-    | sort -r | tail -n +$((KEEP + 1)) | while read -r old; do
-        log "видаляю застарілий $old"
-        rclone deletefile "$REMOTE/$TIER/$old" --config /root/.config/rclone/rclone.conf
-    done
+DUMP=$(mktemp "$WORK_DIR/.avelren-$STAMP.XXXXXX.sql.gz")
+MANIFEST=$(mktemp "$WORK_DIR/.avelren-$STAMP.XXXXXX.sha256")
+chmod 0600 -- "$DUMP" "$MANIFEST"
+NAME="avelren-$STAMP.sql.gz"
+MANIFEST_NAME="$NAME.sha256"
+REMOTE_DUMP="$REMOTE/$TIER/$NAME"
+REMOTE_MANIFEST="$REMOTE/$TIER/$MANIFEST_NAME"
 
-rm -f "$DUMP"
-# Позначка для телеметрії: копія, про яку ніхто не дивиться, тихо ламається.
-touch /run/avelren-backup.stamp
-log "готово"
+log "дамп бази у захищений temporary artifact"
+docker compose exec -T db pg_dump -U avelren -d avelren --no-owner | gzip -9 >"$DUMP"
+[ -f "$DUMP" ] || fail "dump artifact не створено"
+[ "$(stat -c %a "$DUMP")" = 600 ] || fail "dump artifact не має mode 0600"
+bytes=$(stat -c %s "$DUMP")
+[ "$bytes" -ge "$MIN_BYTES" ] || fail "дамп менший за $MIN_BYTES байт"
+gzip -t "$DUMP" || fail "gzip integrity validation не пройдена"
+
+digest=$(sha256sum "$DUMP" | awk '{print $1}')
+printf '%s  %s\n' "$digest" "$NAME" >"$MANIFEST"
+expected_manifest=$(cat "$MANIFEST")
+
+log "upload encrypted artifact і integrity sidecar у $REMOTE/$TIER"
+rclone copyto "$DUMP" "$REMOTE_DUMP" --config "$RCLONE_CONFIG"
+rclone copyto "$MANIFEST" "$REMOTE_MANIFEST" --config "$RCLONE_CONFIG"
+
+remote_manifest=$(rclone cat "$REMOTE_MANIFEST" --config "$RCLONE_CONFIG")
+[ "$remote_manifest" = "$expected_manifest" ] || fail "remote SHA-256 manifest mismatch"
+remote_size_json=$(rclone size "$REMOTE_DUMP" --json --config "$RCLONE_CONFIG")
+remote_bytes=$(printf '%s\n' "$remote_size_json" | sed -n 's/.*"bytes"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+[ -n "$remote_bytes" ] || fail "remote size не вдалося прочитати"
+[ "$remote_bytes" = "$bytes" ] || fail "remote size mismatch: local=$bytes remote=$remote_bytes"
+
+log "verified remote artifact; ротація: лишаю $KEEP у $TIER"
+mapfile -t old_names < <(
+    rclone lsf "$REMOTE/$TIER/" --files-only --include 'avelren-*.sql.gz' \
+        --config "$RCLONE_CONFIG" | sort -r | tail -n +$((KEEP + 1))
+)
+for old in "${old_names[@]}"; do
+    [ -n "$old" ] || continue
+    [ "$old" != "$NAME" ] || fail "rotation спробувала видалити щойно створений backup"
+    log "видаляю застарілий $old"
+    rclone deletefile "$REMOTE/$TIER/$old" --config "$RCLONE_CONFIG"
+    rclone deletefile "$REMOTE/$TIER/$old.sha256" --config "$RCLONE_CONFIG"
+done
+
+mkdir -p -- "$(dirname "$STAMP_FILE")"
+touch -- "$STAMP_FILE"
+log "готово: remote artifact перевірено, stamp оновлено"
