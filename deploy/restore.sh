@@ -99,6 +99,26 @@ compose() {
 }
 psql() { compose exec -T "$DB_SERVICE" psql -U avelren "$@"; }
 
+POST_RESTORE_PENDING=false
+post_restore_on_failure() {
+    local primary_status=$?
+    trap - EXIT
+    if [ "$POST_RESTORE_PENDING" = true ]; then
+        set +e
+        log "primary restore failure (exit=$primary_status); attempting timescaledb_post_restore"
+        psql -d "$TARGET" -q -c "SELECT timescaledb_post_restore();"
+        local cleanup_status=$?
+        if [ "$cleanup_status" -eq 0 ]; then
+            log "timescaledb_post_restore cleanup succeeded after primary failure"
+        else
+            log "ПОМИЛКА: primary restore failed (exit=$primary_status) and "\
+                "timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
+        fi
+    fi
+    exit "$primary_status"
+}
+trap post_restore_on_failure EXIT
+
 log "готую базу $TARGET"
 psql -d postgres -v target="$TARGET" -q <<'SQL'
 DROP DATABASE IF EXISTS :"target";
@@ -108,12 +128,21 @@ psql -d "$TARGET" -q -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
 
 log "timescaledb_pre_restore"
 psql -d "$TARGET" -q -c "SELECT timescaledb_pre_restore();"
+POST_RESTORE_PENDING=true
 
 log "відновлення даних"
 gunzip -c "$DUMP" | psql -d "$TARGET" -q
 
 log "timescaledb_post_restore"
+set +e
 psql -d "$TARGET" -q -c "SELECT timescaledb_post_restore();"
+post_status=$?
+set -e
+POST_RESTORE_PENDING=false
+[ "$post_status" -eq 0 ] || {
+    log "ПОМИЛКА: timescaledb_post_restore failed (exit=$post_status)"
+    exit "$post_status"
+}
 
 log "перевірка"
 psql -d "$TARGET" -c "

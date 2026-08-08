@@ -1,30 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STACK_DIR=/opt/avelren
+STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
+COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
+COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
+APP_SERVICE=${AVELREN_VERIFY_APP_SERVICE:-migrate}
+MIGRATIONS_DIR=${AVELREN_VERIFY_MIGRATIONS_DIR:-/migrations}
 TARGET=${1:-restore_test}
+PRODUCTION_TARGET=avelren
+PRODUCTION_VERIFY_CONTEXT=AVELREN-INTERNAL-PRODUCTION-VERIFY
 
-if [ "$TARGET" = "avelren" ]; then
-    echo "ВІДМОВА: verify проти бойової бази avelren заборонено (A-07)." >&2
+compose() {
+    local args=(docker compose)
+    [ -z "$COMPOSE_FILE" ] || args+=(-f "$COMPOSE_FILE")
+    [ -z "$COMPOSE_PROJECT" ] || args+=(-p "$COMPOSE_PROJECT")
+    "${args[@]}" "$@"
+}
+
+if [ "$TARGET" = "$PRODUCTION_TARGET" ] && \
+   [ "${AVELREN_PRODUCTION_VERIFY_CONTEXT:-}" != "$PRODUCTION_VERIFY_CONTEXT" ]; then
+    echo "ВІДМОВА: production verification дозволена лише internal orchestrator context" >&2
+    exit 2
+fi
+if [ "$TARGET" != restore_test ] && [ "$TARGET" != "$PRODUCTION_TARGET" ]; then
+    echo "ВІДМОВА: unsupported verification target: $TARGET" >&2
     exit 2
 fi
 
 cd "$STACK_DIR"
-base_dsn=$(grep -E '^DATABASE_URL=' .env | head -1 | cut -d= -f2-)
-target_dsn="${base_dsn%/*}/$TARGET"
-
 run_in_app() {
-    if [ -n "$base_dsn" ]; then
-        sudo docker compose run --rm -T -e "DATABASE_URL=$target_dsn" migrate "$@"
-    else
-        sudo docker compose run --rm -T -e "POSTGRES_DB=$TARGET" migrate "$@"
+    local mode=$1; shift
+    local args=(run --rm -T -e "POSTGRES_DB=$TARGET")
+    if [ -n "${AVELREN_VERIFY_DATABASE_URL:-}" ]; then
+        args+=(-e "DATABASE_URL=$AVELREN_VERIFY_DATABASE_URL")
     fi
+    if [ "$TARGET" = "$PRODUCTION_TARGET" ]; then
+        args+=(
+            -e "AVELREN_PRODUCTION_VERIFY_CONTEXT=$PRODUCTION_VERIFY_CONTEXT"
+            -e "AVELREN_RESTORE_VERIFY_TARGET=$TARGET"
+        )
+    fi
+    compose "${args[@]}" "$APP_SERVICE" "$@"
 }
 
 echo ">>> schema_verify проти $TARGET"
-run_in_app python -m avelren.schema_verify /migrations
+run_in_app schema python -m avelren.schema_verify "$MIGRATIONS_DIR"
 
-echo ">>> restore_smoke проти $TARGET"
-run_in_app python -m avelren.restore_smoke
+if [ "$TARGET" = "$PRODUCTION_TARGET" ]; then
+    echo ">>> read-only production smoke проти $TARGET"
+    run_in_app smoke python -m avelren.restore_readonly_smoke
+else
+    echo ">>> disposable restore smoke проти $TARGET"
+    run_in_app smoke python -m avelren.restore_smoke
+fi
 
 echo "restore-verify OK: $TARGET"
