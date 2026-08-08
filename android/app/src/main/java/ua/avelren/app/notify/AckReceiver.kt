@@ -4,8 +4,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import ua.avelren.app.AvelRenApp
 import ua.avelren.app.data.Api
+import ua.avelren.app.data.Timeouts
 
 /**
  * Кнопка «ОК» зі шторки.
@@ -31,8 +35,14 @@ class AckReceiver : BroadcastReceiver() {
         val pending = goAsync()
         app.launchInScope {
             try {
-                app.installation.authenticatedCall { creds -> Api.ack(creds, alertId, kind) }
+                withinAckReceiverBudget {
+                    app.installation.authenticatedCall { creds -> Api.ack(creds, alertId, kind) }
+                }
                 Log.i(TAG, "підтверджено алерт $alertId")
+            } catch (e: TimeoutCancellationException) {
+                Log.w(TAG, "ACK budget exceeded for alert $alertId")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "не вдалося підтвердити $alertId, сервер повторить: ${e.message}")
             } finally {
@@ -47,3 +57,8 @@ class AckReceiver : BroadcastReceiver() {
         private const val TAG = "AvelRen/Ack"
     }
 }
+
+internal suspend fun <T> withinAckReceiverBudget(
+    timeoutMs: Long = Timeouts.ACK_RECEIVER_BUDGET_MS,
+    block: suspend () -> T,
+): T = withTimeout(timeoutMs) { block() }

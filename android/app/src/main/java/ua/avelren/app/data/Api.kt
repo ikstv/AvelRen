@@ -1,16 +1,21 @@
 package ua.avelren.app.data
 
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.plugins.timeout
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -18,6 +23,14 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import ua.avelren.app.BuildConfig
+
+object Timeouts {
+    const val CONNECT_MS = 10_000L
+    const val SOCKET_MS = 15_000L
+    const val REQUEST_MS = 20_000L
+    const val ACK_REQUEST_MS = 5_000L
+    const val ACK_RECEIVER_BUDGET_MS = 7_000L
+}
 
 /**
  * Клієнт нашого API.
@@ -27,7 +40,19 @@ import ua.avelren.app.BuildConfig
  */
 object Api {
 
-    private val client = HttpClient(Android) {
+    private val client = HttpClient(Android) { configure(Timeouts.REQUEST_MS) }
+
+    internal fun clientFor(
+        engine: HttpClientEngine,
+        requestTimeoutMs: Long = Timeouts.REQUEST_MS,
+    ): HttpClient = HttpClient(engine) { configure(requestTimeoutMs) }
+
+    private fun HttpClientConfig<*>.configure(requestTimeoutMs: Long) {
+        install(HttpTimeout) {
+            connectTimeoutMillis = Timeouts.CONNECT_MS
+            socketTimeoutMillis = Timeouts.SOCKET_MS
+            requestTimeoutMillis = requestTimeoutMs
+        }
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
         }
@@ -275,7 +300,20 @@ object Api {
 
     /** Кнопка «ОК». Після неї сервер припиняє повтори. */
     suspend fun ack(creds: DeviceStore.Credentials, alertId: Long, kind: String) {
+        ackWith(client, creds, alertId, kind)
+    }
+
+    internal suspend fun ackWith(
+        client: HttpClient,
+        creds: DeviceStore.Credentials,
+        alertId: Long,
+        kind: String,
+        requestTimeoutMs: Long = Timeouts.ACK_REQUEST_MS,
+    ) {
         val path = if (kind == "eta") "eta-alerts" else "alerts"
-        client.post("$base/$path/$alertId/ack") { auth(creds) }
+        client.post("$base/$path/$alertId/ack") {
+            auth(creds)
+            timeout { requestTimeoutMillis = requestTimeoutMs }
+        }
     }
 }
