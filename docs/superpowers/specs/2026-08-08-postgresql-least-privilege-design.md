@@ -96,8 +96,10 @@ The collector may read and write `countries`, `checkpoints`, `observations`, and
 `subscription_state`, `alerts`, `eta_targets`, and `eta_alerts`, and perform the
 current threshold/ETA lifecycle writes on those tables.
 
-On `notification_cancels` it has `INSERT` only. It has no `SELECT`, `UPDATE`, or
-`DELETE`; delivery belongs to notifier. It receives `USAGE` on exactly:
+On `notification_cancels` it has `INSERT` plus `SELECT (kind, alert_id)`, solely
+for the explicit `ON CONFLICT (kind, alert_id) DO NOTHING` target. It has no
+`SELECT` on any other column and no `UPDATE` or `DELETE`; delivery belongs to
+notifier. It receives `USAGE` on exactly:
 
 - `alerts_id_seq`;
 - `eta_alerts_id_seq`;
@@ -147,6 +149,10 @@ API receives `USAGE` on exactly:
 - `notification_cancels_id_seq`.
 
 `devices.id` uses `gen_random_uuid()` and has no sequence.
+
+On `notification_cancels` API has `INSERT` plus `SELECT (kind, alert_id)`, solely
+for the explicit `ON CONFLICT (kind, alert_id) DO NOTHING` target. It has no
+`SELECT` on any other column and no `UPDATE` or `DELETE` on that table.
 
 ### Backup
 
@@ -217,7 +223,8 @@ api:
 
 collector:
   any devices access / UPDATE health_alerts                   DENIED
-  SELECT/UPDATE/DELETE notification_cancels                   DENIED
+  SELECT device_id/created_at/attempt_count or SELECT * /
+  UPDATE/DELETE notification_cancels                          DENIED
 
 notifier:
   UPDATE observations / collector_runs / health_alerts        DENIED

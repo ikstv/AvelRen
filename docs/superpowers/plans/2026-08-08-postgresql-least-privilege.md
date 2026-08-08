@@ -135,7 +135,7 @@ Expected: FAIL because migration `010` and the runner do not yet establish grant
 
 - [ ] **Step 3: Implement migration `010`**
 
-Revoke all application table/sequence ACLs from `PUBLIC`; apply explicit table and column grants from the spec. Preserve notifier's table-wide `DELETE` on `notification_cancels`, collector's `INSERT`-only outbox access, exact sequence lists, API device column restrictions, and backup read-only dump access. Add global migrator default revokes for functions/types and schema-scoped table/sequence defaults.
+Revoke all application table/sequence ACLs from `PUBLIC`; apply explicit table and column grants from the spec. Preserve notifier's table-wide `DELETE` on `notification_cancels`; collector's and API's `INSERT` plus `SELECT (kind, alert_id)` outbox access required by the explicit conflict target, with no broader collector/API access to that table; exact sequence lists; API device column restrictions; and backup read-only dump access. Add global migrator default revokes for functions/types and schema-scoped table/sequence defaults.
 
 The disposable runner must bootstrap as admin, run all migrations as migrator, run the existing schema/history verifier (which discovers `010` and checks its SHA), export role DSNs only to the test process, and always remove its Compose volume. Do not add a fake physical object to `schema_verify.py` for an ACL-only migration.
 

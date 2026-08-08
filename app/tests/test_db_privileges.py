@@ -189,7 +189,8 @@ def privilege_path(role: str, operation: str, object_name: str):
     except psycopg.errors.InsufficientPrivilege as exc:
         actual_object = exc.diag.table_name or exc.diag.column_name or object_name
         pytest.fail(
-            f"{role}: {operation} on {actual_object}: {exc.diag.message_primary}",
+            f"{role}: {operation} on {actual_object}: "
+            f"SQLSTATE {exc.sqlstate} {exc.diag.message_primary}",
             pytrace=False,
         )
 
@@ -259,6 +260,9 @@ def test_runtime_role_cannot_escalate_or_change_migration_history(dsn_name, sql)
         ("COLLECTOR_DATABASE_URL", "SELECT * FROM devices"),
         ("COLLECTOR_DATABASE_URL", "UPDATE health_alerts SET detail = NULL"),
         ("COLLECTOR_DATABASE_URL", "SELECT * FROM notification_cancels"),
+        ("COLLECTOR_DATABASE_URL", "SELECT device_id FROM notification_cancels"),
+        ("COLLECTOR_DATABASE_URL", "SELECT created_at FROM notification_cancels"),
+        ("COLLECTOR_DATABASE_URL", "SELECT attempt_count FROM notification_cancels"),
         ("COLLECTOR_DATABASE_URL", "UPDATE notification_cancels SET accepted_at = now()"),
         ("COLLECTOR_DATABASE_URL", "DELETE FROM notification_cancels"),
         ("NOTIFIER_DATABASE_URL", "UPDATE observations SET is_paused = false"),
@@ -389,6 +393,12 @@ def test_column_scoped_selects_match_frozen_acl(dsn_name):
                 )
             }
             assert actual == expected
+
+
+@pytest.mark.parametrize("dsn_name", ("COLLECTOR_DATABASE_URL", "API_DATABASE_URL"))
+def test_notification_cancel_conflict_target_positive_select_is_allowed(dsn_name):
+    with connect_env(dsn_name) as conn:
+        conn.execute("SELECT kind, alert_id FROM notification_cancels LIMIT 0")
 
 
 def test_public_has_no_existing_application_object_privileges():
