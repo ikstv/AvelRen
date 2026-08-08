@@ -34,6 +34,7 @@ if [ "${1:-}" = '--disposable-empty-test' ]; then
 fi
 [ "$#" -eq 0 ] || usage
 [ "$cleanup_requested" -eq 0 ] || [ "$mode" = fresh ] || fail 'cleanup is available only for fresh bootstrap'
+database_created_this_invocation=0
 
 for variable in \
     AVELREN_ADMIN_DSN \
@@ -64,15 +65,14 @@ admin_psql_maintenance() {
 }
 
 admin_psql_target() {
-    PGPASSWORD="$AVELREN_ADMIN_PASSWORD" psql -X -v ON_ERROR_STOP=1 \
+    PGPASSWORD="$AVELREN_ADMIN_PASSWORD" psql -X --quiet -v ON_ERROR_STOP=1 \
         --dbname="$AVELREN_ADMIN_DSN" --set=target_db_name="$DB_NAME" "$@"
 }
 
 database_exists() {
-    admin_psql_maintenance --set=bootstrap_stage=cleanup --set=db_name="$DB_NAME" \
+    admin_psql_maintenance --set=bootstrap_stage=database_exists --set=db_name="$DB_NAME" \
         --tuples-only --no-align <<'SQL'
--- bootstrap-stage:cleanup
--- bootstrap-cleanup:database-exists
+-- bootstrap-stage:database-exists
 SELECT EXISTS (SELECT FROM pg_database WHERE datname = :'db_name');
 SQL
 }
@@ -241,13 +241,10 @@ SQL
 }
 
 cleanup_disposable_empty_test() {
-    local exists empty
+    local empty
+    [ "$database_created_this_invocation" -eq 1 ] || fail 'cleanup requires a database created by this invocation'
     [[ "$DB_NAME" == *_test ]] || fail 'cleanup requires a *_test database name'
     [ "${AVELREN_TEST_DB:-}" = 1 ] || fail 'cleanup requires AVELREN_TEST_DB=1'
-    if ! exists=$(database_exists); then
-        fail 'cleanup could not verify target database existence'
-    fi
-    [ "$exists" = t ] || return 0
     if ! empty=$(database_is_disposable_empty); then
         fail 'cleanup could not prove a newly created, disposable empty target database'
     fi
@@ -264,12 +261,20 @@ create_roles() {
 }
 
 create_database() {
+    local exists
+    if ! exists=$(database_exists); then
+        fail 'could not verify whether the target database already exists'
+    fi
+    case "$exists" in
+        t) return 0 ;;
+        f) ;;
+        *) fail 'database existence query returned an unexpected result' ;;
+    esac
     admin_psql_maintenance --set=bootstrap_stage=create_database --set=db_name="$DB_NAME" <<'SQL'
 -- bootstrap-stage:create_database
-SELECT format('CREATE DATABASE %I OWNER avelren_admin', :'db_name')
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db_name')
-\gexec
+SELECT format('CREATE DATABASE %I OWNER avelren_admin', :'db_name') \gexec
 SQL
+    database_created_this_invocation=1
 }
 
 provision_extension() {
@@ -337,11 +342,23 @@ $$;
 SQL
 }
 
+cleanup_after_failed_fresh() {
+    local status=$?
+    trap - EXIT
+    if [ "$status" -ne 0 ] && [ "$cleanup_requested" -eq 1 ] && \
+       [ "$database_created_this_invocation" -eq 1 ]; then
+        if ! ( cleanup_disposable_empty_test ); then
+            printf 'postgres bootstrap: cleanup after failed fresh bootstrap was refused\n' >&2
+        fi
+    fi
+    exit "$status"
+}
+
+if [ "$mode" = fresh ] && [ "$cleanup_requested" -eq 1 ]; then
+    trap cleanup_after_failed_fresh EXIT
+fi
 create_roles
 if [ "$mode" = fresh ]; then
-    if [ "$cleanup_requested" -eq 1 ]; then
-        cleanup_disposable_empty_test
-    fi
     create_database
     provision_extension
 fi

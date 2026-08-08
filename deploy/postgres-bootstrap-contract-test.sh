@@ -22,6 +22,7 @@ for arg in "$@"; do
     case "$arg" in
         *bootstrap.sql) stage=roles ;;
         *bootstrap-stage:create_database*) stage=create_database ;;
+        *bootstrap-stage:database-exists*) stage=database_exists ;;
         *bootstrap-stage:extension*) stage=extension ;;
         *bootstrap-stage:acl*) stage=acl ;;
         *bootstrap-stage:verify*) stage=verify ;;
@@ -33,7 +34,6 @@ done
 [ -n "$stage" ] || { printf 'fake psql received an unlabelled statement\n' >&2; exit 97; }
 if [ "$stage" = cleanup ]; then
     case "$input" in
-        *bootstrap-cleanup:database-exists*) stage=cleanup_exists ;;
         *bootstrap-cleanup:disposable-empty*) stage=cleanup_proof ;;
         *bootstrap-cleanup:drop*) stage=cleanup_drop ;;
         *) printf 'fake psql received an unlabelled cleanup statement\n' >&2; exit 96 ;;
@@ -67,12 +67,23 @@ if [ "$target_stage" -eq 1 ]; then
 fi
 
 printf '%s\n' "$stage" >>"$FAKE_CALLS"
-if [ "${PSQL_FAIL_ON:-}" = "$stage" ] || [ "${PSQL_FAIL_ON:-}" = cleanup ]; then
+if [ "$stage" = create_database ] && [ "${FAKE_CREATE_RACE:-0}" = 1 ]; then
+    [[ "$input" != *'WHERE NOT EXISTS'* ]] || {
+        printf 'create stage can silently succeed after a concurrent database creation\n' >&2; exit 91;
+    }
+    exit 91
+fi
+if [[ ",${PSQL_FAIL_ON:-}," == *",$stage,"* ]] || [ "${PSQL_FAIL_ON:-}" = cleanup ]; then
     exit 91
 fi
 case "$stage" in
-    cleanup_exists) printf '%s\n' "${FAKE_DATABASE_EXISTS:-t}" ;;
-    cleanup_proof) printf '%s\n' "${FAKE_CLEANUP_PROOF:-t}" ;;
+    database_exists) printf '%s\n' "${FAKE_DATABASE_EXISTS:-f}" ;;
+    cleanup_proof)
+        case " $* " in
+            *' --quiet '*) printf '%s\n' "${FAKE_CLEANUP_PROOF:-t}" ;;
+            *) printf 'You are now connected to database "%s".\n%s\n' "$FAKE_TARGET_DB" "${FAKE_CLEANUP_PROOF:-t}" ;;
+        esac
+        ;;
 esac
 SH
     chmod +x "$WORK/bin/psql"
@@ -153,16 +164,17 @@ if ! run_bootstrap "$calls" fresh >"$WORK/success.out" 2>&1; then
     cat "$WORK/success.out" >&2
     fail 'fresh bootstrap unexpectedly failed'
 fi
-assert_order "$calls" roles create_database extension acl verify
+assert_order "$calls" roles database_exists create_database extension acl verify
 grep -Fxq migrate_handoff "$WORK/success.out" || fail 'missing migrate handoff'
 
-for stage in roles create_database extension acl verify; do
+for stage in roles database_exists create_database extension acl verify; do
     calls="$WORK/fail-${stage}.calls"
     if PSQL_FAIL_ON="$stage" run_bootstrap "$calls" fresh >"$WORK/fail-${stage}.out" 2>&1; then
         fail "expected stage failure: $stage"
     fi
     case "$stage" in
         roles) assert_not_contains "$calls" create_database ;;
+        database_exists) assert_not_contains "$calls" create_database ;;
         create_database) assert_not_contains "$calls" extension ;;
         extension) assert_not_contains "$calls" acl ;;
         acl) assert_not_contains "$calls" verify ;;
@@ -176,29 +188,54 @@ assert_order "$calls" roles acl verify
 assert_not_contains "$calls" create_database
 assert_not_contains "$calls" extension
 
-calls="$WORK/cleanup-success.calls"
-run_disposable_bootstrap "$calls" >"$WORK/cleanup-success.out" 2>&1
-assert_order "$calls" roles cleanup_exists cleanup_proof cleanup_drop create_database extension acl verify
+calls="$WORK/preexisting-disposable.calls"
+if FAKE_DATABASE_EXISTS=t PSQL_FAIL_ON=extension run_disposable_bootstrap "$calls" >"$WORK/preexisting-disposable.out" 2>&1; then
+    fail 'expected existing disposable target stage failure'
+fi
+assert_order "$calls" roles database_exists extension
+assert_not_contains "$calls" cleanup_proof
+assert_not_contains "$calls" cleanup_drop
+
+calls="$WORK/created-disposable.calls"
+if PSQL_FAIL_ON=extension run_disposable_bootstrap "$calls" >"$WORK/created-disposable.out" 2>&1; then
+    fail 'expected created disposable target stage failure'
+fi
+assert_order "$calls" roles database_exists create_database extension cleanup_proof cleanup_drop
+assert_not_contains "$calls" acl
+
+calls="$WORK/create-race-disposable.calls"
+if FAKE_CREATE_RACE=1 run_disposable_bootstrap "$calls" >"$WORK/create-race-disposable.out" 2>&1; then
+    fail 'expected concurrent database creation failure'
+fi
+assert_order "$calls" roles database_exists create_database
+assert_not_contains "$calls" cleanup_proof
+assert_not_contains "$calls" cleanup_drop
+! grep -q 'can silently succeed' "$WORK/create-race-disposable.out" || fail 'database creation race was not fail-closed'
 
 calls="$WORK/cleanup-not-empty.calls"
-if FAKE_CLEANUP_PROOF=f run_disposable_bootstrap "$calls" >"$WORK/cleanup-not-empty.out" 2>&1; then
-    fail 'cleanup accepted a non-empty target'
+if PSQL_FAIL_ON=extension FAKE_CLEANUP_PROOF=f run_disposable_bootstrap "$calls" >"$WORK/cleanup-not-empty.out" 2>&1; then
+    fail 'expected disposable target stage failure'
 fi
-assert_order "$calls" roles cleanup_exists cleanup_proof
+assert_order "$calls" roles database_exists create_database extension cleanup_proof
 assert_not_contains "$calls" cleanup_drop
-assert_not_contains "$calls" create_database
 
-for stage in cleanup_exists cleanup_proof cleanup_drop; do
-    calls="$WORK/fail-${stage}.calls"
-    if PSQL_FAIL_ON="$stage" run_disposable_bootstrap "$calls" >"$WORK/fail-${stage}.out" 2>&1; then
-        fail "expected cleanup failure: $stage"
-    fi
-    assert_not_contains "$calls" create_database
-done
+calls="$WORK/cleanup-proof-failure.calls"
+if PSQL_FAIL_ON=extension,cleanup_proof run_disposable_bootstrap "$calls" >"$WORK/cleanup-proof-failure.out" 2>&1; then
+    fail 'expected cleanup proof failure'
+fi
+assert_order "$calls" roles database_exists create_database extension cleanup_proof
+assert_not_contains "$calls" cleanup_drop
+
+calls="$WORK/cleanup-drop-failure.calls"
+if PSQL_FAIL_ON=extension,cleanup_drop run_disposable_bootstrap "$calls" >"$WORK/cleanup-drop-failure.out" 2>&1; then
+    fail 'expected cleanup drop failure'
+fi
+assert_order "$calls" roles database_exists create_database extension cleanup_proof cleanup_drop
+assert_not_contains "$calls" acl
 
 all_output=$(cat "$WORK"/*.out 2>/dev/null || true)
 for secret in admin migrator backup collector notifier watchdog api; do
     [[ "$all_output" != *"${secret}-secret-not-for-output"* ]] || fail 'secret appeared in output'
 done
 
-echo 'postgres bootstrap contract tests: 20 passed'
+echo 'postgres bootstrap contract tests: 24 passed'
