@@ -30,43 +30,43 @@ make_fixture() {
 object	database	avelren_adoption_test	-	avelren_adoption_test	database	avelren	-	-	-	-	-	application	"avelren_adoption_test"
 EOF
     cat >"$dir/schema.tsv" <<'EOF'
-object	schema	avelren_adoption_test	public	public	schema	avelren	-	-	-	-	-	application	"public"
+object	schema	avelren_adoption_test	public	public	schema	avelren	root	-	-	-	-	application	"public"
 EOF
     cat >"$dir/extension.tsv" <<'EOF'
 object	extension	avelren_adoption_test	-	timescaledb	extension	avelren	-	-	-	-	-	timescale	"timescaledb"
 EOF
     cat >"$dir/relations.tsv" <<'EOF'
-object	relation	avelren_adoption_test	public	alerts	r	avelren	-	-	-	-	-	application	"public"."alerts"
-object	relation	avelren_adoption_test	public	checkpoints	r	avelren	-	-	-	-	-	application	"public"."checkpoints"
-object	relation	avelren_adoption_test	public	collector_runs	r	avelren	-	-	-	-	-	application	"public"."collector_runs"
-object	relation	avelren_adoption_test	public	countries	r	avelren	-	-	-	-	-	application	"public"."countries"
-object	relation	avelren_adoption_test	public	devices	r	avelren	-	-	-	-	-	application	"public"."devices"
-object	relation	avelren_adoption_test	public	eta_alerts	r	avelren	-	-	-	-	-	application	"public"."eta_alerts"
-object	relation	avelren_adoption_test	public	eta_targets	r	avelren	-	-	-	-	-	application	"public"."eta_targets"
-object	relation	avelren_adoption_test	public	health_alerts	r	avelren	-	-	-	-	-	application	"public"."health_alerts"
-object	relation	avelren_adoption_test	public	notification_cancels	r	avelren	-	-	-	-	-	application	"public"."notification_cancels"
-object	relation	avelren_adoption_test	public	observations	r	avelren	-	-	-	-	-	application	"public"."observations"
-object	relation	avelren_adoption_test	public	observations_hourly	v	avelren	-	-	-	-	-	application	"public"."observations_hourly"
-object	relation	avelren_adoption_test	public	schema_migrations	r	avelren	-	-	-	-	-	application	"public"."schema_migrations"
-object	relation	avelren_adoption_test	public	subscription_state	r	avelren	-	-	-	-	-	application	"public"."subscription_state"
-object	relation	avelren_adoption_test	public	subscriptions	r	avelren	-	-	-	-	-	application	"public"."subscriptions"
+object	relation	avelren_adoption_test	public	alerts	r	avelren	root:public.alerts	-	-	-	-	application	"public"."alerts"
+object	relation	avelren_adoption_test	public	checkpoints	r	avelren	root:public.checkpoints	-	-	-	-	application	"public"."checkpoints"
+object	relation	avelren_adoption_test	public	collector_runs	r	avelren	root:public.collector_runs	-	-	-	-	application	"public"."collector_runs"
+object	relation	avelren_adoption_test	public	countries	r	avelren	root:public.countries	-	-	-	-	application	"public"."countries"
+object	relation	avelren_adoption_test	public	devices	r	avelren	root:public.devices	-	-	-	-	application	"public"."devices"
+object	relation	avelren_adoption_test	public	eta_alerts	r	avelren	root:public.eta_alerts	-	-	-	-	application	"public"."eta_alerts"
+object	relation	avelren_adoption_test	public	eta_targets	r	avelren	root:public.eta_targets	-	-	-	-	application	"public"."eta_targets"
+object	relation	avelren_adoption_test	public	health_alerts	r	avelren	root:public.health_alerts	-	-	-	-	application	"public"."health_alerts"
+object	relation	avelren_adoption_test	public	notification_cancels	r	avelren	root:public.notification_cancels	-	-	-	-	application	"public"."notification_cancels"
+object	relation	avelren_adoption_test	public	observations	r	avelren	root:public.observations	-	-	-	-	application	"public"."observations"
+object	relation	avelren_adoption_test	public	observations_hourly	v	avelren	root:public.observations_hourly	-	-	-	-	application	"public"."observations_hourly"
+object	relation	avelren_adoption_test	public	schema_migrations	r	avelren	root:public.schema_migrations	-	-	-	-	application	"public"."schema_migrations"
+object	relation	avelren_adoption_test	public	subscription_state	r	avelren	root:public.subscription_state	-	-	-	-	application	"public"."subscription_state"
+object	relation	avelren_adoption_test	public	subscriptions	r	avelren	root:public.subscriptions	-	-	-	-	application	"public"."subscriptions"
 EOF
     cat >"$dir/sequences.tsv" <<'EOF'
-object	relation	avelren_adoption_test	public	alerts_id_seq	S	avelren	-	-	-	-	-	application	"public"."alerts_id_seq"
-object	relation	avelren_adoption_test	public	eta_alerts_id_seq	S	avelren	-	-	-	-	-	application	"public"."eta_alerts_id_seq"
-object	relation	avelren_adoption_test	public	eta_targets_id_seq	S	avelren	-	-	-	-	-	application	"public"."eta_targets_id_seq"
-object	relation	avelren_adoption_test	public	health_alerts_id_seq	S	avelren	-	-	-	-	-	application	"public"."health_alerts_id_seq"
-object	relation	avelren_adoption_test	public	notification_cancels_id_seq	S	avelren	-	-	-	-	-	application	"public"."notification_cancels_id_seq"
-object	relation	avelren_adoption_test	public	subscriptions_id_seq	S	avelren	-	-	-	-	-	application	"public"."subscriptions_id_seq"
+object	relation	avelren_adoption_test	public	alerts_id_seq	S	avelren	root:public.alerts_id_seq	-	-	-	-	application	"public"."alerts_id_seq"
+object	relation	avelren_adoption_test	public	eta_alerts_id_seq	S	avelren	root:public.eta_alerts_id_seq	-	-	-	-	application	"public"."eta_alerts_id_seq"
+object	relation	avelren_adoption_test	public	eta_targets_id_seq	S	avelren	root:public.eta_targets_id_seq	-	-	-	-	application	"public"."eta_targets_id_seq"
+object	relation	avelren_adoption_test	public	health_alerts_id_seq	S	avelren	root:public.health_alerts_id_seq	-	-	-	-	application	"public"."health_alerts_id_seq"
+object	relation	avelren_adoption_test	public	notification_cancels_id_seq	S	avelren	root:public.notification_cancels_id_seq	-	-	-	-	application	"public"."notification_cancels_id_seq"
+object	relation	avelren_adoption_test	public	subscriptions_id_seq	S	avelren	root:public.subscriptions_id_seq	-	-	-	-	application	"public"."subscriptions_id_seq"
 EOF
     cat >"$dir/routines.tsv" <<'EOF'
-object	function	avelren_adoption_test	_timescaledb_functions	policy_compression_execute	function	avelren	-	-	-	-	-	timescale	"_timescaledb_functions"."policy_compression_execute"(integer,integer,anyelement,integer,boolean,boolean)
-object	type	avelren_adoption_test	_timescaledb_internal	compressed_data	type	avelren	-	-	-	-	-	timescale	"_timescaledb_internal"."compressed_data"
+object	function	avelren_adoption_test	_timescaledb_functions	policy_compression_execute	f	avelren	extension_member	-	-	-	-	timescale	"_timescaledb_functions"."policy_compression_execute"(integer,integer,anyelement,integer,boolean,boolean)
+object	type	avelren_adoption_test	_timescaledb_internal	compressed_data	b	avelren	timescale:type:_timescaledb_internal.compressed_data	-	-	-	-	timescale	"_timescaledb_internal"."compressed_data"
 EOF
     cat >"$dir/timescale.tsv" <<'EOF'
 object	timescale_binding	avelren_adoption_test	public	observations	hypertable	avelren	-	-	-	-	-	timescale	"public"."observations"
 object	timescale_binding	avelren_adoption_test	public	observations_hourly	continuous_aggregate	avelren	-	-	-	-	-	timescale	"public"."observations_hourly"
-object	relation	avelren_adoption_test	_timescaledb_internal	_hyper_1_1_chunk	r	avelren	-	-	-	-	-	timescale	"_timescaledb_internal"."_hyper_1_1_chunk"
+object	relation	avelren_adoption_test	_timescaledb_internal	_hyper_1_1_chunk	r	avelren	timescale:chunk_catalog:public.observations	-	-	-	-	timescale	"_timescaledb_internal"."_hyper_1_1_chunk"
 EOF
     cat >"$dir/system.tsv" <<'EOF'
 object	relation	avelren_adoption_test	pg_catalog	pg_class	r	postgres	-	-	-	-	-	system	"pg_catalog"."pg_class"
@@ -76,12 +76,14 @@ acl	relation	avelren_adoption_test	public	devices	r	avelren	object	avelren	avelr
 acl	relation	avelren_adoption_test	public	devices	r	avelren	fcm_token	avelren	avelren_notifier	SELECT	f	application	"public"."devices"
 acl	schema	avelren_adoption_test	public	public	schema	avelren	object	avelren	PUBLIC	USAGE	f	application	"public"
 EOF
-    : >"$dir/shared.tsv"
+    cat >"$dir/shared.tsv" <<'EOF'
+object	ownership	16384	1262	16384	0	avelren	target_admin	-	-	-	-	application	16384:1262:16384:0
+EOF
 
     case "$variant" in
         canonical) ;;
         extra-relation)
-            printf '%s\n' 'object	relation	avelren_adoption_test	public	unexpected_relation	r	avelren	-	-	-	-	-	application	"public"."unexpected_relation"' >>"$dir/relations.tsv"
+            printf '%s\n' 'object	relation	avelren_adoption_test	public	unexpected_relation	r	avelren	root:public.unexpected_relation	-	-	-	-	application	"public"."unexpected_relation"' >>"$dir/relations.tsv"
             ;;
         missing-relation)
             grep -v $'\tpublic\talerts\tr\t' "$dir/relations.tsv" >"$dir/relations.tmp"
@@ -94,7 +96,7 @@ EOF
             printf '%s\n' 'object	tablespace	-	-	legacy_space	tablespace	avelren	-	-	-	-	-	shared	"legacy_space"' >>"$dir/shared.tsv"
             ;;
         extra-shared)
-            printf '%s\n' 'object	shared	other_database	-	16384	pg_class	avelren	-	-	-	-	-	shared	pg_class:16384' >>"$dir/shared.tsv"
+            printf '%s\n' 'object	ownership	0	1262	16385	0	avelren	reject	-	-	-	-	shared	0:1262:16385:0' >>"$dir/shared.tsv"
             ;;
         unknown-owner)
             sed 's/\tavelren\t-/\tunexpected_owner\t-/' "$dir/database.tsv" >"$dir/database.tmp"
@@ -104,10 +106,10 @@ EOF
             printf '%s\n' $'object\tschema\tavelren_adoption_test\tunexpected_schema\tunexpected_schema\tschema\tavelren\t-\t-\t-\t-\t-\tapplication\t"unexpected_schema"' >>"$dir/schema.tsv"
             ;;
         extra-function)
-            printf '%s\n' $'object\tfunction\tavelren_adoption_test\tpublic\tunexpected_function\tf\tavelren\t-\t-\t-\t-\t-\tapplication\t"public"."unexpected_function"()' >>"$dir/routines.tsv"
+            printf '%s\n' $'object\tfunction\tavelren_adoption_test\tpublic\tunexpected_function\tf\tavelren\troot\t-\t-\t-\t-\tapplication\t"public"."unexpected_function"()' >>"$dir/routines.tsv"
             ;;
         extra-type)
-            printf '%s\n' $'object\ttype\tavelren_adoption_test\tpublic\tunexpected_type\te\tavelren\t-\t-\t-\t-\t-\tapplication\t"public"."unexpected_type"' >>"$dir/routines.tsv"
+            printf '%s\n' $'object\ttype\tavelren_adoption_test\tpublic\tunexpected_type\te\tavelren\troot:public.unexpected_type\t-\t-\t-\t-\tapplication\t"public"."unexpected_type"' >>"$dir/routines.tsv"
             ;;
         missing-timescale-binding)
             grep -v $'\tpublic\tobservations_hourly\tcontinuous_aggregate\t' "$dir/timescale.tsv" >"$dir/timescale.tmp"

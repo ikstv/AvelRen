@@ -123,6 +123,17 @@ DATABASE_URL="$MIGRATOR_DSN" real_compose run --rm --no-deps -T \
     -v "$MIGRATIONS_FOR_COMPOSE:/prefix-migrations:ro" -e DATABASE_URL \
     test python -m avelren.migrate /prefix-migrations
 
+# Materialize a real Timescale chunk so provenance and exact-owner checks cannot
+# pass against extension metadata alone.
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO public.checkpoints (id, title, for_vehicle_type)
+VALUES (-1, 'Task 6 ownership fixture', 1);
+INSERT INTO public.observations
+    (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused)
+VALUES (TIMESTAMPTZ '2026-08-08 00:00:00+00', -1, 60, 1, false);
+SQL
+
 # Make a production-like pre-adoption database: legacy owns the database,
 # schema, Timescale extension, application objects, and Timescale dependants.
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
@@ -190,6 +201,31 @@ source "$ROOT/deploy/postgres-ownership.lib.sh"
 PLAN_EVIDENCE="$WORK/plan-evidence"
 prepare_evidence_dir "$PLAN_EVIDENCE"
 AVELREN_TARGET_DB="$TARGET_DB" capture_manifest "$ADMIN_DSN" "$PLAN_EVIDENCE/original.tsv"
+grep -Eq $'^object\trelation\t[^\t]+\tpublic\talerts_pkey\ti\tavelren\tdependency:' \
+    "$PLAN_EVIDENCE/original.tsv" || {
+    echo 'canonical manifest omitted an application index ownership dependency' >&2
+    exit 1
+}
+grep -Eq $'^object\trelation\t[^\t]+\tpg_toast\t[^\t]+\tt\tavelren\tdependency:' \
+    "$PLAN_EVIDENCE/original.tsv" || {
+    echo 'canonical manifest omitted an application TOAST ownership dependency' >&2
+    exit 1
+}
+grep -Eq $'^object\ttype\t[^\t]+\tpublic\talerts\tc\tavelren\trelation:' \
+    "$PLAN_EVIDENCE/original.tsv" || {
+    echo 'canonical manifest omitted an application row-type ownership dependency' >&2
+    exit 1
+}
+grep -Eq $'^object\ttype\t[^\t]+\tpublic\t_alerts\tb\tavelren\ttype:' \
+    "$PLAN_EVIDENCE/original.tsv" || {
+    echo 'canonical manifest omitted an application array-type ownership dependency' >&2
+    exit 1
+}
+grep -Eq $'^object\trelation\t[^\t]+\t_timescaledb_internal\t[^\t]+\tr\tavelren\ttimescale:[^\t]*chunk_catalog:' \
+    "$PLAN_EVIDENCE/original.tsv" || {
+    echo 'canonical manifest omitted a catalog-proven TimescaleDB chunk' >&2
+    exit 1
+}
 AVELREN_TARGET_DB="$TARGET_DB" build_forward_plan \
     "$PLAN_EVIDENCE/original.tsv" "$PLAN_EVIDENCE/forward.sql" \
     "$ROOT/db/migrations/010_postgresql_least_privilege.sql"
@@ -205,7 +241,7 @@ assert_target_check_rejects() {
         printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
         cat "$PLAN_EVIDENCE/forward.sql"
         cat "$tamper"
-        _target_ownership_sql
+        _target_ownership_sql "$PLAN_EVIDENCE/original.tsv"
         printf '%s\n' "SELECT 'TARGET_CHECK_ACCEPTED';" "SELECT 'INVERSE_STARTED';"
         cat "$PLAN_EVIDENCE/inverse.sql"
         printf '%s\n' 'ROLLBACK;'
@@ -239,7 +275,7 @@ assert_target_check_accepts() {
         printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
         cat "$PLAN_EVIDENCE/forward.sql"
         cat "$tamper"
-        _target_ownership_sql
+        _target_ownership_sql "$PLAN_EVIDENCE/original.tsv"
         printf '%s\n' "SELECT 'TARGET_CHECK_ACCEPTED';"
         cat "$PLAN_EVIDENCE/inverse.sql"
         printf '%s\n' 'ROLLBACK;'
@@ -414,7 +450,7 @@ CREATE TABLE residual_test.unexpected_relation(id integer);
 ALTER TABLE residual_test.unexpected_relation OWNER TO avelren;
 SQL
 assert_target_check_rejects residual-non-public-relation \
-    "$WORK/residual-non-public-relation.sql" 'residual legacy ownership detected'
+    "$WORK/residual-non-public-relation.sql" 'target canonical ownership surface mismatch'
 
 cat >"$WORK/residual-routine.sql" <<'SQL'
 CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
@@ -423,7 +459,7 @@ CREATE FUNCTION residual_test.unexpected_function() RETURNS integer
 ALTER FUNCTION residual_test.unexpected_function() OWNER TO avelren;
 SQL
 assert_target_check_rejects residual-routine "$WORK/residual-routine.sql" \
-    'residual legacy ownership detected'
+    'target canonical ownership surface mismatch'
 
 cat >"$WORK/residual-type.sql" <<'SQL'
 CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
@@ -431,20 +467,43 @@ CREATE TYPE residual_test.unexpected_type AS ENUM ('unexpected');
 ALTER TYPE residual_test.unexpected_type OWNER TO avelren;
 SQL
 assert_target_check_rejects residual-type "$WORK/residual-type.sql" \
-    'residual legacy ownership detected'
+    'target canonical ownership surface mismatch'
 
 cat >"$WORK/residual-timescale.sql" <<'SQL'
 CREATE TABLE _timescaledb_internal.unexpected_relation(id integer);
 ALTER TABLE _timescaledb_internal.unexpected_relation OWNER TO avelren;
 SQL
 assert_target_check_rejects residual-timescale "$WORK/residual-timescale.sql" \
-    'residual legacy ownership detected'
+    'target canonical ownership surface mismatch'
+
+cat >"$WORK/timescale-unexpected-owner.sql" <<'SQL'
+ALTER TABLE public.observations OWNER TO unexpected_acl_role;
+DO $avelren_tamper$
+DECLARE
+    mismatched_chunks integer;
+BEGIN
+    SELECT count(*)
+      INTO mismatched_chunks
+      FROM _timescaledb_catalog.chunk AS chunk
+      JOIN pg_namespace AS namespace ON namespace.nspname = chunk.schema_name
+      JOIN pg_class AS relation
+        ON relation.relnamespace = namespace.oid
+       AND relation.relname = chunk.table_name
+     WHERE pg_get_userbyid(relation.relowner) <> 'unexpected_acl_role';
+    IF mismatched_chunks <> 0 THEN
+        RAISE EXCEPTION 'hypertable owner drift did not reach every real TimescaleDB chunk';
+    END IF;
+END
+$avelren_tamper$;
+SQL
+assert_target_check_rejects timescale-unexpected-owner \
+    "$WORK/timescale-unexpected-owner.sql" 'target .*exact-set mismatch'
 
 cat >"$WORK/residual-shared.sql" <<'SQL'
 ALTER DATABASE avelren_residual_test OWNER TO avelren;
 SQL
 assert_target_check_rejects residual-shared "$WORK/residual-shared.sql" \
-    'residual legacy ownership detected'
+    'target canonical ownership surface mismatch'
 
 EVIDENCE="$WORK/evidence"
 PREFLIGHT="$WORK/recovery-preflight"
@@ -468,6 +527,125 @@ run_adoption() {
         AVELREN_TEST_DB=1 AVELREN_ALLOW_DIRTY_TEST=1 AVELREN_ADOPTION_FAILPOINT=before_commit \
         bash "$ROOT/deploy/postgres-adopt.sh" --confirm-adoption AVELREN-POSTGRES-ADOPTION
 }
+
+run_db_sql() {
+    PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+        psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q
+}
+
+assert_preflight_rejects_unknown_object() {
+    local name=$1 setup=$2 cleanup_sql=$3
+    run_db_sql <"$setup"
+    rm -rf "$EVIDENCE"
+    : >"$WORK/services.log"
+    printf '%s\n' running >"$WORK/services.state"
+    if run_adoption >"$WORK/$name.out" 2>&1; then
+        echo "$name should fail ownership preflight" >&2
+        exit 1
+    fi
+    [ ! -s "$WORK/services.log" ] || {
+        echo "$name reached Compose before ownership preflight failed" >&2
+        exit 1
+    }
+    run_db_sql <"$cleanup_sql"
+}
+
+cat >"$WORK/rogue-timescale-prefix.setup.sql" <<'SQL'
+CREATE TABLE _timescaledb_internal.unexpected_preflight_relation(id integer);
+ALTER TABLE _timescaledb_internal.unexpected_preflight_relation OWNER TO avelren;
+SQL
+cat >"$WORK/rogue-timescale-prefix.cleanup.sql" <<'SQL'
+DROP TABLE _timescaledb_internal.unexpected_preflight_relation;
+SQL
+assert_preflight_rejects_unknown_object rogue-timescale-prefix \
+    "$WORK/rogue-timescale-prefix.setup.sql" "$WORK/rogue-timescale-prefix.cleanup.sql"
+
+cat >"$WORK/foreign-table.setup.sql" <<'SQL'
+CREATE FOREIGN DATA WRAPPER adoption_test_fdw NO HANDLER;
+ALTER FOREIGN DATA WRAPPER adoption_test_fdw OWNER TO postgres;
+CREATE SERVER adoption_test_server FOREIGN DATA WRAPPER adoption_test_fdw;
+ALTER SERVER adoption_test_server OWNER TO postgres;
+CREATE FOREIGN TABLE public.unexpected_foreign_table(id integer)
+    SERVER adoption_test_server;
+ALTER FOREIGN TABLE public.unexpected_foreign_table OWNER TO avelren;
+SQL
+cat >"$WORK/foreign-table.cleanup.sql" <<'SQL'
+DROP FOREIGN TABLE public.unexpected_foreign_table;
+DROP SERVER adoption_test_server;
+DROP FOREIGN DATA WRAPPER adoption_test_fdw;
+SQL
+assert_preflight_rejects_unknown_object foreign-table \
+    "$WORK/foreign-table.setup.sql" "$WORK/foreign-table.cleanup.sql"
+
+cat >"$WORK/nonpublic-sequence.setup.sql" <<'SQL'
+CREATE SCHEMA unexpected_sequence_schema AUTHORIZATION postgres;
+CREATE SEQUENCE unexpected_sequence_schema.unexpected_sequence;
+ALTER SEQUENCE unexpected_sequence_schema.unexpected_sequence OWNER TO avelren;
+SQL
+cat >"$WORK/nonpublic-sequence.cleanup.sql" <<'SQL'
+DROP SCHEMA unexpected_sequence_schema CASCADE;
+SQL
+assert_preflight_rejects_unknown_object nonpublic-sequence \
+    "$WORK/nonpublic-sequence.setup.sql" "$WORK/nonpublic-sequence.cleanup.sql"
+
+cat >"$WORK/composite-type.setup.sql" <<'SQL'
+CREATE TYPE public.unexpected_composite AS (value integer);
+ALTER TYPE public.unexpected_composite OWNER TO avelren;
+SQL
+cat >"$WORK/composite-type.cleanup.sql" <<'SQL'
+DROP TYPE public.unexpected_composite CASCADE;
+SQL
+assert_preflight_rejects_unknown_object composite-type \
+    "$WORK/composite-type.setup.sql" "$WORK/composite-type.cleanup.sql"
+
+cat >"$WORK/domain-type.setup.sql" <<'SQL'
+CREATE DOMAIN public.unexpected_domain AS integer;
+ALTER DOMAIN public.unexpected_domain OWNER TO avelren;
+SQL
+cat >"$WORK/domain-type.cleanup.sql" <<'SQL'
+DROP DOMAIN public.unexpected_domain CASCADE;
+SQL
+assert_preflight_rejects_unknown_object domain-type \
+    "$WORK/domain-type.setup.sql" "$WORK/domain-type.cleanup.sql"
+
+cat >"$WORK/range-types.setup.sql" <<'SQL'
+CREATE TYPE public.unexpected_range AS RANGE (
+    SUBTYPE = integer,
+    MULTIRANGE_TYPE_NAME = public.unexpected_multirange
+);
+ALTER TYPE public.unexpected_range OWNER TO avelren;
+ALTER TYPE public.unexpected_multirange OWNER TO avelren;
+SQL
+cat >"$WORK/range-types.cleanup.sql" <<'SQL'
+DROP TYPE public.unexpected_range CASCADE;
+SQL
+assert_preflight_rejects_unknown_object range-types \
+    "$WORK/range-types.setup.sql" "$WORK/range-types.cleanup.sql"
+
+cat >"$WORK/procedure.setup.sql" <<'SQL'
+CREATE PROCEDURE public.unexpected_procedure()
+    LANGUAGE SQL AS 'SELECT 1';
+ALTER PROCEDURE public.unexpected_procedure() OWNER TO avelren;
+SQL
+cat >"$WORK/procedure.cleanup.sql" <<'SQL'
+DROP PROCEDURE public.unexpected_procedure();
+SQL
+assert_preflight_rejects_unknown_object procedure \
+    "$WORK/procedure.setup.sql" "$WORK/procedure.cleanup.sql"
+
+cat >"$WORK/aggregate.setup.sql" <<'SQL'
+CREATE AGGREGATE public.unexpected_aggregate(integer) (
+    SFUNC = int4pl,
+    STYPE = integer,
+    INITCOND = '0'
+);
+ALTER AGGREGATE public.unexpected_aggregate(integer) OWNER TO avelren;
+SQL
+cat >"$WORK/aggregate.cleanup.sql" <<'SQL'
+DROP AGGREGATE public.unexpected_aggregate(integer);
+SQL
+assert_preflight_rejects_unknown_object aggregate \
+    "$WORK/aggregate.setup.sql" "$WORK/aggregate.cleanup.sql"
 
 # Unknown application relations fail before client stop and before any ownership mutation.
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \

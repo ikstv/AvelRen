@@ -47,8 +47,10 @@ _adoption_psql() {
 _manifest_sql() {
     cat <<'SQL'
 WITH RECURSIVE
-canonical_roles(role_name) AS (
-    VALUES ('avelren'), ('avelren_admin'), ('avelren_migrator')
+canonical_roles AS (
+    SELECT oid AS role_oid, rolname AS role_name
+    FROM pg_roles
+    WHERE rolname IN ('avelren', 'avelren_admin', 'avelren_migrator')
 ),
 target_database AS (
     SELECT database.oid, database.datname, database.datdba, database.datacl,
@@ -63,29 +65,35 @@ database_inventory AS (
            format('%I', database.datname) AS identity,
            CASE WHEN database.datname = current_database() THEN 'application' ELSE 'shared' END AS source
     FROM pg_database AS database
-    WHERE pg_get_userbyid(database.datdba) IN (SELECT role_name FROM canonical_roles)
+    WHERE database.datname = current_database()
+       OR database.datdba IN (SELECT role_oid FROM canonical_roles)
+),
+timescale_extension AS (
+    SELECT oid, extowner
+    FROM pg_extension
+    WHERE extname = 'timescaledb'
+),
+extension_members AS (
+    SELECT dependency.classid, dependency.objid, dependency.objsubid
+    FROM pg_depend AS dependency
+    JOIN timescale_extension AS extension ON extension.oid = dependency.refobjid
+    WHERE dependency.refclassid = 'pg_extension'::regclass
+      AND dependency.deptype = 'e'
 ),
 namespace_base AS (
     SELECT namespace.oid, namespace.nspname, namespace.nspowner, namespace.nspacl,
            pg_get_userbyid(namespace.nspowner) AS owner_name,
            format('%I', namespace.nspname) AS identity,
-           CASE
-             WHEN namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-               OR EXISTS (
-                   SELECT 1 FROM pg_depend AS dependency
-                   JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
-                   WHERE dependency.classid = 'pg_namespace'::regclass
-                     AND dependency.objid = namespace.oid
-                     AND dependency.refclassid = 'pg_extension'::regclass
-                     AND dependency.deptype = 'e'
-                     AND extension.extname = 'timescaledb'
-               ) THEN 'timescale'
-             ELSE 'application'
-           END AS source
+           CASE WHEN member.objid IS NOT NULL THEN 'timescale' ELSE 'application' END AS source,
+           CASE WHEN member.objid IS NOT NULL THEN 'extension_member' ELSE 'root' END AS provenance
     FROM pg_namespace AS namespace
+    LEFT JOIN extension_members AS member
+      ON member.classid = 'pg_namespace'::regclass
+     AND member.objid = namespace.oid
+     AND member.objsubid = 0
     WHERE namespace.nspname = 'public'
-       OR namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-       OR pg_get_userbyid(namespace.nspowner) IN (SELECT role_name FROM canonical_roles)
+       OR namespace.nspowner IN (SELECT role_oid FROM canonical_roles)
+       OR member.objid IS NOT NULL
 ),
 extension_base AS (
     SELECT extension.oid, extension.extname, extension.extowner,
@@ -94,7 +102,7 @@ extension_base AS (
            CASE WHEN extension.extname = 'timescaledb' THEN 'timescale' ELSE 'extension' END AS source
     FROM pg_extension AS extension
     WHERE extension.extname = 'timescaledb'
-       OR pg_get_userbyid(extension.extowner) IN (SELECT role_name FROM canonical_roles)
+       OR extension.extowner IN (SELECT role_oid FROM canonical_roles)
 ),
 timescale_hypertable_base AS (
     SELECT hypertable.hypertable_schema AS nspname,
@@ -112,44 +120,114 @@ timescale_continuous_aggregate_base AS (
     FROM timescaledb_information.continuous_aggregates AS aggregate
     WHERE aggregate.view_schema = 'public'
 ),
+relation_edges AS (
+    SELECT index_data.indexrelid AS child_oid, index_data.indrelid AS parent_oid, 'index'::text AS edge_kind
+    FROM pg_index AS index_data
+    UNION ALL
+    SELECT relation.reltoastrelid, relation.oid, 'toast'
+    FROM pg_class AS relation
+    WHERE relation.reltoastrelid <> 0
+    UNION ALL
+    SELECT inheritance.inhrelid, inheritance.inhparent, 'inheritance'
+    FROM pg_inherits AS inheritance
+),
+timescale_relation_roots AS (
+    SELECT member.objid AS relation_oid, 'extension_member'::text AS provenance
+    FROM extension_members AS member
+    WHERE member.classid = 'pg_class'::regclass AND member.objsubid = 0
+    UNION
+    SELECT relation.oid, 'chunk_catalog'
+    FROM _timescaledb_catalog.chunk AS chunk
+    JOIN pg_namespace AS namespace ON namespace.nspname = chunk.schema_name
+    JOIN pg_class AS relation
+      ON relation.relnamespace = namespace.oid
+     AND relation.relname = chunk.table_name
+    UNION
+    SELECT relation.oid, 'continuous_aggregate_materialization'
+    FROM _timescaledb_catalog.continuous_agg AS aggregate
+    JOIN _timescaledb_catalog.hypertable AS hypertable
+      ON hypertable.id = aggregate.mat_hypertable_id
+    JOIN pg_namespace AS namespace ON namespace.nspname = hypertable.schema_name
+    JOIN pg_class AS relation
+      ON relation.relnamespace = namespace.oid
+     AND relation.relname = hypertable.table_name
+    UNION
+    SELECT relation.oid, 'compressed_hypertable'
+    FROM _timescaledb_catalog.hypertable AS source_hypertable
+    JOIN _timescaledb_catalog.hypertable AS compressed_hypertable
+      ON compressed_hypertable.id = source_hypertable.compressed_hypertable_id
+    JOIN pg_namespace AS namespace ON namespace.nspname = compressed_hypertable.schema_name
+    JOIN pg_class AS relation
+      ON relation.relnamespace = namespace.oid
+     AND relation.relname = compressed_hypertable.table_name
+    UNION
+    SELECT relation.oid, 'continuous_aggregate_direct_view'
+    FROM _timescaledb_catalog.continuous_agg AS aggregate
+    JOIN pg_namespace AS namespace ON namespace.nspname = aggregate.direct_view_schema
+    JOIN pg_class AS relation
+      ON relation.relnamespace = namespace.oid
+     AND relation.relname = aggregate.direct_view_name
+    UNION
+    SELECT relation.oid, 'continuous_aggregate_partial_view'
+    FROM _timescaledb_catalog.continuous_agg AS aggregate
+    JOIN pg_namespace AS namespace ON namespace.nspname = aggregate.partial_view_schema
+    JOIN pg_class AS relation
+      ON relation.relnamespace = namespace.oid
+     AND relation.relname = aggregate.partial_view_name
+),
+relation_lineage(start_oid, current_oid, depth) AS (
+    SELECT relation.oid, relation.oid, 0
+    FROM pg_class AS relation
+    UNION ALL
+    SELECT lineage.start_oid, edge.parent_oid, lineage.depth + 1
+    FROM relation_lineage AS lineage
+    JOIN relation_edges AS edge ON edge.child_oid = lineage.current_oid
+    WHERE lineage.depth < 32
+),
+relation_stats AS (
+    SELECT lineage.start_oid,
+           count(DISTINCT lineage.current_oid) FILTER (
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM relation_edges AS parent_edge
+                   WHERE parent_edge.child_oid = lineage.current_oid
+               )
+           ) AS root_count,
+           min(lineage.current_oid) FILTER (
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM relation_edges AS parent_edge
+                   WHERE parent_edge.child_oid = lineage.current_oid
+               )
+           ) AS root_oid,
+           bool_or(timescale_root.relation_oid IS NOT NULL) AS is_timescale,
+           string_agg(DISTINCT timescale_root.provenance, ',' ORDER BY timescale_root.provenance)
+               FILTER (WHERE timescale_root.relation_oid IS NOT NULL) AS timescale_provenance
+    FROM relation_lineage AS lineage
+    LEFT JOIN timescale_relation_roots AS timescale_root
+      ON timescale_root.relation_oid = lineage.current_oid
+    GROUP BY lineage.start_oid
+),
 relation_base AS (
     SELECT relation.oid, namespace.nspname, relation.relname, relation.relkind,
            relation.relowner, relation.relacl,
            pg_get_userbyid(relation.relowner) AS owner_name,
            format('%I.%I', namespace.nspname, relation.relname) AS identity,
+           CASE WHEN stats.is_timescale THEN 'timescale' ELSE 'application' END AS source,
            CASE
-             WHEN namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-               OR EXISTS (
-                   SELECT 1
-                   FROM pg_depend AS dependency
-                   JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
-                   WHERE dependency.classid = 'pg_class'::regclass
-                     AND dependency.objid = relation.oid
-                     AND dependency.refclassid = 'pg_extension'::regclass
-                     AND dependency.deptype = 'e'
-                     AND extension.extname = 'timescaledb'
-               ) THEN 'timescale'
-             ELSE 'application'
-           END AS source
+             WHEN stats.root_count <> 1 THEN 'ambiguous'
+             WHEN stats.is_timescale THEN
+               format('timescale:%s:%s.%s', stats.timescale_provenance,
+                      root_namespace.nspname, root_relation.relname)
+             WHEN stats.root_oid = relation.oid THEN format('root:%s.%s', namespace.nspname, relation.relname)
+             ELSE format('dependency:%s.%s', root_namespace.nspname, root_relation.relname)
+           END AS provenance
     FROM pg_class AS relation
     JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-    WHERE relation.relkind IN ('r', 'p', 'S', 'v', 'm')
-      AND (
-          namespace.nspname = 'public'
-          OR namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-          OR pg_get_userbyid(namespace.nspowner) IN (SELECT role_name FROM canonical_roles)
-          OR pg_get_userbyid(relation.relowner) IN (SELECT role_name FROM canonical_roles)
-          OR EXISTS (
-              SELECT 1
-              FROM pg_depend AS dependency
-              JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
-              WHERE dependency.classid = 'pg_class'::regclass
-                AND dependency.objid = relation.oid
-                AND dependency.refclassid = 'pg_extension'::regclass
-                AND dependency.deptype = 'e'
-                AND extension.extname = 'timescaledb'
-          )
-      )
+    JOIN relation_stats AS stats ON stats.start_oid = relation.oid
+    LEFT JOIN pg_class AS root_relation ON root_relation.oid = stats.root_oid
+    LEFT JOIN pg_namespace AS root_namespace ON root_namespace.oid = root_relation.relnamespace
+    WHERE namespace.nspname = 'public'
+       OR relation.relowner IN (SELECT role_oid FROM canonical_roles)
+       OR stats.is_timescale
 ),
 routine_base AS (
     SELECT routine.oid, namespace.nspname, routine.proname, routine.prokind,
@@ -157,94 +235,183 @@ routine_base AS (
            pg_get_userbyid(routine.proowner) AS owner_name,
            format('%I.%I(%s)', namespace.nspname, routine.proname,
                   pg_get_function_identity_arguments(routine.oid)) AS identity,
-           CASE
-             WHEN namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-               OR EXISTS (
-                   SELECT 1
-                   FROM pg_depend AS dependency
-                   JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
-                   WHERE dependency.classid = 'pg_proc'::regclass
-                     AND dependency.objid = routine.oid
-                     AND dependency.refclassid = 'pg_extension'::regclass
-                     AND dependency.deptype = 'e'
-                     AND extension.extname = 'timescaledb'
-               ) THEN 'timescale'
-             ELSE 'application'
-           END AS source
+           CASE WHEN member.objid IS NOT NULL THEN 'timescale' ELSE 'application' END AS source,
+           CASE WHEN member.objid IS NOT NULL THEN 'extension_member' ELSE 'root' END AS provenance
     FROM pg_proc AS routine
     JOIN pg_namespace AS namespace ON namespace.oid = routine.pronamespace
+    LEFT JOIN extension_members AS member
+      ON member.classid = 'pg_proc'::regclass
+     AND member.objid = routine.oid
+     AND member.objsubid = 0
     WHERE namespace.nspname = 'public'
-       OR namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-       OR pg_get_userbyid(namespace.nspowner) IN (SELECT role_name FROM canonical_roles)
-       OR pg_get_userbyid(routine.proowner) IN (SELECT role_name FROM canonical_roles)
-       OR EXISTS (
-           SELECT 1
-           FROM pg_depend AS dependency
-           JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
-           WHERE dependency.classid = 'pg_proc'::regclass
-             AND dependency.objid = routine.oid
-             AND dependency.refclassid = 'pg_extension'::regclass
-             AND dependency.deptype = 'e'
-             AND extension.extname = 'timescaledb'
-       )
+       OR routine.proowner IN (SELECT role_oid FROM canonical_roles)
+       OR member.objid IS NOT NULL
+),
+type_edges AS (
+    SELECT type.oid AS child_oid, type.typelem AS parent_oid
+    FROM pg_type AS type
+    WHERE type.typelem <> 0 AND type.typelem <> type.oid
+    UNION
+    SELECT range_data.rngmultitypid, range_data.rngtypid
+    FROM pg_range AS range_data
+    WHERE range_data.rngmultitypid <> 0
+),
+type_lineage(start_oid, current_oid, depth) AS (
+    SELECT type.oid, type.oid, 0
+    FROM pg_type AS type
+    UNION ALL
+    SELECT lineage.start_oid, edge.parent_oid, lineage.depth + 1
+    FROM type_lineage AS lineage
+    JOIN type_edges AS edge ON edge.child_oid = lineage.current_oid
+    WHERE lineage.depth < 16
+),
+type_stats AS (
+    SELECT lineage.start_oid,
+           count(DISTINCT lineage.current_oid) FILTER (
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM type_edges AS parent_edge
+                   WHERE parent_edge.child_oid = lineage.current_oid
+               )
+           ) AS root_count,
+           min(lineage.current_oid) FILTER (
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM type_edges AS parent_edge
+                   WHERE parent_edge.child_oid = lineage.current_oid
+               )
+           ) AS root_oid,
+           bool_or(member.objid IS NOT NULL OR relation.source = 'timescale') AS is_timescale
+    FROM type_lineage AS lineage
+    JOIN pg_type AS current_type ON current_type.oid = lineage.current_oid
+    LEFT JOIN extension_members AS member
+      ON member.classid = 'pg_type'::regclass
+     AND member.objid = current_type.oid
+     AND member.objsubid = 0
+    LEFT JOIN relation_base AS relation ON relation.oid = current_type.typrelid
+    GROUP BY lineage.start_oid
 ),
 type_base AS (
     SELECT type.oid, namespace.nspname, type.typname, type.typtype,
            type.typowner, type.typacl,
            pg_get_userbyid(type.typowner) AS owner_name,
            format('%I.%I', namespace.nspname, type.typname) AS identity,
+           CASE WHEN stats.is_timescale THEN 'timescale' ELSE 'application' END AS source,
            CASE
-             WHEN namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-               OR EXISTS (
-                   SELECT 1
-                   FROM pg_depend AS dependency
-                   JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
-                   WHERE dependency.classid = 'pg_type'::regclass
-                     AND dependency.objid = type.oid
-                     AND dependency.refclassid = 'pg_extension'::regclass
-                     AND dependency.deptype = 'e'
-                     AND extension.extname = 'timescaledb'
-               ) THEN 'timescale'
-             ELSE 'application'
-           END AS source
+             WHEN stats.root_count <> 1 THEN 'ambiguous'
+             WHEN stats.is_timescale THEN format('timescale:type:%s.%s', root_namespace.nspname, root_type.typname)
+             WHEN root_type.typrelid <> 0 AND stats.root_oid = type.oid THEN
+               format('relation:%s.%s', root_relation_namespace.nspname, root_relation.relname)
+             WHEN root_type.typrelid <> 0 THEN
+               format('type:%s.%s', root_relation_namespace.nspname, root_relation.relname)
+             ELSE format('root:%s.%s', root_namespace.nspname, root_type.typname)
+           END AS provenance
     FROM pg_type AS type
     JOIN pg_namespace AS namespace ON namespace.oid = type.typnamespace
-    WHERE type.typrelid = 0
-      AND type.typtype IN ('d', 'e', 'm', 'r')
+    JOIN type_stats AS stats ON stats.start_oid = type.oid
+    LEFT JOIN pg_type AS root_type ON root_type.oid = stats.root_oid
+    LEFT JOIN pg_namespace AS root_namespace ON root_namespace.oid = root_type.typnamespace
+    LEFT JOIN pg_class AS root_relation ON root_relation.oid = root_type.typrelid
+    LEFT JOIN pg_namespace AS root_relation_namespace ON root_relation_namespace.oid = root_relation.relnamespace
+    WHERE namespace.nspname = 'public'
+       OR type.typowner IN (SELECT role_oid FROM canonical_roles)
+       OR stats.is_timescale
+),
+default_acl_base AS (
+    SELECT defaults.oid, defaults.defaclrole, defaults.defaclnamespace,
+           defaults.defaclobjtype, defaults.defaclacl,
+           pg_get_userbyid(defaults.defaclrole) AS owner_name,
+           namespace.nspname,
+           format('%s:%s:%s', defaults.defaclrole, defaults.defaclnamespace,
+                  defaults.defaclobjtype) AS identity
+    FROM pg_default_acl AS defaults
+    LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+    WHERE defaults.defaclrole IN (SELECT role_oid FROM canonical_roles)
+),
+ownership_base AS (
+    SELECT dependency.dbid, dependency.classid, dependency.objid, dependency.objsubid,
+           owner_role.role_name AS owner_name
+    FROM pg_shdepend AS dependency
+    JOIN canonical_roles AS owner_role ON owner_role.role_oid = dependency.refobjid
+    WHERE dependency.refclassid = 'pg_authid'::regclass
+      AND dependency.deptype = 'o'
       AND (
-          namespace.nspname = 'public'
-          OR namespace.nspname LIKE '\_timescaledb\_%' ESCAPE '\'
-          OR pg_get_userbyid(namespace.nspowner) IN (SELECT role_name FROM canonical_roles)
-          OR pg_get_userbyid(type.typowner) IN (SELECT role_name FROM canonical_roles)
-          OR EXISTS (
-              SELECT 1
-              FROM pg_depend AS dependency
-              JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
-              WHERE dependency.classid = 'pg_type'::regclass
-                AND dependency.objid = type.oid
-                AND dependency.refclassid = 'pg_extension'::regclass
-                AND dependency.deptype = 'e'
-                AND extension.extname = 'timescaledb'
-          )
+          dependency.dbid = 0
+          OR dependency.dbid = (SELECT oid FROM target_database)
       )
+),
+ownership_classified AS (
+    SELECT ownership.*,
+           CASE
+             WHEN ownership.classid = 'pg_database'::regclass
+                  AND ownership.objid = (SELECT oid FROM target_database) THEN 'target_admin'
+             WHEN ownership.classid = 'pg_database'::regclass
+                  AND ownership.owner_name IN ('avelren_admin','avelren_migrator') THEN 'preserve'
+             WHEN ownership_member.objid IS NOT NULL THEN 'timescale'
+             WHEN ownership.classid = 'pg_namespace'::regclass
+                  AND namespace.source = 'timescale' THEN 'timescale'
+             WHEN ownership.classid = 'pg_namespace'::regclass
+                  AND namespace.nspname = 'public' THEN 'target_admin'
+             WHEN ownership.classid = 'pg_extension'::regclass
+                  AND extension.extname = 'timescaledb' THEN 'timescale'
+             WHEN ownership.classid = 'pg_class'::regclass
+                  AND relation.source = 'timescale'
+                  AND relation.provenance ~ '(chunk_catalog|continuous_aggregate|compressed_hypertable)'
+                  THEN 'application_relation'
+             WHEN ownership.classid = 'pg_class'::regclass
+                  AND relation.source = 'timescale' THEN 'timescale'
+             WHEN ownership.classid = 'pg_class'::regclass
+                  AND relation.source = 'application' THEN 'application_relation'
+             WHEN ownership.classid = 'pg_type'::regclass
+                  AND type.source = 'timescale' THEN 'timescale'
+             WHEN ownership.classid = 'pg_type'::regclass
+                  AND type.source = 'application'
+                  AND (type.provenance LIKE 'relation:%' OR type.provenance LIKE 'type:%')
+                  THEN 'application_type'
+             WHEN ownership.classid = 'pg_tablespace'::regclass
+                  AND ownership.owner_name IN ('avelren_admin','avelren_migrator') THEN 'preserve'
+             ELSE 'reject'
+           END AS ownership_class,
+           CASE
+             WHEN relation.source IS NOT NULL THEN relation.source
+             WHEN routine.source IS NOT NULL THEN routine.source
+             WHEN type.source IS NOT NULL THEN type.source
+             WHEN namespace.source IS NOT NULL THEN namespace.source
+             WHEN extension.source IS NOT NULL THEN extension.source
+             WHEN ownership_member.objid IS NOT NULL THEN 'timescale'
+             ELSE 'shared'
+           END AS source
+    FROM ownership_base AS ownership
+    LEFT JOIN namespace_base AS namespace
+      ON ownership.classid = 'pg_namespace'::regclass AND namespace.oid = ownership.objid
+    LEFT JOIN extension_base AS extension
+      ON ownership.classid = 'pg_extension'::regclass AND extension.oid = ownership.objid
+    LEFT JOIN relation_base AS relation
+      ON ownership.classid = 'pg_class'::regclass AND relation.oid = ownership.objid
+    LEFT JOIN routine_base AS routine
+      ON ownership.classid = 'pg_proc'::regclass AND routine.oid = ownership.objid
+    LEFT JOIN type_base AS type
+      ON ownership.classid = 'pg_type'::regclass AND type.oid = ownership.objid
+    LEFT JOIN extension_members AS ownership_member
+      ON ownership_member.classid = ownership.classid
+     AND ownership_member.objid = ownership.objid
+     AND ownership_member.objsubid = ownership.objsubid
 ),
 manifest_rows AS (
     SELECT ARRAY['object','database',datname,'-',datname,'database',owner_name,'-','-','-','-','-',source,identity]::text[] AS fields
     FROM database_inventory
     UNION ALL
-    SELECT ARRAY['object','schema',current_database(),nspname,nspname,'schema',owner_name,'-','-','-','-','-',source,identity]::text[]
+    SELECT ARRAY['object','schema',current_database(),nspname,nspname,'schema',owner_name,provenance,'-','-','-','-',source,identity]::text[]
     FROM namespace_base
     UNION ALL
     SELECT ARRAY['object','extension',current_database(),'-',extname,'extension',owner_name,'-','-','-','-','-',source,identity]::text[]
     FROM extension_base
     UNION ALL
-    SELECT ARRAY['object','timescale_binding',current_database(),nspname,relname,'hypertable',owner_name,'-','-','-','-','-','timescale',identity]::text[]
+    SELECT ARRAY['object','timescale_binding',current_database(),nspname,relname,'hypertable',owner_name,'catalog','-','-','-','-','timescale',identity]::text[]
     FROM timescale_hypertable_base
     UNION ALL
-    SELECT ARRAY['object','timescale_binding',current_database(),nspname,relname,'continuous_aggregate',owner_name,'-','-','-','-','-','timescale',identity]::text[]
+    SELECT ARRAY['object','timescale_binding',current_database(),nspname,relname,'continuous_aggregate',owner_name,'catalog','-','-','-','-','timescale',identity]::text[]
     FROM timescale_continuous_aggregate_base
     UNION ALL
-    SELECT ARRAY['object','relation',current_database(),nspname,relname,relkind::text,owner_name,'-','-','-','-','-',source,identity]::text[]
+    SELECT ARRAY['object','relation',current_database(),nspname,relname,relkind::text,owner_name,provenance,'-','-','-','-',source,identity]::text[]
     FROM relation_base
     UNION ALL
     SELECT ARRAY['object','column',current_database(),relation.nspname,relation.relname,relation.relkind::text,
@@ -253,61 +420,26 @@ manifest_rows AS (
     JOIN pg_attribute AS attribute ON attribute.attrelid = relation.oid
     WHERE attribute.attnum > 0 AND NOT attribute.attisdropped
     UNION ALL
-    SELECT ARRAY['object','function',current_database(),nspname,proname,prokind::text,owner_name,'-','-','-','-','-',source,identity]::text[]
+    SELECT ARRAY['object','function',current_database(),nspname,proname,prokind::text,owner_name,provenance,'-','-','-','-',source,identity]::text[]
     FROM routine_base
     UNION ALL
-    SELECT ARRAY['object','type',current_database(),nspname,typname,typtype::text,owner_name,'-','-','-','-','-',source,identity]::text[]
+    SELECT ARRAY['object','type',current_database(),nspname,typname,typtype::text,owner_name,provenance,'-','-','-','-',source,identity]::text[]
     FROM type_base
     UNION ALL
     SELECT ARRAY['object','tablespace','-', '-', tablespace.spcname,'tablespace',
                  pg_get_userbyid(tablespace.spcowner),'-','-','-','-','-','shared',format('%I', tablespace.spcname)]::text[]
     FROM pg_tablespace AS tablespace
-    WHERE pg_get_userbyid(tablespace.spcowner) IN (SELECT role_name FROM canonical_roles)
+    WHERE tablespace.spcowner IN (SELECT role_oid FROM canonical_roles)
     UNION ALL
-    SELECT ARRAY['object','default_acl',current_database(),COALESCE(namespace.nspname, '-'),
-                 default_acl.oid::text,default_acl.defaclobjtype::text,pg_get_userbyid(default_acl.defaclrole),
-                 '-','-','-','-','-','application',
-                 format('%s:%s:%s', default_acl.defaclrole, default_acl.defaclnamespace, default_acl.defaclobjtype)]::text[]
-    FROM pg_default_acl AS default_acl
-    LEFT JOIN pg_namespace AS namespace ON namespace.oid = default_acl.defaclnamespace
-    WHERE pg_get_userbyid(default_acl.defaclrole) IN (SELECT role_name FROM canonical_roles)
-      AND (default_acl.defaclnamespace = 0 OR namespace.nspname = 'public')
+    SELECT ARRAY['object','default_acl',current_database(),defaclnamespace::text,
+                 oid::text,defaclobjtype::text,owner_name,'default_acl','-','-','-','-',
+                 'application',identity]::text[]
+    FROM default_acl_base
     UNION ALL
-    SELECT ARRAY['object','shared',shared.dbid::text,'-',shared.objid::text,shared.classid::regclass::text,
-                 pg_get_userbyid(shared.refobjid),'-','-','-','-','-','shared',
-                 format('%s:%s:%s', shared.dbid, shared.classid, shared.objid)]::text[]
-    FROM pg_shdepend AS shared
-    JOIN pg_roles AS owner_role ON owner_role.oid = shared.refobjid
-    WHERE shared.refclassid = 'pg_authid'::regclass
-      AND shared.deptype = 'o'
-      AND owner_role.rolname IN (SELECT role_name FROM canonical_roles)
-      AND shared.dbid <> (SELECT oid FROM target_database)
-      AND shared.classid NOT IN ('pg_database'::regclass, 'pg_tablespace'::regclass)
-    UNION ALL
-    SELECT ARRAY['object',
-                 CASE WHEN extension.oid IS NULL THEN 'shared' ELSE 'extension_dependent' END,
-                 shared.dbid::text,'-',shared.objid::text,shared.classid::regclass::text,
-                 pg_get_userbyid(shared.refobjid),'-','-','-','-','-',
-                 CASE WHEN extension.oid IS NULL THEN 'shared' ELSE 'timescale' END,
-                 format('%s:%s:%s', shared.dbid, shared.classid, shared.objid)]::text[]
-    FROM pg_shdepend AS shared
-    JOIN pg_roles AS owner_role ON owner_role.oid = shared.refobjid
-    LEFT JOIN pg_depend AS dependency
-      ON dependency.classid = shared.classid
-     AND dependency.objid = shared.objid
-     AND dependency.refclassid = 'pg_extension'::regclass
-     AND dependency.deptype = 'e'
-    LEFT JOIN pg_extension AS extension
-      ON extension.oid = dependency.refobjid
-     AND extension.extname = 'timescaledb'
-    WHERE shared.refclassid = 'pg_authid'::regclass
-      AND shared.deptype = 'o'
-      AND owner_role.rolname IN (SELECT role_name FROM canonical_roles)
-      AND shared.dbid = (SELECT oid FROM target_database)
-      AND shared.classid NOT IN (
-          'pg_namespace'::regclass, 'pg_class'::regclass, 'pg_proc'::regclass,
-          'pg_type'::regclass, 'pg_extension'::regclass, 'pg_default_acl'::regclass
-      )
+    SELECT ARRAY['object','ownership',dbid::text,classid::text,objid::text,objsubid::text,
+                 owner_name,ownership_class,'-','-','-','-',source,
+                 format('%s:%s:%s:%s', dbid, classid, objid, objsubid)]::text[]
+    FROM ownership_classified
     UNION ALL
     SELECT ARRAY['acl','database',database.datname,'-',database.datname,'database',database.owner_name,'object',
                  pg_get_userbyid(acl.grantor),CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
@@ -353,6 +485,14 @@ manifest_rows AS (
                  acl.privilege_type,acl.is_grantable::text,type.source,type.identity]::text[]
     FROM type_base AS type
     CROSS JOIN LATERAL aclexplode(COALESCE(type.typacl, acldefault('T', type.typowner))) AS acl
+    UNION ALL
+    SELECT ARRAY['acl','default_acl',current_database(),defaults.defaclnamespace::text,
+                 defaults.oid::text,defaults.defaclobjtype::text,defaults.owner_name,'object',
+                 pg_get_userbyid(acl.grantor),
+                 CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
+                 acl.privilege_type,acl.is_grantable::text,'application',defaults.identity]::text[]
+    FROM default_acl_base AS defaults
+    CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
 )
 SELECT array_to_string(fields, chr(9))
 FROM manifest_rows
@@ -462,28 +602,52 @@ EOF
 }
 
 validate_owned_object_allowlist() {
-    local manifest=$1 expected actual extensions temporary
+    local manifest=$1 expected actual extensions allowed_roots temporary root
     [ -f "$manifest" ] || ownership_fail 'manifest not found'
     temporary=$(dirname "$manifest")
     expected=$(mktemp "$temporary/.expected.XXXXXX")
     actual=$(mktemp "$temporary/.actual.XXXXXX")
     extensions=$(mktemp "$temporary/.extensions.XXXXXX")
-    chmod 600 "$expected" "$actual" "$extensions"
+    allowed_roots=$(mktemp "$temporary/.roots.XXXXXX")
+    chmod 600 "$expected" "$actual" "$extensions" "$allowed_roots"
 
     _canonical_relations | LC_ALL=C sort >"$expected"
-    awk -F '\t' '$1=="object" && $2=="relation" && $13=="application" {print $4 "\t" $5 "\t" $6}' \
+    awk -F '\t' '$1=="object" && $2=="relation" && $13=="application" && $8=="root:" $4 "." $5 {print $4 "\t" $5 "\t" $6}' \
         "$manifest" | LC_ALL=C sort >"$actual"
     if ! cmp -s "$expected" "$actual"; then
-        rm -f "$expected" "$actual" "$extensions"
+        rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
         ownership_fail 'application relation exact-set mismatch'
         return 1
     fi
+    awk -F '\t' '{print $1 "." $2}' "$expected" | LC_ALL=C sort -u >"$allowed_roots"
+    while IFS= read -r root; do
+        [ -z "$root" ] && continue
+        grep -Fxq "$root" "$allowed_roots" || {
+            rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
+            ownership_fail 'application relation dependency has an unknown root'
+            return 1
+        }
+    done < <(awk -F '\t' '$1=="object" && $2=="relation" && $13=="application" && $8 ~ /^dependency:/ {sub(/^dependency:/,"",$8); print $8}' "$manifest" | LC_ALL=C sort -u)
+    if awk -F '\t' '$1=="object" && $2=="relation" && $13=="application" && $8 !~ /^(root|dependency):/ {found=1} END {exit !found}' "$manifest"; then
+        rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
+        ownership_fail 'application relation provenance is ambiguous'
+        return 1
+    fi
+
+    while IFS= read -r root; do
+        [ -z "$root" ] && continue
+        grep -Fxq "$root" "$allowed_roots" || {
+            rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
+            ownership_fail 'application type dependency has an unknown relation root'
+            return 1
+        }
+    done < <(awk -F '\t' '$1=="object" && $2=="type" && $13=="application" && $8 ~ /^(relation|type):/ {sub(/^(relation|type):/,"",$8); print $8}' "$manifest" | LC_ALL=C sort -u)
 
     _canonical_timescale_bindings | LC_ALL=C sort >"$expected"
     awk -F '\t' '$1=="object" && $2=="timescale_binding" {print $4 "\t" $5 "\t" $6}' \
         "$manifest" | LC_ALL=C sort >"$actual"
     if ! cmp -s "$expected" "$actual"; then
-        rm -f "$expected" "$actual" "$extensions"
+        rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
         ownership_fail 'TimescaleDB application binding exact-set mismatch'
         return 1
     fi
@@ -492,27 +656,52 @@ validate_owned_object_allowlist() {
         "$manifest" | LC_ALL=C sort >"$extensions"
     printf '%s\n' $'-\ttimescaledb\textension' >"$expected"
     if ! cmp -s "$expected" "$extensions"; then
-        rm -f "$expected" "$actual" "$extensions"
+        rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
         ownership_fail 'extension exact-set mismatch'
         return 1
     fi
 
     if ! awk -F '\t' -v target="${AVELREN_TARGET_DB:?AVELREN_TARGET_DB is required}" -v legacy="$AVELREN_LEGACY_ROLE" '
-        $1=="object" && $2=="database" { databases++; if ($3 != target || $5 != target) bad=1 }
-        $1=="object" && $2=="schema" && $13=="application" { schemas++; if ($4 != "public" || $5 != "public") bad=1 }
-        $1=="object" && ($2=="tablespace" || $2=="shared" || $2=="default_acl" || $13=="shared") { bad=1 }
-        $1=="object" && $13=="application" && ($2=="function" || $2=="type") { bad=1 }
-        $1=="object" && $2!="column" && $7 != legacy { bad=1 }
-        $1=="object" && $2=="column" && $7 != legacy { bad=1 }
+        $1=="object" && $2=="database" && $13=="application" {
+            databases++; if ($3 != target || $5 != target || $7 != legacy) bad=1
+        }
+        $1=="object" && $2=="database" && $13=="shared" {
+            if ($7 == legacy || ($7 != "avelren_admin" && $7 != "avelren_migrator")) bad=1
+        }
+        $1=="object" && $2=="schema" && $13=="application" {
+            schemas++; if ($4 != "public" || $5 != "public" || $7 != legacy || $8 != "root") bad=1
+        }
+        $1=="object" && $2=="schema" && $13=="timescale" {
+            if ($7 != legacy || $8 != "extension_member") bad=1
+        }
+        $1=="object" && $2=="extension" && $7 != legacy { bad=1 }
+        $1=="object" && $2=="timescale_binding" && $7 != legacy { bad=1 }
+        $1=="object" && ($2=="relation" || $2=="column" || $2=="function" || $2=="type") && $7 != legacy { bad=1 }
+        $1=="object" && $2=="relation" && $13=="timescale" && $8 !~ /^timescale:/ { bad=1 }
+        $1=="object" && $2=="function" && $13=="timescale" && $8 != "extension_member" { bad=1 }
+        $1=="object" && $2=="type" && $13=="timescale" && $8 !~ /^timescale:/ { bad=1 }
+        $1=="object" && $2=="function" && $13=="application" { bad=1 }
+        $1=="object" && $2=="type" && $13=="application" && $8 !~ /^(relation|type):/ { bad=1 }
+        $1=="object" && $2=="default_acl" { bad=1 }
+        $1=="object" && $2=="tablespace" {
+            if ($7 == legacy || ($7 != "avelren_admin" && $7 != "avelren_migrator")) bad=1
+        }
+        $1=="object" && $2=="ownership" {
+            ownership_rows++
+            if ($8 == "reject") bad=1
+            else if ($8 == "preserve") {
+                if ($7 != "avelren_admin" && $7 != "avelren_migrator") bad=1
+            } else if ($7 != legacy) bad=1
+        }
         $1=="acl" && $11 !~ /^(SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|USAGE|CREATE|CONNECT|TEMPORARY|EXECUTE)$/ { bad=1 }
-        END { exit !(databases==1 && schemas==1 && !bad) }
+        END { exit !(databases==1 && schemas==1 && ownership_rows>0 && !bad) }
     ' "$manifest"; then
-        rm -f "$expected" "$actual" "$extensions"
+        rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
         ownership_fail 'owner, shared-object, or ACL contract mismatch'
         return 1
     fi
 
-    rm -f "$expected" "$actual" "$extensions"
+    rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
 }
 
 _write_plan_header() {
@@ -590,6 +779,7 @@ build_inverse_plan() {
         while IFS=$'\t' read -r _ scope _ _ name kind owner subject _ _ _ _ source identity; do
             [ "$scope" = relation ] || continue
             [ "$source" = application ] || continue
+            case "$subject" in root:*) ;; *) continue ;; esac
             if [ "$kind" = S ]; then object_keyword=SEQUENCE; else object_keyword=TABLE; fi
             printf 'REVOKE ALL PRIVILEGES ON %s %s FROM PUBLIC, "avelren_admin", "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$object_keyword" "$identity"
         done < <(awk -F '\t' '$1=="object" && $2=="relation"' "$manifest")
@@ -876,10 +1066,39 @@ DROP TABLE avelren_expected_acl;
 SQL
 }
 
+_target_expected_ownership_rows() {
+    local manifest=$1
+    awk -F '\t' 'BEGIN { OFS="\t" }
+        $1=="object" && $2=="ownership" {
+            owner=$7
+            if ($8=="application_relation" || $8=="application_type") owner="avelren_migrator"
+            else if ($8=="target_admin" || $8=="timescale") owner="avelren_admin"
+            else if ($8!="preserve") next
+            print $3,$4,$5,$6,owner
+        }
+    ' "$manifest" | LC_ALL=C sort
+}
+
 _target_ownership_sql() {
+    local manifest=${1:?ownership manifest is required}
     _target_acl_sql
     cat <<'SQL'
+CREATE TEMP TABLE avelren_expected_ownership (
+    dbid oid NOT NULL,
+    classid oid NOT NULL,
+    objid oid NOT NULL,
+    objsubid integer NOT NULL,
+    owner_name text NOT NULL
+) ON COMMIT DROP;
+COPY avelren_expected_ownership FROM STDIN;
+SQL
+    _target_expected_ownership_rows "$manifest"
+    printf '%s\n' '\.'
+    cat <<'SQL'
 DO $avelren_verify$
+DECLARE
+    mismatch_count bigint;
+    mismatch_detail text;
 BEGIN
     IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()) <> 'avelren_admin' THEN
         RAISE EXCEPTION 'target database owner mismatch';
@@ -890,13 +1109,79 @@ BEGIN
     IF (SELECT pg_get_userbyid(extowner) FROM pg_extension WHERE extname='timescaledb') <> 'avelren_admin' THEN
         RAISE EXCEPTION 'timescaledb extension owner mismatch';
     END IF;
-    IF EXISTS (
-        SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m')
-          AND pg_get_userbyid(c.relowner) <> 'avelren_migrator'
-    ) THEN
-        RAISE EXCEPTION 'application owner mismatch';
+    WITH actual_expected_objects AS (
+        SELECT dependency.dbid, dependency.classid, dependency.objid, dependency.objsubid,
+               owner_role.rolname AS owner_name
+        FROM avelren_expected_ownership AS expected
+        JOIN pg_shdepend AS dependency
+          ON dependency.dbid = expected.dbid
+         AND dependency.classid = expected.classid
+         AND dependency.objid = expected.objid
+         AND dependency.objsubid = expected.objsubid
+         AND dependency.refclassid = 'pg_authid'::regclass
+         AND dependency.deptype = 'o'
+        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
+    ), mismatch AS (
+        (SELECT 'missing'::text AS direction, expected.*
+         FROM avelren_expected_ownership AS expected
+         EXCEPT ALL
+         SELECT 'missing', actual.* FROM actual_expected_objects AS actual)
+        UNION ALL
+        (SELECT 'unexpected'::text AS direction, actual.*
+         FROM actual_expected_objects AS actual
+         EXCEPT ALL
+         SELECT 'unexpected', expected.* FROM avelren_expected_ownership AS expected)
+    )
+    SELECT count(*), string_agg(
+               format('%s:%s:%s', direction,
+                      pg_describe_object(classid, objid, objsubid), owner_name),
+               '; ' ORDER BY direction, classid, objid, objsubid, owner_name
+           )
+      INTO mismatch_count, mismatch_detail
+      FROM mismatch;
+    IF mismatch_count <> 0 THEN
+        RAISE EXCEPTION 'target ownership exact-set mismatch (% rows; first=%)', mismatch_count, mismatch_detail;
     END IF;
+
+    WITH canonical_owner_oids AS (
+        SELECT oid FROM pg_roles
+        WHERE rolname IN ('avelren','avelren_admin','avelren_migrator')
+    ), actual_canonical AS (
+        SELECT dependency.dbid, dependency.classid, dependency.objid, dependency.objsubid,
+               owner_role.rolname AS owner_name
+        FROM pg_shdepend AS dependency
+        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
+        WHERE dependency.refclassid = 'pg_authid'::regclass
+          AND dependency.deptype = 'o'
+          AND dependency.refobjid IN (SELECT oid FROM canonical_owner_oids)
+          AND (dependency.dbid = 0 OR dependency.dbid = (
+              SELECT oid FROM pg_database WHERE datname = current_database()
+          ))
+          AND dependency.classid <> 'pg_default_acl'::regclass
+          AND NOT (
+              dependency.classid = 'pg_class'::regclass
+              AND dependency.objid IN (
+                  SELECT relation.oid
+                  FROM pg_class AS relation
+                  WHERE relation.relnamespace = pg_my_temp_schema()
+              )
+          )
+    ), mismatch AS (
+        (SELECT 'missing'::text AS direction, expected.*
+         FROM avelren_expected_ownership AS expected
+         EXCEPT ALL
+         SELECT 'missing', actual.* FROM actual_canonical AS actual)
+        UNION ALL
+        (SELECT 'unexpected'::text AS direction, actual.*
+         FROM actual_canonical AS actual
+         EXCEPT ALL
+         SELECT 'unexpected', expected.* FROM avelren_expected_ownership AS expected)
+    )
+    SELECT count(*) INTO mismatch_count FROM mismatch;
+    IF mismatch_count <> 0 THEN
+        RAISE EXCEPTION 'target canonical ownership surface mismatch (% rows)', mismatch_count;
+    END IF;
+
     IF EXISTS (
         SELECT 1
         FROM pg_shdepend AS dependency
@@ -913,6 +1198,7 @@ BEGIN
     END IF;
 END
 $avelren_verify$;
+DROP TABLE avelren_expected_ownership;
 SQL
 }
 
@@ -929,7 +1215,7 @@ validate_plan_round_trip() {
     {
         printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
         cat "$forward"
-        _target_ownership_sql
+        _target_ownership_sql "$manifest"
         cat "$inverse"
         _manifest_sql
         printf '%s\n' 'ROLLBACK;'
@@ -957,8 +1243,8 @@ validate_plan_round_trip() {
 }
 
 verify_target_ownership() {
-    local dsn=$1
-    _target_ownership_sql | _adoption_psql "$dsn" >/dev/null
+    local dsn=$1 manifest=$2
+    _target_ownership_sql "$manifest" | _adoption_psql "$dsn" >/dev/null
 }
 
 execute_before_commit_rollback() {
