@@ -33,12 +33,15 @@ fi
 readonly COMPOSE_FILE COMPOSE_PROJECT_DIR COMPOSE_ENV_FILE
 
 usage() {
-    printf 'usage: %s [--privileges-only]\n' "$0" >&2
+    printf 'usage: %s [--privileges-only|--positive-only]\n' "$0" >&2
     exit 2
 }
 
+PYTEST_ARGS=()
 case "${1:-}" in
-    ""|--privileges-only) ;;
+    "") ;;
+    --privileges-only) PYTEST_ARGS=(-k "not positive") ;;
+    --positive-only) PYTEST_ARGS=(-k positive) ;;
     *) usage ;;
 esac
 
@@ -129,4 +132,5 @@ compose run --rm --no-deps -T \
     -e WATCHDOG_DATABASE_URL="$WATCHDOG_DATABASE_URL" \
     -e API_DATABASE_URL="$API_DATABASE_URL" \
     -e AVELREN_TEST_DB=1 \
-    test sh -c 'ruff check app/tests/test_db_privileges.py && python -m pytest app/tests/test_db_privileges.py -q -p no:cacheprovider'
+    test sh -c 'ruff check app/tests/test_db_privileges.py && python -m pytest app/tests/test_db_privileges.py -q -p no:cacheprovider "$@"' \
+    sh "${PYTEST_ARGS[@]}"

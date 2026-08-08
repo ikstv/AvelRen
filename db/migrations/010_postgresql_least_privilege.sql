@@ -74,6 +74,7 @@ GRANT INSERT, UPDATE ON TABLE
     eta_alerts
 TO avelren_collector;
 GRANT INSERT ON TABLE notification_cancels TO avelren_collector;
+GRANT SELECT (kind, alert_id) ON notification_cancels TO avelren_collector;
 GRANT USAGE ON SEQUENCE
     alerts_id_seq,
     eta_alerts_id_seq,
@@ -121,6 +122,7 @@ ON devices TO avelren_api;
 GRANT INSERT, UPDATE, DELETE ON subscriptions, eta_targets TO avelren_api;
 GRANT UPDATE (status, acknowledged_at) ON alerts, eta_alerts TO avelren_api;
 GRANT INSERT ON notification_cancels TO avelren_api;
+GRANT SELECT (kind, alert_id) ON notification_cancels TO avelren_api;
 GRANT USAGE ON SEQUENCE
     subscriptions_id_seq,
     eta_targets_id_seq,
