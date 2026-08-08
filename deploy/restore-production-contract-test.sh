@@ -28,10 +28,19 @@ args="$*"
 if [[ "$args" == *' ps --status running --services'* ]]; then
     if [ -n "${FAKE_RUNNING_SERVICE:-}" ]; then
         printf '%s\n' "$FAKE_RUNNING_SERVICE"
+    elif [ -n "${FAKE_POST_RUNNING_SERVICE:-}" ] && grep -q 'up -d caddy' "$FAKE_LOG"; then
+        printf '%s\n' "$FAKE_POST_RUNNING_SERVICE"
     elif grep -q 'up -d caddy' "$FAKE_LOG"; then
         printf '%s\n' caddy api collector notifier watchdog
     fi
     exit 0
+fi
+if [[ "$args" == *' stop '* ]] && [ "${FAKE_CLEANUP_STOP_FAIL:-0}" = 1 ] && grep -q 'up -d caddy' "$FAKE_LOG"; then
+    exit 41
+fi
+if [[ "$args" == *' exec -T api python '* ]]; then
+    python3 -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
+    exit
 fi
 if [[ "$args" == *' exec -T db psql '* ]]; then
     query=$(cat)
@@ -48,7 +57,7 @@ SH
 cat >"$BIN/curl" <<'SH'
 #!/usr/bin/env bash
 printf 'HTTPS_READY\n' >>"$FAKE_LOG"
-printf '{"status":"ok"}\n'
+printf '%s\n' "${FAKE_CURL_BODY:-{\"status\":\"ok\",\"last_observation\":null,\"age_seconds\":null}}"
 exit "${FAKE_CURL_STATUS:-0}"
 SH
 chmod +x "$BIN/docker" "$BIN/curl"
@@ -119,10 +128,30 @@ grep -q 'up -d caddy' "$WORK/readiness.log"
 grep -q HTTPS_READY "$WORK/readiness.log"
 assert_failed_closed readiness
 
+if run_fake malformed-json FAKE_CURL_BODY='debug {"status":"ok","last_observation":null,"age_seconds":null}'; then
+    echo "malformed readiness JSON should fail" >&2; exit 1
+fi
+assert_failed_closed malformed-json
+
+if run_fake nested-json FAKE_CURL_BODY='{"debug":{"status":"ok"},"last_observation":null,"age_seconds":null}'; then
+    echo "nested readiness status should fail" >&2; exit 1
+fi
+assert_failed_closed nested-json
+
 if run_fake freshness FAKE_FRESH_RESULT=f; then echo "freshness failure expected" >&2; exit 1; fi
 grep -q HTTPS_READY "$WORK/freshness.log"
 grep -q 'SELECT EXISTS' "$WORK/freshness.log"
 assert_failed_closed freshness
+
+if run_fake cleanup-stop FAKE_CURL_STATUS=1 FAKE_CLEANUP_STOP_FAIL=1; then
+    echo "cleanup stop failure should preserve failure" >&2; exit 1
+fi
+grep -q 'cleanup stop failed' "$WORK/cleanup-stop.out"
+
+if run_fake cleanup-running FAKE_CURL_STATUS=1 FAKE_POST_RUNNING_SERVICE=api; then
+    echo "cleanup running service should preserve failure" >&2; exit 1
+fi
+grep -q 'cleanup left service running: api' "$WORK/cleanup-running.out"
 
 if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service should abort" >&2; exit 1; fi
 ! grep -q ENGINE "$WORK/running.log"
@@ -130,4 +159,4 @@ if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service s
 ! grep -q HTTPS_READY "$WORK/running.log"
 assert_failed_closed running
 
-echo "production restore contract tests: 10 passed"
+echo "production restore contract tests: 14 passed"
