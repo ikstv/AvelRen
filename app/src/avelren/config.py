@@ -1,10 +1,26 @@
+from urllib.parse import quote
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql://avelren@db:5432/avelren"
+    database_url: str | None = None
+    postgres_host: str = "db"
+    postgres_port: int = 5432
+    postgres_user: str = "avelren"
+    postgres_password: str = ""
+    postgres_db: str = "avelren"
+
+    @property
+    def database_dsn(self) -> str:
+        if self.database_url:
+            return self.database_url
+        return (
+            f"postgresql://{quote(self.postgres_user, safe='')}:{quote(self.postgres_password, safe='')}"
+            f"@{self.postgres_host}:{self.postgres_port}/{quote(self.postgres_db, safe='')}"
+        )
 
     echerha_base_url: str = "https://back.echerha.gov.ua/api"
     echerha_vehicle_type: int = 1  # 1 — вантажівки, 2 — автобуси

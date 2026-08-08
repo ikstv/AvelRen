@@ -56,7 +56,7 @@ X-User-Agent: UABorder/1.0.0 Web/1.1.0 User/guest
 ## Запуск
 
 ```bash
-cp .env.example .env    # заповнити POSTGRES_PASSWORD
+cp .env.example .env    # заповнити POSTGRES_PASSWORD; DATABASE_URL лишити порожнім у Compose
 docker compose up -d
 docker compose logs -f collector
 ```

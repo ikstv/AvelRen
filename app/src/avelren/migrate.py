@@ -89,7 +89,7 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
         return 1
 
     applied = 0
-    with psycopg.connect(settings.database_url, autocommit=False) as conn:
+    with psycopg.connect(settings.database_dsn, autocommit=False) as conn:
         conn.execute(_SCHEMA)
         conn.commit()
 
