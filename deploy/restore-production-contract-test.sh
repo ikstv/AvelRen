@@ -54,7 +54,9 @@ printf 'VERIFY\n' >>"$FAKE_LOG"
 SH
 
 run_fake() {
-    env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$1.log" \
+    local name=$1
+    shift
+    env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$name.log" \
         AVELREN_STACK_DIR="$WORK/stack" AVELREN_READINESS_TIMEOUT_SECONDS=1 \
         AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 "$@" \
         bash "$ROOT/deploy/restore-production.sh" "$WORK/valid.sql.gz" \
