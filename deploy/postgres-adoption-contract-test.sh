@@ -192,6 +192,9 @@ cat >"$BIN/git" <<'EOF'
 set -euo pipefail
 case " $* " in
     *' rev-parse HEAD '*) printf '%s\n' ebd09d3bea94236a5d2d0683e973cba90d15eb74 ;;
+    *' status --porcelain=v1 --untracked-files=all '*)
+        [ "${FAKE_GIT_UNTRACKED:-}" != 1 ] || printf '%s\n' '?? deploy/untracked-adoption-hook.sh'
+        ;;
     *' diff '*) exit 0 ;;
     *) exit 2 ;;
 esac
@@ -250,6 +253,13 @@ for gate in no-confirm wrong-commit bad-recovery; do
         fail "$gate should reject orchestrator"
     fi
 done
+
+if run_orchestrator "$CANONICAL" untracked-worktree \
+    AVELREN_ALLOW_DIRTY_TEST=0 FAKE_GIT_UNTRACKED=1; then
+    fail 'untracked worktree content should fail the exact-commit gate'
+fi
+! grep -q ' stop ' "$WORK/untracked-worktree.docker.log" || fail 'untracked worktree reached compose stop'
+[ ! -s "$WORK/untracked-worktree.psql.log" ] || fail 'untracked worktree reached SQL'
 
 if run_orchestrator "$CANONICAL" before-commit; then
     fail 'before_commit failpoint must return non-zero'

@@ -61,8 +61,9 @@ GIT_BIN=${AVELREN_GIT_BIN:-git}
 current_commit=$("$GIT_BIN" -C "$ROOT" rev-parse HEAD) || fail 'cannot read repository commit'
 [ "$current_commit" = "$EXPECTED_COMMIT" ] || fail 'exact commit mismatch'
 if [ "${AVELREN_ALLOW_DIRTY_TEST:-}" != 1 ]; then
-    "$GIT_BIN" -C "$ROOT" diff --quiet || fail 'worktree is dirty'
-    "$GIT_BIN" -C "$ROOT" diff --cached --quiet || fail 'index is dirty'
+    worktree_status=$("$GIT_BIN" -C "$ROOT" status --porcelain=v1 --untracked-files=all) || \
+        fail 'cannot verify clean worktree'
+    [ -z "$worktree_status" ] || fail 'worktree is dirty'
 fi
 
 [ -f "$RECOVERY_PREFLIGHT" ] && [ ! -L "$RECOVERY_PREFLIGHT" ] || fail 'recovery preflight file is invalid'
