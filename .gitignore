@@ -38,3 +38,4 @@ app/build/
 
 # superpowers brainstorm runtime state
 .superpowers/
+.worktrees/
