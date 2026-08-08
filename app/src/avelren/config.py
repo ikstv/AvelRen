@@ -18,7 +18,8 @@ class Settings(BaseSettings):
         if self.database_url:
             return self.database_url
         return (
-            f"postgresql://{quote(self.postgres_user, safe='')}:{quote(self.postgres_password, safe='')}"
+            f"postgresql://{quote(self.postgres_user, safe='')}:"
+            f"{quote(self.postgres_password, safe='')}"
             f"@{self.postgres_host}:{self.postgres_port}/{quote(self.postgres_db, safe='')}"
         )
 
