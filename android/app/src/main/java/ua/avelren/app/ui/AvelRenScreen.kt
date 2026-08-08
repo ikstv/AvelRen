@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -36,10 +37,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import ua.avelren.app.AvelRenApp
+import ua.avelren.app.R
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.InstallationState
 import ua.avelren.app.data.LiveRefresh
+import ua.avelren.app.data.NotificationPermissionState
 import ua.avelren.app.data.ProtectedLoad
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -59,7 +62,11 @@ private val FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM 'о' 
  * коли карток стало більше трьох.
  */
 @Composable
-fun AvelRenScreen() {
+fun AvelRenScreen(
+    permissionState: NotificationPermissionState = NotificationPermissionState.Granted,
+    onRequestPermission: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -155,6 +162,12 @@ fun AvelRenScreen() {
                 Text("Черги на кордоні — вантажівки",
                     style = MaterialTheme.typography.bodySmall)
             }
+        }
+
+        // AND-2: сповіщення заблоковані — алерт не дійде. Це сенс застосунку,
+        // тож показуємо явно і даємо шлях назад (запит або потрібні налаштування).
+        if (permissionState !is NotificationPermissionState.Granted) {
+            item { NotificationBanner(permissionState, onRequestPermission, onOpenSettings) }
         }
 
         // Свіжість за server observation time обраного КПП (без вибору — макс.
@@ -295,6 +308,41 @@ fun AvelRenScreen() {
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun NotificationBanner(
+    state: NotificationPermissionState,
+    onRequest: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val channelBlocked = state is NotificationPermissionState.NeedsAlertChannelSettings
+    Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                stringResource(
+                    if (channelBlocked) R.string.notif_channel_blocked_title
+                    else R.string.notif_blocked_title
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            // NeedsRequest — системний діалог ще можливий; решта станів
+            // (permanent denial, revoke, вимкнений канал) лікуються лише в
+            // налаштуваннях, тож і кнопка веде саме туди.
+            val canAskInApp = state is NotificationPermissionState.NeedsRequest
+            Button(
+                onClick = if (canAskInApp) onRequest else onOpenSettings,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text(
+                    stringResource(
+                        if (canAskInApp) R.string.notif_allow else R.string.notif_open_settings
+                    )
+                )
+            }
+        }
     }
 }
 
