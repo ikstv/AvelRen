@@ -1,10 +1,14 @@
 # Caddy сам отримує й оновлює сертифікат Let's Encrypt для цього імені.
-api.bordersignal.pp.ua {
+https://api.bordersignal.pp.ua {
 	encode gzip
 
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy api:8000
+		reverse_proxy api:8000 {
+			header_up -X-Forwarded-For
+			header_up -X-AvelRen-Client-IP
+			header_up X-AvelRen-Client-IP {http.request.remote.host}
+		}
 	}
 
 	handle {
@@ -15,12 +19,5 @@ api.bordersignal.pp.ua {
 # Доступ по голому IP лишаємо для діагностики з самого сервера, але без
 # HTTPS: сертифікат на IP-адресу не випишеш, а застосунок ходить на домен.
 :80 {
-	handle /api/* {
-		uri strip_prefix /api
-		reverse_proxy api:8000
-	}
-
-	handle {
-		respond "AvelRen" 200
-	}
+	redir https://{host}{uri} permanent
 }

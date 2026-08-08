@@ -35,7 +35,7 @@ log = logging.getLogger("avelren.restore_smoke")
 
 def _current_database() -> str:
     """Фактична назва бази, до якої підключаємося (не просто рядок з URL)."""
-    with psycopg.connect(settings.database_url, autocommit=True) as conn:
+    with psycopg.connect(settings.database_dsn, autocommit=True) as conn:
         return conn.execute("SELECT current_database()").fetchone()[0]
 
 

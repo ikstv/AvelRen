@@ -21,15 +21,19 @@ LIMITS: dict[str, tuple[int, int]] = {
 }
 
 _hits: dict[str, deque[float]] = defaultdict(deque)
+TRUSTED_CLIENT_IP_HEADER = "x-avelren-client-ip"
 
 
 def _client_key(request: Request) -> str:
     # Caddy передає справжню адресу; без нього всі клієнти виглядали б одним.
-    forwarded = request.headers.get("x-forwarded-for")
-    ip = forwarded.split(",")[0].strip() if forwarded else (
-        request.client.host if request.client else "unknown"
-    )
-    return ip
+    forwarded = request.headers.get(TRUSTED_CLIENT_IP_HEADER, "").strip()
+    if forwarded:
+        try:
+            import ipaddress
+            return str(ipaddress.ip_address(forwarded))
+        except ValueError:
+            pass
+    return request.client.host if request.client else "unknown"
 
 
 def check(request: Request, bucket: str = "read") -> None:

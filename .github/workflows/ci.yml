@@ -36,7 +36,10 @@ jobs:
             android/app/src/test/java/ua/avelren/app/notify/AlertReconciliationTest.kt \
             app/src/avelren/schema_verify.py \
             app/src/avelren/restore_smoke.py \
-            deploy/restore-verify.sh
+            deploy/restore-verify.sh \
+            app/Dockerfile.test \
+            docker-compose.backend-test.yml \
+            scripts/backend-test.sh
           do
             git ls-files --error-unmatch "$f" >/dev/null || { echo "ВІДСУТНІЙ У GIT: $f"; exit 1; }
           done
@@ -50,39 +53,54 @@ jobs:
 
   backend-tests:
     runs-on: ubuntu-latest
-    services:
-      db:
-        image: timescale/timescaledb:2.17.2-pg16
-        env:
-          POSTGRES_USER: avelren
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: avelren_ci
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U avelren -d avelren_ci"
-          --health-interval 5s --health-timeout 5s --health-retries 20
-    env:
-      # Назва бази містить "ci", і AVELREN_TEST_DB=1 задано явно — без
-      # обох ознак conftest.py зупиняє pytest до першого запиту.
-      DATABASE_URL: postgresql://avelren:ci@localhost:5432/avelren_ci
-      AVELREN_TEST_DB: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Установка
-        run: pip install -q ./app pytest ruff
-      - name: Лінтер
-        run: ruff check app/src app/tests
+      - name: Canonical backend workflow
+        run: bash scripts/backend-test.sh
 
-      - name: Міграції на порожній БД
-        run: python -m avelren.migrate db/migrations
-      - name: Тести
-        run: python -m pytest app/tests -q -p no:cacheprovider
+      - name: Security/setup contract smoke
+        run: |
+          set -euo pipefail
+          ! grep -A3 '^:80 {' deploy/Caddyfile | grep -q 'reverse_proxy'
+          grep -A1 '^:80 {' deploy/Caddyfile | grep -q 'redir https://{host}{uri} permanent'
+          grep -A6 '^https://api\.bordersignal\.pp\.ua {' deploy/Caddyfile | grep -q 'reverse_proxy api:8000'
+          ! grep -q '^DATABASE_URL=postgresql://avelren:@' .env.example
+          python - <<'PY'
+          from pathlib import Path
+          config = Path("app/src/avelren/config.py").read_text()
+          assert "postgres_password" in config
+          assert "quote(self.postgres_password, safe='')" in config
+          assert "database_url" in config
+          print("security/setup contract ok")
+          PY
+          python - <<'PY'
+          from pathlib import Path
+          caddy = Path("deploy/Caddyfile").read_text().lower()
+          rate = Path("app/src/avelren/ratelimit.py").read_text().lower()
+          assert "header_up -x-forwarded-for" in caddy
+          assert "header_up -x-avelren-client-ip" in caddy
+          assert "header_up x-avelren-client-ip {http.request.remote.host}" in caddy
+          assert "x-avelren-client-ip" in rate
+          assert "x-forwarded-for" not in rate
+          print("trusted-proxy contract ok")
+          PY
 
       - name: DR restore-verify — синтаксис
         run: bash -n deploy/restore-verify.sh
+
+      - name: Restore contract regression tests
+        run: bash deploy/restore-contract-test.sh
+
+      - name: Actual disposable restore integration
+        run: bash deploy/restore-integration-test.sh
+
+      - name: Docker Compose config
+        run: |
+          cp .env.example .env
+          POSTGRES_PASSWORD=ci docker compose config --quiet
 
       - name: Snapshot script — синтаксис
         run: bash -n deploy/telemetry-snapshot.sh

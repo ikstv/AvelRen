@@ -17,7 +17,7 @@ def get_pool() -> AsyncConnectionPool:
     global _pool
     if _pool is None:
         _pool = AsyncConnectionPool(
-            settings.database_url,
+            settings.database_dsn,
             min_size=1,
             max_size=5,
             # Коротко: цикл збирача має 60 с на все, і чекання з'єднання не

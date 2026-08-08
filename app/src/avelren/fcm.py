@@ -19,16 +19,88 @@ log = logging.getLogger("avelren.fcm")
 
 SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 
-# Токен більше не існує: застосунок видалено, дані очищено, токен протух.
-# Далі слати марно — пристрій треба гасити.
-DEAD_TOKEN_ERRORS = {"UNREGISTERED", "INVALID_ARGUMENT", "SENDER_ID_MISMATCH"}
+FCM_ERROR_DETAIL_TYPE = "type.googleapis.com/google.firebase.fcm.v1.FcmError"
+
+# Лише FCM-specific UNREGISTERED однозначно доводить, що token більше не
+# існує. Top-level INVALID_ARGUMENT може описувати помилку payload, а
+# SENDER_ID_MISMATCH — конфігурацію/ownership; обидва сигнали destructive бути
+# не можуть.
+CONFIRMED_DEAD_TOKEN_ERRORS = {"UNREGISTERED"}
+RETRYABLE_FCM_ERRORS = {"QUOTA_EXCEEDED", "UNAVAILABLE", "INTERNAL"}
+RETRYABLE_CANONICAL_STATUSES = {"RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"}
 
 
 class FcmError(Exception):
-    def __init__(self, status: str, message: str, dead_token: bool) -> None:
-        super().__init__(f"{status}: {message}")
-        self.status = status
+    def __init__(
+        self,
+        *,
+        http_status: int,
+        canonical_status: str,
+        fcm_error_code: str | None,
+        message: str,
+        dead_token: bool,
+        retryable: bool,
+    ) -> None:
+        label = fcm_error_code or canonical_status
+        super().__init__(f"{label}: {message}")
+        self.http_status = http_status
+        self.canonical_status = canonical_status
+        # Backward-compatible alias for callers/logging that used the old
+        # top-level-only model.
+        self.status = canonical_status
+        self.fcm_error_code = fcm_error_code
         self.dead_token = dead_token
+        self.retryable = retryable
+
+
+def _error_from_response(response: httpx.Response) -> FcmError:
+    canonical_status = str(response.status_code)
+    fcm_error_code: str | None = None
+    message = response.text[:200]
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            status_value = error.get("status")
+            if isinstance(status_value, str):
+                canonical_status = status_value
+
+            message_value = error.get("message")
+            if isinstance(message_value, str):
+                message = message_value
+
+            details = error.get("details")
+            if isinstance(details, list):
+                for detail in details:
+                    if not isinstance(detail, dict):
+                        continue
+                    if detail.get("@type") != FCM_ERROR_DETAIL_TYPE:
+                        continue
+                    error_code = detail.get("errorCode")
+                    if isinstance(error_code, str):
+                        fcm_error_code = error_code
+                        break
+
+    dead_token = fcm_error_code in CONFIRMED_DEAD_TOKEN_ERRORS
+    retryable = not dead_token and (
+        fcm_error_code in RETRYABLE_FCM_ERRORS
+        or canonical_status in RETRYABLE_CANONICAL_STATUSES
+        or response.status_code == 429
+        or response.status_code >= 500
+    )
+    return FcmError(
+        http_status=response.status_code,
+        canonical_status=canonical_status,
+        fcm_error_code=fcm_error_code,
+        message=message,
+        dead_token=dead_token,
+        retryable=retryable,
+    )
 
 
 _credentials: service_account.Credentials | None = None
@@ -91,14 +163,7 @@ async def send(
     if r.status_code == 200:
         return
 
-    try:
-        err = r.json().get("error", {})
-        status = err.get("status", str(r.status_code))
-        message = err.get("message", r.text[:200])
-    except ValueError:
-        status, message = str(r.status_code), r.text[:200]
-
-    raise FcmError(status, message, dead_token=status in DEAD_TOKEN_ERRORS)
+    raise _error_from_response(r)
 
 
 def threshold_payload(alert_id: int, title: str, threshold: int, vehicles: int) -> dict[str, str]:

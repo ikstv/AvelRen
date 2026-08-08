@@ -15,8 +15,10 @@ import ua.avelren.app.data.Api
 import ua.avelren.app.data.CredentialStore
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.FcmTokenProvider
+import ua.avelren.app.data.DevicePendingFcmTokenStore
 import ua.avelren.app.data.InstallationApi
 import ua.avelren.app.data.InstallationRepository
+import ua.avelren.app.data.WorkManagerFcmTokenRetryScheduler
 import ua.avelren.app.data.ProtectedLoad
 import ua.avelren.app.notify.NotificationReconciler
 import ua.avelren.app.notify.Notifications
@@ -32,8 +34,11 @@ class AvelRenApp : Application() {
     /** Один SupervisorJob-скоуп на весь процес — без розсипаних CoroutineScope. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    lateinit var installation: InstallationRepository
-        private set
+    private var installationRef: InstallationRepository? = null
+    val installation: InstallationRepository
+        get() = checkNotNull(installationRef)
+
+    fun installationOrNull(): InstallationRepository? = installationRef
 
     override fun onCreate() {
         super.onCreate()
@@ -43,7 +48,7 @@ class AvelRenApp : Application() {
         Notifications.ensureChannel(this)
 
         val ctx: Context = this
-        installation = InstallationRepository(
+        installationRef = InstallationRepository(
             api = object : InstallationApi {
                 override suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials =
                     Api.registerDevice(fcmToken)
@@ -67,6 +72,8 @@ class AvelRenApp : Application() {
                     FirebaseMessaging.getInstance().token.await()
             },
             scope = appScope,
+            pendingTokens = DevicePendingFcmTokenStore(ctx),
+            retryScheduler = WorkManagerFcmTokenRetryScheduler(ctx),
         )
         installation.start()
 

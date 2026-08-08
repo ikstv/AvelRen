@@ -24,6 +24,7 @@ object DeviceStore {
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_DEVICE_SECRET = "device_secret"
     private const val KEY_SELECTED = "selected_checkpoint"
+    private const val KEY_PENDING_FCM_TOKEN = "pending_fcm_token"
     // AND-2. Свідомо НЕ чіпається clearCredentials(): історія запитів дозволу
     // не має скидатися при 401-перереєстрації installation — інакше після
     // кожного DB restore ми знову питали б дозвіл у того, хто вже відмовив.
@@ -106,5 +107,18 @@ object DeviceStore {
 
     fun saveSelectedCheckpoint(context: Context, id: Int) {
         prefs(context).edit().putInt(KEY_SELECTED, id).apply()
+    }
+
+    fun pendingFcmToken(context: Context): String? =
+        prefs(context).getString(KEY_PENDING_FCM_TOKEN, null)
+
+    /** Synchronous disk handoff: callers must not start enqueue/network when this returns false. */
+    fun savePendingFcmToken(context: Context, token: String): Boolean =
+        prefs(context).edit().putString(KEY_PENDING_FCM_TOKEN, token).commit()
+
+    fun clearPendingFcmTokenIfMatches(context: Context, expected: String): Boolean {
+        val p = prefs(context)
+        if (p.getString(KEY_PENDING_FCM_TOKEN, null) != expected) return false
+        return p.edit().remove(KEY_PENDING_FCM_TOKEN).commit()
     }
 }

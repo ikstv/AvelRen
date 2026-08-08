@@ -9,28 +9,101 @@
 #
 # Використання:
 #   avelren-restore <файл.sql.gz> [ім'я_бази]
+#   avelren-restore <файл.sql.gz> --target avelren \
+#       --confirm-production-restore AVELREN-PRODUCTION-RESTORE
 #
 # Без другого аргументу відновлює в restore_test, а не в бойову базу:
 # помилитись і затерти прод має бути важче, ніж перевірити копію.
 #
 set -euo pipefail
 
-STACK_DIR=/opt/avelren
+STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
+COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
+COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
+DB_SERVICE=${AVELREN_DB_SERVICE:-db}
+PRODUCTION_TARGET=avelren
+PRODUCTION_CONFIRMATION=AVELREN-PRODUCTION-RESTORE
 DUMP=${1:?вкажіть файл дампа}
-TARGET=${2:-restore_test}
+shift
+TARGET=restore_test
+CONFIRMATION=
+DRY_RUN=false
+
+if [ "$DUMP" = "--help" ]; then
+    sed -n '1,24p' "$0"
+    exit 0
+fi
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --target)
+            [ "$#" -ge 2 ] || { echo "помилка: --target потребує значення" >&2; exit 2; }
+            TARGET=$2
+            shift 2
+            ;;
+        --confirm-production-restore)
+            [ "$#" -ge 2 ] || { echo "помилка: confirmation token відсутній" >&2; exit 2; }
+            CONFIRMATION=$2
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        *)
+            echo "помилка: невідомий аргумент: $1" >&2
+            exit 2
+            ;;
+    esac
+done
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
 
-if [ "$TARGET" = "avelren" ]; then
-    log "УВАГА: відновлення в БОЙОВУ базу. Ctrl+C протягом 10 секунд, щоб скасувати."
-    sleep 10
+if [ ! -f "$DUMP" ]; then
+    log "ВІДМОВА: backup artifact не знайдено: $DUMP"
+    exit 1
+fi
+if [ "$TARGET" != "restore_test" ] && [ "$TARGET" != "$PRODUCTION_TARGET" ]; then
+    log "ВІДМОВА: дозволені target лише restore_test або $PRODUCTION_TARGET"
+    exit 2
+fi
+if [ "$TARGET" = "$PRODUCTION_TARGET" ] && [ "$CONFIRMATION" != "$PRODUCTION_CONFIRMATION" ]; then
+    log "ВІДМОВА: production restore потребує exact explicit confirmation token"
+    exit 2
+fi
+if [ "$TARGET" != "$PRODUCTION_TARGET" ] && [ -n "$CONFIRMATION" ]; then
+    log "ВІДМОВА: production confirmation не дозволена для test target"
+    exit 2
+fi
+if ! gzip -t "$DUMP"; then
+    log "ВІДМОВА: backup artifact не пройшов gzip integrity validation"
+    exit 1
+fi
+
+log "preflight OK: target=$TARGET, backup=$DUMP"
+if [ "$DRY_RUN" = true ]; then
+    log "dry-run: destructive restore не виконувався"
+    exit 0
 fi
 
 cd "$STACK_DIR"
-psql() { docker compose exec -T db psql -U avelren "$@"; }
+compose() {
+    local args=(docker compose)
+    if [ -n "$COMPOSE_FILE" ]; then
+        args+=(-f "$COMPOSE_FILE")
+    fi
+    if [ -n "$COMPOSE_PROJECT" ]; then
+        args+=(-p "$COMPOSE_PROJECT")
+    fi
+    "${args[@]}" "$@"
+}
+psql() { compose exec -T "$DB_SERVICE" psql -U avelren "$@"; }
 
 log "готую базу $TARGET"
-psql -d postgres -q -c "DROP DATABASE IF EXISTS $TARGET;" -c "CREATE DATABASE $TARGET;"
+psql -d postgres -v target="$TARGET" -q <<'SQL'
+DROP DATABASE IF EXISTS :"target";
+CREATE DATABASE :"target";
+SQL
 psql -d "$TARGET" -q -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
 
 log "timescaledb_pre_restore"

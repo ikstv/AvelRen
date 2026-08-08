@@ -323,7 +323,7 @@ def main(directory: Path) -> int:
     logging.basicConfig(
         level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    with psycopg.connect(settings.database_url, autocommit=True) as conn:
+    with psycopg.connect(settings.database_dsn, autocommit=True) as conn:
         problems = verify(conn, directory)
     if problems:
         log.error("схема НЕ узгоджена з історією міграцій:")
