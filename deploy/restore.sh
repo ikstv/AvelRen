@@ -17,7 +17,10 @@
 #
 set -euo pipefail
 
-STACK_DIR=/opt/avelren
+STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
+COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
+COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
+DB_SERVICE=${AVELREN_DB_SERVICE:-db}
 PRODUCTION_TARGET=avelren
 PRODUCTION_CONFIRMATION=AVELREN-PRODUCTION-RESTORE
 DUMP=${1:?вкажіть файл дампа}
@@ -84,7 +87,17 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 cd "$STACK_DIR"
-psql() { docker compose exec -T db psql -U avelren "$@"; }
+compose() {
+    local args=(docker compose)
+    if [ -n "$COMPOSE_FILE" ]; then
+        args+=(-f "$COMPOSE_FILE")
+    fi
+    if [ -n "$COMPOSE_PROJECT" ]; then
+        args+=(-p "$COMPOSE_PROJECT")
+    fi
+    "${args[@]}" "$@"
+}
+psql() { compose exec -T "$DB_SERVICE" psql -U avelren "$@"; }
 
 log "готую базу $TARGET"
 psql -d postgres -v target="$TARGET" -q \

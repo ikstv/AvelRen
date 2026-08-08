@@ -94,6 +94,9 @@ jobs:
       - name: Restore contract regression tests
         run: bash deploy/restore-contract-test.sh
 
+      - name: Actual disposable restore integration
+        run: bash deploy/restore-integration-test.sh
+
       - name: Docker Compose config
         run: |
           cp .env.example .env
