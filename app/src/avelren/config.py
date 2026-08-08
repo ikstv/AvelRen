@@ -2,6 +2,12 @@ from urllib.parse import quote
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+ECHERHA_COLLECTOR_BASE_URL = "https://back.echerha.gov.ua/api"
+
+
+class CollectorConfigurationError(RuntimeError):
+    pass
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -23,7 +29,7 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{quote(self.postgres_db, safe='')}"
         )
 
-    echerha_base_url: str = "https://back.echerha.gov.ua/api"
+    echerha_base_url: str = ECHERHA_COLLECTOR_BASE_URL
     echerha_vehicle_type: int = 1  # 1 — вантажівки, 2 — автобуси
     poll_interval_seconds: int = 60
     http_timeout_seconds: int = 15
@@ -49,6 +55,17 @@ class Settings(BaseSettings):
         """Чесно представляємось: держсервіс має бачити, хто до нього ходить."""
         contact = f" (+{self.contact_email})" if self.contact_email else ""
         return f"AvelRen/0.1.0{contact}"
+
+
+def validate_collector_settings(candidate: Settings) -> None:
+    if candidate.echerha_base_url != ECHERHA_COLLECTOR_BASE_URL:
+        raise CollectorConfigurationError("invalid collector setting: echerha_base_url")
+    if candidate.echerha_vehicle_type != 1:
+        raise CollectorConfigurationError("invalid collector setting: echerha_vehicle_type")
+    if candidate.poll_interval_seconds != 60:
+        raise CollectorConfigurationError("invalid collector setting: poll_interval_seconds")
+    if not 1 <= candidate.http_timeout_seconds <= 30:
+        raise CollectorConfigurationError("invalid collector setting: http_timeout_seconds")
 
 
 settings = Settings()
