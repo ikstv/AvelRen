@@ -31,7 +31,23 @@ copyto)
     ;;
 cat)
     file=$(path "$1")
-    if [ "${FAKE_VERIFY_MISMATCH:-0}" = 1 ]; then printf 'mismatch\n'; else cat "$file"; fi
+    if [[ "$file" == *.sha256 ]]; then
+        if [ "${FAKE_VERIFY_MISMATCH:-0}" = 1 ]; then printf 'mismatch\n'; else cat "$file"; fi
+    else
+        [ "${FAKE_REMOTE_CAT_FAIL:-0}" != 1 ] || exit 13
+        if [ "${FAKE_SAME_SIZE_CORRUPTION:-0}" = 1 ]; then
+            python3 - "$file" <<'PY'
+import pathlib
+import sys
+
+data = bytearray(pathlib.Path(sys.argv[1]).read_bytes())
+data[len(data) // 2] ^= 1
+sys.stdout.buffer.write(data)
+PY
+        else
+            cat "$file"
+        fi
+    fi
     ;;
 size)
     file=$(path "$1"); size=$(stat -c %s "$file")
@@ -39,6 +55,7 @@ size)
     printf '{"count":1,"bytes":%s}\n' "$size"
     ;;
 lsf)
+    printf 'RETENTION\n' >>"${FAKE_CALL_LOG:-/dev/null}"
     dir=$(path "$1")
     [ "${FAKE_RETENTION_FAIL:-0}" != 1 ] || exit 11
     find "$dir" -maxdepth 1 -type f -name 'avelren-*.sql.gz' -printf '%f\n' 2>/dev/null || true
@@ -63,6 +80,7 @@ run_case() {
         AVELREN_BACKUP_REMOTE="fake:$remote" \
         AVELREN_RCLONE_CONFIG="$case_dir/rclone.conf" \
         AVELREN_BACKUP_STAMP="$case_dir/stamp" \
+        FAKE_CALL_LOG="$case_dir/calls.log" \
         "$@" bash "$ROOT/deploy/backup.sh"
 }
 
@@ -84,6 +102,8 @@ for item in \
     'small:FAKE_SMALL_DUMP=1' \
     'upload:FAKE_UPLOAD_FAIL=1' \
     'verify:FAKE_VERIFY_MISMATCH=1' \
+    'same-size:FAKE_SAME_SIZE_CORRUPTION=1' \
+    'remote-cat:FAKE_REMOTE_CAT_FAIL=1' \
     'size:FAKE_SIZE_MISMATCH=1' \
     'retention:FAKE_RETENTION_FAIL=1'
 do
@@ -93,6 +113,9 @@ do
     fi
     [ ! -e "$WORK/$name/stamp" ]
     assert_no_plaintext "$WORK/$name/work"
+    if [ "$name" = same-size ] || [ "$name" = remote-cat ]; then
+        ! grep -q RETENTION "$WORK/$name/calls.log" 2>/dev/null
+    fi
 done
 
 # Corrupt gzip validator: test the actual script while replacing only gzip.
@@ -116,4 +139,4 @@ mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-not
 run_case unrelated
 [ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
 
-echo "backup contract tests: 11 passed"
+echo "backup contract tests: 13 passed"

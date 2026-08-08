@@ -78,6 +78,8 @@ rclone copyto "$MANIFEST" "$REMOTE_MANIFEST" --config "$RCLONE_CONFIG"
 
 remote_manifest=$(rclone cat "$REMOTE_MANIFEST" --config "$RCLONE_CONFIG")
 [ "$remote_manifest" = "$expected_manifest" ] || fail "remote SHA-256 manifest mismatch"
+remote_digest=$(rclone cat "$REMOTE_DUMP" --config "$RCLONE_CONFIG" | sha256sum | awk '{print $1}')
+[ "$remote_digest" = "$digest" ] || fail "remote dump SHA-256 mismatch"
 remote_size_json=$(rclone size "$REMOTE_DUMP" --json --config "$RCLONE_CONFIG")
 remote_bytes=$(printf '%s\n' "$remote_size_json" | sed -n 's/.*"bytes"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
 [ -n "$remote_bytes" ] || fail "remote size не вдалося прочитати"
