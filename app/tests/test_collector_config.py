@@ -22,7 +22,7 @@ def make_settings(**overrides: object) -> Settings:
 
 
 def test_production_collector_settings_are_valid() -> None:
-    validate_collector_settings(make_settings())
+    validate_collector_settings(Settings(_env_file=None))
 
 
 @pytest.mark.parametrize("timeout", [1, 30])
@@ -78,7 +78,9 @@ def test_rejects_unsafe_http_timeout(timeout: int) -> None:
         validate_collector_settings(make_settings(http_timeout_seconds=timeout))
 
 
-def test_invalid_startup_stops_before_database_or_http(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_invalid_startup_stops_before_signal_database_or_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(collector.settings, "poll_interval_seconds", 59)
 
     def unexpected_side_effect(*_args: object, **_kwargs: object) -> None:
@@ -86,6 +88,7 @@ def test_invalid_startup_stops_before_database_or_http(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(collector, "get_pool", unexpected_side_effect)
     monkeypatch.setattr(collector.httpx, "AsyncClient", unexpected_side_effect)
+    monkeypatch.setattr(collector.asyncio, "get_running_loop", unexpected_side_effect)
 
     with pytest.raises(CollectorConfigurationError):
         asyncio.run(collector.main())
