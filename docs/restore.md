@@ -1,7 +1,8 @@
 # Restore procedure
 
-The default low-level restore target is the disposable `restore_test` database.
-Production restore is destructive and is allowed only through
+The public low-level restore target is exclusively the disposable `restore_test`
+database. Its source-only engine has no executable production CLI. Production
+restore is destructive and is allowed only through
 `deploy/restore-production.sh`; never invoke the low-level engine directly as
 an operational production procedure.
 

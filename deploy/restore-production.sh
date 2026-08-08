@@ -96,12 +96,12 @@ SQL
 fi
 
 log "session gate clean; invoking low-level restore engine"
-AVELREN_STACK_DIR="$STACK_DIR" \
-AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
-AVELREN_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
-AVELREN_DB_SERVICE="$DB_SERVICE" \
-bash "$STACK_DIR/deploy/restore.sh" "$DUMP" --target "$PRODUCTION_TARGET" \
-    --confirm-production-restore "$CONFIRMATION_TOKEN"
+# Production capability is structural: the engine is a source-only library and
+# the public restore.sh CLI rejects every production target.
+# shellcheck source=deploy/restore-engine.lib.sh
+source "$STACK_DIR/deploy/restore-engine.lib.sh"
+avelren_restore_engine "$DUMP" "$PRODUCTION_TARGET" "$STACK_DIR" \
+    "$COMPOSE_FILE" "$COMPOSE_PROJECT" "$DB_SERVICE"
 
 log "physical schema і read-only application verification"
 AVELREN_STACK_DIR="$STACK_DIR" \
