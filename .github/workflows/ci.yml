@@ -110,6 +110,9 @@ jobs:
       - name: DR restore-verify — синтаксис
         run: bash -n deploy/restore-verify.sh
 
+      - name: Restore contract regression tests
+        run: bash deploy/restore-contract-test.sh
+
       - name: Docker Compose config
         run: |
           cp .env.example .env
