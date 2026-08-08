@@ -30,7 +30,7 @@ if [[ "$args" == *' ps --status running --services'* ]]; then
         printf '%s\n' "$FAKE_RUNNING_SERVICE"
     elif [ -n "${FAKE_POST_RUNNING_SERVICE:-}" ] && grep -q 'up -d caddy' "$FAKE_LOG"; then
         printf '%s\n' "$FAKE_POST_RUNNING_SERVICE"
-    elif grep -q 'up -d caddy' "$FAKE_LOG"; then
+    elif [ "$(cat "$FAKE_STATE" 2>/dev/null || true)" = running ]; then
         printf '%s\n' caddy api collector notifier watchdog
     fi
     exit 0
@@ -38,8 +38,16 @@ fi
 if [[ "$args" == *' stop '* ]] && [ "${FAKE_CLEANUP_STOP_FAIL:-0}" = 1 ] && grep -q 'up -d caddy' "$FAKE_LOG"; then
     exit 41
 fi
+if [[ "$args" == *' stop '* ]]; then
+    printf '%s\n' stopped >"$FAKE_STATE"
+    exit 0
+fi
+if [[ "$args" == *' up -d caddy'* ]]; then
+    printf '%s\n' running >"$FAKE_STATE"
+    exit 0
+fi
 if [[ "$args" == *' exec -T api python '* ]]; then
-    python3 -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
+    python -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
     exit
 fi
 if [[ "$args" == *' exec -T db psql '* ]]; then
@@ -57,7 +65,11 @@ SH
 cat >"$BIN/curl" <<'SH'
 #!/usr/bin/env bash
 printf 'HTTPS_READY\n' >>"$FAKE_LOG"
-printf '%s\n' "${FAKE_CURL_BODY:-{\"status\":\"ok\",\"last_observation\":null,\"age_seconds\":null}}"
+if [ -n "${FAKE_CURL_BODY:-}" ]; then
+    printf '%s\n' "$FAKE_CURL_BODY"
+else
+    printf '{"status":"ok","last_observation":null,"age_seconds":null}\n'
+fi
 exit "${FAKE_CURL_STATUS:-0}"
 SH
 chmod +x "$BIN/docker" "$BIN/curl"
@@ -79,7 +91,7 @@ SH
 run_fake() {
     local name=$1
     shift
-    env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$name.log" \
+    env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$name.log" FAKE_STATE="$WORK/$name.state" \
         AVELREN_STACK_DIR="$WORK/stack" AVELREN_READINESS_TIMEOUT_SECONDS=1 \
         AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 "$@" \
         bash "$ROOT/deploy/restore-production.sh" "$WORK/valid.sql.gz" \

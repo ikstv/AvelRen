@@ -7,6 +7,7 @@ COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
 COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
 DB_SERVICE=${AVELREN_DB_SERVICE:-db}
 VERIFY_APP_SERVICE=${AVELREN_VERIFY_APP_SERVICE:-migrate}
+API_SERVICE=${AVELREN_API_SERVICE:-api}
 INGRESS_SERVICE=${AVELREN_INGRESS_SERVICE:-caddy}
 KNOWN_CLIENTS=${AVELREN_DB_CLIENT_SERVICES:-api collector notifier watchdog}
 READINESS_URL=${AVELREN_READINESS_URL:-https://api.bordersignal.pp.ua/api/health}
@@ -48,14 +49,36 @@ cd "$STACK_DIR"
 SUCCESS=false
 keep_maintenance_on_failure() {
     local status=$?
+    local cleanup_failed=false running service
     trap - EXIT HUP INT TERM
     if [ "$SUCCESS" != true ]; then
         set +e
-        compose stop "$INGRESS_SERVICE" >/dev/null 2>&1
+        if ! compose stop "$INGRESS_SERVICE"; then
+            log "ПОМИЛКА: cleanup stop failed: $INGRESS_SERVICE"
+            cleanup_failed=true
+        fi
         # shellcheck disable=SC2086
-        compose stop $KNOWN_CLIENTS >/dev/null 2>&1
+        if ! compose stop $KNOWN_CLIENTS; then
+            log "ПОМИЛКА: cleanup stop failed: $KNOWN_CLIENTS"
+            cleanup_failed=true
+        fi
+        if running=$(compose ps --status running --services); then
+            for service in $INGRESS_SERVICE $KNOWN_CLIENTS; do
+                if printf '%s\n' "$running" | grep -Fxq "$service"; then
+                    log "ПОМИЛКА: cleanup left service running: $service"
+                    cleanup_failed=true
+                fi
+            done
+        else
+            log "ПОМИЛКА: cleanup could not verify final service state"
+            cleanup_failed=true
+        fi
         set -e
-        log "RESTORE FAILED (exit=$status): ingress і DB clients залишені stopped"
+        if [ "$cleanup_failed" = true ]; then
+            log "RESTORE FAILED (exit=$status): maintenance cleanup incomplete; manual intervention required"
+        else
+            log "RESTORE FAILED (exit=$status): ingress і DB clients залишені stopped"
+        fi
     fi
     exit "$status"
 }
@@ -130,9 +153,22 @@ compose up -d $KNOWN_CLIENTS
 log "maintenance exit: starting ingress last"
 compose up -d "$INGRESS_SERVICE"
 
+validate_health_json() {
+    printf '%s' "$1" | compose exec -T "$API_SERVICE" python -c '
+import json, sys
+value = json.load(sys.stdin)
+if not isinstance(value, dict):
+    raise SystemExit(1)
+if value.get("status") not in {"ok", "stale"}:
+    raise SystemExit(1)
+if "last_observation" not in value or "age_seconds" not in value:
+    raise SystemExit(1)
+'
+}
+
 deadline=$((SECONDS + READINESS_TIMEOUT))
 until health=$(curl --fail --silent --show-error --max-time 10 "$READINESS_URL") \
-    && printf '%s' "$health" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"(ok|stale)"'; do
+    && validate_health_json "$health"; do
     [ "$SECONDS" -lt "$deadline" ] || {
         log "ПОМИЛКА: canonical API readiness timeout: $READINESS_URL"; exit 1;
     }
