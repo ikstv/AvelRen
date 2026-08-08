@@ -35,7 +35,21 @@ cat >"$BIN/docker" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$DR_SERVICE_LOG"
 case " $* " in
-    *' stop '*|*' ps --status running --services '*|*' up -d '*|*' wait migrate '*) exit 0 ;;
+    *' ps --status running --services '*)
+        if [ "$(cat "$DR_STATE" 2>/dev/null || true)" = running ]; then
+            printf '%s\n' caddy api collector notifier watchdog
+        fi
+        exit 0
+        ;;
+    *' up -d api collector notifier watchdog '*)
+        "$REAL_DOCKER" compose -p "$DR_PROJECT" -f "$DR_COMPOSE_FILE" \
+            exec -T test-db psql -U avelren -d avelren -q \
+            -c "INSERT INTO collector_runs (time, rows_written, error) VALUES (now(), 1, NULL);"
+        exit 0
+        ;;
+    *' up -d caddy '*) printf '%s\n' running >"$DR_STATE"; exit 0 ;;
+    *' stop '*) printf '%s\n' stopped >"$DR_STATE"; exit 0 ;;
+    *' up -d '*|*' wait migrate '*) exit 0 ;;
     *) exec "$REAL_DOCKER" "$@" ;;
 esac
 SH
@@ -49,6 +63,7 @@ chmod +x "$BIN/docker" "$BIN/curl"
 
 run_orchestrator() {
     env PATH="$BIN:$PATH" REAL_DOCKER="$REAL_DOCKER" DR_SERVICE_LOG="$WORK/services.log" \
+        DR_PROJECT="$PROJECT" DR_COMPOSE_FILE="$COMPOSE_FILE" DR_STATE="$WORK/service.state" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_COMPOSE_PROJECT="$PROJECT" AVELREN_DB_SERVICE=test-db \
         AVELREN_VERIFY_APP_SERVICE=test \

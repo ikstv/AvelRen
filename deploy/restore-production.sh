@@ -95,9 +95,6 @@ SQL
     exit 1
 fi
 
-pre_restore_run=$(db_psql -d "$PRODUCTION_TARGET" -At -c \
-    "SELECT COALESCE(max(time), '-infinity'::timestamptz) FROM collector_runs;")
-
 log "session gate clean; invoking low-level restore engine"
 # Production capability is structural: the engine is a source-only library and
 # the public restore.sh CLI rejects every production target.
@@ -124,6 +121,9 @@ AVELREN_PRODUCTION_VERIFY_CONTEXT=AVELREN-INTERNAL-PRODUCTION-VERIFY \
 AVELREN_VERIFY_DATABASE_URL="${AVELREN_VERIFY_DATABASE_URL:-}" \
 bash "$STACK_DIR/deploy/restore-verify.sh" "$PRODUCTION_TARGET"
 
+pre_restart_run=$(db_psql -d "$PRODUCTION_TARGET" -At -c \
+    "SELECT COALESCE(max(time), '-infinity'::timestamptz) FROM collector_runs;")
+
 log "controlled restart: DB clients"
 # shellcheck disable=SC2086
 compose up -d $KNOWN_CLIENTS
@@ -141,7 +141,7 @@ done
 
 fresh_deadline=$((SECONDS + FRESHNESS_TIMEOUT))
 until fresh=$(db_psql -d "$PRODUCTION_TARGET" -At -c \
-    "SELECT EXISTS (SELECT 1 FROM collector_runs WHERE time > '$pre_restore_run' AND error IS NULL AND rows_written > 0);") \
+    "SELECT EXISTS (SELECT 1 FROM collector_runs WHERE time > '$pre_restart_run' AND error IS NULL AND rows_written > 0);") \
     && [ "$fresh" = t ]; do
     [ "$SECONDS" -lt "$fresh_deadline" ] || {
         log "ПОМИЛКА: collector freshness timeout after restore"; exit 1;

@@ -31,7 +31,7 @@ engine, runs the migrate gate before exact schema verification (so retained
 backups may contain an older contiguous migration prefix), executes a GET-only
 application smoke, restarts services in a controlled order, and validates the
 canonical `/api/health` JSON endpoint plus a new successful collector run with
-rows written after the pre-restore watermark.
+rows written after the pre-restart watermark.
 
 On any failure, application DB clients and ingress remain stopped. The operator
 must diagnose and explicitly resume; there is no optimistic restart.
