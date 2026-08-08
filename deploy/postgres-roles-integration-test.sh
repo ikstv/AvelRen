@@ -11,11 +11,26 @@ fi
 readonly ROOT_FOR_COMPOSE
 PROJECT="avelren-roles-${RANDOM}-${RANDOM}"
 readonly PROJECT
-COMPOSE_FILE=$(mktemp)
+COMPOSE_FILE_POSIX=$(mktemp)
+COMPOSE_PROJECT_DIR_POSIX=$(mktemp -d)
+COMPOSE_ENV_FILE_POSIX="$COMPOSE_PROJECT_DIR_POSIX/compose.env"
+readonly COMPOSE_FILE_POSIX COMPOSE_PROJECT_DIR_POSIX COMPOSE_ENV_FILE_POSIX
+
+# Compose must never discover a developer's repository .env.  This disposable
+# project directory deliberately contains a poison default .env; the service
+# guard below proves that only this explicit test-only env file was used.
+printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=isolated' >"$COMPOSE_ENV_FILE_POSIX"
+printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=poison' >"$COMPOSE_PROJECT_DIR_POSIX/.env"
+
+COMPOSE_FILE=$COMPOSE_FILE_POSIX
+COMPOSE_PROJECT_DIR=$COMPOSE_PROJECT_DIR_POSIX
+COMPOSE_ENV_FILE=$COMPOSE_ENV_FILE_POSIX
 if command -v cygpath >/dev/null 2>&1; then
-    COMPOSE_FILE=$(cygpath -w "$COMPOSE_FILE")
+    COMPOSE_FILE=$(cygpath -w "$COMPOSE_FILE_POSIX")
+    COMPOSE_PROJECT_DIR=$(cygpath -w "$COMPOSE_PROJECT_DIR_POSIX")
+    COMPOSE_ENV_FILE=$(cygpath -w "$COMPOSE_ENV_FILE_POSIX")
 fi
-readonly COMPOSE_FILE
+readonly COMPOSE_FILE COMPOSE_PROJECT_DIR COMPOSE_ENV_FILE
 
 usage() {
     printf 'usage: %s [--privileges-only]\n' "$0" >&2
@@ -28,14 +43,18 @@ case "${1:-}" in
 esac
 
 compose() {
-    MSYS_NO_PATHCONV=1 docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
+    MSYS_NO_PATHCONV=1 docker compose \
+        --project-directory "$COMPOSE_PROJECT_DIR" \
+        --env-file "$COMPOSE_ENV_FILE" \
+        -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
 }
 
 cleanup() {
     local status=$?
     trap - EXIT
     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
-    rm -f "$COMPOSE_FILE"
+    rm -f "$COMPOSE_FILE_POSIX"
+    rm -rf "$COMPOSE_PROJECT_DIR_POSIX"
     exit "$status"
 }
 trap cleanup EXIT
@@ -48,6 +67,7 @@ services:
       POSTGRES_USER: avelren_admin
       POSTGRES_PASSWORD: ci-only
       POSTGRES_DB: postgres
+      AVELREN_COMPOSE_ENV_GUARD: \${AVELREN_COMPOSE_ENV_GUARD:?missing disposable Compose env guard}
     volumes:
       - '$ROOT_FOR_COMPOSE:/workspace:ro'
     healthcheck:
@@ -77,6 +97,10 @@ readonly WATCHDOG_DATABASE_URL="postgresql://avelren_watchdog:ci-only@db:5432/$T
 readonly API_DATABASE_URL="postgresql://avelren_api:ci-only@db:5432/$TEST_DATABASE"
 
 compose up --detach --wait db
+if ! compose exec -T db sh -c '[ "$AVELREN_COMPOSE_ENV_GUARD" = isolated ]'; then
+    printf '%s\n' 'postgres roles integration: explicit Compose env isolation failed' >&2
+    exit 1
+fi
 compose exec -T \
     -e AVELREN_TEST_DB=1 \
     -e AVELREN_DB_NAME="$TEST_DATABASE" \

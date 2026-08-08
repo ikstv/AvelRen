@@ -20,6 +20,32 @@ RUNTIME_ROLES = {
     "WATCHDOG_DATABASE_URL": "avelren_watchdog",
     "API_DATABASE_URL": "avelren_api",
 }
+APPLICATION_TABLES = (
+    "countries",
+    "checkpoints",
+    "observations",
+    "observations_hourly",
+    "collector_runs",
+    "devices",
+    "subscriptions",
+    "subscription_state",
+    "alerts",
+    "eta_targets",
+    "eta_alerts",
+    "health_alerts",
+    "notification_cancels",
+    "schema_migrations",
+)
+TABLE_PRIVILEGES = (
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+)
+SEQUENCE_PRIVILEGES = ("USAGE", "SELECT", "UPDATE")
 SEQUENCES = (
     "alerts_id_seq",
     "eta_alerts_id_seq",
@@ -28,18 +54,100 @@ SEQUENCES = (
     "subscriptions_id_seq",
     "eta_targets_id_seq",
 )
-USAGE_SEQUENCES = {
+EXPECTED_TABLE_PRIVILEGES = {
+    "BACKUP_DATABASE_URL": {table: {"SELECT"} for table in APPLICATION_TABLES},
     "COLLECTOR_DATABASE_URL": {
-        "alerts_id_seq",
-        "eta_alerts_id_seq",
-        "notification_cancels_id_seq",
+        "countries": {"SELECT", "INSERT", "UPDATE"},
+        "checkpoints": {"SELECT", "INSERT", "UPDATE"},
+        "observations": {"SELECT", "INSERT", "UPDATE"},
+        "collector_runs": {"SELECT", "INSERT", "UPDATE"},
+        "subscriptions": {"SELECT"},
+        "subscription_state": {"SELECT", "INSERT", "UPDATE"},
+        "alerts": {"SELECT", "INSERT", "UPDATE"},
+        "eta_targets": {"SELECT", "INSERT", "UPDATE"},
+        "eta_alerts": {"SELECT", "INSERT", "UPDATE"},
+        "notification_cancels": {"INSERT"},
     },
-    "NOTIFIER_DATABASE_URL": set(),
-    "WATCHDOG_DATABASE_URL": {"health_alerts_id_seq"},
+    "NOTIFIER_DATABASE_URL": {
+        "alerts": {"SELECT"},
+        "eta_alerts": {"SELECT"},
+        "subscriptions": {"SELECT"},
+        "eta_targets": {"SELECT"},
+        "checkpoints": {"SELECT"},
+        "notification_cancels": {"SELECT", "DELETE"},
+    },
+    "WATCHDOG_DATABASE_URL": {
+        "observations": {"SELECT"},
+        "collector_runs": {"SELECT"},
+        "health_alerts": {"SELECT", "INSERT", "UPDATE"},
+    },
     "API_DATABASE_URL": {
-        "notification_cancels_id_seq",
-        "subscriptions_id_seq",
-        "eta_targets_id_seq",
+        "countries": {"SELECT"},
+        "checkpoints": {"SELECT"},
+        "observations": {"SELECT"},
+        "observations_hourly": {"SELECT"},
+        "collector_runs": {"SELECT"},
+        "subscriptions": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "alerts": {"SELECT"},
+        "eta_targets": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "eta_alerts": {"SELECT"},
+        "health_alerts": {"SELECT"},
+        "notification_cancels": {"INSERT"},
+    },
+}
+EXPECTED_SEQUENCE_PRIVILEGES = {
+    "BACKUP_DATABASE_URL": {sequence: {"SELECT"} for sequence in SEQUENCES},
+    "COLLECTOR_DATABASE_URL": {
+        "alerts_id_seq": {"USAGE"},
+        "eta_alerts_id_seq": {"USAGE"},
+        "notification_cancels_id_seq": {"USAGE"},
+    },
+    "NOTIFIER_DATABASE_URL": {},
+    "WATCHDOG_DATABASE_URL": {"health_alerts_id_seq": {"USAGE"}},
+    "API_DATABASE_URL": {
+        "notification_cancels_id_seq": {"USAGE"},
+        "subscriptions_id_seq": {"USAGE"},
+        "eta_targets_id_seq": {"USAGE"},
+    },
+}
+EXPECTED_DEVICE_COLUMN_PRIVILEGES = {
+    "BACKUP_DATABASE_URL": {
+        column: {"SELECT"}
+        for column in (
+            "id",
+            "fcm_token",
+            "platform",
+            "created_at",
+            "last_seen",
+            "is_admin",
+            "secret_hash",
+        )
+    },
+    "COLLECTOR_DATABASE_URL": {},
+    "NOTIFIER_DATABASE_URL": {"id": {"SELECT"}, "fcm_token": {"SELECT", "UPDATE"}},
+    "WATCHDOG_DATABASE_URL": {
+        "id": {"SELECT"},
+        "is_admin": {"SELECT"},
+        "fcm_token": {"SELECT"},
+    },
+    "API_DATABASE_URL": {
+        "id": {"SELECT"},
+        "fcm_token": {"SELECT", "INSERT", "UPDATE"},
+        "platform": {"SELECT", "INSERT"},
+        "secret_hash": {"SELECT", "INSERT"},
+        "is_admin": {"SELECT"},
+        "last_seen": {"SELECT", "UPDATE"},
+    },
+}
+COLUMN_UPDATE_PRIVILEGES = {
+    "NOTIFIER_DATABASE_URL": {
+        "alerts": {"last_sent_at", "send_count"},
+        "eta_alerts": {"last_sent_at", "send_count"},
+        "notification_cancels": {"attempt_count", "last_attempt_at", "accepted_at", "abandoned_at"},
+    },
+    "API_DATABASE_URL": {
+        "alerts": {"status", "acknowledged_at"},
+        "eta_alerts": {"status", "acknowledged_at"},
     },
 }
 
@@ -126,31 +234,106 @@ def test_role_specific_negative_matrix(dsn_name, sql):
     assert_denied(dsn_name, sql)
 
 
-@pytest.mark.parametrize("dsn_name", RUNTIME_DSNS)
-def test_runtime_sequence_usage_is_exact(dsn_name):
-    expected = USAGE_SEQUENCES[dsn_name]
+@pytest.mark.parametrize("dsn_name", RUNTIME_AND_BACKUP_DSNS)
+def test_table_privileges_match_frozen_acl(dsn_name):
+    expected = EXPECTED_TABLE_PRIVILEGES[dsn_name]
+    with connect_env(dsn_name) as conn:
+        for table in APPLICATION_TABLES:
+            actual = {
+                privilege
+                for privilege in TABLE_PRIVILEGES
+                if scalar(
+                    conn,
+                    "SELECT has_table_privilege(current_user, %s, %s)",
+                    (table, privilege),
+                )
+            }
+            assert actual == expected.get(table, set())
+
+
+@pytest.mark.parametrize("dsn_name", RUNTIME_AND_BACKUP_DSNS)
+def test_sequence_privileges_match_frozen_acl(dsn_name):
+    expected = EXPECTED_SEQUENCE_PRIVILEGES[dsn_name]
     with connect_env(dsn_name) as conn:
         for sequence in SEQUENCES:
-            assert scalar(
-                conn,
-                "SELECT has_sequence_privilege(current_user, %s, 'USAGE')",
-                (sequence,),
-            ) is (sequence in expected)
+            actual = {
+                privilege
+                for privilege in SEQUENCE_PRIVILEGES
+                if scalar(
+                    conn,
+                    "SELECT has_sequence_privilege(current_user, %s, %s)",
+                    (sequence, privilege),
+                )
+            }
+            assert actual == expected.get(sequence, set())
 
 
-def test_backup_has_read_only_sequence_access():
-    with connect_env("BACKUP_DATABASE_URL") as conn:
+@pytest.mark.parametrize("dsn_name", RUNTIME_AND_BACKUP_DSNS)
+def test_device_column_privileges_match_frozen_acl(dsn_name):
+    expected = EXPECTED_DEVICE_COLUMN_PRIVILEGES[dsn_name]
+    with connect_env(dsn_name) as conn:
+        for column in (
+            "id",
+            "fcm_token",
+            "platform",
+            "created_at",
+            "last_seen",
+            "is_admin",
+            "secret_hash",
+        ):
+            actual = {
+                privilege
+                for privilege in ("SELECT", "INSERT", "UPDATE")
+                if scalar(
+                    conn,
+                    "SELECT has_column_privilege(current_user, 'devices', %s, %s)",
+                    (column, privilege),
+                )
+            }
+            assert actual == expected.get(column, set())
+
+
+@pytest.mark.parametrize("dsn_name", ("NOTIFIER_DATABASE_URL", "API_DATABASE_URL"))
+def test_column_scoped_updates_match_frozen_acl(dsn_name):
+    expected_tables = COLUMN_UPDATE_PRIVILEGES[dsn_name]
+    with connect_env(dsn_name) as conn:
+        for table, expected in expected_tables.items():
+            columns = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT attname FROM pg_attribute "
+                    "WHERE attrelid = %s::regclass AND attnum > 0 AND NOT attisdropped",
+                    (table,),
+                )
+            ]
+            actual = {
+                column
+                for column in columns
+                if scalar(
+                    conn,
+                    "SELECT has_column_privilege(current_user, %s, %s, 'UPDATE')",
+                    (table, column),
+                )
+            }
+            assert actual == expected
+
+
+def test_public_has_no_existing_application_object_privileges():
+    with connect_env("ADMIN_DATABASE_URL") as admin:
+        for table in APPLICATION_TABLES:
+            for privilege in TABLE_PRIVILEGES:
+                assert scalar(
+                    admin,
+                    "SELECT has_table_privilege('public', %s, %s)",
+                    (table, privilege),
+                ) is False
         for sequence in SEQUENCES:
-            assert scalar(
-                conn,
-                "SELECT has_sequence_privilege(current_user, %s, 'SELECT')",
-                (sequence,),
-            ) is True
-            assert scalar(
-                conn,
-                "SELECT has_sequence_privilege(current_user, %s, 'USAGE')",
-                (sequence,),
-            ) is False
+            for privilege in SEQUENCE_PRIVILEGES:
+                assert scalar(
+                    admin,
+                    "SELECT has_sequence_privilege('public', %s, %s)",
+                    (sequence, privilege),
+                ) is False
 
 
 def test_migrator_default_privileges_isolate_future_objects():
@@ -162,28 +345,36 @@ def test_migrator_default_privileges_isolate_future_objects():
     type_name = f"public.{enum}"
 
     with connect_env("MIGRATOR_DATABASE_URL") as migrator:
-        migrator.execute(f"CREATE TABLE {table} (id integer)")
-        migrator.execute(f"CREATE FUNCTION {function}() RETURNS integer LANGUAGE sql AS 'SELECT 1'")
-        migrator.execute(f"CREATE TYPE {enum} AS ENUM ('value')")
         try:
+            migrator.execute(f"CREATE TABLE {table} (id integer)")
+            migrator.execute(
+                f"CREATE FUNCTION {function}() RETURNS integer LANGUAGE sql AS 'SELECT 1'"
+            )
+            migrator.execute(f"CREATE TYPE {enum} AS ENUM ('value')")
             with connect_env("ADMIN_DATABASE_URL") as admin:
-                for dsn_name in RUNTIME_DSNS:
+                for role in (*RUNTIME_ROLES.values(), "public"):
+                    for privilege in TABLE_PRIVILEGES:
+                        assert scalar(
+                            admin,
+                            "SELECT has_table_privilege(%s, %s, %s)",
+                            (role, table, privilege),
+                        ) is False
+                for role in (*RUNTIME_ROLES.values(), "public"):
                     assert scalar(
                         admin,
-                        "SELECT has_table_privilege(%s, %s, 'SELECT')",
-                        (RUNTIME_ROLES[dsn_name], table),
+                        "SELECT has_function_privilege(%s, %s, 'EXECUTE')",
+                        (role, signature),
                     ) is False
-                assert scalar(
-                    admin,
-                    "SELECT has_function_privilege('public', %s, 'EXECUTE')",
-                    (signature,),
-                ) is False
-                assert scalar(
-                    admin,
-                    "SELECT has_type_privilege('public', %s, 'USAGE')",
-                    (type_name,),
-                ) is False
+                    assert scalar(
+                        admin,
+                        "SELECT has_type_privilege(%s, %s, 'USAGE')",
+                        (role, type_name),
+                    ) is False
         finally:
-            migrator.execute(f"DROP FUNCTION IF EXISTS {function}()")
-            migrator.execute(f"DROP TABLE IF EXISTS {table}")
-            migrator.execute(f"DROP TYPE IF EXISTS {enum}")
+            try:
+                migrator.execute(f"DROP FUNCTION IF EXISTS {function}()")
+            finally:
+                try:
+                    migrator.execute(f"DROP TABLE IF EXISTS {table}")
+                finally:
+                    migrator.execute(f"DROP TYPE IF EXISTS {enum}")
