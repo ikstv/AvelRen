@@ -43,7 +43,10 @@ echo "restore integration passed: target=$TARGET_DB marker=$MARKER schema=verifi
 # Failure after a successful pre_restore must still attempt post_restore and
 # preserve a non-zero primary outcome.
 bad_dump="$WORK/fails-after-pre.sql.gz"
-printf 'THIS IS NOT VALID SQL;\n' | gzip -c >"$bad_dump"
+{
+    printf 'THIS IS NOT VALID SQL;\n'
+    head -c 20000 /dev/urandom | base64
+} | gzip -c >"$bad_dump"
 failure_log="$WORK/failure.log"
 if AVELREN_STACK_DIR="$ROOT" \
    AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
