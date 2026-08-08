@@ -90,6 +90,17 @@ jobs:
           assert settings.database_dsn.endswith("@db:5432/avelren")
           print("security/setup contract ok")
           PY
+          python - <<'PY'
+          from pathlib import Path
+          caddy = Path("deploy/Caddyfile").read_text().lower()
+          rate = Path("app/src/avelren/ratelimit.py").read_text().lower()
+          assert "header_up -x-forwarded-for" in caddy
+          assert "header_up -x-avelren-client-ip" in caddy
+          assert "header_up x-avelren-client-ip {http.request.remote.host}" in caddy
+          assert "x-avelren-client-ip" in rate
+          assert "x-forwarded-for" not in rate
+          print("trusted-proxy contract ok")
+          PY
 
       - name: Міграції на порожній БД
         run: python -m avelren.migrate db/migrations
