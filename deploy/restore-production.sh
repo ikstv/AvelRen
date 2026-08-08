@@ -104,15 +104,19 @@ done
 
 session_count=$(db_psql -d postgres -At -v target="$PRODUCTION_TARGET" <<'SQL'
 SELECT count(*) FROM pg_stat_activity
-WHERE datname = :'target' AND pid <> pg_backend_pid();
+WHERE datname = :'target'
+  AND backend_type = 'client backend'
+  AND pid <> pg_backend_pid();
 SQL
 )
 if [ "$session_count" != 0 ]; then
     log "ВІДМОВА: production target має active sessions: $session_count"
     db_psql -d postgres -P pager=off -v target="$PRODUCTION_TARGET" >&2 <<'SQL' || true
-SELECT pid, usename, application_name, client_addr, state
+SELECT pid, usename, application_name, client_addr, state, backend_type
 FROM pg_stat_activity
-WHERE datname = :'target' AND pid <> pg_backend_pid()
+WHERE datname = :'target'
+  AND backend_type = 'client backend'
+  AND pid <> pg_backend_pid()
 ORDER BY pid;
 SQL
     exit 1
