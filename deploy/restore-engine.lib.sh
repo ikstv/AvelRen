@@ -47,6 +47,95 @@ avelren_restore_engine() {
     restore_psql() {
         restore_db_tool psql -U "$AVELREN_RESTORE_ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
     }
+    restore_application_owners() {
+        restore_psql -d "$AVELREN_RESTORE_TARGET" -q <<'SQL'
+DO $$
+DECLARE
+    expected_count CONSTANT integer := 20;
+    actual_count integer;
+BEGIN
+    SELECT count(*) INTO actual_count
+    FROM pg_class AS relation
+    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
+      AND relation.relname = ANY (ARRAY[
+          'countries', 'checkpoints', 'observations', 'observations_hourly',
+          'collector_runs', 'devices', 'subscriptions', 'subscription_state',
+          'alerts', 'eta_targets', 'eta_alerts', 'health_alerts',
+          'notification_cancels', 'schema_migrations', 'alerts_id_seq',
+          'eta_alerts_id_seq', 'health_alerts_id_seq',
+          'notification_cancels_id_seq', 'subscriptions_id_seq',
+          'eta_targets_id_seq'
+      ]);
+
+    IF actual_count <> expected_count THEN
+        RAISE EXCEPTION 'restore application relation allowlist mismatch: expected %, got %',
+            expected_count, actual_count;
+    END IF;
+    IF (SELECT owner.rolname
+        FROM pg_extension AS extension
+        JOIN pg_roles AS owner ON owner.oid = extension.extowner
+        WHERE extension.extname = 'timescaledb') <> 'avelren_admin' THEN
+        RAISE EXCEPTION 'timescaledb extension owner must remain avelren_admin';
+    END IF;
+END
+$$;
+
+SELECT format(
+    'ALTER %s %I.%I OWNER TO avelren_migrator',
+    CASE
+        WHEN relation.relname = 'observations_hourly' THEN 'MATERIALIZED VIEW'
+        WHEN relation.relkind = 'S' THEN 'SEQUENCE'
+        WHEN relation.relkind = 'v' THEN 'VIEW'
+        WHEN relation.relkind = 'm' THEN 'MATERIALIZED VIEW'
+        ELSE 'TABLE'
+    END,
+    namespace.nspname,
+    relation.relname
+)
+FROM pg_class AS relation
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+WHERE namespace.nspname = 'public'
+  AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
+  AND relation.relname = ANY (ARRAY[
+      'countries', 'checkpoints', 'observations', 'observations_hourly',
+      'collector_runs', 'devices', 'subscriptions', 'subscription_state',
+      'alerts', 'eta_targets', 'eta_alerts', 'health_alerts',
+      'notification_cancels', 'schema_migrations', 'alerts_id_seq',
+      'eta_alerts_id_seq', 'health_alerts_id_seq',
+      'notification_cancels_id_seq', 'subscriptions_id_seq',
+      'eta_targets_id_seq'
+  ])
+ORDER BY CASE relation.relkind WHEN 'S' THEN 2 ELSE 1 END, relation.relname
+\gexec
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        JOIN pg_roles AS owner ON owner.oid = relation.relowner
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
+          AND relation.relname = ANY (ARRAY[
+              'countries', 'checkpoints', 'observations', 'observations_hourly',
+              'collector_runs', 'devices', 'subscriptions', 'subscription_state',
+              'alerts', 'eta_targets', 'eta_alerts', 'health_alerts',
+              'notification_cancels', 'schema_migrations', 'alerts_id_seq',
+              'eta_alerts_id_seq', 'health_alerts_id_seq',
+              'notification_cancels_id_seq', 'subscriptions_id_seq',
+              'eta_targets_id_seq'
+          ])
+          AND owner.rolname <> 'avelren_migrator'
+    ) THEN
+        RAISE EXCEPTION 'restore application ownership finalization failed';
+    END IF;
+END
+$$;
+SQL
+    }
     restore_log() { echo "$(date -u +%FT%TZ) $*"; }
 
     # Invoked by the EXIT trap below.
@@ -93,6 +182,9 @@ avelren_restore_engine() {
         restore_log "ПОМИЛКА: timescaledb_post_restore failed (exit=$post_status)"
         exit "$post_status"
     fi
+
+    restore_log "application ownership finalization"
+    restore_application_owners
 
     restore_log "перевірка"
     restore_psql -d "$target" -c "

@@ -43,6 +43,19 @@ db_psql() {
     PGPASSWORD="$ADMIN_DB_PASSWORD" compose exec -T -e PGPASSWORD "$DB_SERVICE" \
         psql -U "$ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
 }
+admin_dsn_current_user() {
+    DATABASE_URL="$ADMIN_DATABASE_URL" compose run --rm --no-deps -T \
+        -e DATABASE_URL "$VERIFY_APP_SERVICE" python -c '
+import os
+
+import psycopg
+
+with psycopg.connect(os.environ["DATABASE_URL"], dbname="postgres") as connection:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_user")
+        print(cursor.fetchone()[0])
+'
+}
 
 if [ "$CONFIRMATION" != "$CONFIRMATION_TOKEN" ]; then
     log "ВІДМОВА: production orchestrator потребує exact confirmation token"
@@ -62,6 +75,15 @@ gzip -t "$DUMP" || { log "ВІДМОВА: backup artifact corrupt"; exit 1; }
 }
 
 cd "$STACK_DIR"
+admin_current_user=$(admin_dsn_current_user) || {
+    log "admin verification DSN connection failed"
+    exit 2
+}
+[ "$admin_current_user" = avelren_admin ] || {
+    log "admin verification DSN must authenticate as avelren_admin"
+    exit 2
+}
+
 SUCCESS=false
 keep_maintenance_on_failure() {
     local status=$?

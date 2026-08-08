@@ -55,6 +55,10 @@ run_engine success
 grep -q ' dropdb ' "$WORK/success.calls"
 grep -q ' createdb ' "$WORK/success.calls"
 grep -q ' psql ' "$WORK/success.calls"
+grep -q 'restore application relation allowlist mismatch' "$WORK/success.calls"
+grep -q 'OWNER TO avelren_migrator' "$WORK/success.calls"
+grep -q 'timescaledb extension owner must remain avelren_admin' "$WORK/success.calls"
+! grep -q 'ALTER EXTENSION' "$WORK/success.calls"
 ! grep -Eq -- '-U (avelren|avelren_backup|avelren_migrator)( |$)' "$WORK/success.calls"
 ! grep -q 'admin-contract-secret' "$WORK/success.calls"
 

@@ -16,12 +16,12 @@ printf '%s\n' "$*" >>"${FAKE_CALL_LOG:?}"
     echo 'backup password was not provided through the process environment' >&2
     exit 14
 }
-[[ " $* " == *' exec -T -e PGPASSWORD db pg_dump -U avelren_backup -d avelren '* ]] || {
+[[ " $* " == *' exec -T -e PGPASSWORD db pg_dump --no-owner -U avelren_backup -d avelren '* ]] || {
     echo 'pg_dump did not use the canonical backup role' >&2
     exit 15
 }
-[[ " $* " != *' --no-owner '* ]] || {
-    echo 'pg_dump discarded ownership required by the migrator restore gate' >&2
+[[ " $* " == *' --no-owner '* ]] || {
+    echo 'pg_dump did not use the canonical ownership-neutral format' >&2
     exit 17
 }
 [[ "$*" != *"$EXPECTED_BACKUP_PASSWORD"* ]] || {
@@ -115,8 +115,8 @@ run_case success
 assert_no_plaintext "$WORK/success/work"
 remote_dump=$(find "$WORK/success/remote" -type f -name '*.sql.gz' | head -1)
 [ -n "$remote_dump" ] && [ -f "$remote_dump.sha256" ]
-grep -q 'pg_dump -U avelren_backup -d avelren' "$WORK/success/calls.log"
-! grep -q -- '--no-owner' "$WORK/success/calls.log"
+grep -q 'pg_dump --no-owner -U avelren_backup -d avelren' "$WORK/success/calls.log"
+grep -q -- '--no-owner' "$WORK/success/calls.log"
 ! grep -Eq 'pg_dump -U (avelren|avelren_admin|avelren_migrator)( |$)' "$WORK/success/calls.log"
 ! grep -q 'backup-contract-secret' "$WORK/success/calls.log"
 
@@ -161,16 +161,23 @@ done
 case_dir="$WORK/gzip"; mkdir -p "$case_dir/stack"; make_tools "$case_dir/bin" "$case_dir/remote"
 cat >"$case_dir/bin/gzip" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = -t ]; then exit 1; fi
+if [ "${1:-}" = -t ]; then
+    printf 'GZIP_T_REACHED\n' >>"${FAKE_CALL_LOG:?}"
+    exit 1
+fi
 exec /usr/bin/gzip "$@"
 SH
 chmod +x "$case_dir/bin/gzip"
 if env PATH="$case_dir/bin:$PATH" FAKE_REMOTE="$case_dir/remote" \
     AVELREN_STACK_DIR="$case_dir/stack" AVELREN_BACKUP_WORK_DIR="$case_dir/work" \
     AVELREN_BACKUP_REMOTE="fake:$case_dir/remote" AVELREN_RCLONE_CONFIG=x \
-    AVELREN_BACKUP_STAMP="$case_dir/stamp" bash "$ROOT/deploy/backup.sh"; then
+    AVELREN_BACKUP_STAMP="$case_dir/stamp" \
+    AVELREN_BACKUP_PASSWORD=backup-contract-secret \
+    EXPECTED_BACKUP_PASSWORD=backup-contract-secret \
+    FAKE_CALL_LOG="$case_dir/calls.log" bash "$ROOT/deploy/backup.sh"; then
     echo "expected gzip validation failure" >&2; exit 1
 fi
+[ "$(grep -c '^GZIP_T_REACHED$' "$case_dir/calls.log")" -eq 1 ]
 [ ! -e "$case_dir/stamp" ]; assert_no_plaintext "$case_dir/work"
 
 # Cleanup is scoped: unrelated operator file survives every trap.

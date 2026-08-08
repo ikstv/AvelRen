@@ -146,30 +146,44 @@ if PGPASSWORD="$BACKUP_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     exit 1
 fi
 PGPASSWORD="$BACKUP_PASSWORD" real_compose exec -T -e PGPASSWORD db \
-    pg_dump -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$DUMP"
+    pg_dump --no-owner -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$DUMP"
 
-# Build a real N-1 backup with physical schema/history through 009. Migration
-# 010 is applied directly only for its ACL/default-privilege boundary, without
-# recording it, so the production migrate gate must still append 010.
+# Build a genuine N-1 backup with physical schema and recorded history through
+# 009 only. The explicit backup grants below are fixture preparation: production
+# 009 predates the backup role, so admin grants only the read capabilities needed
+# to prove its dump path. Migration 010 is deliberately not executed here.
 mkdir -p "$PREFIX_MIGRATIONS"
 cp "$ROOT"/db/migrations/00[1-9]_*.sql "$PREFIX_MIGRATIONS/"
 bootstrap_database "$PREFIX_SOURCE_DB"
 DATABASE_URL="$MIGRATOR_PREFIX_DSN" real_compose run --rm --no-deps -T \
     -v "$PREFIX_MIGRATIONS_FOR_COMPOSE:/prefix-migrations:ro" -e DATABASE_URL \
     test python -m avelren.migrate /prefix-migrations
-PGPASSWORD="$MIGRATOR_PASSWORD" real_compose exec -T -e PGPASSWORD db \
-    psql -U avelren_migrator -d "$PREFIX_SOURCE_DB" -v ON_ERROR_STOP=1 -q \
-    -f /workspace/db/migrations/010_postgresql_least_privilege.sql
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$PREFIX_SOURCE_DB" -v ON_ERROR_STOP=1 -q \
+    -c "GRANT CONNECT ON DATABASE $PREFIX_SOURCE_DB TO avelren_backup;" \
+    -c "GRANT USAGE ON SCHEMA public TO avelren_backup;" \
+    -c "GRANT SELECT ON ALL TABLES IN SCHEMA public TO avelren_backup;" \
+    -c "GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO avelren_backup;" \
     -c "INSERT INTO checkpoints
         (id, title, for_vehicle_type, first_seen, last_seen)
         VALUES (987654322, '$MARKER', 1, now(), now());" \
     -c "INSERT INTO observations
         (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused)
         VALUES (now(), 987654322, 60, 1, false);"
+prefix_latest_before_dump=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$PREFIX_SOURCE_DB" -At \
+    -c 'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1;')
+[ "$prefix_latest_before_dump" = 009_observability ]
+prefix_010_count_before_dump=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$PREFIX_SOURCE_DB" -At \
+    -c "SELECT count(*) FROM schema_migrations WHERE version = '010_postgresql_least_privilege';")
+[ "$prefix_010_count_before_dump" = 0 ]
+prefix_collector_access_before_dump=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$PREFIX_SOURCE_DB" -At \
+    -c "SELECT has_table_privilege('avelren_collector', 'checkpoints', 'SELECT');")
+[ "$prefix_collector_access_before_dump" = f ]
 PGPASSWORD="$BACKUP_PASSWORD" real_compose exec -T -e PGPASSWORD db \
-    pg_dump -U avelren_backup -d "$PREFIX_SOURCE_DB" | gzip -9 >"$PREFIX_DUMP"
+    pg_dump --no-owner -U avelren_backup -d "$PREFIX_SOURCE_DB" | gzip -9 >"$PREFIX_DUMP"
 
 # Service lifecycle and HTTPS remain isolated process boundaries. Database
 # exec/run calls are delegated to the real disposable Docker project.
@@ -266,6 +280,14 @@ latest_migration=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWO
     psql -U avelren_admin -d "$TARGET_DB" -At \
     -c 'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1;')
 [ "$latest_migration" = 010_postgresql_least_privilege ]
+prefix_collector_access_after_restore=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT has_table_privilege('avelren_collector', 'checkpoints', 'SELECT');")
+[ "$prefix_collector_access_after_restore" = t ]
+prefix_schema_owner=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'schema_migrations';")
+[ "$prefix_schema_owner" = avelren_migrator ]
 
 before_lines=$(wc -l <"$WORK/services.log")
 if run_orchestrator "$DUMP" FAKE_CURL_STATUS=1 >"$WORK/readiness-failure.log" 2>&1; then

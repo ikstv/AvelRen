@@ -26,6 +26,19 @@ cat >"$BIN/docker" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_LOG"
 args="$*"
+if [[ " $args " == *' run --rm --no-deps -T -e DATABASE_URL '* ]] &&
+   [[ " $args " == *' python -c '* ]]; then
+    [ "${DATABASE_URL:-}" = "${EXPECTED_ADMIN_DSN:?}" ] || {
+        echo 'admin DSN was not passed through the protected environment' >&2
+        exit 46
+    }
+    [[ "$args" != *"$EXPECTED_ADMIN_DSN"* ]] || {
+        echo 'admin DSN leaked into docker argv' >&2
+        exit 47
+    }
+    printf '%s\n' "${FAKE_ADMIN_CURRENT_USER:-avelren_admin}"
+    exit 0
+fi
 if [[ "$args" == *' ps --status running --services'* ]]; then
     if [ -n "${FAKE_RUNNING_SERVICE:-}" ]; then
         printf '%s\n' "$FAKE_RUNNING_SERVICE"
@@ -115,6 +128,7 @@ run_fake() {
         AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 \
         AVELREN_ADMIN_PASSWORD=admin-contract-secret \
         AVELREN_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/avelren \
+        EXPECTED_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/avelren \
         EXPECTED_ADMIN_PASSWORD=admin-contract-secret PYTHON_BIN="$PYTHON_BIN" "$@" \
         bash "$ROOT/deploy/restore-production.sh" "$WORK/valid.sql.gz" \
         --confirm-production-restore AVELREN-PRODUCTION-RESTORE \
@@ -136,6 +150,20 @@ do
     fi
     [ ! -s "$WORK/$name.log" ]
 done
+
+# The DSN identity gate runs before maintenance and rejects a valid connection
+# that authenticates as any role other than the canonical restore admin.
+if run_fake wrong-admin-dsn-user FAKE_ADMIN_CURRENT_USER=avelren_migrator; then
+    echo "admin DSN identity gate should fail" >&2
+    exit 1
+fi
+grep -q 'run --rm --no-deps -T -e DATABASE_URL' "$WORK/wrong-admin-dsn-user.log"
+! grep -q 'stop caddy' "$WORK/wrong-admin-dsn-user.log"
+! grep -q ENGINE "$WORK/wrong-admin-dsn-user.log"
+! grep -q ' db psql ' "$WORK/wrong-admin-dsn-user.log"
+! grep -Eq ' (dropdb|createdb) ' "$WORK/wrong-admin-dsn-user.log"
+! grep -q 'admin-contract-secret' \
+    "$WORK/wrong-admin-dsn-user.log" "$WORK/wrong-admin-dsn-user.out"
 
 assert_failed_closed() {
     local name=$1 log="$WORK/$1.log" out="$WORK/$1.out"

@@ -68,7 +68,7 @@ REMOTE_MANIFEST="$REMOTE/$TIER/$MANIFEST_NAME"
 log "дамп бази у захищений temporary artifact"
 PGPASSWORD="$BACKUP_DB_PASSWORD" \
     docker compose exec -T -e PGPASSWORD db \
-    pg_dump -U "$BACKUP_DB_USER" -d avelren | gzip -9 >"$DUMP"
+    pg_dump --no-owner -U "$BACKUP_DB_USER" -d avelren | gzip -9 >"$DUMP"
 [ -f "$DUMP" ] || fail "dump artifact не створено"
 [ "$(stat -c %a "$DUMP")" = 600 ] || fail "dump artifact не має mode 0600"
 bytes=$(stat -c %s "$DUMP")

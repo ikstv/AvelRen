@@ -130,7 +130,7 @@ if PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
 fi
 
 PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
-    pg_dump -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$DUMP"
+    pg_dump --no-owner -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$DUMP"
 
 AVELREN_STACK_DIR="$ROOT" \
 AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
@@ -145,6 +145,13 @@ restored=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     -c 'SELECT title FROM checkpoints WHERE id = 987654320;')
 [ "$restored" = "$MARKER" ] || {
     echo 'restore integration failed: deterministic marker missing' >&2
+    exit 1
+}
+restored_owner=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'schema_migrations';")
+[ "$restored_owner" = avelren_migrator ] || {
+    echo 'restore integration failed: application ownership was not restored to migrator' >&2
     exit 1
 }
 
