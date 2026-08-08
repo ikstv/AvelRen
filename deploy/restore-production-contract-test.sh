@@ -28,7 +28,7 @@ args="$*"
 if [[ "$args" == *' ps --status running --services'* ]]; then
     if [ -n "${FAKE_RUNNING_SERVICE:-}" ]; then
         printf '%s\n' "$FAKE_RUNNING_SERVICE"
-    else
+    elif grep -q 'up -d caddy' "$FAKE_LOG"; then
         printf '%s\n' caddy api collector notifier watchdog
     fi
     exit 0
