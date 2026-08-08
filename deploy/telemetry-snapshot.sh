@@ -51,6 +51,25 @@ if [ -e /run/reboot-required ]; then
     reboot_pending_days=$(( (now - mtime) / 86400 ))
 fi
 
+# Доступні оновлення пакетів. `reboot_required` показує лише наслідок уже
+# встановленого ядра — самі непоставлені оновлення (і особливо security) до
+# цього моменту не було видно взагалі, тож дізнатися про них можна було тільки
+# зайшовши на хост руками.
+#
+# Рахуємо через apt-check: він читає вже завантажені списки пакетів і не
+# ходить у мережу, тож безпечний для щохвилинного таймера (на відміну від
+# `apt-get update`). Формат виводу — "звичайні;безпекові" у stderr.
+updates_pending=0
+updates_security=0
+if [ -x /usr/lib/update-notifier/apt-check ]; then
+    raw=$(/usr/lib/update-notifier/apt-check 2>&1 | tr -d '[:space:]')
+    # Валідуємо формат: підставити сміття в JSON гірше, ніж показати нулі.
+    if printf '%s' "$raw" | grep -qE '^[0-9]+;[0-9]+$'; then
+        updates_pending=${raw%%;*}
+        updates_security=${raw##*;}
+    fi
+fi
+
 # --- network (RX/TX через host PID 1) ---
 #
 # Парситься через awk, а не bash-підстановки: у /proc/net/dev назви
@@ -148,7 +167,9 @@ cat > "$TMP" <<JSON
     "disk_used_percent": $(awk -v u=$disk_used_1k -v t=$disk_total_1k \
         'BEGIN {if (t > 0) printf "%d", (u * 100 + t / 2) / t; else print "null"}'),
     "reboot_required": $reboot_required,
-    "reboot_pending_days": $reboot_pending_days
+    "reboot_pending_days": $reboot_pending_days,
+    "updates_pending": $updates_pending,
+    "updates_security": $updates_security
   },
   "network": {
     "rx_total_gb": $(awk -v b=$rx_total 'BEGIN {printf "%.2f", b/1024/1024/1024}'),

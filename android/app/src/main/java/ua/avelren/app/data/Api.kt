@@ -97,6 +97,10 @@ object Api {
         val disk_used_percent: Int? = null,
         val reboot_required: Boolean = false,
         val reboot_pending_days: Int? = null,
+        // Доступні оновлення пакетів. Nullable/0 за замовчуванням — старий
+        // сервер без цих полів лишається сумісним.
+        val updates_pending: Int = 0,
+        val updates_security: Int = 0,
     )
 
     @Serializable
