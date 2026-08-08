@@ -1,140 +1,89 @@
 package ua.avelren.app.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * Єдине джерело істини про стан installation у процесі (AND-1).
- *
- * До цього registration/recovery був розмазаний: `AvelRenApp` стартував
- * реєстрацію, `AvelRenMessagingService` тримав власну копію 401-recovery, а UI
- * напряму читав `DeviceStore.credentials()` — і на холодному старті не бачив
- * появу пари, бо SharedPreferences не observable. Тепер усе проходить тут:
- *
- *   * `state` (StateFlow) — lifecycle/auth-readiness для UI (без secret);
- *   * `authenticatedCall` — єдиний protected-шлях із 401-recovery;
- *   * `onNewFcmToken` — FCM делегує сюди, без дубльованої логіки.
- *
- * `Ready` означає **auth-ready**, а не «FCM гарантовано синхронізований»: якщо
- * персистовані credentials уже є, тимчасовий збій `FirebaseMessaging` не блокує
- * protected UI — пара може бути цілком валідною. Токен синхронізуємо окремо; на
- * 401 переходимо у recovery.
- *
- * `DeviceStore` лишається persistence-адаптером (шифроване сховище); цей клас
- * НЕ дублює його, а координує мутації через один `Mutex`, щоб паралельні
- * cold-start / FCM / recovery не зробили два `POST /devices`.
- */
 class InstallationRepository(
     private val api: InstallationApi,
     private val store: CredentialStore,
     private val tokens: FcmTokenProvider,
     private val scope: CoroutineScope,
+    private val pendingTokens: PendingFcmTokenStore = InMemoryPendingFcmTokenStore(),
+    private val retryScheduler: FcmTokenRetryScheduler = ImmediateFcmTokenRetryScheduler(),
 ) {
     private val _state = MutableStateFlow<InstallationState>(InstallationState.Initializing)
     val state: StateFlow<InstallationState> = _state.asStateFlow()
-
-    // Один coordination gate на ВСІ мутації installation: initialize, fresh
-    // registration, onNewFcmToken і 401-recovery. business-`block` у
-    // authenticatedCall виконується ПОЗА mutex — серіалізуємо лише зміну пари.
     private val mutex = Mutex()
+    private val pendingTokenMutex = Mutex()
+    private val tokenSyncMutex = Mutex()
+    @Volatile private var creds: DeviceStore.Credentials? = null
 
-    @Volatile
-    private var creds: DeviceStore.Credentials? = null
+    fun start() { scope.launch { initialize() } }
 
-    /** Запуск ініціалізації у application-scope (викликати з Application.onCreate). */
-    fun start() {
-        scope.launch { initialize() }
-    }
-
-    /**
-     * Стартовий шлях. `internal`, щоб тести цього ж модуля викликали напряму;
-     * production-callers бачать `state`/`start`/`onNewFcmToken`/`authenticatedCall`.
-     */
-    internal suspend fun initialize() = mutex.withLock {
-        val existing = store.load()
-        if (existing != null) {
-            // Персистована пара — вважаємо auth-ready одразу, ще до FCM-синку.
-            creds = existing
-            _state.value = InstallationState.Ready(existing.deviceId)
-
-            val token = runCatching { tokens.currentToken() }.getOrNull() ?: return@withLock
-            try {
-                api.updateToken(existing, token)
-            } catch (e: Throwable) {
-                if (api.isStaleInstallation(e)) {
-                    // 401 = сервер відкинув пару (напр. DB restore). Пара
-                    // насправді невалідна → мусимо перереєструватись.
-                    runCatching { registerFreshLocked(token) }.onFailure {
-                        invalidateLocked("перереєстрація не вдалася: ${it.message}")
-                    }
-                }
-                // не-401 (offline/5xx): пара валідна, лишаємось Ready.
-            }
-        } else {
-            // Fresh install: без FCM-токена немає з чим робити POST /devices.
-            val token = runCatching { tokens.currentToken() }.getOrNull()
-            if (token == null) {
-                _state.value = InstallationState.Unavailable("немає FCM-токена для реєстрації")
-                return@withLock
-            }
-            runCatching { registerFreshLocked(token) }.onFailure {
-                invalidateLocked("реєстрація не вдалася: ${it.message}")
-            }
+    internal suspend fun initialize() {
+        val existing = mutex.withLock {
+            store.load()?.also { creds = it; _state.value = InstallationState.Ready(it.deviceId) }
+        }
+        resumePendingTokenSync()
+        val token = runCatching { tokens.currentToken() }.getOrNull()
+        if (token != null) onNewFcmToken(token)
+        else if (existing == null && pendingTokenMutex.withLock { pendingTokens.load() } == null) {
+            _state.value = InstallationState.Unavailable("немає FCM-токена для реєстрації")
         }
     }
 
-    /** FCM `onNewToken` делегує сюди — жодної окремої register/recovery логіки в сервісі. */
-    suspend fun onNewFcmToken(token: String) = mutex.withLock {
-        val existing = creds ?: store.load()
-        if (existing == null) {
-            runCatching { registerFreshLocked(token) }.onFailure {
-                invalidateLocked("реєстрація не вдалася: ${it.message}")
-            }
-        } else {
-            creds = existing
-            try {
-                api.updateToken(existing, token)
-            } catch (e: Throwable) {
-                if (api.isStaleInstallation(e)) {
-                    runCatching { registerFreshLocked(token) }.onFailure {
-                        invalidateLocked("перереєстрація не вдалася: ${it.message}")
-                    }
-                }
-            }
+    suspend fun onNewFcmToken(token: String) {
+        if (!pendingTokenMutex.withLock { pendingTokens.save(token) }) return
+        if (retryScheduler.enqueue() is ScheduleResult.Enqueued) syncPendingTokenOnce()
+    }
+
+    internal suspend fun resumePendingTokenSync(): PendingTokenSyncOutcome {
+        if (pendingTokenMutex.withLock { pendingTokens.load() } == null) return PendingTokenSyncOutcome.NothingPending
+        return when (val result = retryScheduler.enqueue()) {
+            is ScheduleResult.Enqueued -> syncPendingTokenOnce()
+            is ScheduleResult.Failed -> PendingTokenSyncOutcome.RetryableFailure(result.cause)
         }
     }
 
-    /**
-     * Виконати protected-операцію з поточними credentials. На 401 — атомарний
-     * recovery (одна нова installation на всіх concurrent-викликачів) і РІВНО
-     * один retry. Другий 401 у retry пробрасується — жодного loop.
-     */
-    suspend fun <T> authenticatedCall(block: suspend (DeviceStore.Credentials) -> T): T {
-        val c = currentOrRegister() ?: error("installation недоступна")
+    internal suspend fun syncPendingTokenOnce(): PendingTokenSyncOutcome = tokenSyncMutex.withLock {
+        val token = pendingTokenMutex.withLock { pendingTokens.load() }
+            ?: return@withLock PendingTokenSyncOutcome.NothingPending
+        val current = mutex.withLock { creds ?: store.load()?.also { creds = it } }
         try {
-            return block(c)
-        } catch (e: Throwable) {
+            if (current == null) mutex.withLock { if (creds == null) registerFreshLocked(token) }
+            else try { api.updateToken(current, token) } catch (e: Throwable) {
+                if (!api.isStaleInstallation(e)) throw e
+                recoverFromToken(current, token)
+            }
+            pendingTokenMutex.withLock { pendingTokens.clearIfMatches(token) }
+            PendingTokenSyncOutcome.Synced
+        } catch (e: CancellationException) { throw e }
+        catch (e: Throwable) { classifyTokenSyncFailure(e) }
+    }
+
+    private suspend fun recoverFromToken(stale: DeviceStore.Credentials, token: String) = mutex.withLock {
+        if (creds != stale) api.updateToken(creds ?: error("installation unavailable"), token)
+        else try { registerFreshLocked(token) }
+        catch (e: Throwable) { invalidateLocked("перереєстрація не вдалась: ${e.message}"); throw e }
+    }
+
+    suspend fun <T> authenticatedCall(block: suspend (DeviceStore.Credentials) -> T): T {
+        val first = currentOrRegister() ?: error("installation недоступна")
+        try { return block(first) } catch (e: Throwable) {
             if (!api.isStaleInstallation(e)) throw e
         }
-        // 401 №1 → recovery. recoverFrom при провалі реєстрації сам переведе в
-        // Unavailable і кине — тоді операція чесно падає, а не «висить» Ready.
-        recoverFrom(c)
+        recoverFrom(first)
         val fresh = creds ?: error("installation недоступна після recovery")
-        try {
-            return block(fresh)
-        } catch (e: Throwable) {
-            if (api.isStaleInstallation(e)) {
-                // 401 №2 на щойно зареєстрованій парі — сервер відкинув і її.
-                // НЕ ретраїмо ще раз: installation недійсна.
-                invalidateIf(fresh, "сервер відкинув свіжозареєстровану installation")
-            }
+        try { return block(fresh) } catch (e: Throwable) {
+            if (api.isStaleInstallation(e)) invalidateIf(fresh, "сервер відкинув щойно зареєстровану installation")
             throw e
         }
     }
@@ -142,98 +91,43 @@ class InstallationRepository(
     private suspend fun currentOrRegister(): DeviceStore.Credentials? {
         creds?.let { return it }
         return mutex.withLock {
-            creds ?: run {
-                val token = runCatching { tokens.currentToken() }.getOrNull()
-                    ?: return@withLock null
-                runCatching { registerFreshLocked(token); creds }.getOrNull()
-            }
+            creds ?: runCatching { registerFreshLocked(tokens.currentToken()); creds }.getOrNull()
         }
     }
 
     private suspend fun recoverFrom(stale: DeviceStore.Credentials) = mutex.withLock {
-        // Dedup за ідентичністю пари: лише перший waiter, чия пара ще актуальна,
-        // проводить recovery. Наступні бачать або нову пару (успіх), або null
-        // (провал) — обидва != stale, тож другого POST /devices не буде.
         if (creds != stale) return@withLock
-        try {
-            val token = tokens.currentToken()
-            registerFreshLocked(token)
-        } catch (e: Throwable) {
-            // Провал recovery: пара недійсна. Єдиний invalidate-path — щоб не
-            // лишити брехливий Ready і щоб інші waiter'и отримали той самий
-            // результат, а не пробували ще раз.
-            invalidateLocked("recovery не вдалася: ${e.message}")
-            throw e
-        }
+        try { registerFreshLocked(tokens.currentToken()) }
+        catch (e: Throwable) { invalidateLocked("recovery не вдалась: ${e.message}"); throw e }
     }
 
-    /** Мусить викликатися під `mutex`. Єдиний перехід у недоступний стан. */
-    private fun invalidateLocked(reason: String) {
-        store.clear()
-        creds = null
-        _state.value = InstallationState.Unavailable(reason)
-    }
+    private fun invalidateLocked(reason: String) { store.clear(); creds = null; _state.value = InstallationState.Unavailable(reason) }
+    private suspend fun invalidateIf(used: DeviceStore.Credentials, reason: String) = mutex.withLock { if (creds == used) invalidateLocked(reason) }
 
-    /** Invalidate лише якщо поточна пара — та сама, що використав викликач. */
-    private suspend fun invalidateIf(used: DeviceStore.Credentials, reason: String) =
-        mutex.withLock {
-            if (creds != used) return@withLock
-            invalidateLocked(reason)
-        }
-
-    /**
-     * Мусить викликатися під `mutex`. Реєструє нову пару. Стару in-memory `creds`
-     * НЕ занулюємо до успіху: паралельні викликачі fast-path мають бачити
-     * стабільну пару, а не транзієнтний null посеред реєстрації.
-     */
     private suspend fun registerFreshLocked(token: String) {
-        store.clear()
-        val fresh = api.registerDevice(token)
-        store.save(fresh)
-        creds = fresh
+        store.clear(); val fresh = api.registerDevice(token); store.save(fresh); creds = fresh
         _state.value = InstallationState.Ready(fresh.deviceId)
     }
 }
 
-/** Стан installation для UI. Secret сюди НІКОЛИ не потрапляє — лише публічний id. */
 sealed interface InstallationState {
     data object Initializing : InstallationState
     data class Ready(val deviceId: String) : InstallationState
     data class Unavailable(val reason: String) : InstallationState
 }
 
-/** Мережеві операції installation. Реальна реалізація делегує `Api`; у тестах — fake. */
 interface InstallationApi {
     suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials
     suspend fun updateToken(creds: DeviceStore.Credentials, fcmToken: String)
     fun isStaleInstallation(exc: Throwable): Boolean
 }
+interface CredentialStore { fun load(): DeviceStore.Credentials?; fun save(creds: DeviceStore.Credentials); fun clear() }
+interface FcmTokenProvider { suspend fun currentToken(): String }
 
-/** Persistence пари. Реальна реалізація делегує `DeviceStore`; у тестах — fake. */
-interface CredentialStore {
-    fun load(): DeviceStore.Credentials?
-    fun save(creds: DeviceStore.Credentials)
-    fun clear()
-}
-
-/** Джерело FCM-токена. Реальна реалізація — `FirebaseMessaging`; у тестах — fake. */
-interface FcmTokenProvider {
-    suspend fun currentToken(): String
-}
-
-/**
- * Координатор protected-завантаження для UI (тестований JVM-seam замість
- * instrumented Compose). Запускає [onReady] щоразу, коли installation стає
- * `Ready`; новий `Ready` (інший deviceId після recovery) ретригерить, тож UI
- * оновлює protected-дані без перезапуску процесу.
- */
 object ProtectedLoad {
     suspend fun observe(
         state: StateFlow<InstallationState>,
         onReady: suspend (InstallationState.Ready) -> Unit,
-    ) {
-        state.filterIsInstance<InstallationState.Ready>()
-            .distinctUntilChanged()
-            .collect { onReady(it) }
-    }
+    ) = state.filterIsInstance<InstallationState.Ready>().distinctUntilChanged()
+        .collect { onReady(it) }
 }
