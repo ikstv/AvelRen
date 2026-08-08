@@ -5,6 +5,7 @@ import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -127,5 +128,92 @@ class FcmTokenRetryTest {
         assertEquals(null, pending.load())
         assertEquals(DeviceStore.Credentials("device-1", "secret-1"), store.value)
         assertEquals(1, api.registrations)
+    }
+
+    @Test fun `successful pending startup recovery stays Ready when Firebase token fails`() = runTest {
+        val api = Api()
+        val store = Store()
+        val pending = InMemoryPendingFcmTokenStore().also { it.save("token-X") }
+        val repository = InstallationRepository(api, store,
+            object : FcmTokenProvider { override suspend fun currentToken() = error("Firebase unavailable") },
+            backgroundScope, pending, ImmediateFcmTokenRetryScheduler())
+
+        repository.initialize()
+
+        assertTrue(repository.state.value is InstallationState.Ready)
+        assertEquals(null, pending.load())
+        assertEquals(DeviceStore.Credentials("device-1", "secret-1"), store.value)
+    }
+
+    @Test fun `persisted credential load is serialized with pending sync`() = runTest {
+        val api = Api()
+        val store = Store(DeviceStore.Credentials("old", "secret"))
+        val pending = InMemoryPendingFcmTokenStore().also { it.save("token-X") }
+        val repository = InstallationRepository(api,
+            store,
+            object : FcmTokenProvider { override suspend fun currentToken() = "unused" },
+            backgroundScope, pending, ImmediateFcmTokenRetryScheduler())
+
+        val startup = async { repository.initialize() }
+        val sync = async { repository.syncPendingTokenOnce() }
+        startup.await(); sync.await()
+
+        assertTrue(api.updated.contains("token-X"))
+        assertEquals(null, pending.load())
+    }
+
+    @Test fun `concurrent recovery puts pending token once on fresh credentials`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val api = object : Api() {
+            override suspend fun updateToken(creds: DeviceStore.Credentials, fcmToken: String) {
+                updates++; updated += fcmToken
+                if (updates == 1) { entered.complete(Unit); release.await(); throw Stale() }
+            }
+        }
+        val store = Store(DeviceStore.Credentials("old", "secret"))
+        val pending = InMemoryPendingFcmTokenStore().also { it.save("token-X") }
+        val repository = InstallationRepository(api, store,
+            object : FcmTokenProvider { override suspend fun currentToken() = "token-Y" },
+            backgroundScope, pending, ImmediateFcmTokenRetryScheduler())
+
+        val tokenSync = async { repository.syncPendingTokenOnce() }
+        entered.await()
+        var recoveryAttempts = 0
+        val recovery = async { repository.authenticatedCall { recoveryAttempts++; if (recoveryAttempts == 1) throw Stale() else "ok" } }
+        release.complete(Unit)
+        runCatching { recovery.await() }
+        tokenSync.await()
+
+        assertEquals(2, api.updates)
+        assertEquals(listOf("token-X", "token-X"), api.updated)
+    }
+
+    @Test fun `second 401 on recovered fresh PUT invalidates and retains pending`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val api = object : Api() {
+            override suspend fun updateToken(creds: DeviceStore.Credentials, fcmToken: String) {
+                updates++; updated += fcmToken
+                if (updates == 1) { entered.complete(Unit); release.await(); throw Stale() }
+                throw Stale()
+            }
+        }
+        val store = Store(DeviceStore.Credentials("old", "secret"))
+        val pending = InMemoryPendingFcmTokenStore().also { it.save("token-X") }
+        val repository = InstallationRepository(api, store,
+            object : FcmTokenProvider { override suspend fun currentToken() = "token-Y" },
+            backgroundScope, pending, ImmediateFcmTokenRetryScheduler())
+        val tokenSync = async { repository.syncPendingTokenOnce() }
+        entered.await()
+        var recoveryAttempts = 0
+        val recovery = async { repository.authenticatedCall { recoveryAttempts++; if (recoveryAttempts == 1) throw Stale() else "ok" } }
+        release.complete(Unit)
+        runCatching { recovery.await() }
+        tokenSync.await()
+
+        assertTrue(repository.state.value is InstallationState.Unavailable)
+        assertEquals(null, store.value)
+        assertEquals("token-X", pending.load())
     }
 }

@@ -29,13 +29,14 @@ class InstallationRepository(
     fun start() { scope.launch { initialize() } }
 
     internal suspend fun initialize() {
-        val existing = mutex.withLock {
+        mutex.withLock {
             store.load()?.also { creds = it; _state.value = InstallationState.Ready(it.deviceId) }
         }
         resumePendingTokenSync()
         val token = runCatching { tokens.currentToken() }.getOrNull()
         if (token != null) onNewFcmToken(token)
-        else if (existing == null && pendingTokenMutex.withLock { pendingTokens.load() } == null) {
+        else if (mutex.withLock { creds ?: store.load() } == null &&
+            pendingTokenMutex.withLock { pendingTokens.load() } == null) {
             _state.value = InstallationState.Unavailable("немає FCM-токена для реєстрації")
         }
     }
@@ -65,7 +66,7 @@ class InstallationRepository(
     }
 
     private suspend fun syncToken(token: String) {
-        val current = creds ?: store.load()?.also { creds = it }
+        val current = mutex.withLock { creds ?: store.load()?.also { creds = it } }
         if (current == null) {
             mutex.withLock {
                 val latest = creds ?: store.load()?.also { creds = it }
