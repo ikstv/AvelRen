@@ -27,7 +27,7 @@ avelren_restore_engine() {
         [ -z "$AVELREN_RESTORE_COMPOSE_PROJECT" ] || args+=(-p "$AVELREN_RESTORE_COMPOSE_PROJECT")
         "${args[@]}" "$@"
     }
-    restore_psql() { restore_compose exec -T "$AVELREN_RESTORE_DB_SERVICE" psql -U avelren "$@"; }
+    restore_psql() { restore_compose exec -T "$AVELREN_RESTORE_DB_SERVICE" psql -U avelren -v ON_ERROR_STOP=1 "$@"; }
     restore_log() { echo "$(date -u +%FT%TZ) $*"; }
 
     restore_finalize() {

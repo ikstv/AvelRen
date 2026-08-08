@@ -34,6 +34,8 @@ if [[ "$args" == *' exec -T db psql '* ]]; then
     args="$args $query"
     if [[ "$args" == *'SELECT count(*) FROM pg_stat_activity'* ]]; then
         printf '%s\n' "${FAKE_SESSIONS:-0}"
+    elif [[ "$args" == *'COALESCE(max(time)'* ]]; then
+        printf '%s\n' "1970-01-01 00:00:00+00"
     elif [[ "$args" == *'SELECT EXISTS'* ]]; then
         printf '%s\n' "${FAKE_FRESH_RESULT:-t}"
     fi
@@ -42,6 +44,7 @@ SH
 cat >"$BIN/curl" <<'SH'
 #!/usr/bin/env bash
 printf 'HTTPS_READY\n' >>"$FAKE_LOG"
+printf '{"status":"ok"}\n'
 exit "${FAKE_CURL_STATUS:-0}"
 SH
 chmod +x "$BIN/docker" "$BIN/curl"

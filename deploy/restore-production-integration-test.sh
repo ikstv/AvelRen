@@ -42,6 +42,7 @@ SH
 cat >"$BIN/curl" <<'SH'
 #!/usr/bin/env bash
 printf 'HTTPS_READY\n' >>"$DR_SERVICE_LOG"
+printf '{"status":"ok"}\n'
 exit 0
 SH
 chmod +x "$BIN/docker" "$BIN/curl"

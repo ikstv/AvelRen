@@ -9,7 +9,7 @@ DB_SERVICE=${AVELREN_DB_SERVICE:-db}
 VERIFY_APP_SERVICE=${AVELREN_VERIFY_APP_SERVICE:-migrate}
 INGRESS_SERVICE=${AVELREN_INGRESS_SERVICE:-caddy}
 KNOWN_CLIENTS=${AVELREN_DB_CLIENT_SERVICES:-api collector notifier watchdog}
-READINESS_URL=${AVELREN_READINESS_URL:-https://api.bordersignal.pp.ua/health}
+READINESS_URL=${AVELREN_READINESS_URL:-https://api.bordersignal.pp.ua/api/health}
 READINESS_TIMEOUT=${AVELREN_READINESS_TIMEOUT_SECONDS:-120}
 FRESHNESS_TIMEOUT=${AVELREN_FRESHNESS_TIMEOUT_SECONDS:-180}
 PRODUCTION_TARGET=avelren
@@ -35,7 +35,7 @@ compose() {
     [ -z "$COMPOSE_PROJECT" ] || args+=(-p "$COMPOSE_PROJECT")
     "${args[@]}" "$@"
 }
-db_psql() { compose exec -T "$DB_SERVICE" psql -U avelren "$@"; }
+db_psql() { compose exec -T "$DB_SERVICE" psql -U avelren -v ON_ERROR_STOP=1 "$@"; }
 
 if [ "$CONFIRMATION" != "$CONFIRMATION_TOKEN" ]; then
     log "ВІДМОВА: production orchestrator потребує exact confirmation token"
@@ -95,15 +95,26 @@ SQL
     exit 1
 fi
 
+pre_restore_run=$(db_psql -d "$PRODUCTION_TARGET" -At -c \
+    "SELECT COALESCE(max(time), '-infinity'::timestamptz) FROM collector_runs;")
+
 log "session gate clean; invoking low-level restore engine"
 # Production capability is structural: the engine is a source-only library and
 # the public restore.sh CLI rejects every production target.
 # shellcheck source=deploy/restore-engine.lib.sh
-source "$STACK_DIR/deploy/restore-engine.lib.sh"
-avelren_restore_engine "$DUMP" "$PRODUCTION_TARGET" "$STACK_DIR" \
-    "$COMPOSE_FILE" "$COMPOSE_PROJECT" "$DB_SERVICE"
+(
+    # Keep the engine's EXIT trap in its own shell; the orchestrator's
+    # fail-closed maintenance trap must remain authoritative here.
+    source "$STACK_DIR/deploy/restore-engine.lib.sh"
+    avelren_restore_engine "$DUMP" "$PRODUCTION_TARGET" "$STACK_DIR" \
+        "$COMPOSE_FILE" "$COMPOSE_PROJECT" "$DB_SERVICE"
+)
 
 log "physical schema і read-only application verification"
+log "controlled restart: migrate gate"
+compose up -d migrate
+compose wait migrate
+
 AVELREN_STACK_DIR="$STACK_DIR" \
 AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
 AVELREN_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
@@ -113,10 +124,6 @@ AVELREN_PRODUCTION_VERIFY_CONTEXT=AVELREN-INTERNAL-PRODUCTION-VERIFY \
 AVELREN_VERIFY_DATABASE_URL="${AVELREN_VERIFY_DATABASE_URL:-}" \
 bash "$STACK_DIR/deploy/restore-verify.sh" "$PRODUCTION_TARGET"
 
-log "controlled restart: migrate gate"
-compose up -d migrate
-compose wait migrate
-
 log "controlled restart: DB clients"
 # shellcheck disable=SC2086
 compose up -d $KNOWN_CLIENTS
@@ -124,7 +131,8 @@ log "maintenance exit: starting ingress last"
 compose up -d "$INGRESS_SERVICE"
 
 deadline=$((SECONDS + READINESS_TIMEOUT))
-until curl --fail --silent --show-error --max-time 10 "$READINESS_URL" >/dev/null; do
+until health=$(curl --fail --silent --show-error --max-time 10 "$READINESS_URL") \
+    && printf '%s' "$health" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"(ok|stale)"'; do
     [ "$SECONDS" -lt "$deadline" ] || {
         log "ПОМИЛКА: canonical API readiness timeout: $READINESS_URL"; exit 1;
     }
@@ -133,12 +141,19 @@ done
 
 fresh_deadline=$((SECONDS + FRESHNESS_TIMEOUT))
 until fresh=$(db_psql -d "$PRODUCTION_TARGET" -At -c \
-    "SELECT EXISTS (SELECT 1 FROM observations WHERE time > now() - INTERVAL '3 minutes');") \
+    "SELECT EXISTS (SELECT 1 FROM collector_runs WHERE time > '$pre_restore_run' AND error IS NULL AND rows_written > 0);") \
     && [ "$fresh" = t ]; do
     [ "$SECONDS" -lt "$fresh_deadline" ] || {
         log "ПОМИЛКА: collector freshness timeout after restore"; exit 1;
     }
     sleep 5
+done
+
+running=$(compose ps --status running --services)
+for service in $INGRESS_SERVICE $KNOWN_CLIENTS; do
+    printf '%s\n' "$running" | grep -Fxq "$service" || {
+        log "РџРћРњРР›РљРђ: service РЅРµ running РїС–СЃР»СЏ restore: $service"; exit 1;
+    }
 done
 
 SUCCESS=true

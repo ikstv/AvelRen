@@ -27,9 +27,11 @@ deploy/restore-production.sh backup.sql.gz \
 
 The orchestrator stops public ingress first, stops all known PostgreSQL clients,
 and aborts if unknown target sessions remain. It then invokes the restore
-engine, verifies migration history and physical schema, executes a GET-only
+engine, runs the migrate gate before exact schema verification (so retained
+backups may contain an older contiguous migration prefix), executes a GET-only
 application smoke, restarts services in a controlled order, and validates the
-canonical HTTPS endpoint and a fresh collector observation.
+canonical `/api/health` JSON endpoint plus a new successful collector run with
+rows written after the pre-restore watermark.
 
 On any failure, application DB clients and ingress remain stopped. The operator
 must diagnose and explicitly resume; there is no optimistic restart.
