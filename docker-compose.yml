@@ -43,6 +43,7 @@ services:
       HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS}
       CONTACT_EMAIL: ${CONTACT_EMAIL}
       LOG_LEVEL: ${LOG_LEVEL}
+      REARM_FACTOR: ${REARM_FACTOR}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -59,7 +60,6 @@ services:
       ALERT_RESEND_SECONDS: ${ALERT_RESEND_SECONDS}
       HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS}
       LOG_LEVEL: ${LOG_LEVEL}
-      REARM_FACTOR: ${REARM_FACTOR}
     volumes:
       - ./secrets:/secrets:ro
     depends_on:
@@ -95,6 +95,7 @@ services:
     environment:
       DATABASE_URL: ${AVELREN_API_DSN}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
+      ECHERHA_VEHICLE_TYPE: ${ECHERHA_VEHICLE_TYPE}
     volumes:
       # Тільки host-telemetry snapshot: JSON пише systemd-таймер на хості
       # (deploy/telemetry-snapshot.sh), API його лише читає. Ніяких /secrets,

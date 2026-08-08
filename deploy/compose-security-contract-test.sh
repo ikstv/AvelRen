@@ -27,6 +27,8 @@ AVELREN_COLLECTOR_DSN=COLLECTOR_SENTINEL
 AVELREN_NOTIFIER_DSN=NOTIFIER_SENTINEL
 AVELREN_WATCHDOG_DSN=WATCHDOG_SENTINEL
 AVELREN_API_DSN=API_SENTINEL
+REARM_FACTOR=REARM_FACTOR_SENTINEL
+ECHERHA_VEHICLE_TYPE=ECHERHA_VEHICLE_TYPE_SENTINEL
 ENV
     (
         cd "$STACK"
@@ -41,6 +43,8 @@ ENV
         AVELREN_NOTIFIER_DSN=NOTIFIER_SENTINEL \
         AVELREN_WATCHDOG_DSN=WATCHDOG_SENTINEL \
         AVELREN_API_DSN=API_SENTINEL \
+        REARM_FACTOR=REARM_FACTOR_SENTINEL \
+        ECHERHA_VEHICLE_TYPE=ECHERHA_VEHICLE_TYPE_SENTINEL \
         docker compose --env-file .env config --format json >"$RESOLVED" 2>"$COMPOSE_ERROR"
     ) || fail 'docker compose config failed'
 }
@@ -75,6 +79,10 @@ all_database_sentinels = {
     "API_SENTINEL",
     "LEGACY_SENTINEL",
 }
+functional_setting_owners = {
+    "REARM_FACTOR": ({"collector"}, "REARM_FACTOR_SENTINEL"),
+    "ECHERHA_VEHICLE_TYPE": ({"collector", "api"}, "ECHERHA_VEHICLE_TYPE_SENTINEL"),
+}
 
 
 def fail(message: str) -> None:
@@ -82,13 +90,13 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def environment_values(service: dict) -> set[str]:
+def environment_mapping(service: dict) -> dict[str, str]:
     environment = service.get("environment", {})
     if isinstance(environment, dict):
-        return {str(value) for value in environment.values() if value is not None}
+        return {str(key): str(value) for key, value in environment.items() if value is not None}
     if isinstance(environment, list):
         return {
-            value.split("=", 1)[1]
+            value.split("=", 1)[0]: value.split("=", 1)[1]
             for value in environment
             if isinstance(value, str) and "=" in value
         }
@@ -108,9 +116,18 @@ for service_name, own_sentinel in expected.items():
         fail(f"service {service_name} missing")
     if "env_file" in service:
         fail(f"service {service_name} uses env_file")
-    seen_database_sentinels = environment_values(service) & all_database_sentinels
+    seen_database_sentinels = set(environment_mapping(service).values()) & all_database_sentinels
     if seen_database_sentinels != own_sentinel:
         fail(f"service {service_name} has forbidden database credential category")
+
+for setting_name, (expected_owners, sentinel) in functional_setting_owners.items():
+    seen_owners = {
+        service_name
+        for service_name in expected
+        if environment_mapping(services[service_name]).get(setting_name) == sentinel
+    }
+    if seen_owners != expected_owners:
+        fail(f"functional setting {setting_name} has forbidden ownership")
 
 print("compose security contract ok")
 PY
