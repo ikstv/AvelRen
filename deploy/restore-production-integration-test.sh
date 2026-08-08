@@ -86,6 +86,6 @@ still_present=$(real_compose exec -T test-db psql -U avelren -d "$TARGET_DB" -At
     -c "SELECT value FROM restore_integration_marker WHERE value='$MARKER';")
 [ "$still_present" = "$MARKER" ]
 after_log=$(tail -n +$((before_lines + 1)) "$WORK/services.log")
-! printf '%s\n' "$after_log" | grep -q 'restore.sh'
+! printf '%s\n' "$after_log" | grep -q 'DROP DATABASE'
 
 echo "production restore integration passed: restore, marker, schema, read-only smoke, restart, readiness, session gate"

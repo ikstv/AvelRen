@@ -28,6 +28,8 @@ jobs:
             deploy/backup.sh \
             deploy/backup-contract-test.sh \
             deploy/restore.sh \
+            deploy/restore-engine.lib.sh \
+            deploy/restore-engine-contract-test.sh \
             deploy/restore-production.sh \
             deploy/restore-production-contract-test.sh \
             deploy/restore-production-integration-test.sh \
@@ -97,16 +99,22 @@ jobs:
           bash -n deploy/backup.sh
           bash -n deploy/backup-contract-test.sh
           bash -n deploy/restore.sh
+          bash -n deploy/restore-engine.lib.sh
+          bash -n deploy/restore-engine-contract-test.sh
           bash -n deploy/restore-production.sh
           bash -n deploy/restore-verify.sh
           bash -n deploy/restore-production-contract-test.sh
           bash -n deploy/restore-production-integration-test.sh
+          sudo install -m 0755 deploy/backup.sh /usr/local/sbin/avelren-backup
+          systemd-analyze verify deploy/avelren-backup.service
 
       - name: Backup permission, cleanup, verification і stamp contract
         run: bash deploy/backup-contract-test.sh
 
       - name: Restore contract regression tests
-        run: bash deploy/restore-contract-test.sh
+        run: |
+          bash deploy/restore-contract-test.sh
+          bash deploy/restore-engine-contract-test.sh
 
       - name: Production orchestrator contract tests
         run: bash deploy/restore-production-contract-test.sh
