@@ -27,6 +27,8 @@ printf '%s\n' "$*" >>"$FAKE_LOG"
 args="$*"
 if [[ "$args" == *' ps --status running --services'* ]]; then exit 0; fi
 if [[ "$args" == *' exec -T db psql '* ]]; then
+    query=$(cat)
+    args="$args $query"
     if [[ "$args" == *'SELECT count(*) FROM pg_stat_activity'* ]]; then
         printf '%s\n' "${FAKE_SESSIONS:-0}"
     elif [[ "$args" == *'SELECT EXISTS'* ]]; then
