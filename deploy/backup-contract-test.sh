@@ -12,7 +12,11 @@ make_tools() {
 #!/usr/bin/env bash
 set -euo pipefail
 [ "${FAKE_DUMP_FAIL:-0}" != 1 ] || { printf 'partial'; exit 9; }
-awk 'BEGIN { for (i=0; i<3000; i++) print "INSERT INTO t VALUES (1);" }'
+if [ "${FAKE_SMALL_DUMP:-0}" = 1 ]; then
+    printf 'SELECT 1;\n'
+else
+    head -c 30000 /dev/urandom | base64
+fi
 SH
     cat >"$bin/rclone" <<'SH'
 #!/usr/bin/env bash
@@ -77,6 +81,7 @@ remote_dump=$(find "$WORK/success/remote" -type f -name '*.sql.gz' | head -1)
 
 for item in \
     'dump:FAKE_DUMP_FAIL=1' \
+    'small:FAKE_SMALL_DUMP=1' \
     'upload:FAKE_UPLOAD_FAIL=1' \
     'verify:FAKE_VERIFY_MISMATCH=1' \
     'size:FAKE_SIZE_MISMATCH=1' \
@@ -111,4 +116,4 @@ mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-not
 run_case unrelated
 [ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
 
-echo "backup contract tests: 10 passed"
+echo "backup contract tests: 11 passed"
