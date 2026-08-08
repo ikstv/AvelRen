@@ -49,6 +49,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Мусить відпрацювати ДО refreshPermissionState/автозапиту: для upgrade з
+        // версії до AND-2 фіксує факт відмови, інакше onCreate знову смикав би
+        // launcher із мертвим (уже не показуваним) діалогом.
+        migrateLegacyNotificationHistory()
+
         refreshPermissionState()
 
         // Первинний запит рівно один раз. Раніше launch() викликався на кожному
@@ -79,6 +84,30 @@ class MainActivity : ComponentActivity() {
         // банер має зникнути/з'явитися без перезапуску застосунку.
         refreshPermissionState()
     }
+
+    /**
+     * Одноразова міграція історії для установок, оновлених з версії до AND-2
+     * (B2). Fresh install і upgrade розрізняємо через PackageManager: на чистій
+     * установці firstInstallTime == lastUpdateTime. Виконується рівно раз —
+     * persisted marker переживає і 401-перереєстрацію.
+     */
+    private fun migrateLegacyNotificationHistory() {
+        if (DeviceStore.notificationLegacyMigrated(this)) return
+        val migrated = NotificationPermission.migrateLegacyHistory(
+            sdkInt = Build.VERSION.SDK_INT,
+            isUpgrade = appWasUpgraded(),
+            runtimeGranted = Notifications.runtimePermissionGranted(this),
+            history = DeviceStore.notificationHistory(this),
+        )
+        DeviceStore.saveNotificationHistory(this, migrated)
+        DeviceStore.markNotificationLegacyMigrated(this)
+    }
+
+    /** true, якщо APK хоч раз оновлювали поверх установки (не fresh install). */
+    private fun appWasUpgraded(): Boolean = runCatching {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        info.lastUpdateTime > info.firstInstallTime
+    }.getOrDefault(false)
 
     private fun refreshPermissionState() {
         val runtimeGranted = Notifications.runtimePermissionGranted(this)

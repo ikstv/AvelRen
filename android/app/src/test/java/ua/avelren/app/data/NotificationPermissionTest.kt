@@ -194,6 +194,101 @@ class NotificationPermissionTest {
         )
     }
 
+    // --- legacy-міграція (upgrade з версії до AND-2) ----------------------
+
+    @Test
+    fun `legacy permanent denial upgrade migrates to denied and needs app settings`() {
+        // Оновлення з версії, де стара MainActivity питала на кожен старт;
+        // користувач уже двічі відмовив → діалогу більше не буде.
+        val migrated = NotificationPermission.migrateLegacyHistory(
+            sdkInt = 33, isUpgrade = true, runtimeGranted = false, history = History(),
+        )
+        assertEquals(History(asked = true, deniedOnce = true, everGranted = false), migrated)
+        // rationale=false бо система вже не показує діалог → ведемо в Settings,
+        // а не залишаємо мертву кнопку «Дозволити».
+        assertEquals(
+            S.NeedsAppSettings,
+            eval(runtimeGranted = false, asked = true, deniedOnce = true, rationale = false),
+        )
+    }
+
+    @Test
+    fun `legacy single denial upgrade with rationale stays requestable`() {
+        // Та сама міграція, але система ще готова показати діалог (одна відмова):
+        // short-circuit showRationale у evaluate лишає NeedsRequest.
+        val migrated = NotificationPermission.migrateLegacyHistory(
+            sdkInt = 33, isUpgrade = true, runtimeGranted = false, history = History(),
+        )
+        assertEquals(
+            S.NeedsRequest,
+            eval(
+                runtimeGranted = false,
+                asked = migrated.asked, deniedOnce = migrated.deniedOnce, rationale = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `fresh install never asked is not migrated`() {
+        // firstInstallTime == lastUpdateTime → isUpgrade=false: історія лишається
+        // порожньою, evaluate дає NeedsRequest, onCreate робить один автозапит.
+        val migrated = NotificationPermission.migrateLegacyHistory(
+            sdkInt = 33, isUpgrade = false, runtimeGranted = false, history = History(),
+        )
+        assertEquals(History(), migrated)
+        assertEquals(S.NeedsRequest, eval(runtimeGranted = false, asked = false))
+    }
+
+    @Test
+    fun `fresh install swipe away is not turned into denial`() {
+        // Свайп на fresh install робить історію непорожньою (asked=true) ще ДО
+        // будь-якої міграції — тож migrate лишає її незмінною, а не карає Settings.
+        val swiped = History(asked = true, deniedOnce = false, everGranted = false)
+        assertEquals(
+            swiped,
+            NotificationPermission.migrateLegacyHistory(
+                sdkInt = 33, isUpgrade = true, runtimeGranted = false, history = swiped,
+            ),
+        )
+        assertEquals(
+            S.NeedsRequest,
+            eval(runtimeGranted = false, asked = true, deniedOnce = false, rationale = false),
+        )
+    }
+
+    @Test
+    fun `upgrade with granted permission is left for seeding`() {
+        // Grant міграція не чіпає — це робота observeCurrentGrant.
+        assertEquals(
+            History(),
+            NotificationPermission.migrateLegacyHistory(
+                sdkInt = 33, isUpgrade = true, runtimeGranted = true, history = History(),
+            ),
+        )
+    }
+
+    @Test
+    fun `no legacy migration below api 33`() {
+        assertEquals(
+            History(),
+            NotificationPermission.migrateLegacyHistory(
+                sdkInt = 30, isUpgrade = true, runtimeGranted = false, history = History(),
+            ),
+        )
+    }
+
+    @Test
+    fun `no legacy migration when history already tracked`() {
+        // AND-2 вже щось записав (напр. everGranted після grant) — не перетирати.
+        val tracked = History(asked = true, deniedOnce = false, everGranted = true)
+        assertEquals(
+            tracked,
+            NotificationPermission.migrateLegacyHistory(
+                sdkInt = 33, isUpgrade = true, runtimeGranted = false, history = tracked,
+            ),
+        )
+    }
+
     // --- запис історії ----------------------------------------------------
 
     @Test

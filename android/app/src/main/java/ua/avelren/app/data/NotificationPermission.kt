@@ -109,6 +109,44 @@ object NotificationPermission {
         }
 
     /**
+     * Одноразова міграція історії для установок, оновлених з версії ДО AND-2.
+     *
+     * Стара `MainActivity` безумовно викликала `launch(POST_NOTIFICATIONS)` на
+     * кожному `onCreate`. Тому існуючий користувач, який до AND-2 вже відмовляв,
+     * після оновлення APK має `runtimeGranted=false`, але нову AND-2 history —
+     * порожню. `observeCurrentGrant()` тут нічого не сідує (дозвіл не granted), а
+     * `evaluate()` без цієї міграції трактує `!asked` як `NeedsRequest`, після
+     * чого `onCreate` знову смикає launcher — але системний діалог після
+     * повторних Deny вже не з'явиться. Користувач застрягав би на кнопці
+     * «Дозволити», яка фактично нічого не лікує.
+     *
+     * Розрізнення fresh install / upgrade передається ззовні (`isUpgrade`) —
+     * викликач бере його з `PackageManager` (firstInstallTime != lastUpdateTime).
+     * Fresh install лишаємо з порожньою історією → `NeedsRequest` і одноразовий
+     * автозапит. Для upgrade з ПОРОЖНЬОЮ AND-2 history та `!runtimeGranted` на
+     * API 33+ факт відмови гарантований (legacy-код точно питав), тож фіксуємо
+     * `asked=true, deniedOnce=true`. Далі вже наявний short-circuit `showRationale`
+     * у `evaluate()` сам розділяє відновлюваний single-denial (rationale=true →
+     * `NeedsRequest`) і permanent denial (rationale=false → `NeedsAppSettings`).
+     *
+     * Виконується рівно раз (викликач тримає persisted marker). Якщо історія вже
+     * НЕ порожня — AND-2 сам веде облік, чіпати нічого. Grant не сідуємо тут: це
+     * робота `observeCurrentGrant()`.
+     */
+    fun migrateLegacyHistory(
+        sdkInt: Int,
+        isUpgrade: Boolean,
+        runtimeGranted: Boolean,
+        history: History,
+    ): History = when {
+        history != History() -> history          // AND-2 вже веде облік
+        !isUpgrade -> history                     // fresh install — мігрувати нічого
+        sdkInt < RUNTIME_PERMISSION_SDK -> history // немає runtime-permission
+        runtimeGranted -> history                 // grant засідить observeCurrentGrant
+        else -> History(asked = true, deniedOnce = true)
+    }
+
+    /**
      * Оновлення історії за результатом системного діалогу.
      *
      * `showRationaleNow` читається ПІСЛЯ результату — саме він відрізняє явну

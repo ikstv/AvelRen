@@ -30,6 +30,10 @@ object DeviceStore {
     private const val KEY_NOTIF_ASKED = "notif_asked"
     private const val KEY_NOTIF_DENIED = "notif_denied_once"
     private const val KEY_NOTIF_GRANTED = "notif_ever_granted"
+    // Маркер одноразової legacy-міграції (upgrade з версії до AND-2). Так само
+    // НЕ чіпається clearCredentials(): міграцію треба зробити рівно раз на
+    // установку, незалежно від 401-перереєстрації.
+    private const val KEY_NOTIF_MIGRATED = "notif_legacy_migrated"
 
     private var prefs: SharedPreferences? = null
 
@@ -87,6 +91,14 @@ object DeviceStore {
             .putBoolean(KEY_NOTIF_DENIED, h.deniedOnce)
             .putBoolean(KEY_NOTIF_GRANTED, h.everGranted)
             .apply()
+    }
+
+    /** Чи вже виконана одноразова legacy-міграція історії дозволу (AND-2 B2). */
+    fun notificationLegacyMigrated(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_NOTIF_MIGRATED, false)
+
+    fun markNotificationLegacyMigrated(context: Context) {
+        prefs(context).edit().putBoolean(KEY_NOTIF_MIGRATED, true).apply()
     }
 
     fun selectedCheckpoint(context: Context): Int =
