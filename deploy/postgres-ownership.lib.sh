@@ -96,6 +96,22 @@ extension_base AS (
     WHERE extension.extname = 'timescaledb'
        OR pg_get_userbyid(extension.extowner) IN (SELECT role_name FROM canonical_roles)
 ),
+timescale_hypertable_base AS (
+    SELECT hypertable.hypertable_schema AS nspname,
+           hypertable.hypertable_name AS relname,
+           hypertable.owner::text AS owner_name,
+           format('%I.%I', hypertable.hypertable_schema, hypertable.hypertable_name) AS identity
+    FROM timescaledb_information.hypertables AS hypertable
+    WHERE hypertable.hypertable_schema = 'public'
+),
+timescale_continuous_aggregate_base AS (
+    SELECT aggregate.view_schema AS nspname,
+           aggregate.view_name AS relname,
+           aggregate.view_owner::text AS owner_name,
+           format('%I.%I', aggregate.view_schema, aggregate.view_name) AS identity
+    FROM timescaledb_information.continuous_aggregates AS aggregate
+    WHERE aggregate.view_schema = 'public'
+),
 relation_base AS (
     SELECT relation.oid, namespace.nspname, relation.relname, relation.relkind,
            relation.relowner, relation.relacl,
@@ -221,6 +237,12 @@ manifest_rows AS (
     UNION ALL
     SELECT ARRAY['object','extension',current_database(),'-',extname,'extension',owner_name,'-','-','-','-','-',source,identity]::text[]
     FROM extension_base
+    UNION ALL
+    SELECT ARRAY['object','timescale_binding',current_database(),nspname,relname,'hypertable',owner_name,'-','-','-','-','-','timescale',identity]::text[]
+    FROM timescale_hypertable_base
+    UNION ALL
+    SELECT ARRAY['object','timescale_binding',current_database(),nspname,relname,'continuous_aggregate',owner_name,'-','-','-','-','-','timescale',identity]::text[]
+    FROM timescale_continuous_aggregate_base
     UNION ALL
     SELECT ARRAY['object','relation',current_database(),nspname,relname,relkind::text,owner_name,'-','-','-','-','-',source,identity]::text[]
     FROM relation_base
@@ -407,6 +429,13 @@ public	subscriptions_id_seq	S
 EOF
 }
 
+_canonical_timescale_bindings() {
+    cat <<'EOF'
+public	observations	hypertable
+public	observations_hourly	continuous_aggregate
+EOF
+}
+
 _canonical_acl_columns() {
     cat <<'EOF'
 public	alerts	acknowledged_at
@@ -447,6 +476,15 @@ validate_owned_object_allowlist() {
     if ! cmp -s "$expected" "$actual"; then
         rm -f "$expected" "$actual" "$extensions"
         ownership_fail 'application relation exact-set mismatch'
+        return 1
+    fi
+
+    _canonical_timescale_bindings | LC_ALL=C sort >"$expected"
+    awk -F '\t' '$1=="object" && $2=="timescale_binding" {print $4 "\t" $5 "\t" $6}' \
+        "$manifest" | LC_ALL=C sort >"$actual"
+    if ! cmp -s "$expected" "$actual"; then
+        rm -f "$expected" "$actual" "$extensions"
+        ownership_fail 'TimescaleDB application binding exact-set mismatch'
         return 1
     fi
 

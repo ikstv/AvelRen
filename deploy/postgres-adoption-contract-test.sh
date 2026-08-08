@@ -64,6 +64,8 @@ object	function	avelren_adoption_test	_timescaledb_functions	policy_compression_
 object	type	avelren_adoption_test	_timescaledb_internal	compressed_data	type	avelren	-	-	-	-	-	timescale	"_timescaledb_internal"."compressed_data"
 EOF
     cat >"$dir/timescale.tsv" <<'EOF'
+object	timescale_binding	avelren_adoption_test	public	observations	hypertable	avelren	-	-	-	-	-	timescale	"public"."observations"
+object	timescale_binding	avelren_adoption_test	public	observations_hourly	continuous_aggregate	avelren	-	-	-	-	-	timescale	"public"."observations_hourly"
 object	relation	avelren_adoption_test	_timescaledb_internal	_hyper_1_1_chunk	r	avelren	-	-	-	-	-	timescale	"_timescaledb_internal"."_hyper_1_1_chunk"
 EOF
     cat >"$dir/system.tsv" <<'EOF'
@@ -107,6 +109,13 @@ EOF
         extra-type)
             printf '%s\n' $'object\ttype\tavelren_adoption_test\tpublic\tunexpected_type\te\tavelren\t-\t-\t-\t-\t-\tapplication\t"public"."unexpected_type"' >>"$dir/routines.tsv"
             ;;
+        missing-timescale-binding)
+            grep -v $'\tpublic\tobservations_hourly\tcontinuous_aggregate\t' "$dir/timescale.tsv" >"$dir/timescale.tmp"
+            mv "$dir/timescale.tmp" "$dir/timescale.tsv"
+            ;;
+        extra-timescale-binding)
+            printf '%s\n' $'object\ttimescale_binding\tavelren_adoption_test\tpublic\tunexpected_hypertable\thypertable\tavelren\t-\t-\t-\t-\t-\ttimescale\t"public"."unexpected_hypertable"' >>"$dir/timescale.tsv"
+            ;;
         *) fail "unknown fixture variant: $variant" ;;
     esac
 }
@@ -124,6 +133,8 @@ capture_manifest ignored "$EVIDENCE/original.tsv"
 LC_ALL=C sort -c "$EVIDENCE/original.tsv" || fail 'manifest is not deterministic/sorted'
 ! grep -q $'\tpg_catalog\t' "$EVIDENCE/original.tsv" || fail 'system catalog leaked into application manifest'
 grep -q $'\t_timescaledb_internal\t_hyper_1_1_chunk\t' "$EVIDENCE/original.tsv" || fail 'Timescale structural record missing'
+grep -q $'\ttimescale_binding\tavelren_adoption_test\tpublic\tobservations\thypertable\t' "$EVIDENCE/original.tsv" || fail 'Timescale hypertable binding missing'
+grep -q $'\ttimescale_binding\tavelren_adoption_test\tpublic\tobservations_hourly\tcontinuous_aggregate\t' "$EVIDENCE/original.tsv" || fail 'Timescale continuous aggregate binding missing'
 validate_owned_object_allowlist "$EVIDENCE/original.tsv"
 
 build_forward_plan "$EVIDENCE/original.tsv" "$EVIDENCE/forward.sql" "$ROOT/db/migrations/010_postgresql_least_privilege.sql"
@@ -141,7 +152,7 @@ capture_manifest ignored "$EVIDENCE/repeated.tsv"
 second_hash=$(manifest_fingerprint "$EVIDENCE/repeated.tsv")
 [ "$first_hash" = "$second_hash" ] || fail 'manifest fingerprint is not deterministic'
 
-for variant in extra-relation missing-relation extra-extension extra-tablespace extra-shared unknown-owner extra-schema extra-function extra-type; do
+for variant in extra-relation missing-relation extra-extension extra-tablespace extra-shared unknown-owner extra-schema extra-function extra-type missing-timescale-binding extra-timescale-binding; do
     fixture="$WORK/$variant"
     make_fixture "$fixture" "$variant"
     AVELREN_CATALOG_FIXTURE_DIR="$fixture" capture_manifest ignored "$WORK/$variant.tsv"
@@ -230,7 +241,7 @@ run_orchestrator() {
         >"$WORK/$name.out" 2>&1
 }
 
-for variant in extra-relation missing-relation extra-extension extra-tablespace extra-shared unknown-owner extra-schema extra-function extra-type; do
+for variant in extra-relation missing-relation extra-extension extra-tablespace extra-shared unknown-owner extra-schema extra-function extra-type missing-timescale-binding extra-timescale-binding; do
     if run_orchestrator "$WORK/$variant" "orchestrator-$variant"; then
         fail "$variant should reject orchestrator"
     fi
