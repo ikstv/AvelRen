@@ -39,3 +39,21 @@ compose run --rm -T -e "DATABASE_URL=postgresql://avelren:ci-only@test-db:5432/$
     test python -m avelren.schema_verify db/migrations
 
 echo "restore integration passed: target=$TARGET_DB marker=$MARKER schema=verified"
+
+# Failure after a successful pre_restore must still attempt post_restore and
+# preserve a non-zero primary outcome.
+bad_dump="$WORK/fails-after-pre.sql.gz"
+printf 'THIS IS NOT VALID SQL;\n' | gzip -c >"$bad_dump"
+failure_log="$WORK/failure.log"
+if AVELREN_STACK_DIR="$ROOT" \
+   AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
+   AVELREN_COMPOSE_PROJECT="$PROJECT" \
+   AVELREN_DB_SERVICE=test-db \
+   bash "$ROOT/deploy/restore.sh" "$bad_dump" --target "$TARGET_DB" \
+       >"$failure_log" 2>&1; then
+    echo "restore failure after pre_restore was expected" >&2
+    exit 1
+fi
+grep -q 'primary restore failure' "$failure_log"
+grep -q 'timescaledb_post_restore cleanup succeeded' "$failure_log"
+echo "restore failure cleanup passed: post_restore attempted, primary failure preserved"
