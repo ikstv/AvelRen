@@ -31,7 +31,9 @@ if [[ "$args" == *' ps --status running --services'* ]]; then
     elif [ -n "${FAKE_POST_RUNNING_SERVICE:-}" ] && grep -q 'up -d caddy' "$FAKE_LOG"; then
         printf '%s\n' "$FAKE_POST_RUNNING_SERVICE"
     elif [ "$(cat "$FAKE_STATE" 2>/dev/null || true)" = running ]; then
-        printf '%s\n' caddy api collector notifier watchdog
+        for service in caddy api collector notifier watchdog; do
+            [ "$service" = "${FAKE_FINAL_MISSING_SERVICE:-}" ] || printf '%s\n' "$service"
+        done
     fi
     exit 0
 fi
@@ -173,10 +175,16 @@ set -e
 }
 grep -q 'cleanup left service running: api' "$WORK/cleanup-running.out"
 
+if run_fake final-missing FAKE_FINAL_MISSING_SERVICE=api; then
+    echo "missing service after restore should fail" >&2; exit 1
+fi
+grep -q 'ПОМИЛКА: service не running після restore: api' "$WORK/final-missing.out"
+assert_failed_closed final-missing
+
 if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service should abort" >&2; exit 1; fi
 ! grep -q ENGINE "$WORK/running.log"
 ! grep -q 'up -d ' "$WORK/running.log"
 ! grep -q HTTPS_READY "$WORK/running.log"
 assert_failed_closed running
 
-echo "production restore contract tests: 14 passed"
+echo "production restore contract tests: 15 passed"

@@ -192,7 +192,7 @@ done
 running=$(compose ps --status running --services)
 for service in $INGRESS_SERVICE $KNOWN_CLIENTS; do
     printf '%s\n' "$running" | grep -Fxq "$service" || {
-        log "РџРћРњРР›РљРђ: service РЅРµ running РїС–СЃР»СЏ restore: $service"; exit 1;
+        log "ПОМИЛКА: service не running після restore: $service"; exit 1;
     }
 done
 
