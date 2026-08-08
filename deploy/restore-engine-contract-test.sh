@@ -15,7 +15,7 @@ set -euo pipefail
 args="$*"
 query=$(cat)
 printf '%s %s\n' "$args" "$query" >>"$ENGINE_LOG"
-if [[ "$args" == *'ON_ERROR_STOP=1'* ]] && [ "${FAKE_INGEST_FAIL:-0}" = 1 ]; then
+if [[ "$args" == *'ON_ERROR_STOP=1'* && "$query" == *'SELECT 1;'* ]] && [ "${FAKE_INGEST_FAIL:-0}" = 1 ]; then
     exit 23
 fi
 if [[ "$args $query" == *'timescaledb_post_restore()'* ]] && [ "${FAKE_POST_FAIL:-0}" = 1 ]; then
