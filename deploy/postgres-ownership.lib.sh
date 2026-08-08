@@ -558,15 +558,17 @@ _role_sql() {
 
 build_inverse_plan() {
     local manifest=$1 output=$2 temporary scope name kind owner subject grantor grantee privilege grantable source identity
-    local object_keyword grantee_sql grantor_sql option role
+    local object_keyword grantee_sql grantor_sql option role database_identity
     validate_owned_object_allowlist "$manifest"
+    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" {print $14}' "$manifest")
+    [ -n "$database_identity" ] || ownership_fail 'validated database identity missing from manifest'
     temporary=$(_evidence_temp "$output")
     {
         _write_plan_header
         printf 'REASSIGN OWNED BY "%s" TO "%s";\n' "$AVELREN_MIGRATOR_ROLE" "$AVELREN_LEGACY_ROLE"
         printf 'REASSIGN OWNED BY "%s" TO "%s";\n' "$AVELREN_ADMIN_ROLE" "$AVELREN_LEGACY_ROLE"
 
-        printf 'REVOKE ALL PRIVILEGES ON DATABASE "%s" FROM PUBLIC, "avelren_admin", "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$AVELREN_TARGET_DB"
+        printf 'REVOKE ALL PRIVILEGES ON DATABASE %s FROM PUBLIC, "avelren_admin", "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$database_identity"
         printf '%s\n' 'REVOKE ALL PRIVILEGES ON SCHEMA "public" FROM PUBLIC, "avelren_admin", "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";'
         while IFS=$'\t' read -r _ scope _ _ name kind owner subject _ _ _ _ source identity; do
             [ "$scope" = relation ] || continue

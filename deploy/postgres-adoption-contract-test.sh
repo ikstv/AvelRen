@@ -147,6 +147,24 @@ grep -q '^REASSIGN OWNED BY "avelren_migrator" TO "avelren";' "$EVIDENCE/inverse
 grep -q '^REASSIGN OWNED BY "avelren_admin" TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks admin/extension rollback boundary'
 grep -q 'GRANT SELECT ON TABLE "public"\."devices" TO "avelren_api"' "$EVIDENCE/inverse.sql" || fail 'inverse plan was not generated from original ACL manifest'
 
+QUOTED_DB_MANIFEST="$EVIDENCE/quoted-database.tsv"
+awk -F '\t' 'BEGIN { OFS="\t" }
+    {
+        if ($3 == "avelren_adoption_test") $3 = "avelren_\"test"
+        if ($1 == "object" && $2 == "database") {
+            $5 = "avelren_\"test"
+            $14 = "\"avelren_\"\"test\""
+        }
+        print
+    }
+' "$EVIDENCE/original.tsv" >"$QUOTED_DB_MANIFEST"
+chmod 600 "$QUOTED_DB_MANIFEST"
+AVELREN_TARGET_DB='avelren_"test' validate_owned_object_allowlist "$QUOTED_DB_MANIFEST"
+AVELREN_TARGET_DB='avelren_"test' build_inverse_plan \
+    "$QUOTED_DB_MANIFEST" "$EVIDENCE/quoted-database-inverse.sql"
+grep -Fq 'REVOKE ALL PRIVILEGES ON DATABASE "avelren_""test"' \
+    "$EVIDENCE/quoted-database-inverse.sql" || fail 'database identifier was not derived from validated manifest quoting'
+
 first_hash=$(manifest_fingerprint "$EVIDENCE/original.tsv")
 capture_manifest ignored "$EVIDENCE/repeated.tsv"
 second_hash=$(manifest_fingerprint "$EVIDENCE/repeated.tsv")
