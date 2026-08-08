@@ -41,7 +41,13 @@ real_compose run --rm -T \
     test python -m avelren.migrate /prefix-migrations
 real_compose exec -T test-db psql -U avelren -d "$PREFIX_SOURCE_DB" -q \
     -c 'CREATE TABLE restore_prefix_marker (value text PRIMARY KEY);' \
-    -c "INSERT INTO restore_prefix_marker (value) VALUES ('$MARKER');"
+    -c "INSERT INTO restore_prefix_marker (value) VALUES ('$MARKER');" \
+    -c "INSERT INTO checkpoints
+        (id, title, for_vehicle_type, first_seen, last_seen)
+        VALUES (987654322, 'DR prefix fixture', 1, now(), now());" \
+    -c "INSERT INTO observations
+        (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused)
+        VALUES (now(), 987654322, 60, 1, false);"
 real_compose exec -T test-db pg_dump -U avelren -d "$PREFIX_SOURCE_DB" --no-owner | gzip -9 >"$PREFIX_DUMP"
 
 # Service lifecycle and HTTPS are isolated process boundaries in this stack;
