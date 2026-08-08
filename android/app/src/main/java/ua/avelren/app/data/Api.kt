@@ -97,6 +97,11 @@ object Api {
         val disk_used_percent: Int? = null,
         val reboot_required: Boolean = false,
         val reboot_pending_days: Int? = null,
+        // Доступні оновлення пакетів. null (default) = перевірити не вдалося
+        // або старий сервер без поля; 0 = перевірено, оновлень немає. Розрізняти
+        // важливо: 0 приховав би збій probe за виглядом здорового хоста.
+        val updates_pending: Int? = null,
+        val updates_security: Int? = null,
     )
 
     @Serializable

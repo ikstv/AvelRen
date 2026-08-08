@@ -24,6 +24,9 @@ API_HOST=${AVELREN_CERT_HOST:-api.bordersignal.pp.ua}
 # Перевизначається лише в CI, щоб прогнати фільтрацію інтерфейсів на
 # синтетичному файлі — тестувати треба цей script, а не його копію в workflow.
 NET_DEV=${AVELREN_NET_DEV:-/proc/1/net/dev}
+# Перевизначається лише в CI, щоб прогнати саму логіку apt-check (null /
+# валідний вивід / ненульовий вихід) на синтетичному probe.
+APT_CHECK=${AVELREN_APT_CHECK:-/usr/lib/update-notifier/apt-check}
 
 mkdir -p "$OUT_DIR"
 
@@ -49,6 +52,32 @@ if [ -e /run/reboot-required ]; then
     now=$(date +%s)
     mtime=$(stat -c %Y /run/reboot-required)
     reboot_pending_days=$(( (now - mtime) / 86400 ))
+fi
+
+# Доступні оновлення пакетів. `reboot_required` показує лише наслідок уже
+# встановленого ядра — самі непоставлені оновлення (і особливо security) до
+# цього моменту не було видно взагалі, тож дізнатися про них можна було тільки
+# зайшовши на хост руками.
+#
+# Рахуємо через apt-check: він читає вже завантажені списки пакетів і не
+# ходить у мережу, тож безпечний для щохвилинного таймера (на відміну від
+# `apt-get update`). Формат виводу — "звичайні;безпекові" у stderr.
+# 0 і null тут різні: 0 = перевірено, оновлень немає; null = перевірити не
+# вдалося (немає apt-check, зламаний вивід, ненульовий вихід probe). Показувати
+# «немає» замість «невідомо» — брехати про стан хоста, тож default = null.
+updates_pending=null
+updates_security=null
+if [ -x "$APT_CHECK" ]; then
+    # apt-check пише "звичайні;безпекові" у stderr. `|| raw=""` — той самий
+    # fail-safe, що нижче для openssl: probe не має бути single point of failure.
+    # Під `set -euo pipefail` ненульовий вихід apt-check (а в update-notifier
+    # такі сценарії траплялися) інакше поклав би ввесь snapshot ще до валідації.
+    raw=$("$APT_CHECK" 2>&1 | tr -d '[:space:]') || raw=""
+    # Лише валідний "N;M" дає числа; будь-що інше лишає null.
+    if printf '%s' "$raw" | grep -qE '^[0-9]+;[0-9]+$'; then
+        updates_pending=${raw%%;*}
+        updates_security=${raw##*;}
+    fi
 fi
 
 # --- network (RX/TX через host PID 1) ---
@@ -148,7 +177,9 @@ cat > "$TMP" <<JSON
     "disk_used_percent": $(awk -v u=$disk_used_1k -v t=$disk_total_1k \
         'BEGIN {if (t > 0) printf "%d", (u * 100 + t / 2) / t; else print "null"}'),
     "reboot_required": $reboot_required,
-    "reboot_pending_days": $reboot_pending_days
+    "reboot_pending_days": $reboot_pending_days,
+    "updates_pending": $updates_pending,
+    "updates_security": $updates_security
   },
   "network": {
     "rx_total_gb": $(awk -v b=$rx_total 'BEGIN {printf "%.2f", b/1024/1024/1024}'),
