@@ -81,9 +81,22 @@ readonly SOURCE_DB=avelren_restore_source_test
 readonly TARGET_DB=restore_test
 readonly MARKER=restore-integration-marker-v2
 readonly DUMP="$WORK/source.sql.gz"
+readonly UNEXPECTED_DUMP="$WORK/source-unexpected.sql.gz"
+readonly MISSING_DUMP="$WORK/source-missing.sql.gz"
 readonly BOOTSTRAP_DSN='postgresql://avelren_admin:ci-only@localhost:5432/postgres'
 readonly MIGRATOR_SOURCE_DSN="postgresql://avelren_migrator:ci-only@db:5432/$SOURCE_DB"
 readonly ADMIN_TARGET_DSN="postgresql://avelren_admin:ci-only@db:5432/$TARGET_DB"
+
+run_restore() {
+    local dump=$1
+    AVELREN_STACK_DIR="$ROOT" \
+    AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
+    AVELREN_COMPOSE_PROJECT="$PROJECT" \
+    AVELREN_DB_SERVICE=db \
+    AVELREN_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+    AVELREN_COMPOSE_ENV_GUARD=isolated \
+    bash "$ROOT/deploy/restore.sh" "$dump" --target "$TARGET_DB"
+}
 
 compose up --detach --wait db
 # The expression is evaluated inside the database container.
@@ -117,7 +130,10 @@ PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
         VALUES (987654320, '$MARKER', 1, now(), now());" \
     -c "INSERT INTO observations
         (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused)
-        VALUES (now(), 987654320, 60, 1, false);"
+        VALUES (now(), 987654320, 60, 1, false);" \
+    -c "CREATE TABLE public.unexpected_relation (marker text NOT NULL);" \
+    -c "INSERT INTO public.unexpected_relation VALUES ('must-remain-admin-owned');" \
+    -c "GRANT SELECT ON public.unexpected_relation TO avelren_backup;"
 
 if PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
     psql -U avelren_backup -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q \
@@ -130,15 +146,39 @@ if PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
 fi
 
 PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
+    pg_dump --no-owner -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$UNEXPECTED_DUMP"
+if run_restore "$UNEXPECTED_DUMP" >"$WORK/unexpected-restore.out" 2>&1; then
+    echo 'restore integration failed: unexpected application relation passed ownership preflight' >&2
+    exit 1
+fi
+grep -q 'restore application relation allowlist mismatch' "$WORK/unexpected-restore.out"
+unexpected_state=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT relation.relname || ':' || owner.rolname || ':' ||
+               (SELECT marker FROM public.unexpected_relation LIMIT 1)
+        FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        JOIN pg_roles AS owner ON owner.oid = relation.relowner
+        WHERE namespace.nspname = 'public'
+          AND relation.relname = 'unexpected_relation';")
+[ "$unexpected_state" = 'unexpected_relation:avelren_admin:must-remain-admin-owned' ]
+canonical_owner_after_unexpected=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT tableowner FROM pg_tables
+        WHERE schemaname = 'public' AND tablename = 'schema_migrations';")
+[ "$canonical_owner_after_unexpected" = avelren_admin ] || {
+    echo 'restore integration failed: ownership mutation began before unexpected-relation rejection' >&2
+    exit 1
+}
+
+PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q \
+    -c 'DROP TABLE public.unexpected_relation;'
+
+PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
     pg_dump --no-owner -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$DUMP"
 
-AVELREN_STACK_DIR="$ROOT" \
-AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
-AVELREN_COMPOSE_PROJECT="$PROJECT" \
-AVELREN_DB_SERVICE=db \
-AVELREN_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-AVELREN_COMPOSE_ENV_GUARD=isolated \
-bash "$ROOT/deploy/restore.sh" "$DUMP" --target "$TARGET_DB"
+run_restore "$DUMP"
 
 restored=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -At \
@@ -154,6 +194,32 @@ restored_owner=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     echo 'restore integration failed: application ownership was not restored to migrator' >&2
     exit 1
 }
+
+PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q \
+    -c 'DROP TABLE public.notification_cancels;'
+PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
+    pg_dump --no-owner -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$MISSING_DUMP"
+if run_restore "$MISSING_DUMP" >"$WORK/missing-restore.out" 2>&1; then
+    echo 'restore integration failed: missing expected relation passed ownership preflight' >&2
+    exit 1
+fi
+grep -q 'restore application relation allowlist mismatch' "$WORK/missing-restore.out"
+missing_owner_state=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT tableowner FROM pg_tables
+        WHERE schemaname = 'public' AND tablename = 'schema_migrations';")
+[ "$missing_owner_state" = avelren_admin ] || {
+    echo 'restore integration failed: ownership mutation began before missing-relation rejection' >&2
+    exit 1
+}
+missing_relation=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT to_regclass('public.notification_cancels') IS NULL;")
+[ "$missing_relation" = t ]
+
+# Restore the unchanged canonical dump once more after the fail-closed fixture.
+run_restore "$DUMP"
 
 AVELREN_STACK_DIR="$ROOT" \
 AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \

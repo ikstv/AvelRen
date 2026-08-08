@@ -51,27 +51,98 @@ avelren_restore_engine() {
         restore_psql -d "$AVELREN_RESTORE_TARGET" -q <<'SQL'
 DO $$
 DECLARE
-    expected_count CONSTANT integer := 20;
-    actual_count integer;
+    inventory_mismatch text;
 BEGIN
-    SELECT count(*) INTO actual_count
-    FROM pg_class AS relation
-    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-    WHERE namespace.nspname = 'public'
-      AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
-      AND relation.relname = ANY (ARRAY[
-          'countries', 'checkpoints', 'observations', 'observations_hourly',
-          'collector_runs', 'devices', 'subscriptions', 'subscription_state',
-          'alerts', 'eta_targets', 'eta_alerts', 'health_alerts',
-          'notification_cancels', 'schema_migrations', 'alerts_id_seq',
-          'eta_alerts_id_seq', 'health_alerts_id_seq',
-          'notification_cancels_id_seq', 'subscriptions_id_seq',
-          'eta_targets_id_seq'
-      ]);
+    WITH expected(schema_name, relation_name, relation_kind) AS (
+        VALUES
+            ('public', 'countries', 'r'),
+            ('public', 'checkpoints', 'r'),
+            ('public', 'observations', 'r'),
+            ('public', 'observations_hourly', 'v'),
+            ('public', 'collector_runs', 'r'),
+            ('public', 'devices', 'r'),
+            ('public', 'subscriptions', 'r'),
+            ('public', 'subscription_state', 'r'),
+            ('public', 'alerts', 'r'),
+            ('public', 'eta_targets', 'r'),
+            ('public', 'eta_alerts', 'r'),
+            ('public', 'health_alerts', 'r'),
+            ('public', 'notification_cancels', 'r'),
+            ('public', 'schema_migrations', 'r'),
+            ('public', 'alerts_id_seq', 'S'),
+            ('public', 'eta_alerts_id_seq', 'S'),
+            ('public', 'health_alerts_id_seq', 'S'),
+            ('public', 'notification_cancels_id_seq', 'S'),
+            ('public', 'subscriptions_id_seq', 'S'),
+            ('public', 'eta_targets_id_seq', 'S')
+    ),
+    actual AS (
+        SELECT namespace.nspname::text AS schema_name,
+               relation.relname::text AS relation_name,
+               relation.relkind::text AS relation_kind
+        FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend AS dependency
+              JOIN pg_extension AS extension
+                ON extension.oid = dependency.refobjid
+              WHERE dependency.classid = 'pg_class'::regclass
+                AND dependency.objid = relation.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+                AND extension.extname = 'timescaledb'
+          )
+    ),
+    mismatch AS (
+        SELECT 'missing'::text AS issue, missing.*
+        FROM (
+            SELECT expected.* FROM expected
+            EXCEPT
+            SELECT actual.* FROM actual
+        ) AS missing
+        UNION ALL
+        SELECT 'unexpected'::text AS issue, unexpected.*
+        FROM (
+            SELECT actual.* FROM actual
+            EXCEPT
+            SELECT expected.* FROM expected
+        ) AS unexpected
+    )
+    SELECT string_agg(
+               format('%s %I.%I (%s)', issue, schema_name, relation_name, relation_kind),
+               ', ' ORDER BY issue, schema_name, relation_name, relation_kind
+           )
+    INTO inventory_mismatch
+    FROM mismatch;
 
-    IF actual_count <> expected_count THEN
-        RAISE EXCEPTION 'restore application relation allowlist mismatch: expected %, got %',
-            expected_count, actual_count;
+    IF inventory_mismatch IS NOT NULL THEN
+        RAISE EXCEPTION 'restore application relation allowlist mismatch: %',
+            inventory_mismatch;
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        JOIN pg_roles AS owner ON owner.oid = relation.relowner
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend AS dependency
+              JOIN pg_extension AS extension
+                ON extension.oid = dependency.refobjid
+              WHERE dependency.classid = 'pg_class'::regclass
+                AND dependency.objid = relation.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+                AND extension.extname = 'timescaledb'
+          )
+          AND owner.rolname <> 'avelren_admin'
+    ) THEN
+        RAISE EXCEPTION 'restored application relations must be owned by avelren_admin before handoff';
     END IF;
     IF (SELECT owner.rolname
         FROM pg_extension AS extension
@@ -82,6 +153,29 @@ BEGIN
 END
 $$;
 
+WITH expected(schema_name, relation_name, relation_kind) AS (
+    VALUES
+        ('public', 'countries', 'r'),
+        ('public', 'checkpoints', 'r'),
+        ('public', 'observations', 'r'),
+        ('public', 'observations_hourly', 'v'),
+        ('public', 'collector_runs', 'r'),
+        ('public', 'devices', 'r'),
+        ('public', 'subscriptions', 'r'),
+        ('public', 'subscription_state', 'r'),
+        ('public', 'alerts', 'r'),
+        ('public', 'eta_targets', 'r'),
+        ('public', 'eta_alerts', 'r'),
+        ('public', 'health_alerts', 'r'),
+        ('public', 'notification_cancels', 'r'),
+        ('public', 'schema_migrations', 'r'),
+        ('public', 'alerts_id_seq', 'S'),
+        ('public', 'eta_alerts_id_seq', 'S'),
+        ('public', 'health_alerts_id_seq', 'S'),
+        ('public', 'notification_cancels_id_seq', 'S'),
+        ('public', 'subscriptions_id_seq', 'S'),
+        ('public', 'eta_targets_id_seq', 'S')
+)
 SELECT format(
     'ALTER %s %I.%I OWNER TO avelren_migrator',
     CASE
@@ -96,17 +190,10 @@ SELECT format(
 )
 FROM pg_class AS relation
 JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-WHERE namespace.nspname = 'public'
-  AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
-  AND relation.relname = ANY (ARRAY[
-      'countries', 'checkpoints', 'observations', 'observations_hourly',
-      'collector_runs', 'devices', 'subscriptions', 'subscription_state',
-      'alerts', 'eta_targets', 'eta_alerts', 'health_alerts',
-      'notification_cancels', 'schema_migrations', 'alerts_id_seq',
-      'eta_alerts_id_seq', 'health_alerts_id_seq',
-      'notification_cancels_id_seq', 'subscriptions_id_seq',
-      'eta_targets_id_seq'
-  ])
+JOIN expected
+  ON expected.schema_name = namespace.nspname
+ AND expected.relation_name = relation.relname
+ AND expected.relation_kind = relation.relkind::text
 ORDER BY CASE relation.relkind WHEN 'S' THEN 2 ELSE 1 END, relation.relname
 \gexec
 
@@ -119,15 +206,17 @@ BEGIN
         JOIN pg_roles AS owner ON owner.oid = relation.relowner
         WHERE namespace.nspname = 'public'
           AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
-          AND relation.relname = ANY (ARRAY[
-              'countries', 'checkpoints', 'observations', 'observations_hourly',
-              'collector_runs', 'devices', 'subscriptions', 'subscription_state',
-              'alerts', 'eta_targets', 'eta_alerts', 'health_alerts',
-              'notification_cancels', 'schema_migrations', 'alerts_id_seq',
-              'eta_alerts_id_seq', 'health_alerts_id_seq',
-              'notification_cancels_id_seq', 'subscriptions_id_seq',
-              'eta_targets_id_seq'
-          ])
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend AS dependency
+              JOIN pg_extension AS extension
+                ON extension.oid = dependency.refobjid
+              WHERE dependency.classid = 'pg_class'::regclass
+                AND dependency.objid = relation.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+                AND extension.extname = 'timescaledb'
+          )
           AND owner.rolname <> 'avelren_migrator'
     ) THEN
         RAISE EXCEPTION 'restore application ownership finalization failed';
