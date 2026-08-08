@@ -36,6 +36,7 @@ jobs:
             deploy/telemetry-snapshot.sh \
             deploy/avelren-telemetry.service \
             deploy/avelren-telemetry.timer \
+            deploy/compose-security-contract-test.sh \
             db/migrations/008_notification_cancels.sql \
             app/src/avelren/cancels.py \
             android/app/src/main/java/ua/avelren/app/notify/AlertReconciliation.kt \
@@ -125,10 +126,11 @@ jobs:
       - name: Disposable production-mode restore integration
         run: bash deploy/restore-production-integration-test.sh
 
+      - name: Compose database credential isolation
+        run: bash deploy/compose-security-contract-test.sh
+
       - name: Docker Compose config
-        run: |
-          cp .env.example .env
-          POSTGRES_PASSWORD=ci docker compose config --quiet
+        run: docker compose --env-file .env.example config --quiet
 
       - name: Snapshot script — синтаксис
         run: bash -n deploy/telemetry-snapshot.sh

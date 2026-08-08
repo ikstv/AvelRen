@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+umask 077
+WORK=$(mktemp -d)
+RESOLVED=$(mktemp)
+COMPOSE_ERROR=$(mktemp)
+STACK="$WORK/stack"
+trap 'rm -rf "$WORK" "$RESOLVED" "$COMPOSE_ERROR"' EXIT
+chmod 600 "$RESOLVED" "$COMPOSE_ERROR"
+
+fail() {
+    printf 'compose security contract failed: %s\n' "$*" >&2
+    exit 1
+}
+
+run_compose_config() {
+    mkdir -p "$STACK"
+    cp "$ROOT/docker-compose.yml" "$STACK/docker-compose.yml"
+    cat >"$STACK/.env" <<'ENV'
+DATABASE_URL=LEGACY_SENTINEL
+AVELREN_ADMIN_DSN=ADMIN_SENTINEL
+AVELREN_MIGRATOR_DSN=MIGRATOR_SENTINEL
+AVELREN_BACKUP_DSN=BACKUP_SENTINEL
+AVELREN_COLLECTOR_DSN=COLLECTOR_SENTINEL
+AVELREN_NOTIFIER_DSN=NOTIFIER_SENTINEL
+AVELREN_WATCHDOG_DSN=WATCHDOG_SENTINEL
+AVELREN_API_DSN=API_SENTINEL
+ENV
+    (
+        cd "$STACK"
+        POSTGRES_USER=POSTGRES_USER_SENTINEL \
+        POSTGRES_PASSWORD=POSTGRES_PASSWORD_SENTINEL \
+        POSTGRES_DB=POSTGRES_DB_SENTINEL \
+        DATABASE_URL=LEGACY_SENTINEL \
+        AVELREN_ADMIN_DSN=ADMIN_SENTINEL \
+        AVELREN_MIGRATOR_DSN=MIGRATOR_SENTINEL \
+        AVELREN_BACKUP_DSN=BACKUP_SENTINEL \
+        AVELREN_COLLECTOR_DSN=COLLECTOR_SENTINEL \
+        AVELREN_NOTIFIER_DSN=NOTIFIER_SENTINEL \
+        AVELREN_WATCHDOG_DSN=WATCHDOG_SENTINEL \
+        AVELREN_API_DSN=API_SENTINEL \
+        docker compose --env-file .env config --format json >"$RESOLVED" 2>"$COMPOSE_ERROR"
+    ) || fail 'docker compose config failed'
+}
+
+run_compose_config
+
+PYTHON_BIN=${PYTHON_BIN:-python3}
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    PYTHON_BIN=python
+fi
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || fail 'Python interpreter missing'
+
+"$PYTHON_BIN" - "$RESOLVED" <<'PY' || exit $?
+import json
+import sys
+
+resolved_path = sys.argv[1]
+expected = {
+    "migrate": {"MIGRATOR_SENTINEL"},
+    "collector": {"COLLECTOR_SENTINEL"},
+    "notifier": {"NOTIFIER_SENTINEL"},
+    "watchdog": {"WATCHDOG_SENTINEL"},
+    "api": {"API_SENTINEL"},
+}
+all_database_sentinels = {
+    "ADMIN_SENTINEL",
+    "MIGRATOR_SENTINEL",
+    "BACKUP_SENTINEL",
+    "COLLECTOR_SENTINEL",
+    "NOTIFIER_SENTINEL",
+    "WATCHDOG_SENTINEL",
+    "API_SENTINEL",
+    "LEGACY_SENTINEL",
+}
+
+
+def fail(message: str) -> None:
+    print(f"compose security contract failed: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def environment_values(service: dict) -> set[str]:
+    environment = service.get("environment", {})
+    if isinstance(environment, dict):
+        return {str(value) for value in environment.values() if value is not None}
+    if isinstance(environment, list):
+        return {
+            value.split("=", 1)[1]
+            for value in environment
+            if isinstance(value, str) and "=" in value
+        }
+    fail("invalid resolved environment")
+
+
+with open(resolved_path, encoding="utf-8") as resolved_file:
+    config = json.load(resolved_file)
+
+services = config.get("services")
+if not isinstance(services, dict):
+    fail("resolved services missing")
+
+for service_name, own_sentinel in expected.items():
+    service = services.get(service_name)
+    if not isinstance(service, dict):
+        fail(f"service {service_name} missing")
+    if "env_file" in service:
+        fail(f"service {service_name} uses env_file")
+    seen_database_sentinels = environment_values(service) & all_database_sentinels
+    if seen_database_sentinels != own_sentinel:
+        fail(f"service {service_name} has forbidden database credential category")
+
+print("compose security contract ok")
+PY
