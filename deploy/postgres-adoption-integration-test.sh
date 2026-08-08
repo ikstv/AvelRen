@@ -197,9 +197,10 @@ AVELREN_TARGET_DB="$TARGET_DB" build_inverse_plan \
     "$PLAN_EVIDENCE/original.tsv" "$PLAN_EVIDENCE/inverse.sql"
 
 assert_target_check_rejects() {
-    local name=$1 tamper=$2 expected_error=$3 driver output
+    local name=$1 tamper=$2 expected_error=$3 driver output after_manifest
     driver="$WORK/$name.driver.sql"
     output="$WORK/$name.out"
+    after_manifest="$WORK/$name.after.tsv"
     {
         printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
         cat "$PLAN_EVIDENCE/forward.sql"
@@ -220,6 +221,11 @@ assert_target_check_rejects() {
     grep -q "$expected_error" "$output" || {
         echo "$name failed for the wrong reason" >&2
         sed -n '1,120p' "$output" >&2 || true
+        exit 1
+    }
+    AVELREN_TARGET_DB="$TARGET_DB" capture_manifest "$ADMIN_DSN" "$after_manifest"
+    cmp "$PLAN_EVIDENCE/original.tsv" "$after_manifest" || {
+        echo "$name left ownership or ACL mutation after rejection" >&2
         exit 1
     }
 }
@@ -264,6 +270,22 @@ ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator IN SCHEMA public
 SQL
 assert_target_check_rejects default-acl-drift "$WORK/default-acl-drift.sql" \
     'target default-privilege'
+
+cat >"$WORK/default-function-owner-missing.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    REVOKE EXECUTE ON FUNCTIONS FROM avelren_migrator;
+SQL
+assert_target_check_rejects default-function-owner-missing \
+    "$WORK/default-function-owner-missing.sql" \
+    'target default-privilege ACL exact-set mismatch'
+
+cat >"$WORK/default-type-owner-missing.sql" <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
+    REVOKE USAGE ON TYPES FROM avelren_migrator;
+SQL
+assert_target_check_rejects default-type-owner-missing \
+    "$WORK/default-type-owner-missing.sql" \
+    'target default-privilege ACL exact-set mismatch'
 
 cat >"$WORK/residual-non-public-relation.sql" <<'SQL'
 CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;

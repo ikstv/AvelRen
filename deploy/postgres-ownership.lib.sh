@@ -812,6 +812,40 @@ BEGIN
         RAISE EXCEPTION 'target ACL exact-set mismatch (% rows)', mismatch_count;
     END IF;
 
+    WITH expected_default_acl (
+        owner_name, namespace_name, object_type, grantor_name, grantee_name,
+        privilege_type, is_grantable
+    ) AS (
+        VALUES
+            ('avelren_migrator','-','f','avelren_migrator','avelren_migrator','EXECUTE','false'),
+            ('avelren_migrator','-','T','avelren_migrator','avelren_migrator','USAGE','false')
+    ), actual_default_acl AS (
+        SELECT pg_get_userbyid(defaults.defaclrole),
+               COALESCE(namespace.nspname, '-'),
+               defaults.defaclobjtype::text,
+               pg_get_userbyid(acl.grantor),
+               CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
+               acl.privilege_type,
+               acl.is_grantable::text
+        FROM pg_default_acl AS defaults
+        LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+        CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
+    ), mismatch AS (
+        (SELECT 'missing'::text AS direction, expected.*
+         FROM expected_default_acl AS expected
+         EXCEPT
+         SELECT 'missing', actual.* FROM actual_default_acl AS actual)
+        UNION ALL
+        (SELECT 'unexpected'::text AS direction, actual.*
+         FROM actual_default_acl AS actual
+         EXCEPT
+         SELECT 'unexpected', expected.* FROM expected_default_acl AS expected)
+    )
+    SELECT count(*) INTO mismatch_count FROM mismatch;
+    IF mismatch_count <> 0 THEN
+        RAISE EXCEPTION 'target default-privilege ACL exact-set mismatch (% rows)', mismatch_count;
+    END IF;
+
     IF EXISTS (
         (SELECT pg_get_userbyid(defaclrole), COALESCE(namespace.nspname, '-'), defaclobjtype::text
          FROM pg_default_acl
@@ -826,20 +860,6 @@ BEGIN
          LEFT JOIN pg_namespace AS namespace ON namespace.oid = defaclnamespace)
     ) THEN
         RAISE EXCEPTION 'target default-privilege identity exact-set mismatch';
-    END IF;
-    IF EXISTS (
-        SELECT 1
-        FROM pg_default_acl AS defaults
-        CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
-        WHERE pg_get_userbyid(defaults.defaclrole) <> 'avelren_migrator'
-           OR pg_get_userbyid(acl.grantor) <> 'avelren_migrator'
-           OR acl.grantee <> defaults.defaclrole
-           OR acl.is_grantable
-           OR (defaults.defaclobjtype = 'f' AND acl.privilege_type <> 'EXECUTE')
-           OR (defaults.defaclobjtype = 'T' AND acl.privilege_type <> 'USAGE')
-           OR defaults.defaclobjtype NOT IN ('f','T')
-    ) THEN
-        RAISE EXCEPTION 'target default-privilege ACL exact-set mismatch';
     END IF;
 END
 $avelren_acl_verify$;
