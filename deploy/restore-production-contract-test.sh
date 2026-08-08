@@ -80,9 +80,16 @@ run_fake() {
 
 assert_failed_closed() {
     local name=$1 log="$WORK/$1.log" out="$WORK/$1.out"
-    grep -q 'stop caddy' "$log"
-    grep -q 'stop api collector notifier watchdog' "$log"
-    ! grep -q 'production restore complete' "$out"
+    if ! grep -q 'stop caddy' "$log" || \
+       ! grep -q 'stop api collector notifier watchdog' "$log" || \
+       grep -q 'production restore complete' "$out"; then
+        echo "failed closed assertion: $name" >&2
+        echo '--- service log ---' >&2
+        sed -n '1,240p' "$log" >&2 || true
+        echo '--- orchestrator output ---' >&2
+        sed -n '1,240p' "$out" >&2 || true
+        return 1
+    fi
 }
 
 run_fake success
