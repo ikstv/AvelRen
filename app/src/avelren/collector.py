@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import httpx
 
 from . import alerts, eta
-from .config import settings
+from .config import settings, validate_collector_settings
 from .db import (
     get_pool,
     insert_observations,
@@ -93,6 +93,7 @@ async def main() -> None:
         level=settings.log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    validate_collector_settings(settings)
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
