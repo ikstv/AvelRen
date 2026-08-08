@@ -155,14 +155,22 @@ grep -q HTTPS_READY "$WORK/freshness.log"
 grep -q 'SELECT EXISTS' "$WORK/freshness.log"
 assert_failed_closed freshness
 
-if run_fake cleanup-stop FAKE_CURL_STATUS=1 FAKE_CLEANUP_STOP_FAIL=1; then
-    echo "cleanup stop failure should preserve failure" >&2; exit 1
-fi
+set +e
+run_fake cleanup-stop FAKE_CURL_STATUS=1 FAKE_CLEANUP_STOP_FAIL=1
+cleanup_stop_status=$?
+set -e
+[ "$cleanup_stop_status" -eq 1 ] || {
+    echo "cleanup stop failure replaced primary status: $cleanup_stop_status" >&2; exit 1;
+}
 grep -q 'cleanup stop failed' "$WORK/cleanup-stop.out"
 
-if run_fake cleanup-running FAKE_CURL_STATUS=1 FAKE_POST_RUNNING_SERVICE=api; then
-    echo "cleanup running service should preserve failure" >&2; exit 1
-fi
+set +e
+run_fake cleanup-running FAKE_CURL_STATUS=1 FAKE_POST_RUNNING_SERVICE=api
+cleanup_running_status=$?
+set -e
+[ "$cleanup_running_status" -eq 1 ] || {
+    echo "cleanup running service replaced primary status: $cleanup_running_status" >&2; exit 1;
+}
 grep -q 'cleanup left service running: api' "$WORK/cleanup-running.out"
 
 if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service should abort" >&2; exit 1; fi
