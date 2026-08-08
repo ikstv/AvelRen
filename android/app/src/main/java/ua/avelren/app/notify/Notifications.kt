@@ -20,16 +20,20 @@ import ua.avelren.app.R
 
 /**
  * З Android 13 (TIRAMISU) показ сповіщень — це runtime-permission
- * POST_NOTIFICATIONS. `areNotificationsEnabled()` формально повертає той самий
- * стан, але lint читає саме @RequiresPermission-анотацію: без явного
- * checkSelfPermission() перед notify() build падає з MissingPermission.
- * Це не косметика — permission міг бути відкликаний після старту процесу.
+ * POST_NOTIFICATIONS. Явний checkSelfPermission() потрібен і для lint: він
+ * читає @RequiresPermission на notify() і не йде за викликом.
+ *
+ * AND-2: сама лише перевірка permission брехала на Android 8–12, де
+ * runtime-permission немає, але користувач міг вимкнути сповіщення застосунку в
+ * системі — тоді notify() тихо нічого не робив. Тепер posting-path питає ту саму
+ * істину, що й UI: permission І `areNotificationsEnabled()`.
  */
 private fun canPostNotifications(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
-    return ContextCompat.checkSelfPermission(
-        context, Manifest.permission.POST_NOTIFICATIONS
-    ) == PackageManager.PERMISSION_GRANTED
+    val runtimeOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(
+            context, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    return runtimeOk && NotificationManagerCompat.from(context).areNotificationsEnabled()
 }
 
 /**
@@ -73,6 +77,28 @@ object Notifications {
         }
         return kindCode * 10_000_000 + (alertId % 10_000_000).toInt()
     }
+
+    /**
+     * Канал алертів існує, але вимкнений користувачем (IMPORTANCE_NONE). Окремий
+     * випадок від app-wide блокування: сповіщення застосунку дозволені, а саме
+     * черга — ні, і вести треба в налаштування каналу (AND-2).
+     */
+    fun alertChannelBlocked(context: Context): Boolean {
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return false
+        val channel = nm.getNotificationChannel(CHANNEL_ID) ?: return false
+        return channel.importance == NotificationManager.IMPORTANCE_NONE
+    }
+
+    /** Чи ввімкнені сповіщення застосунку в системі (усі версії Android). */
+    fun appNotificationsEnabled(context: Context): Boolean =
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+    /** Чи видано runtime-permission (на < 33 його немає — вважаємо виданим). */
+    fun runtimePermissionGranted(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
 
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
