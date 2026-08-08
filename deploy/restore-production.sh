@@ -13,6 +13,9 @@ KNOWN_CLIENTS=${AVELREN_DB_CLIENT_SERVICES:-api collector notifier watchdog}
 READINESS_URL=${AVELREN_READINESS_URL:-https://api.bordersignal.pp.ua/api/health}
 READINESS_TIMEOUT=${AVELREN_READINESS_TIMEOUT_SECONDS:-120}
 FRESHNESS_TIMEOUT=${AVELREN_FRESHNESS_TIMEOUT_SECONDS:-180}
+ADMIN_DB_USER=${AVELREN_ADMIN_DB_USER:-avelren_admin}
+ADMIN_DB_PASSWORD=${AVELREN_ADMIN_PASSWORD:-}
+ADMIN_DATABASE_URL=${AVELREN_ADMIN_DSN:-}
 PRODUCTION_TARGET=avelren
 CONFIRMATION_TOKEN=AVELREN-PRODUCTION-RESTORE
 
@@ -36,7 +39,10 @@ compose() {
     [ -z "$COMPOSE_PROJECT" ] || args+=(-p "$COMPOSE_PROJECT")
     "${args[@]}" "$@"
 }
-db_psql() { compose exec -T "$DB_SERVICE" psql -U avelren -v ON_ERROR_STOP=1 "$@"; }
+db_psql() {
+    PGPASSWORD="$ADMIN_DB_PASSWORD" compose exec -T -e PGPASSWORD "$DB_SERVICE" \
+        psql -U "$ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
+}
 
 if [ "$CONFIRMATION" != "$CONFIRMATION_TOKEN" ]; then
     log "ВІДМОВА: production orchestrator потребує exact confirmation token"
@@ -44,6 +50,16 @@ if [ "$CONFIRMATION" != "$CONFIRMATION_TOKEN" ]; then
 fi
 [ -f "$DUMP" ] || { log "ВІДМОВА: backup artifact не знайдено"; exit 1; }
 gzip -t "$DUMP" || { log "ВІДМОВА: backup artifact corrupt"; exit 1; }
+
+[ "$ADMIN_DB_USER" = avelren_admin ] || {
+    log "restore database role must be avelren_admin"; exit 2;
+}
+[ -n "$ADMIN_DB_PASSWORD" ] || {
+    log "restore database password is required"; exit 2;
+}
+[ -n "$ADMIN_DATABASE_URL" ] || {
+    log "admin verification DSN is required"; exit 2;
+}
 
 cd "$STACK_DIR"
 SUCCESS=false
@@ -145,7 +161,7 @@ AVELREN_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
 AVELREN_VERIFY_APP_SERVICE="$VERIFY_APP_SERVICE" \
 AVELREN_VERIFY_MIGRATIONS_DIR="${AVELREN_VERIFY_MIGRATIONS_DIR:-/migrations}" \
 AVELREN_PRODUCTION_VERIFY_CONTEXT=AVELREN-INTERNAL-PRODUCTION-VERIFY \
-AVELREN_VERIFY_DATABASE_URL="${AVELREN_VERIFY_DATABASE_URL:-}" \
+AVELREN_VERIFY_DATABASE_URL="$ADMIN_DATABASE_URL" \
 bash "$STACK_DIR/deploy/restore-verify.sh" "$PRODUCTION_TARGET"
 
 pre_restart_run=$(db_psql -d "$PRODUCTION_TARGET" -At -c \

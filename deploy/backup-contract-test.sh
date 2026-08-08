@@ -11,6 +11,23 @@ make_tools() {
     cat >"$bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >>"${FAKE_CALL_LOG:?}"
+[ "${PGPASSWORD:-}" = "${EXPECTED_BACKUP_PASSWORD:?}" ] || {
+    echo 'backup password was not provided through the process environment' >&2
+    exit 14
+}
+[[ " $* " == *' exec -T -e PGPASSWORD db pg_dump -U avelren_backup -d avelren '* ]] || {
+    echo 'pg_dump did not use the canonical backup role' >&2
+    exit 15
+}
+[[ " $* " != *' --no-owner '* ]] || {
+    echo 'pg_dump discarded ownership required by the migrator restore gate' >&2
+    exit 17
+}
+[[ "$*" != *"$EXPECTED_BACKUP_PASSWORD"* ]] || {
+    echo 'backup password leaked into docker argv' >&2
+    exit 16
+}
 [ "${FAKE_DUMP_FAIL:-0}" != 1 ] || { printf 'partial'; exit 9; }
 if [ "${FAKE_SMALL_DUMP:-0}" = 1 ]; then
     printf 'SELECT 1;\n'
@@ -80,6 +97,8 @@ run_case() {
         AVELREN_BACKUP_REMOTE="fake:$remote" \
         AVELREN_RCLONE_CONFIG="$case_dir/rclone.conf" \
         AVELREN_BACKUP_STAMP="$case_dir/stamp" \
+        AVELREN_BACKUP_PASSWORD=backup-contract-secret \
+        EXPECTED_BACKUP_PASSWORD=backup-contract-secret \
         FAKE_CALL_LOG="$case_dir/calls.log" \
         "$@" bash "$ROOT/deploy/backup.sh"
 }
@@ -96,6 +115,26 @@ run_case success
 assert_no_plaintext "$WORK/success/work"
 remote_dump=$(find "$WORK/success/remote" -type f -name '*.sql.gz' | head -1)
 [ -n "$remote_dump" ] && [ -f "$remote_dump.sha256" ]
+grep -q 'pg_dump -U avelren_backup -d avelren' "$WORK/success/calls.log"
+! grep -q -- '--no-owner' "$WORK/success/calls.log"
+! grep -Eq 'pg_dump -U (avelren|avelren_admin|avelren_migrator)( |$)' "$WORK/success/calls.log"
+! grep -q 'backup-contract-secret' "$WORK/success/calls.log"
+
+# Role and credential gates run before Docker can reach PostgreSQL.
+for item in \
+    'missing-password:AVELREN_BACKUP_PASSWORD=' \
+    'admin-role:AVELREN_BACKUP_DB_USER=avelren_admin' \
+    'migrator-role:AVELREN_BACKUP_DB_USER=avelren_migrator' \
+    'legacy-role:AVELREN_BACKUP_DB_USER=avelren'
+do
+    name=${item%%:*}; setting=${item#*:}
+    if run_case "$name" "$setting"; then
+        echo "expected backup role gate failure: $name" >&2; exit 1
+    fi
+    [ ! -s "$WORK/$name/calls.log" ]
+    [ ! -e "$WORK/$name/stamp" ]
+    assert_no_plaintext "$WORK/$name/work"
+done
 
 for item in \
     'dump:FAKE_DUMP_FAIL=1' \
@@ -139,4 +178,4 @@ mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-not
 run_case unrelated
 [ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
 
-echo "backup contract tests: 13 passed"
+echo "backup contract tests: 17 passed"

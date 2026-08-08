@@ -9,6 +9,8 @@ MIGRATIONS_DIR=${AVELREN_VERIFY_MIGRATIONS_DIR:-/migrations}
 TARGET=${1:-restore_test}
 PRODUCTION_TARGET=avelren
 PRODUCTION_VERIFY_CONTEXT=AVELREN-INTERNAL-PRODUCTION-VERIFY
+ADMIN_DB_USER=${AVELREN_ADMIN_DB_USER:-avelren_admin}
+VERIFY_DATABASE_URL=${AVELREN_VERIFY_DATABASE_URL:-}
 
 compose() {
     local args=(docker compose)
@@ -27,20 +29,26 @@ if [ "$TARGET" != restore_test ] && [ "$TARGET" != "$PRODUCTION_TARGET" ]; then
     exit 2
 fi
 
+[ "$ADMIN_DB_USER" = avelren_admin ] || {
+    echo "verification database role must be avelren_admin" >&2
+    exit 2
+}
+[ -n "$VERIFY_DATABASE_URL" ] || {
+    echo "admin verification DSN is required" >&2
+    exit 2
+}
+
 cd "$STACK_DIR"
 run_in_app() {
-    local mode=$1; shift
-    local args=(run --rm -T -e "POSTGRES_DB=$TARGET")
-    if [ -n "${AVELREN_VERIFY_DATABASE_URL:-}" ]; then
-        args+=(-e "DATABASE_URL=$AVELREN_VERIFY_DATABASE_URL")
-    fi
+    shift
+    local args=(run --rm -T -e "POSTGRES_DB=$TARGET" -e DATABASE_URL)
     if [ "$TARGET" = "$PRODUCTION_TARGET" ]; then
         args+=(
             -e "AVELREN_PRODUCTION_VERIFY_CONTEXT=$PRODUCTION_VERIFY_CONTEXT"
             -e "AVELREN_RESTORE_VERIFY_TARGET=$TARGET"
         )
     fi
-    compose "${args[@]}" "$APP_SERVICE" "$@"
+    DATABASE_URL="$VERIFY_DATABASE_URL" compose "${args[@]}" "$APP_SERVICE" "$@"
 }
 
 echo ">>> schema_verify проти $TARGET"

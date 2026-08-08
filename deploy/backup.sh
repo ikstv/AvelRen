@@ -13,6 +13,8 @@ MIN_BYTES=${AVELREN_BACKUP_MIN_BYTES:-10240}
 KEEP_DAILY=${AVELREN_KEEP_DAILY:-7}
 KEEP_WEEKLY=${AVELREN_KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${AVELREN_KEEP_MONTHLY:-3}
+BACKUP_DB_USER=${AVELREN_BACKUP_DB_USER:-avelren_backup}
+BACKUP_DB_PASSWORD=${AVELREN_BACKUP_PASSWORD:-}
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
 fail() { log "ПОМИЛКА: $*" >&2; exit 1; }
@@ -30,6 +32,9 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+[ "$BACKUP_DB_USER" = avelren_backup ] || fail "backup database role must be avelren_backup"
+[ -n "$BACKUP_DB_PASSWORD" ] || fail "backup database password is required"
 
 mkdir -p -- "$WORK_DIR"
 chmod 0700 -- "$WORK_DIR"
@@ -61,7 +66,9 @@ REMOTE_DUMP="$REMOTE/$TIER/$NAME"
 REMOTE_MANIFEST="$REMOTE/$TIER/$MANIFEST_NAME"
 
 log "дамп бази у захищений temporary artifact"
-docker compose exec -T db pg_dump -U avelren -d avelren --no-owner | gzip -9 >"$DUMP"
+PGPASSWORD="$BACKUP_DB_PASSWORD" \
+    docker compose exec -T -e PGPASSWORD db \
+    pg_dump -U "$BACKUP_DB_USER" -d avelren | gzip -9 >"$DUMP"
 [ -f "$DUMP" ] || fail "dump artifact не створено"
 [ "$(stat -c %a "$DUMP")" = 600 ] || fail "dump artifact не має mode 0600"
 bytes=$(stat -c %s "$DUMP")

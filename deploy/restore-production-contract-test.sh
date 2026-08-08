@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PYTHON_BIN=${PYTHON_BIN:-python3}
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 printf 'SELECT 1;\n' | gzip -c >"$WORK/valid.sql.gz"
@@ -49,10 +50,26 @@ if [[ "$args" == *' up -d caddy'* ]]; then
     exit 0
 fi
 if [[ "$args" == *' exec -T api python '* ]]; then
-    python -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
+        "$PYTHON_BIN" -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
     exit
 fi
-if [[ "$args" == *' exec -T db psql '* ]]; then
+if [[ " $args " == *' db psql '* ]]; then
+    [ "${PGPASSWORD:-}" = "${EXPECTED_ADMIN_PASSWORD:?}" ] || {
+        echo 'admin password was not provided through the process environment' >&2
+        exit 42
+    }
+    [[ " $args " == *' exec -T -e PGPASSWORD db psql '* ]] || {
+        echo 'production psql did not receive the protected password environment' >&2
+        exit 43
+    }
+    [[ " $args " == *' -U avelren_admin '* ]] || {
+        echo 'production psql did not use the canonical admin role' >&2
+        exit 44
+    }
+    [[ "$args" != *"$EXPECTED_ADMIN_PASSWORD"* ]] || {
+        echo 'admin password leaked into docker argv' >&2
+        exit 45
+    }
     query=$(cat)
     args="$args $query"
     if [[ "$args" == *'SELECT count(*) FROM pg_stat_activity'* ]]; then
@@ -95,11 +112,30 @@ run_fake() {
     shift
     env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$name.log" FAKE_STATE="$WORK/$name.state" \
         AVELREN_STACK_DIR="$WORK/stack" AVELREN_READINESS_TIMEOUT_SECONDS=1 \
-        AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 "$@" \
+        AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 \
+        AVELREN_ADMIN_PASSWORD=admin-contract-secret \
+        AVELREN_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/avelren \
+        EXPECTED_ADMIN_PASSWORD=admin-contract-secret PYTHON_BIN="$PYTHON_BIN" "$@" \
         bash "$ROOT/deploy/restore-production.sh" "$WORK/valid.sql.gz" \
         --confirm-production-restore AVELREN-PRODUCTION-RESTORE \
         >"$WORK/$name.out" 2>&1
 }
+
+# All role/credential inputs are validated before maintenance or DB mutation.
+for item in \
+    'missing-password:AVELREN_ADMIN_PASSWORD=' \
+    'missing-admin-dsn:AVELREN_ADMIN_DSN=' \
+    'backup-role:AVELREN_ADMIN_DB_USER=avelren_backup' \
+    'migrator-role:AVELREN_ADMIN_DB_USER=avelren_migrator' \
+    'legacy-role:AVELREN_ADMIN_DB_USER=avelren'
+do
+    name=${item%%:*}; setting=${item#*:}
+    if run_fake "$name" "$setting"; then
+        echo "expected production role gate failure: $name" >&2
+        exit 1
+    fi
+    [ ! -s "$WORK/$name.log" ]
+done
 
 assert_failed_closed() {
     local name=$1 log="$WORK/$1.log" out="$WORK/$1.out"
@@ -122,6 +158,9 @@ if ! run_fake success; then
     exit 1
 fi
 grep -q ENGINE "$WORK/success.log"; grep -q VERIFY "$WORK/success.log"
+grep -q 'psql -U avelren_admin' "$WORK/success.log"
+! grep -Eq -- 'psql -U (avelren|avelren_backup|avelren_migrator)( |$)' "$WORK/success.log"
+! grep -q 'admin-contract-secret' "$WORK/success.log" "$WORK/success.out"
 
 if run_fake sessions FAKE_SESSIONS=1; then echo "session gate should fail" >&2; exit 1; fi
 ! grep -q ENGINE "$WORK/sessions.log"
@@ -187,4 +226,4 @@ if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service s
 ! grep -q HTTPS_READY "$WORK/running.log"
 assert_failed_closed running
 
-echo "production restore contract tests: 15 passed"
+echo "production restore contract tests: 20 passed"

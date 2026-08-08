@@ -9,16 +9,29 @@ fi
 
 avelren_restore_engine() {
     local dump=$1 target=$2 stack_dir=$3 compose_file=$4 compose_project=$5 db_service=$6
+    local admin_db_user=${AVELREN_ADMIN_DB_USER:-avelren_admin}
+    local admin_db_password=${AVELREN_ADMIN_PASSWORD:-}
     declare -g AVELREN_RESTORE_POST_PENDING=false
     declare -g AVELREN_RESTORE_TARGET="$target"
     declare -g AVELREN_RESTORE_COMPOSE_FILE="$compose_file"
     declare -g AVELREN_RESTORE_COMPOSE_PROJECT="$compose_project"
     declare -g AVELREN_RESTORE_DB_SERVICE="$db_service"
+    declare -g AVELREN_RESTORE_ADMIN_DB_USER="$admin_db_user"
+    declare -g AVELREN_RESTORE_ADMIN_DB_PASSWORD="$admin_db_password"
 
     case "$target" in
         restore_test|avelren) ;;
         *) echo "ВІДМОВА: unsupported restore target: $target" >&2; return 2 ;;
     esac
+
+    [ "$admin_db_user" = avelren_admin ] || {
+        echo "restore database role must be avelren_admin" >&2
+        return 2
+    }
+    [ -n "$admin_db_password" ] || {
+        echo "restore database password is required" >&2
+        return 2
+    }
 
     cd "$stack_dir"
     restore_compose() {
@@ -27,9 +40,17 @@ avelren_restore_engine() {
         [ -z "$AVELREN_RESTORE_COMPOSE_PROJECT" ] || args+=(-p "$AVELREN_RESTORE_COMPOSE_PROJECT")
         "${args[@]}" "$@"
     }
-    restore_psql() { restore_compose exec -T "$AVELREN_RESTORE_DB_SERVICE" psql -U avelren -v ON_ERROR_STOP=1 "$@"; }
+    restore_db_tool() {
+        PGPASSWORD="$AVELREN_RESTORE_ADMIN_DB_PASSWORD" restore_compose exec -T -e PGPASSWORD \
+            "$AVELREN_RESTORE_DB_SERVICE" "$@"
+    }
+    restore_psql() {
+        restore_db_tool psql -U "$AVELREN_RESTORE_ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
+    }
     restore_log() { echo "$(date -u +%FT%TZ) $*"; }
 
+    # Invoked by the EXIT trap below.
+    # shellcheck disable=SC2329
     restore_finalize() {
         local primary_status=$?
         trap - EXIT
@@ -49,10 +70,10 @@ avelren_restore_engine() {
     trap restore_finalize EXIT
 
     restore_log "готую базу $target"
-    restore_psql -d postgres -v target="$target" -q <<'SQL'
-DROP DATABASE IF EXISTS :"target";
-CREATE DATABASE :"target";
-SQL
+    restore_db_tool dropdb --if-exists --maintenance-db=postgres \
+        -U "$AVELREN_RESTORE_ADMIN_DB_USER" "$target"
+    restore_db_tool createdb --maintenance-db=postgres \
+        -U "$AVELREN_RESTORE_ADMIN_DB_USER" "$target"
     restore_psql -d "$target" -q -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
 
     restore_log "timescaledb_pre_restore"
