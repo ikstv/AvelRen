@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 from psycopg.rows import dict_row
 
-from avelren import alerts, cancels, eta, notifier
+from avelren import alerts, cancels, eta, fcm, notifier
 from avelren.models import WorkloadItem
 
 DSN = os.environ["DATABASE_URL"]
@@ -304,6 +304,104 @@ def test_notifier_abandons_cancel_for_dead_token(conn, device):
         "SELECT abandoned_at IS NOT NULL AS ok FROM notification_cancels WHERE id=%s",
         (row["id"],),
     ).fetchone()["ok"] is True
+
+
+def _fcm_error(*, dead_token: bool) -> fcm.FcmError:
+    return fcm.FcmError(
+        http_status=404 if dead_token else 400,
+        canonical_status="NOT_FOUND" if dead_token else "INVALID_ARGUMENT",
+        fcm_error_code="UNREGISTERED" if dead_token else None,
+        message="test failure",
+        dead_token=dead_token,
+        retryable=False,
+    )
+
+
+def test_normal_payload_error_keeps_device_token(conn, device, checkpoint, monkeypatch):
+    conn.execute("UPDATE devices SET fcm_token='tok-valid' WHERE id=%s", (device.device_id,))
+    sub = _subscription(conn, device.device_id, checkpoint)
+    _fire_threshold(checkpoint, [49, 51])
+    alert_id = _alert_id(conn, sub)
+
+    async def fail_send(*args, **kwargs):
+        raise _fcm_error(dead_token=False)
+
+    monkeypatch.setattr("avelren.fcm.send", fail_send)
+    _run_notifier_cycle()
+
+    row = conn.execute(
+        "SELECT fcm_token FROM devices WHERE id=%s", (device.device_id,)
+    ).fetchone()
+    assert row["fcm_token"] == "tok-valid"
+    assert conn.execute(
+        "SELECT send_count FROM alerts WHERE id=%s", (alert_id,)
+    ).fetchone()["send_count"] == 0
+
+
+def test_normal_confirmed_unregistered_disables_device(conn, device, checkpoint, monkeypatch):
+    conn.execute("UPDATE devices SET fcm_token='tok-dead' WHERE id=%s", (device.device_id,))
+    sub = _subscription(conn, device.device_id, checkpoint)
+    _fire_threshold(checkpoint, [49, 51])
+
+    async def fail_send(*args, **kwargs):
+        raise _fcm_error(dead_token=True)
+
+    monkeypatch.setattr("avelren.fcm.send", fail_send)
+    _run_notifier_cycle()
+
+    assert conn.execute(
+        "SELECT fcm_token FROM devices WHERE id=%s", (device.device_id,)
+    ).fetchone()["fcm_token"] is None
+    assert _alert_id(conn, sub) is not None
+
+
+def test_cancel_payload_error_keeps_device_token_and_retries(conn, device, monkeypatch):
+    conn.execute("UPDATE devices SET fcm_token='tok-valid' WHERE id=%s", (device.device_id,))
+    row = conn.execute(
+        "INSERT INTO notification_cancels (kind, alert_id, device_id) "
+        "VALUES ('threshold', 100, %s) RETURNING id",
+        (device.device_id,),
+    ).fetchone()
+
+    async def fail_send(*args, **kwargs):
+        raise _fcm_error(dead_token=False)
+
+    monkeypatch.setattr("avelren.fcm.send", fail_send)
+    _run(lambda ac: notifier._send_cancels(client=None, conn=ac))
+
+    assert conn.execute(
+        "SELECT fcm_token FROM devices WHERE id=%s", (device.device_id,)
+    ).fetchone()["fcm_token"] == "tok-valid"
+    cancel = conn.execute(
+        "SELECT attempt_count, abandoned_at FROM notification_cancels WHERE id=%s",
+        (row["id"],),
+    ).fetchone()
+    assert cancel["attempt_count"] == 1
+    assert cancel["abandoned_at"] is None
+
+
+def test_cancel_confirmed_unregistered_disables_and_abandons(conn, device, monkeypatch):
+    conn.execute("UPDATE devices SET fcm_token='tok-dead' WHERE id=%s", (device.device_id,))
+    row = conn.execute(
+        "INSERT INTO notification_cancels (kind, alert_id, device_id) "
+        "VALUES ('eta', 101, %s) RETURNING id",
+        (device.device_id,),
+    ).fetchone()
+
+    async def fail_send(*args, **kwargs):
+        raise _fcm_error(dead_token=True)
+
+    monkeypatch.setattr("avelren.fcm.send", fail_send)
+    _run(lambda ac: notifier._send_cancels(client=None, conn=ac))
+
+    assert conn.execute(
+        "SELECT fcm_token FROM devices WHERE id=%s", (device.device_id,)
+    ).fetchone()["fcm_token"] is None
+    assert conn.execute(
+        "SELECT abandoned_at IS NOT NULL AS abandoned "
+        "FROM notification_cancels WHERE id=%s",
+        (row["id"],),
+    ).fetchone()["abandoned"] is True
 
 
 def test_cancel_not_abandoned_while_young(conn, device):
