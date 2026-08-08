@@ -100,9 +100,10 @@ compose() {
 psql() { compose exec -T "$DB_SERVICE" psql -U avelren "$@"; }
 
 log "готую базу $TARGET"
-psql -d postgres -v target="$TARGET" -q \
-    -c 'DROP DATABASE IF EXISTS :"target";' \
-    -c 'CREATE DATABASE :"target";'
+psql -d postgres -v target="$TARGET" -q <<'SQL'
+DROP DATABASE IF EXISTS :"target";
+CREATE DATABASE :"target";
+SQL
 psql -d "$TARGET" -q -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
 
 log "timescaledb_pre_restore"
