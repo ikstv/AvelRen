@@ -8,7 +8,6 @@ import pytest
 
 from avelren import fcm
 
-
 FCM_DETAIL_TYPE = "type.googleapis.com/google.firebase.fcm.v1.FcmError"
 
 
