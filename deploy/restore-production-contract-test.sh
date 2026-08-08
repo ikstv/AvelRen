@@ -26,7 +26,7 @@ set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_LOG"
 args="$*"
 if [[ "$args" == *' ps --status running --services'* ]]; then
-    printf '%s\n' "${FAKE_RUNNING_SERVICE:-}"
+    printf '%s\n' "${FAKE_RUNNING_SERVICE:-caddy api collector notifier watchdog}"
     exit 0
 fi
 if [[ "$args" == *' exec -T db psql '* ]]; then
