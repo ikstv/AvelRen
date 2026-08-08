@@ -72,7 +72,7 @@ jobs:
           from pathlib import Path
           config = Path("app/src/avelren/config.py").read_text()
           assert "postgres_password" in config
-          assert "quote(self.postgres_password, safe=\"\")" in config
+          assert "quote(self.postgres_password, safe='')" in config
           assert "database_url" in config
           print("security/setup contract ok")
           PY
