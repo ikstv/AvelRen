@@ -131,7 +131,7 @@ psql -d "$TARGET" -q -c "SELECT timescaledb_pre_restore();"
 POST_RESTORE_PENDING=true
 
 log "відновлення даних"
-gunzip -c "$DUMP" | psql -d "$TARGET" -q
+gunzip -c "$DUMP" | psql -d "$TARGET" -q -v ON_ERROR_STOP=1
 
 log "timescaledb_post_restore"
 set +e
