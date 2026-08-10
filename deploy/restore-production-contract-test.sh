@@ -26,10 +26,9 @@ cat >"$BIN/docker" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_LOG"
 args="$*"
-if [[ " $args " == *' run --rm --no-deps -T -e DATABASE_URL '* ]] &&
-   [[ " $args " == *' python -c '* ]]; then
-    [ "${DATABASE_URL:-}" = "${EXPECTED_ADMIN_DSN:?}" ] || {
-        echo 'admin DSN was not passed through the protected environment' >&2
+if [[ " $args " == *' exec -T -e AVELREN_ADMIN_DSN db sh -c '* ]]; then
+    [ "${AVELREN_ADMIN_DSN:-}" = "${EXPECTED_ADMIN_DSN:?}" ] || {
+        echo 'admin DSN was not passed to operational DB tooling' >&2
         exit 46
     }
     [[ "$args" != *"$EXPECTED_ADMIN_DSN"* ]] || {
@@ -116,6 +115,9 @@ avelren_restore_engine() {
 SH
 cat >"$WORK/stack/deploy/restore-verify.sh" <<'SH'
 #!/usr/bin/env bash
+[ "${AVELREN_VERIFY_MIGRATOR_DSN:-}" = "${EXPECTED_MIGRATOR_DSN:?}" ]
+[ "${AVELREN_VERIFY_API_DSN:-}" = "${EXPECTED_API_DSN:?}" ]
+[ -z "${AVELREN_VERIFY_DATABASE_URL:-}" ]
 printf 'VERIFY\n' >>"$FAKE_LOG"
 [ "${FAKE_VERIFY_FAIL:-0}" != 1 ]
 SH
@@ -128,7 +130,11 @@ run_fake() {
         AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 \
         AVELREN_ADMIN_PASSWORD=admin-contract-secret \
         AVELREN_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/avelren \
-        EXPECTED_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/avelren \
+        AVELREN_MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/avelren \
+        AVELREN_API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/avelren \
+        EXPECTED_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/postgres \
+        EXPECTED_MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/avelren \
+        EXPECTED_API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/avelren \
         EXPECTED_ADMIN_PASSWORD=admin-contract-secret PYTHON_BIN="$PYTHON_BIN" "$@" \
         bash "$ROOT/deploy/restore-production.sh" "$WORK/valid.sql.gz" \
         --confirm-production-restore AVELREN-PRODUCTION-RESTORE \
@@ -139,6 +145,8 @@ run_fake() {
 for item in \
     'missing-password:AVELREN_ADMIN_PASSWORD=' \
     'missing-admin-dsn:AVELREN_ADMIN_DSN=' \
+    'missing-migrator-dsn:AVELREN_MIGRATOR_DSN=' \
+    'missing-api-dsn:AVELREN_API_DSN=' \
     'backup-role:AVELREN_ADMIN_DB_USER=avelren_backup' \
     'migrator-role:AVELREN_ADMIN_DB_USER=avelren_migrator' \
     'legacy-role:AVELREN_ADMIN_DB_USER=avelren'
@@ -157,12 +165,13 @@ if run_fake wrong-admin-dsn-user FAKE_ADMIN_CURRENT_USER=avelren_migrator; then
     echo "admin DSN identity gate should fail" >&2
     exit 1
 fi
-grep -q 'run --rm --no-deps -T -e DATABASE_URL' "$WORK/wrong-admin-dsn-user.log"
+grep -q 'exec -T -e AVELREN_ADMIN_DSN db sh -c' "$WORK/wrong-admin-dsn-user.log"
+! grep -q 'run --rm --no-deps -T -e DATABASE_URL' "$WORK/wrong-admin-dsn-user.log"
 ! grep -q 'stop caddy' "$WORK/wrong-admin-dsn-user.log"
 ! grep -q ENGINE "$WORK/wrong-admin-dsn-user.log"
 ! grep -q ' db psql ' "$WORK/wrong-admin-dsn-user.log"
 ! grep -Eq ' (dropdb|createdb) ' "$WORK/wrong-admin-dsn-user.log"
-! grep -q 'admin-contract-secret' \
+! grep -Eq '(admin|migrator|api)-contract-secret' \
     "$WORK/wrong-admin-dsn-user.log" "$WORK/wrong-admin-dsn-user.out"
 
 assert_failed_closed() {
@@ -188,7 +197,7 @@ fi
 grep -q ENGINE "$WORK/success.log"; grep -q VERIFY "$WORK/success.log"
 grep -q 'psql -U avelren_admin' "$WORK/success.log"
 ! grep -Eq -- 'psql -U (avelren|avelren_backup|avelren_migrator)( |$)' "$WORK/success.log"
-! grep -q 'admin-contract-secret' "$WORK/success.log" "$WORK/success.out"
+! grep -Eq '(admin|migrator|api)-contract-secret' "$WORK/success.log" "$WORK/success.out"
 
 if run_fake sessions FAKE_SESSIONS=1; then echo "session gate should fail" >&2; exit 1; fi
 ! grep -q ENGINE "$WORK/sessions.log"
@@ -254,4 +263,4 @@ if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service s
 ! grep -q HTTPS_READY "$WORK/running.log"
 assert_failed_closed running
 
-echo "production restore contract tests: 20 passed"
+echo "production restore contract tests: 22 passed"

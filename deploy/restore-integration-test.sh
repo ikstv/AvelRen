@@ -85,7 +85,9 @@ readonly UNEXPECTED_DUMP="$WORK/source-unexpected.sql.gz"
 readonly MISSING_DUMP="$WORK/source-missing.sql.gz"
 readonly BOOTSTRAP_DSN='postgresql://avelren_admin:ci-only@localhost:5432/postgres'
 readonly MIGRATOR_SOURCE_DSN="postgresql://avelren_migrator:ci-only@db:5432/$SOURCE_DB"
-readonly ADMIN_TARGET_DSN="postgresql://avelren_admin:ci-only@db:5432/$TARGET_DB"
+readonly API_SOURCE_DSN="postgresql://avelren_api:ci-only@db:5432/$SOURCE_DB"
+readonly MIGRATOR_TARGET_DSN="postgresql://avelren_migrator:ci-only@db:5432/$TARGET_DB"
+readonly API_TARGET_DSN="postgresql://avelren_api:ci-only@db:5432/$TARGET_DB"
 
 run_restore() {
     local dump=$1
@@ -221,16 +223,48 @@ missing_relation=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db
 # Restore the unchanged canonical dump once more after the fail-closed fixture.
 run_restore "$DUMP"
 
+if AVELREN_STACK_DIR="$ROOT" \
+   AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
+   AVELREN_COMPOSE_PROJECT="$PROJECT" \
+   AVELREN_VERIFY_SCHEMA_SERVICE=test \
+   AVELREN_VERIFY_API_SERVICE=test \
+   AVELREN_VERIFY_MIGRATIONS_DIR=db/migrations \
+   AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_SOURCE_DSN" \
+   AVELREN_VERIFY_API_DSN="$API_SOURCE_DSN" \
+   AVELREN_COMPOSE_ENV_GUARD=isolated \
+   bash "$ROOT/deploy/restore-verify.sh" "$TARGET_DB" \
+       >"$WORK/wrong-target-verify.out" 2>&1; then
+    echo 'restore integration failed: verification accepted credentials for the wrong database' >&2
+    exit 1
+fi
+
+if AVELREN_STACK_DIR="$ROOT" \
+   AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
+   AVELREN_COMPOSE_PROJECT="$PROJECT" \
+   AVELREN_VERIFY_SCHEMA_SERVICE=test \
+   AVELREN_VERIFY_API_SERVICE=test \
+   AVELREN_VERIFY_MIGRATIONS_DIR=db/migrations \
+   AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_TARGET_DSN" \
+   AVELREN_VERIFY_API_DSN="$MIGRATOR_TARGET_DSN" \
+   AVELREN_COMPOSE_ENV_GUARD=isolated \
+   bash "$ROOT/deploy/restore-verify.sh" "$TARGET_DB" \
+       >"$WORK/wrong-role-verify.out" 2>&1; then
+    echo 'restore integration failed: API verification accepted the migrator role' >&2
+    exit 1
+fi
+
 AVELREN_STACK_DIR="$ROOT" \
 AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
 AVELREN_COMPOSE_PROJECT="$PROJECT" \
-AVELREN_VERIFY_APP_SERVICE=test \
+AVELREN_VERIFY_SCHEMA_SERVICE=test \
+AVELREN_VERIFY_API_SERVICE=test \
 AVELREN_VERIFY_MIGRATIONS_DIR=db/migrations \
-AVELREN_VERIFY_DATABASE_URL="$ADMIN_TARGET_DSN" \
+AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_TARGET_DSN" \
+AVELREN_VERIFY_API_DSN="$API_TARGET_DSN" \
 AVELREN_COMPOSE_ENV_GUARD=isolated \
 bash "$ROOT/deploy/restore-verify.sh" "$TARGET_DB"
 
-echo "restore integration passed: backup=read-only dump, target=$TARGET_DB, admin restore/schema/smoke verified"
+echo "restore integration passed: backup=read-only dump, target=$TARGET_DB, least-privilege schema/smoke verified"
 
 bad_dump="$WORK/fails-after-pre.sql.gz"
 {

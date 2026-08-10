@@ -6,7 +6,8 @@ STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
 COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
 COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
 DB_SERVICE=${AVELREN_DB_SERVICE:-db}
-VERIFY_APP_SERVICE=${AVELREN_VERIFY_APP_SERVICE:-migrate}
+VERIFY_SCHEMA_SERVICE=${AVELREN_VERIFY_SCHEMA_SERVICE:-migrate}
+VERIFY_API_SERVICE=${AVELREN_VERIFY_API_SERVICE:-api}
 API_SERVICE=${AVELREN_API_SERVICE:-api}
 INGRESS_SERVICE=${AVELREN_INGRESS_SERVICE:-caddy}
 KNOWN_CLIENTS=${AVELREN_DB_CLIENT_SERVICES:-api collector notifier watchdog}
@@ -16,6 +17,8 @@ FRESHNESS_TIMEOUT=${AVELREN_FRESHNESS_TIMEOUT_SECONDS:-180}
 ADMIN_DB_USER=${AVELREN_ADMIN_DB_USER:-avelren_admin}
 ADMIN_DB_PASSWORD=${AVELREN_ADMIN_PASSWORD:-}
 ADMIN_DATABASE_URL=${AVELREN_ADMIN_DSN:-}
+MIGRATOR_DATABASE_URL=${AVELREN_MIGRATOR_DSN:-}
+API_DATABASE_URL=${AVELREN_API_DSN:-}
 PRODUCTION_TARGET=avelren
 CONFIRMATION_TOKEN=AVELREN-PRODUCTION-RESTORE
 
@@ -44,17 +47,19 @@ db_psql() {
         psql -U "$ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
 }
 admin_dsn_current_user() {
-    DATABASE_URL="$ADMIN_DATABASE_URL" compose run --rm --no-deps -T \
-        -e DATABASE_URL "$VERIFY_APP_SERVICE" python -c '
-import os
-
-import psycopg
-
-with psycopg.connect(os.environ["DATABASE_URL"], dbname="postgres") as connection:
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT current_user")
-        print(cursor.fetchone()[0])
-'
+    local base="$ADMIN_DATABASE_URL" query="" maintenance_dsn
+    case "$base" in
+        postgresql://*/*) ;;
+        *) return 2 ;;
+    esac
+    if [[ "$base" == *\?* ]]; then
+        query="?${base#*\?}"
+        base=${base%%\?*}
+    fi
+    maintenance_dsn="${base%/*}/postgres${query}"
+    AVELREN_ADMIN_DSN="$maintenance_dsn" compose exec -T -e AVELREN_ADMIN_DSN \
+        "$DB_SERVICE" sh -c \
+        'psql -X --no-psqlrc --tuples-only --no-align --dbname="$AVELREN_ADMIN_DSN" -c "SELECT current_user"'
 }
 
 if [ "$CONFIRMATION" != "$CONFIRMATION_TOKEN" ]; then
@@ -72,6 +77,12 @@ gzip -t "$DUMP" || { log "ВІДМОВА: backup artifact corrupt"; exit 1; }
 }
 [ -n "$ADMIN_DATABASE_URL" ] || {
     log "admin verification DSN is required"; exit 2;
+}
+[ -n "$MIGRATOR_DATABASE_URL" ] || {
+    log "migrator verification DSN is required"; exit 2;
+}
+[ -n "$API_DATABASE_URL" ] || {
+    log "API verification DSN is required"; exit 2;
 }
 
 cd "$STACK_DIR"
@@ -180,10 +191,12 @@ compose wait migrate
 AVELREN_STACK_DIR="$STACK_DIR" \
 AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
 AVELREN_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
-AVELREN_VERIFY_APP_SERVICE="$VERIFY_APP_SERVICE" \
+AVELREN_VERIFY_SCHEMA_SERVICE="$VERIFY_SCHEMA_SERVICE" \
+AVELREN_VERIFY_API_SERVICE="$VERIFY_API_SERVICE" \
 AVELREN_VERIFY_MIGRATIONS_DIR="${AVELREN_VERIFY_MIGRATIONS_DIR:-/migrations}" \
 AVELREN_PRODUCTION_VERIFY_CONTEXT=AVELREN-INTERNAL-PRODUCTION-VERIFY \
-AVELREN_VERIFY_DATABASE_URL="$ADMIN_DATABASE_URL" \
+AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DATABASE_URL" \
+AVELREN_VERIFY_API_DSN="$API_DATABASE_URL" \
 bash "$STACK_DIR/deploy/restore-verify.sh" "$PRODUCTION_TARGET"
 
 pre_restart_run=$(db_psql -d "$PRODUCTION_TARGET" -At -c \

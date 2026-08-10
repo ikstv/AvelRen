@@ -74,7 +74,7 @@ services:
     volumes:
       - '$ROOT_FOR_COMPOSE:/workspace:ro'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U avelren_admin -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U avelren_admin -d postgres"]
       interval: 2s
       timeout: 2s
       retries: 30

@@ -45,17 +45,32 @@ cat >"$BIN/docker" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"${FAKE_LOG:?}"
 if [[ " $* " == *' run --rm -T '* ]]; then
-    [ "${DATABASE_URL:-}" = "${EXPECTED_ADMIN_DSN:?}" ] || {
-        echo 'admin verification DSN was not provided through the process environment' >&2
+    if [[ " $* " == *' avelren.schema_verify '* ]]; then
+        expected=${EXPECTED_MIGRATOR_DSN:?}
+        expected_role=avelren_migrator
+    else
+        expected=${EXPECTED_API_DSN:?}
+        expected_role=avelren_api
+    fi
+    [ "${DATABASE_URL:-}" = "$expected" ] || {
+        echo 'least-privilege verification DSN was not provided through the process environment' >&2
         exit 40
     }
     [[ " $* " == *' -e DATABASE_URL '* ]] || {
         echo 'verification did not request protected DATABASE_URL forwarding' >&2
         exit 41
     }
-    [[ "$*" != *"$EXPECTED_ADMIN_DSN"* ]] || {
-        echo 'admin verification DSN leaked into docker argv' >&2
+    [[ "$*" != *"$expected"* ]] || {
+        echo 'verification DSN leaked into docker argv' >&2
         exit 42
+    }
+    [[ " $* " == *' -e AVELREN_RESTORE_VERIFY_TARGET=restore_test '* ]] || {
+        echo 'verification target identity was not forwarded' >&2
+        exit 43
+    }
+    [[ " $* " == *" -e AVELREN_RESTORE_VERIFY_ROLE=$expected_role "* ]] || {
+        echo 'verification role identity was not forwarded' >&2
+        exit 44
     }
 fi
 exit 0
@@ -78,27 +93,36 @@ do
     [ ! -s "$WORK/$name.log" ]
 done
 
-# K: verification refuses a missing admin DSN without starting an app process.
-: >"$WORK/verify-missing.log"
-if env PATH="$BIN:$PATH" FAKE_LOG="$WORK/verify-missing.log" \
-    AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_DATABASE_URL= \
-    bash "$ROOT/deploy/restore-verify.sh" restore_test >/dev/null 2>&1; then
-    echo 'expected missing admin verification DSN denial' >&2
-    exit 1
-fi
-[ ! -s "$WORK/verify-missing.log" ]
+# K/L: each least-privilege verification DSN is mandatory before app startup.
+for item in migrator api; do
+    : >"$WORK/verify-missing-$item.log"
+    MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/restore_test
+    API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/restore_test
+    [ "$item" != migrator ] || MIGRATOR_DSN=
+    [ "$item" != api ] || API_DSN=
+    if env PATH="$BIN:$PATH" FAKE_LOG="$WORK/verify-missing-$item.log" \
+        AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DSN" \
+        AVELREN_VERIFY_API_DSN="$API_DSN" \
+        bash "$ROOT/deploy/restore-verify.sh" restore_test >/dev/null 2>&1; then
+        echo "expected missing $item verification DSN denial" >&2
+        exit 1
+    fi
+    [ ! -s "$WORK/verify-missing-$item.log" ]
+done
 
-# L: the admin DSN reaches the app only through its environment, never argv/logs.
-ADMIN_DSN=postgresql://avelren_admin:verify-contract-secret@db:5432/restore_test
+# M: schema and API checks receive only their corresponding DSNs through the environment.
+MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/restore_test
+API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/restore_test
 : >"$WORK/verify.log"
 env PATH="$BIN:$PATH" FAKE_LOG="$WORK/verify.log" \
-    AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_DATABASE_URL="$ADMIN_DSN" \
-    EXPECTED_ADMIN_DSN="$ADMIN_DSN" \
+    AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DSN" \
+    AVELREN_VERIFY_API_DSN="$API_DSN" EXPECTED_MIGRATOR_DSN="$MIGRATOR_DSN" \
+    EXPECTED_API_DSN="$API_DSN" \
     bash "$ROOT/deploy/restore-verify.sh" restore_test >/dev/null
 [ "$(wc -l <"$WORK/verify.log")" -eq 2 ]
-if grep -q 'verify-contract-secret' "$WORK/verify.log"; then
-    echo 'admin verification DSN leaked into logged argv' >&2
+if grep -Eq '(migrator|api)-contract-secret' "$WORK/verify.log"; then
+    echo 'verification DSN leaked into logged argv' >&2
     exit 1
 fi
 
-echo "restore contract tests: 12 passed"
+echo "restore contract tests: 13 passed"

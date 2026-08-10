@@ -21,8 +21,10 @@ run_compose_config() {
     cat >"$STACK/.env" <<'ENV'
 DATABASE_URL=LEGACY_SENTINEL
 AVELREN_ADMIN_DSN=ADMIN_SENTINEL
+AVELREN_ADMIN_PASSWORD=ADMIN_PASSWORD_SENTINEL
 AVELREN_MIGRATOR_DSN=MIGRATOR_SENTINEL
 AVELREN_BACKUP_DSN=BACKUP_SENTINEL
+AVELREN_BACKUP_PASSWORD=BACKUP_PASSWORD_SENTINEL
 AVELREN_COLLECTOR_DSN=COLLECTOR_SENTINEL
 AVELREN_NOTIFIER_DSN=NOTIFIER_SENTINEL
 AVELREN_WATCHDOG_DSN=WATCHDOG_SENTINEL
@@ -37,8 +39,10 @@ ENV
         POSTGRES_DB=POSTGRES_DB_SENTINEL \
         DATABASE_URL=LEGACY_SENTINEL \
         AVELREN_ADMIN_DSN=ADMIN_SENTINEL \
+        AVELREN_ADMIN_PASSWORD=ADMIN_PASSWORD_SENTINEL \
         AVELREN_MIGRATOR_DSN=MIGRATOR_SENTINEL \
         AVELREN_BACKUP_DSN=BACKUP_SENTINEL \
+        AVELREN_BACKUP_PASSWORD=BACKUP_PASSWORD_SENTINEL \
         AVELREN_COLLECTOR_DSN=COLLECTOR_SENTINEL \
         AVELREN_NOTIFIER_DSN=NOTIFIER_SENTINEL \
         AVELREN_WATCHDOG_DSN=WATCHDOG_SENTINEL \
@@ -83,6 +87,12 @@ functional_setting_owners = {
     "REARM_FACTOR": ({"collector"}, "REARM_FACTOR_SENTINEL"),
     "ECHERHA_VEHICLE_TYPE": ({"collector", "api"}, "ECHERHA_VEHICLE_TYPE_SENTINEL"),
 }
+privileged_variable_names = {
+    "AVELREN_ADMIN_DSN",
+    "AVELREN_ADMIN_PASSWORD",
+    "AVELREN_BACKUP_DSN",
+    "AVELREN_BACKUP_PASSWORD",
+}
 
 
 def fail(message: str) -> None:
@@ -116,7 +126,11 @@ for service_name, own_sentinel in expected.items():
         fail(f"service {service_name} missing")
     if "env_file" in service:
         fail(f"service {service_name} uses env_file")
-    seen_database_sentinels = set(environment_mapping(service).values()) & all_database_sentinels
+    environment = environment_mapping(service)
+    forbidden_names = set(environment) & privileged_variable_names
+    if forbidden_names:
+        fail(f"service {service_name} exposes privileged variables: {sorted(forbidden_names)}")
+    seen_database_sentinels = set(environment.values()) & all_database_sentinels
     if seen_database_sentinels != own_sentinel:
         fail(f"service {service_name} has forbidden database credential category")
 

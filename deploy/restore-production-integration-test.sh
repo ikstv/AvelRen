@@ -63,7 +63,7 @@ services:
     volumes:
       - '$ROOT_FOR_COMPOSE:/workspace:ro'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U avelren_admin -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U avelren_admin -d postgres"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -99,6 +99,7 @@ readonly MIGRATOR_SOURCE_DSN="postgresql://avelren_migrator:ci-only@db:5432/$SOU
 readonly MIGRATOR_PREFIX_DSN="postgresql://avelren_migrator:ci-only@db:5432/$PREFIX_SOURCE_DB"
 readonly ADMIN_TARGET_DSN="postgresql://avelren_admin:ci-only@db:5432/$TARGET_DB"
 readonly MIGRATOR_TARGET_DSN="postgresql://avelren_migrator:ci-only@db:5432/$TARGET_DB"
+readonly API_TARGET_DSN="postgresql://avelren_api:ci-only@db:5432/$TARGET_DB"
 
 bootstrap_database() {
     local database=$1
@@ -243,9 +244,10 @@ run_orchestrator() {
         AVELREN_COMPOSE_ENV_GUARD=isolated \
         AVELREN_STACK_DIR="$ROOT" AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_COMPOSE_PROJECT="$PROJECT" AVELREN_DB_SERVICE=db \
-        AVELREN_VERIFY_APP_SERVICE=test \
+        AVELREN_VERIFY_SCHEMA_SERVICE=test AVELREN_VERIFY_API_SERVICE=test \
         AVELREN_VERIFY_MIGRATIONS_DIR=db/migrations \
         AVELREN_ADMIN_PASSWORD="$ADMIN_PASSWORD" AVELREN_ADMIN_DSN="$ADMIN_TARGET_DSN" \
+        AVELREN_MIGRATOR_DSN="$MIGRATOR_TARGET_DSN" AVELREN_API_DSN="$API_TARGET_DSN" \
         AVELREN_MIGRATOR_DATABASE_URL="$MIGRATOR_TARGET_DSN" \
         AVELREN_COLLECTOR_PASSWORD="$COLLECTOR_PASSWORD" \
         AVELREN_READINESS_URL=https://disposable.invalid/health \
