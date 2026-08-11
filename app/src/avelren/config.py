@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://avelren@db:5432/avelren"
 
     echerha_base_url: str = "https://back.echerha.gov.ua/api"
+    echerha_api_version: int = 5
+    echerha_client_version: str = "3.9.0"
+    echerha_device_id: str = ""
+    echerha_device_name: str = "AvelRen collector"
     echerha_vehicle_type: int = 1  # 1 — вантажівки, 2 — автобуси
     poll_interval_seconds: int = 60
     http_timeout_seconds: int = 15
@@ -25,7 +29,10 @@ class Settings(BaseSettings):
 
     @property
     def workload_url(self) -> str:
-        return f"{self.echerha_base_url}/v4/workload/{self.echerha_vehicle_type}"
+        return (
+            f"{self.echerha_base_url}/v{self.echerha_api_version}"
+            f"/workload/{self.echerha_vehicle_type}"
+        )
 
     @property
     def user_agent(self) -> str:

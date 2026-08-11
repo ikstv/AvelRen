@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from uuid import UUID
 
 import httpx
 
@@ -8,11 +9,11 @@ from .models import WorkloadResponse
 
 log = logging.getLogger(__name__)
 
-# Без цих двох заголовків сервіс відповідає 403.
+# Гостьовий контракт офіційного web-клієнта.
 REQUIRED_HEADERS = {
     "Accept": "application/json",
+    "Content-Type": "application/json",
     "X-Client-Locale": "uk",
-    "X-User-Agent": "UABorder/1.0.0 Web/1.1.0 User/guest",
 }
 
 
@@ -38,9 +39,27 @@ async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
     Помилки джерела не є нашою аварією: повертаємо їх як результат, щоб цикл
     записав причину і спокійно дочекався наступної хвилини.
     """
-    headers = {**REQUIRED_HEADERS, "User-Agent": settings.user_agent}
     try:
-        r = await client.get(settings.workload_url, headers=headers)
+        device_id = str(UUID(settings.echerha_device_id))
+    except (ValueError, AttributeError):
+        error = "configuration: ECHERHA_DEVICE_ID must be a valid UUID"
+        log.error(error)
+        return FetchResult(None, None, 0, None, error)
+
+    headers = {
+        **REQUIRED_HEADERS,
+        "X-User-Agent": (
+            f"UABorder/{settings.echerha_client_version} Web/1.1.0 User/guest"
+        ),
+        "X-Device-Id": device_id,
+        "X-Device-Name": settings.echerha_device_name,
+        "User-Agent": settings.user_agent,
+    }
+    try:
+        request = client.build_request("GET", settings.workload_url, headers=headers)
+        request.headers.pop("Authorization", None)
+        request.headers.pop("Cookie", None)
+        r = await client.send(request, auth=None)
         duration_ms = int(r.elapsed.total_seconds() * 1000)
     except httpx.HTTPError as exc:
         log.warning("запит до єЧерги не вдався: %s", exc)
