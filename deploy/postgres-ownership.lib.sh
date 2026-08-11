@@ -317,9 +317,12 @@ relation_base AS (
     JOIN relation_stats AS stats ON stats.start_oid = relation.oid
     LEFT JOIN pg_class AS root_relation ON root_relation.oid = stats.root_oid
     LEFT JOIN pg_namespace AS root_namespace ON root_namespace.oid = root_relation.relnamespace
-    WHERE namespace.nspname = 'public'
-       OR relation.relowner IN (SELECT role_oid FROM canonical_roles)
-       OR stats.is_timescale
+    WHERE (namespace.nspname = 'public'
+           OR relation.relowner IN (SELECT role_oid FROM canonical_roles)
+           OR stats.is_timescale)
+      -- Session-local scratch relations are never part of the adoption surface.
+      AND namespace.nspname NOT LIKE 'pg\_temp\_%'
+      AND namespace.nspname NOT LIKE 'pg\_toast\_temp\_%'
 ),
 routine_base AS (
     SELECT routine.oid, namespace.nspname, routine.proname, routine.prokind,
@@ -403,9 +406,13 @@ type_base AS (
     LEFT JOIN pg_namespace AS root_namespace ON root_namespace.oid = root_type.typnamespace
     LEFT JOIN pg_class AS root_relation ON root_relation.oid = root_type.typrelid
     LEFT JOIN pg_namespace AS root_relation_namespace ON root_relation_namespace.oid = root_relation.relnamespace
-    WHERE namespace.nspname = 'public'
-       OR type.typowner IN (SELECT role_oid FROM canonical_roles)
-       OR stats.is_timescale
+    WHERE (namespace.nspname = 'public'
+           OR type.typowner IN (SELECT role_oid FROM canonical_roles)
+           OR stats.is_timescale)
+      -- Composite and array types implied by session-local scratch relations are
+      -- never part of the adoption surface.
+      AND namespace.nspname NOT LIKE 'pg\_temp\_%'
+      AND namespace.nspname NOT LIKE 'pg\_toast\_temp\_%'
 ),
 default_acl_base AS (
     SELECT defaults.oid, defaults.defaclrole, defaults.defaclnamespace,
@@ -428,6 +435,21 @@ ownership_base AS (
       AND (
           dependency.dbid = 0
           OR dependency.dbid = (SELECT oid FROM target_database)
+      )
+      -- Verification scratch tables live in the session temp schema and are not
+      -- part of the adoption surface. Excluding them here keeps the manifest
+      -- exact without depending on a fixed superuser name being available to
+      -- own them away from the canonical roles.
+      AND NOT (
+          dependency.classid = 'pg_class'::regclass
+          AND dependency.objid IN (
+              SELECT relation.oid
+              FROM pg_class AS relation
+              JOIN pg_namespace AS relation_namespace
+                ON relation_namespace.oid = relation.relnamespace
+              WHERE relation_namespace.nspname LIKE 'pg\_temp\_%'
+                 OR relation_namespace.nspname LIKE 'pg\_toast\_temp\_%'
+          )
       )
 ),
 ownership_classified AS (
@@ -1704,7 +1726,6 @@ execute_inverse_rollback() {
 CREATE TEMP TABLE avelren_expected_manifest (
     row_text text NOT NULL
 ) ON COMMIT DROP;
-ALTER TABLE avelren_expected_manifest OWNER TO postgres;
 COPY avelren_expected_manifest (row_text) FROM STDIN
 WITH (FORMAT csv, DELIMITER E'\x01', QUOTE E'\x02', ESCAPE E'\x02');
 SQL
@@ -1714,7 +1735,6 @@ SQL
 CREATE TEMP TABLE avelren_actual_manifest (
     row_text text NOT NULL
 ) ON COMMIT DROP;
-ALTER TABLE avelren_actual_manifest OWNER TO postgres;
 SQL
         _manifest_sql actual_table
         cat <<'SQL'

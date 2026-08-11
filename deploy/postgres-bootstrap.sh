@@ -59,6 +59,18 @@ if [[ "$DB_NAME" == *_test ]] && [ "${AVELREN_TEST_DB:-}" != 1 ]; then
     fail 'refusing a *_test target without AVELREN_TEST_DB=1'
 fi
 
+# roles-acl reassigns ownership and rewrites ACLs of an already existing
+# database. That is the same class of mutation as adoption, so it carries the
+# same disposable-only boundary as deploy/postgres-adopt.sh: production ownership
+# and ACL changes are performed exclusively through the adoption path, which
+# proves preflight evidence, forward/inverse plans and fingerprints first.
+if [ "$mode" = roles-acl ]; then
+    [ "${AVELREN_TEST_DB:-}" = 1 ] || fail 'roles-acl execution is disposable-only'
+    case "$DB_NAME" in *test*|*ci*) ;;
+        *) fail 'disposable target name must contain test or ci' ;;
+    esac
+fi
+
 admin_psql_maintenance() {
     PGPASSWORD="$AVELREN_ADMIN_PASSWORD" psql -X -v ON_ERROR_STOP=1 \
         --dbname="$AVELREN_ADMIN_DSN" "$@"

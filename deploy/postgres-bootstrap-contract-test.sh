@@ -182,8 +182,30 @@ for stage in roles database_exists create_database extension acl verify; do
     esac
 done
 
+# roles-acl mutates ownership and ACLs of an existing database, so it carries the
+# same disposable-only boundary as adoption: an unmarked or non-disposable target
+# must be refused before any psql call.
+# The target name deliberately avoids the *_test suffix so that only the
+# roles-acl AVELREN_TEST_DB requirement can produce this refusal.
+unmarked_roles_acl_calls="$WORK/unmarked-roles-acl.calls"
+: >"$unmarked_roles_acl_calls"
+FAKE_CALLS="$unmarked_roles_acl_calls" FAKE_TARGET_DB=avelren_ci \
+    assert_fails bootstrap_env env -u AVELREN_TEST_DB \
+    AVELREN_DB_NAME=avelren_ci bash "$ROOT/deploy/postgres-bootstrap.sh" roles-acl
+[ ! -s "$unmarked_roles_acl_calls" ] || fail 'psql was called for an unmarked roles-acl target'
+
+production_roles_acl_calls="$WORK/production-roles-acl.calls"
+: >"$production_roles_acl_calls"
+FAKE_CALLS="$production_roles_acl_calls" FAKE_TARGET_DB=avelren \
+    assert_fails bootstrap_env env AVELREN_TEST_DB=1 \
+    AVELREN_DB_NAME=avelren bash "$ROOT/deploy/postgres-bootstrap.sh" roles-acl
+[ ! -s "$production_roles_acl_calls" ] || fail 'psql was called for a non-disposable roles-acl target'
+
 calls="$WORK/roles-acl.calls"
-run_bootstrap "$calls" roles-acl >"$WORK/roles-acl.out" 2>&1
+: >"$calls"
+FAKE_CALLS="$calls" FAKE_TARGET_DB=avelren_contract_test bootstrap_env \
+    env AVELREN_DB_NAME=avelren_contract_test AVELREN_TEST_DB=1 \
+    bash "$ROOT/deploy/postgres-bootstrap.sh" roles-acl >"$WORK/roles-acl.out" 2>&1
 assert_order "$calls" roles acl verify
 assert_not_contains "$calls" create_database
 assert_not_contains "$calls" extension

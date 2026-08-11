@@ -171,7 +171,7 @@ services:
   db:
     image: timescale/timescaledb:2.17.2-pg16
     environment:
-      POSTGRES_USER: postgres
+      POSTGRES_USER: clusteradmin
       POSTGRES_PASSWORD: ci-only
       POSTGRES_DB: postgres
       AVELREN_COMPOSE_ENV_GUARD: \${AVELREN_COMPOSE_ENV_GUARD:?missing disposable Compose env guard}
@@ -181,7 +181,7 @@ services:
       # The image exposes a socket-only temporary server during first-time
       # initialization. TCP readiness proves that entrypoint shutdown is over
       # and the final server is accepting connections.
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U clusteradmin -d postgres"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -228,7 +228,7 @@ real_compose up --detach --wait db
 db_tcp_ready=0
 for _ in $(seq 1 30); do
     if PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
-        psql -h 127.0.0.1 -U postgres -d postgres -At -c 'SELECT 1;' >/dev/null 2>&1; then
+        psql -h 127.0.0.1 -U clusteradmin -d postgres -At -c 'SELECT 1;' >/dev/null 2>&1; then
         db_tcp_ready=1
         break
     fi
@@ -240,11 +240,11 @@ done
     exit 1
 }
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
-    psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q \
+    psql -U clusteradmin -d postgres -v ON_ERROR_STOP=1 -q \
     -c 'DROP EXTENSION IF EXISTS timescaledb;' \
     -c "CREATE ROLE avelren_admin LOGIN SUPERUSER PASSWORD 'ci-only';"
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
-    psql -U postgres -d template1 -v ON_ERROR_STOP=1 -q \
+    psql -U clusteradmin -d template1 -v ON_ERROR_STOP=1 -q \
     -c 'DROP EXTENSION IF EXISTS timescaledb;'
 AVELREN_ADMIN_DSN="$BOOTSTRAP_DSN" AVELREN_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
 AVELREN_MIGRATOR_PASSWORD=migrator-ci-only AVELREN_BACKUP_PASSWORD=backup-ci-only \
@@ -294,7 +294,7 @@ BEGIN
 END
 \$\$;
 DROP DATABASE IF EXISTS avelren_residual_test;
-CREATE DATABASE avelren_residual_test OWNER postgres;
+CREATE DATABASE avelren_residual_test OWNER clusteradmin;
 ALTER DATABASE "$TARGET_DB" OWNER TO avelren;
 SQL
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
@@ -1039,9 +1039,9 @@ assert_preflight_rejects_unknown_object rogue-timescale-prefix \
 
 cat >"$WORK/foreign-table.setup.sql" <<'SQL'
 CREATE FOREIGN DATA WRAPPER adoption_test_fdw NO HANDLER;
-ALTER FOREIGN DATA WRAPPER adoption_test_fdw OWNER TO postgres;
+ALTER FOREIGN DATA WRAPPER adoption_test_fdw OWNER TO clusteradmin;
 CREATE SERVER adoption_test_server FOREIGN DATA WRAPPER adoption_test_fdw;
-ALTER SERVER adoption_test_server OWNER TO postgres;
+ALTER SERVER adoption_test_server OWNER TO clusteradmin;
 CREATE FOREIGN TABLE public.unexpected_foreign_table(id integer)
     SERVER adoption_test_server;
 ALTER FOREIGN TABLE public.unexpected_foreign_table OWNER TO avelren;
@@ -1055,7 +1055,7 @@ assert_preflight_rejects_unknown_object foreign-table \
     "$WORK/foreign-table.setup.sql" "$WORK/foreign-table.cleanup.sql"
 
 cat >"$WORK/nonpublic-sequence.setup.sql" <<'SQL'
-CREATE SCHEMA unexpected_sequence_schema AUTHORIZATION postgres;
+CREATE SCHEMA unexpected_sequence_schema AUTHORIZATION clusteradmin;
 CREATE SEQUENCE unexpected_sequence_schema.unexpected_sequence;
 ALTER SEQUENCE unexpected_sequence_schema.unexpected_sequence OWNER TO avelren;
 SQL
