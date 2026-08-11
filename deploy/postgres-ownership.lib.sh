@@ -15,27 +15,118 @@ ownership_fail() {
     return 1
 }
 
+adoption_signal_exit_status() {
+    case "${1:-}" in
+        HUP) printf '%s\n' 129 ;;
+        INT) printf '%s\n' 130 ;;
+        TERM) printf '%s\n' 143 ;;
+        *)
+            ownership_fail "unsupported adoption signal: ${1:-<empty>}"
+            return 1
+            ;;
+    esac
+}
+
 prepare_evidence_dir() {
-    local directory=$1
-    [ ! -L "$directory" ] || ownership_fail 'evidence directory must not be a symlink'
-    mkdir -p "$directory"
-    chmod 700 "$directory"
-    [ "$(stat -c '%a' "$directory")" = 700 ] || ownership_fail 'evidence directory mode must be 0700'
-    [ "$(stat -c '%u' "$directory")" = "$(id -u)" ] || ownership_fail 'evidence directory owner mismatch'
+    local directory=$1 mode owner current_user
+    [ ! -L "$directory" ] || {
+        ownership_fail 'evidence directory must not be a symlink'
+        return 1
+    }
+    if [ -e "$directory" ] && [ ! -d "$directory" ]; then
+        ownership_fail 'evidence directory path is not a directory'
+        return 1
+    fi
+    if ! mkdir -p -- "$directory"; then
+        ownership_fail 'evidence directory creation failed'
+        return 1
+    fi
+    [ -d "$directory" ] && [ ! -L "$directory" ] || {
+        ownership_fail 'evidence directory became unsafe during creation'
+        return 1
+    }
+    if ! chmod 700 -- "$directory"; then
+        ownership_fail 'evidence directory mode update failed'
+        return 1
+    fi
+    if ! mode=$(stat -c '%a' "$directory"); then
+        ownership_fail 'evidence directory mode cannot be read'
+        return 1
+    fi
+    [ "$mode" = 700 ] || {
+        ownership_fail 'evidence directory mode must be 0700'
+        return 1
+    }
+    if ! owner=$(stat -c '%u' "$directory"); then
+        ownership_fail 'evidence directory owner cannot be read'
+        return 1
+    fi
+    if ! current_user=$(id -u); then
+        ownership_fail 'current evidence owner cannot be read'
+        return 1
+    fi
+    [ "$owner" = "$current_user" ] || {
+        ownership_fail 'evidence directory owner mismatch'
+        return 1
+    }
+    return 0
 }
 
 _evidence_temp() {
     local target=$1 directory
-    directory=$(dirname "$target")
-    prepare_evidence_dir "$directory"
-    mktemp "$directory/.ownership.XXXXXX"
+    directory=$(dirname "$target") || return 1
+    prepare_evidence_dir "$directory" || return 1
+    mktemp "$directory/.ownership.XXXXXX" || return 1
 }
 
 _publish_evidence_file() {
     local temporary=$1 target=$2
-    chmod 600 "$temporary"
-    mv -f "$temporary" "$target"
-    chmod 600 "$target"
+    chmod 600 "$temporary" || return 1
+    mv -fT "$temporary" "$target" || return 1
+    chmod 600 "$target" || return 1
+}
+
+validate_protected_evidence_directory() {
+    local directory=$1 label=$2
+    [ -d "$directory" ] && [ ! -L "$directory" ] || {
+        ownership_fail "$label is invalid"
+        return 1
+    }
+    [ "$(stat -c '%a' "$directory")" = 700 ] || {
+        ownership_fail "$label mode must be 0700"
+        return 1
+    }
+    [ "$(stat -c '%u' "$directory")" = "$(id -u)" ] || {
+        ownership_fail "$label owner mismatch"
+        return 1
+    }
+}
+
+validate_protected_evidence_file() {
+    local file=$1 label=$2
+    [ -f "$file" ] && [ ! -L "$file" ] || {
+        ownership_fail "$label is invalid"
+        return 1
+    }
+    [ "$(stat -c '%a' "$file")" = 600 ] || {
+        ownership_fail "$label mode must be 0600"
+        return 1
+    }
+    [ "$(stat -c '%u' "$file")" = "$(id -u)" ] || {
+        ownership_fail "$label owner mismatch"
+        return 1
+    }
+    [ "$(stat -c '%h' "$file")" = 1 ] || {
+        ownership_fail "$label must not be hard-linked"
+        return 1
+    }
+}
+
+validate_protected_input_file() {
+    local file=$1 label=$2 directory
+    directory=$(dirname "$file") || return 1
+    validate_protected_evidence_directory "$directory" "$label directory" || return 1
+    validate_protected_evidence_file "$file" "$label file"
 }
 
 _adoption_psql() {
@@ -45,6 +136,7 @@ _adoption_psql() {
 }
 
 _manifest_sql() {
+    local destination=${1:-stdout}
     cat <<'SQL'
 WITH RECURSIVE
 canonical_roles AS (
@@ -494,10 +586,24 @@ manifest_rows AS (
     FROM default_acl_base AS defaults
     CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
 )
+SQL
+    case "$destination" in
+        stdout)
+            cat <<'SQL'
 SELECT array_to_string(fields, chr(9))
 FROM manifest_rows
 ORDER BY array_to_string(fields, chr(9)) COLLATE "C";
 SQL
+            ;;
+        actual_table)
+            cat <<'SQL'
+INSERT INTO avelren_actual_manifest (row_text)
+SELECT array_to_string(fields, chr(9))
+FROM manifest_rows;
+SQL
+            ;;
+        *) ownership_fail 'unknown manifest SQL destination'; return 1 ;;
+    esac
 }
 
 _normalize_manifest() {
@@ -542,6 +648,23 @@ capture_manifest() {
 manifest_fingerprint() {
     local manifest=$1
     sha256sum "$manifest" | awk '{print $1}'
+}
+
+publish_manifest_fingerprint() {
+    local manifest=$1 output=$2 temporary
+    if ! temporary=$(_evidence_temp "$output"); then
+        ownership_fail 'manifest fingerprint temporary file creation failed'
+        return 1
+    fi
+    if ! manifest_fingerprint "$manifest" >"$temporary"; then
+        rm -f "$temporary"
+        ownership_fail 'manifest fingerprint generation failed'
+        return 1
+    fi
+    if ! _publish_evidence_file "$temporary" "$output"; then
+        ownership_fail 'manifest fingerprint publication failed'
+        return 1
+    fi
 }
 
 _canonical_relations() {
@@ -719,7 +842,10 @@ build_forward_plan() {
     [ -n "$database_identity" ] || ownership_fail 'validated database identity missing from manifest'
     [ "$(basename "$migration")" = 010_postgresql_least_privilege.sql ] || ownership_fail 'unexpected ACL migration path'
     [ -f "$migration" ] || ownership_fail 'ACL migration not found'
-    temporary=$(_evidence_temp "$output")
+    if ! temporary=$(_evidence_temp "$output"); then
+        ownership_fail 'stage evidence temporary file creation failed'
+        return 1
+    fi
     {
         _write_plan_header
         printf 'REASSIGN OWNED BY "%s" TO "%s";\n' "$AVELREN_LEGACY_ROLE" "$AVELREN_ADMIN_ROLE"
@@ -1244,7 +1370,11 @@ validate_plan_round_trip() {
 
 verify_target_ownership() {
     local dsn=$1 manifest=$2
-    _target_ownership_sql "$manifest" | _adoption_psql "$dsn" >/dev/null
+    {
+        printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
+        _target_ownership_sql "$manifest"
+        printf '%s\n' 'ROLLBACK;'
+    } | _adoption_psql "$dsn" >/dev/null
 }
 
 execute_before_commit_rollback() {
@@ -1297,9 +1427,369 @@ SQL
     capture_manifest "$dsn" "$evidence_dir/after-failure.tsv"
     before=$(manifest_fingerprint "$manifest")
     after=$(manifest_fingerprint "$evidence_dir/after-failure.tsv")
-    printf '%s\n' "$before" >"$evidence_dir/original.sha256"
-    printf '%s\n' "$after" >"$evidence_dir/after-failure.sha256"
-    chmod 600 "$evidence_dir/original.sha256" "$evidence_dir/after-failure.sha256"
+    publish_manifest_fingerprint "$manifest" "$evidence_dir/original.sha256"
+    publish_manifest_fingerprint "$evidence_dir/after-failure.tsv" \
+        "$evidence_dir/after-failure.sha256"
     cmp -s "$manifest" "$evidence_dir/after-failure.tsv" || ownership_fail 'transaction rollback manifest mismatch'
     [ "$before" = "$after" ] || ownership_fail 'transaction rollback fingerprint mismatch'
+}
+
+publish_adoption_stage() {
+    local output=$1 exact_commit=$2 stage=$3 original_fingerprint=$4 target_fingerprint=$5
+    local inverse_verified=$6 privilege_result=$7 isolation_result=$8 smoke_result=$9 freshness_result=${10}
+    local accepted_cutover=${11:-NOT_RUN} temporary
+    [[ "$exact_commit" =~ ^[0-9a-f]{40}$ ]] || {
+        ownership_fail 'stage evidence commit is invalid'
+        return 1
+    }
+    [[ "$original_fingerprint" =~ ^[0-9a-f]{64}$ ]] || {
+        ownership_fail 'stage evidence original fingerprint is invalid'
+        return 1
+    }
+    [[ "$target_fingerprint" = - || "$target_fingerprint" =~ ^[0-9a-f]{64}$ ]] || {
+        ownership_fail 'stage evidence target fingerprint is invalid'
+        return 1
+    }
+    case "$stage" in committed|cutover_complete|post_commit_rollback|rollback_failed) ;; *) ownership_fail 'stage evidence stage is invalid'; return 1 ;; esac
+    for result in "$inverse_verified" "$privilege_result" "$isolation_result" "$smoke_result" "$freshness_result" "$accepted_cutover"; do
+        case "$result" in PASS|FAIL|NOT_RUN) ;; *) ownership_fail 'stage evidence result is invalid'; return 1 ;; esac
+    done
+    if ! temporary=$(_evidence_temp "$output"); then
+        ownership_fail 'stage evidence temporary file creation failed'
+        return 1
+    fi
+    {
+        printf 'exact_commit=%s\n' "$exact_commit"
+        printf 'stage=%s\n' "$stage"
+        printf 'original_fingerprint=%s\n' "$original_fingerprint"
+        printf 'target_fingerprint=%s\n' "$target_fingerprint"
+        printf 'inverse_verified=%s\n' "$inverse_verified"
+        printf 'privilege_contract_result=%s\n' "$privilege_result"
+        printf 'environment_isolation_result=%s\n' "$isolation_result"
+        printf 'smoke_result=%s\n' "$smoke_result"
+        printf 'freshness_result=%s\n' "$freshness_result"
+        printf 'accepted_cutover=%s\n' "$accepted_cutover"
+    } >"$temporary" || {
+        rm -f "$temporary"
+        ownership_fail 'stage evidence generation failed'
+        return 1
+    }
+    if ! _publish_evidence_file "$temporary" "$output"; then
+        rm -f "$temporary"
+        ownership_fail 'stage evidence publication failed'
+        return 1
+    fi
+}
+
+publish_legacy_retirement_attempt() {
+    local output=$1 exact_commit=$2 temporary
+    if [[ ! "$exact_commit" =~ ^[0-9a-f]{40}$ ]] && [ "$exact_commit" != NOT_VERIFIED ]; then
+        ownership_fail 'retirement attempt commit is invalid'
+        return 1
+    fi
+    temporary=$(_evidence_temp "$output") || {
+        ownership_fail 'retirement attempt evidence temporary file creation failed'
+        return 1
+    }
+    {
+        printf 'exact_commit=%s\n' "$exact_commit"
+        printf '%s\n' \
+            'stage=legacy_retirement_in_progress' \
+            'legacy_credential_retired=NOT_VERIFIED'
+    } >"$temporary" || {
+        rm -f "$temporary"
+        ownership_fail 'retirement attempt evidence generation failed'
+        return 1
+    }
+    if ! _publish_evidence_file "$temporary" "$output"; then
+        rm -f "$temporary"
+        ownership_fail 'retirement attempt evidence publication failed'
+        return 1
+    fi
+}
+
+validate_legacy_retirement_attempt() {
+    local file=$1 exact_commit=$2
+    local -a lines
+    validate_protected_evidence_file "$file" 'legacy retirement attempt evidence' || return 1
+    mapfile -t lines <"$file" || {
+        ownership_fail 'legacy retirement attempt evidence cannot be read'
+        return 1
+    }
+    [ "${#lines[@]}" -eq 3 ] && \
+        [ "${lines[0]}" = "exact_commit=$exact_commit" ] && \
+        [ "${lines[1]}" = 'stage=legacy_retirement_in_progress' ] && \
+        [ "${lines[2]}" = 'legacy_credential_retired=NOT_VERIFIED' ] || {
+        ownership_fail 'legacy retirement attempt evidence is inconsistent'
+        return 1
+    }
+}
+
+invalidate_legacy_retirement_success() {
+    local evidence_dir=$1 exact_commit=$2 output
+    output="$evidence_dir/legacy-retirement"
+    validate_protected_evidence_directory "$evidence_dir" 'adoption evidence directory' || return 1
+    if [ -e "$output" ] || [ -L "$output" ]; then
+        validate_protected_evidence_file "$output" 'legacy retirement evidence file' || {
+            ownership_fail 'legacy retirement evidence file is invalid'
+            return 1
+        }
+    fi
+    if ! rm -f -- "$output"; then
+        ownership_fail 'legacy retirement authoritative evidence invalidation failed'
+        return 1
+    fi
+    if [ -e "$output" ] || [ -L "$output" ]; then
+        ownership_fail 'legacy retirement authoritative evidence invalidation did not remove the path'
+        return 1
+    fi
+    publish_legacy_retirement_attempt "$output" "$exact_commit" || return 1
+    validate_legacy_retirement_attempt "$output" "$exact_commit"
+}
+
+publish_legacy_retirement() {
+    local output=$1 exact_commit=$2 target_fingerprint=$3 post_fingerprint=$4
+    local privilege_result=$5 isolation_result=$6 accepted_soak=$7 temporary
+    [[ "$exact_commit" =~ ^[0-9a-f]{40}$ ]] || {
+        ownership_fail 'retirement evidence commit is invalid'
+        return 1
+    }
+    [[ "$target_fingerprint" =~ ^[0-9a-f]{64}$ ]] || {
+        ownership_fail 'retirement target fingerprint is invalid'
+        return 1
+    }
+    [ "$post_fingerprint" = "$target_fingerprint" ] || {
+        ownership_fail 'retirement fingerprint changed'
+        return 1
+    }
+    for result in "$privilege_result" "$isolation_result" "$accepted_soak"; do
+        [ "$result" = PASS ] || { ownership_fail 'retirement evidence result is not PASS'; return 1; }
+    done
+    validate_legacy_retirement_attempt "$output" "$exact_commit" || return 1
+    if [ "${AVELREN_RETIREMENT_FAILPOINT:-}" = publication ]; then
+        export AVELREN_RETIREMENT_PUBLISH_CONTEXT=final || {
+            ownership_fail 'retirement evidence publication context failed'
+            return 1
+        }
+    fi
+    if ! temporary=$(_evidence_temp "$output"); then
+        unset AVELREN_RETIREMENT_PUBLISH_CONTEXT || true
+        ownership_fail 'retirement evidence temporary file creation failed'
+        return 1
+    fi
+    if ! unset AVELREN_RETIREMENT_PUBLISH_CONTEXT; then
+        rm -f "$temporary"
+        ownership_fail 'retirement evidence publication context cleanup failed'
+        return 1
+    fi
+    {
+        printf 'exact_commit=%s\n' "$exact_commit"
+        printf '%s\n' 'stage=legacy_retired'
+        printf 'target_fingerprint=%s\n' "$target_fingerprint"
+        printf 'post_retirement_fingerprint=%s\n' "$post_fingerprint"
+        printf '%s\n' \
+            'legacy_credential_retired=PASS' \
+            'privilege_contract_result=PASS' \
+            'environment_isolation_result=PASS' \
+            'accepted_soak=PASS'
+    } >"$temporary" || {
+        rm -f "$temporary"
+        ownership_fail 'retirement evidence generation failed'
+        return 1
+    }
+    if ! _publish_evidence_file "$temporary" "$output"; then
+        rm -f "$temporary" "$output"
+        ownership_fail 'retirement evidence publication failed'
+        return 1
+    fi
+}
+
+execute_committed_adoption() {
+    local dsn=$1 manifest=$2 forward=$3 evidence_dir=$4 driver output target_manifest
+    ADOPTION_FORWARD_COMMITTED=false
+    export ADOPTION_COMMITTED_MARKER_PUBLISHED=false
+    if ! driver=$(_evidence_temp "$evidence_dir/committed-forward.sql"); then
+        ownership_fail 'committed forward driver temporary file creation failed'
+        return 1
+    fi
+    if ! output=$(_evidence_temp "$evidence_dir/committed-forward.marker"); then
+        rm -f "$driver"
+        ownership_fail 'committed forward marker temporary file creation failed'
+        return 1
+    fi
+    {
+        printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
+        cat "$forward"
+        _target_ownership_sql "$manifest"
+        printf '%s\n' "SELECT 'FORWARD_TARGET_VERIFIED';" 'COMMIT;'
+    } >"$driver" || {
+        rm -f "$driver" "$output"
+        ownership_fail 'committed forward driver generation failed'
+        return 1
+    }
+    if ! _adoption_psql "$dsn" <"$driver" >"$output"; then
+        rm -f "$driver" "$output"
+        ownership_fail 'committed forward adoption failed'
+        return 1
+    fi
+    export ADOPTION_FORWARD_COMMITTED=true
+    if [ "${AVELREN_ADOPTION_COMMITTED_FAILPOINT:-}" = cleanup ]; then
+        ownership_fail 'committed forward driver cleanup failed after commit (injected)'
+        return 1
+    fi
+    if ! rm -f "$driver"; then
+        rm -f "$output"
+        ownership_fail 'committed forward driver cleanup failed after commit'
+        return 1
+    fi
+    grep -Fxq 'FORWARD_TARGET_VERIFIED' "$output" || {
+        rm -f "$output"
+        ownership_fail 'committed forward target verification was not proven'
+        return 1
+    }
+    if ! _publish_evidence_file "$output" "$evidence_dir/committed-forward.marker"; then
+        ownership_fail 'committed forward marker publication failed after commit'
+        return 1
+    fi
+    export ADOPTION_COMMITTED_MARKER_PUBLISHED=true
+    case "${AVELREN_ADOPTION_COMMITTED_FAILPOINT:-}" in
+        signal_hup) kill -s HUP "$$" ;;
+        signal_int) kill -s INT "$$" ;;
+        signal_term) kill -s TERM "$$" ;;
+    esac
+    if [ "${AVELREN_ADOPTION_COMMITTED_FAILPOINT:-}" = capture ]; then
+        ownership_fail 'post-commit capture FAIL (injected)'
+        return 1
+    fi
+    target_manifest="$evidence_dir/committed.tsv"
+    capture_manifest "$dsn" "$target_manifest" || {
+        ownership_fail 'committed forward manifest capture failed after commit'
+        return 1
+    }
+    if [ "${AVELREN_ADOPTION_COMMITTED_FAILPOINT:-}" = verification ]; then
+        ownership_fail 'post-commit verification FAIL (injected)'
+        return 1
+    fi
+    verify_target_ownership "$dsn" "$manifest" || {
+        ownership_fail 'committed forward target verification failed after commit'
+        return 1
+    }
+}
+
+execute_inverse_rollback() {
+    local dsn=$1 manifest=$2 inverse=$3 evidence_dir=$4 driver output status before after corruption
+    corruption=${AVELREN_ADOPTION_CORRUPT_INVERSE:-0}
+    if ! driver=$(_evidence_temp "$evidence_dir/inverse-rollback.sql"); then
+        ownership_fail 'inverse rollback driver temporary file creation failed'
+        return 1
+    fi
+    if ! output=$(_evidence_temp "$evidence_dir/inverse-rollback.marker"); then
+        rm -f "$driver"
+        ownership_fail 'inverse rollback marker temporary file creation failed'
+        return 1
+    fi
+    {
+        printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
+        if [ "$corruption" = incomplete ]; then
+            [ "${AVELREN_TEST_DB:-}" = 1 ] || ownership_fail 'corrupt inverse injection is test-only'
+            awk 'NF && $0 !~ /^--/ { print; exit }' "$inverse"
+        else
+            cat "$inverse"
+        fi
+        if [ "$corruption" = 1 ] || [ "$corruption" = invalid_sql ]; then
+            [ "${AVELREN_TEST_DB:-}" = 1 ] || ownership_fail 'corrupt inverse injection is test-only'
+            printf '%s\n' 'THIS_IS_AN_INTENTIONALLY_INVALID_INVERSE_STATEMENT;'
+        fi
+        cat <<'SQL'
+CREATE TEMP TABLE avelren_expected_manifest (
+    row_text text NOT NULL
+) ON COMMIT DROP;
+ALTER TABLE avelren_expected_manifest OWNER TO postgres;
+COPY avelren_expected_manifest (row_text) FROM STDIN
+WITH (FORMAT csv, DELIMITER E'\x01', QUOTE E'\x02', ESCAPE E'\x02');
+SQL
+        cat "$manifest"
+        printf '%s\n' '\.'
+        cat <<'SQL'
+CREATE TEMP TABLE avelren_actual_manifest (
+    row_text text NOT NULL
+) ON COMMIT DROP;
+ALTER TABLE avelren_actual_manifest OWNER TO postgres;
+SQL
+        _manifest_sql actual_table
+        cat <<'SQL'
+DO $avelren_inverse_exact_verify$
+DECLARE
+    mismatch_count bigint;
+BEGIN
+    WITH mismatch AS (
+        (SELECT row_text FROM avelren_expected_manifest
+         EXCEPT ALL
+         SELECT row_text FROM avelren_actual_manifest)
+        UNION ALL
+        (SELECT row_text FROM avelren_actual_manifest
+         EXCEPT ALL
+         SELECT row_text FROM avelren_expected_manifest)
+    )
+    SELECT count(*) INTO mismatch_count FROM mismatch;
+    IF mismatch_count <> 0 THEN
+        RAISE EXCEPTION 'inverse rollback exact manifest mismatch (% rows)', mismatch_count;
+    END IF;
+END
+$avelren_inverse_exact_verify$;
+SELECT 'INVERSE_APPLIED';
+COMMIT;
+SQL
+    } >"$driver" || {
+        rm -f "$driver" "$output"
+        ownership_fail 'inverse rollback driver generation failed'
+        return 1
+    }
+    set +e
+    _adoption_psql "$dsn" <"$driver" >"$output"
+    status=$?
+    set -e
+    if ! rm -f "$driver"; then
+        rm -f "$output"
+        ownership_fail 'inverse rollback driver cleanup failed after commit'
+        return 1
+    fi
+    if [ "$status" -ne 0 ] || ! grep -Fxq 'INVERSE_APPLIED' "$output"; then
+        rm -f "$output"
+        ownership_fail 'inverse rollback transaction failed'
+        return 1
+    fi
+    if ! _publish_evidence_file "$output" "$evidence_dir/inverse-rollback.marker"; then
+        ownership_fail 'inverse rollback marker publication failed'
+        return 1
+    fi
+    if ! capture_manifest "$dsn" "$evidence_dir/after-failure.tsv"; then
+        ownership_fail 'inverse rollback manifest recapture failed'
+        return 1
+    fi
+    if ! before=$(manifest_fingerprint "$manifest"); then
+        ownership_fail 'original manifest fingerprint calculation failed during inverse rollback'
+        return 1
+    fi
+    if ! after=$(manifest_fingerprint "$evidence_dir/after-failure.tsv"); then
+        ownership_fail 'restored manifest fingerprint calculation failed during inverse rollback'
+        return 1
+    fi
+    if ! publish_manifest_fingerprint "$manifest" "$evidence_dir/original.sha256"; then
+        ownership_fail 'original manifest fingerprint evidence publication failed during inverse rollback'
+        return 1
+    fi
+    if ! publish_manifest_fingerprint "$evidence_dir/after-failure.tsv" \
+        "$evidence_dir/after-failure.sha256"; then
+        ownership_fail 'restored manifest fingerprint evidence publication failed during inverse rollback'
+        return 1
+    fi
+    cmp -s "$manifest" "$evidence_dir/after-failure.tsv" || {
+        ownership_fail 'inverse rollback manifest mismatch'
+        return 1
+    }
+    [ "$before" = "$after" ] || {
+        ownership_fail 'inverse rollback fingerprint mismatch'
+        return 1
+    }
 }
