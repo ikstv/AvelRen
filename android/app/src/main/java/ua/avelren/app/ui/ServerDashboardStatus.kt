@@ -217,7 +217,13 @@ object ServerDashboardStatus {
         val successAge = observationAgeSeconds(lastSuccess?.time, nowEpochSeconds)
 
         return when {
-            lastRun.error != null && http != 200 -> SectionStatus.ERROR
+            // Будь-яка помилка в останньому циклі — ERROR, незалежно від HTTP.
+            // Раніше умова була `error != null && http != 200`, і сценарій
+            // «HTTP 200 з body-parse-помилкою» (collector записує
+            // http_status=200, error="parse failed") виглядав як 🟢 OK. Це
+            // саме той клас багу, від якого нас страхує інваріант «⚪ ≠ 🟢».
+            // N1 review PR #34.
+            lastRun.error != null -> SectionStatus.ERROR
             http != null && http >= 500 -> SectionStatus.ERROR
             http != null && http >= 400 -> SectionStatus.WARN
             successAge != null && successAge > COLLECTOR_STALE_THRESHOLD_SECONDS ->
