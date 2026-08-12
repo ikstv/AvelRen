@@ -147,6 +147,10 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
     Без цього числа неможливо сказати, чи майбутня складніша модель узагалі
     щось покращила. Міряємо середню абсолютну похибку в годинах.
     """
+    # Server-owned нижня межа: оцінка бере ті самі LOOKBACK_WEEKS, що й прогноз,
+    # а не всю історію пункту. Інакше кожен публічний виклик /forecast/{id}/quality
+    # сканував би необмежений за часом ряд (з роками даних — DoS-вектор, аудит #16).
+    since = datetime.now(UTC) - timedelta(weeks=LOOKBACK_WEEKS)
     row = await (
         await conn.execute(
             """
@@ -155,7 +159,7 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
                        EXTRACT(dow  FROM bucket)::int AS dow,
                        EXTRACT(hour FROM bucket)::int AS hour
                 FROM observations_hourly
-                WHERE checkpoint_id = %s
+                WHERE checkpoint_id = %s AND bucket >= %s
             ),
             predicted AS (
                 SELECT dow, hour,
@@ -166,7 +170,7 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
                    avg(abs(a.avg_wait_seconds - p.p50)) / 3600.0 AS mae_hours
             FROM actual a JOIN predicted p ON p.dow = a.dow AND p.hour = a.hour
             """,
-            (checkpoint_id,),
+            (checkpoint_id, since),
         )
     ).fetchone()
 
