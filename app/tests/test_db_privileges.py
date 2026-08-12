@@ -101,6 +101,10 @@ EXPECTED_TABLE_PRIVILEGES = {
         "eta_alerts": {"SELECT"},
         "health_alerts": {"SELECT"},
         "notification_cancels": {"INSERT"},
+        # Read-only: /admin/telemetry version-блок (telemetry.version →
+        # SELECT max(version) FROM schema_migrations) обслуговується API-роллю.
+        # Ніколи не пише — це домен avelren_migrator.
+        "schema_migrations": {"SELECT"},
     },
 }
 EXPECTED_SEQUENCE_PRIVILEGES = {

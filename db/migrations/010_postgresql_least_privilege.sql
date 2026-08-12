@@ -109,6 +109,14 @@ GRANT INSERT, UPDATE ON health_alerts TO avelren_watchdog;
 GRANT USAGE ON SEQUENCE health_alerts_id_seq TO avelren_watchdog;
 
 -- API: public reads, endpoint-authorized lifecycle writes, and no whole-device access.
+-- schema_migrations: read-only, потрібен для `/admin/telemetry` version-блоку
+-- (telemetry.version → SELECT max(version) FROM schema_migrations, обслуговується
+-- API-процесом). Це службова метаінформація про застосовані міграції, не
+-- бізнес-секрет; Server Dashboard навмисно показує версію схеми. Без цього
+-- grant'у version-блок падав би з 42501 під роллю avelren_api — інтеграційний
+-- конфлікт між least-privilege (#29) і Server Dashboard (PR-B), спійманий
+-- merge-tree CI. Тільки SELECT: API ніколи не пише в schema_migrations
+-- (це виключно домен avelren_migrator).
 GRANT SELECT ON TABLE
     countries,
     checkpoints,
@@ -119,7 +127,8 @@ GRANT SELECT ON TABLE
     alerts,
     eta_targets,
     eta_alerts,
-    health_alerts
+    health_alerts,
+    schema_migrations
 TO avelren_api;
 GRANT SELECT (id, fcm_token, platform, secret_hash, is_admin, last_seen),
     INSERT (fcm_token, platform, secret_hash),
