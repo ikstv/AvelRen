@@ -36,6 +36,18 @@ trap 'exit 143' TERM
 [ "$BACKUP_DB_USER" = avelren_backup ] || fail "backup database role must be avelren_backup"
 [ -n "$BACKUP_DB_PASSWORD" ] || fail "backup database password is required"
 
+# Гарантія шифрування: remote МУСИТЬ бути типу crypt. Інакше gzip-дамп (gzip —
+# не шифрування) полетів би на off-host сховище відкритим текстом. Заголовок
+# скрипта обіцяє "encrypted", тож перевіряємо це, а не припускаємо: env-override
+# AVELREN_BACKUP_REMOTE чи регресія конфігу легко націлили б бекап на плоский
+# remote (аудит M-11). Дешевий preflight — до дорогого дампа.
+REMOTE_NAME=${REMOTE%%:*}
+[ "$REMOTE_NAME" != "$REMOTE" ] || fail "remote '$REMOTE' має бути у форматі <remote>:<шлях>"
+remote_type=$(rclone config show "$REMOTE_NAME" --config "$RCLONE_CONFIG" 2>/dev/null \
+    | sed -n 's/^[[:space:]]*type[[:space:]]*=[[:space:]]*//p' | head -1)
+[ "$remote_type" = crypt ] || \
+    fail "backup remote '$REMOTE_NAME' має бути типу crypt (виявлено: '${remote_type:-невідомо}') — шифрування не гарантоване"
+
 mkdir -p -- "$WORK_DIR"
 chmod 0700 -- "$WORK_DIR"
 [ "$(stat -c %a "$WORK_DIR")" = 700 ] || fail "work directory не має mode 0700"

@@ -333,7 +333,7 @@ async def list_eta_targets(
                         LIMIT 1) AS pending_alert_id
                 FROM eta_targets t
                 JOIN checkpoints c ON c.id = t.checkpoint_id
-                WHERE t.device_id = %s
+                WHERE t.device_id = %s AND t.is_active
                 ORDER BY t.target_at
                 """,
                 (device_id,),

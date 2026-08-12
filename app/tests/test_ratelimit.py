@@ -61,3 +61,24 @@ def test_malformed_forwarded_input_falls_back_to_peer(value: str):
         {"X-AvelRen-Client-IP": value, "X-Forwarded-For": "198.51.100.1"},
     )
     assert ratelimit._client_key(request) == "10.0.0.8"
+
+
+def test_stale_queues_are_pruned_to_bound_memory():
+    """M-4: черги від клієнтів, що зникли, не мають рости необмежено.
+
+    Раніше чистка видаляла лише порожні черги, тож 10k+ разових запитів від
+    різних адрес лишалися в пам'яті назавжди.
+    """
+    import time
+
+    now = time.monotonic()
+    # 10_001 простроченa черга (запис старший за вікно 'read' = 60с) від
+    # клієнтів, що більше не повертаються.
+    for index in range(10_001):
+        ratelimit._hits[f"read:stale-{index}"].append(now - 3600)
+
+    # Свіжий запит переступає межу чистки й тригерить прибирання.
+    ratelimit.check(make_request("203.0.113.50"), "read")
+
+    assert len(ratelimit._hits) < 100  # прострочені вичищені
+    assert "read:203.0.113.50" in ratelimit._hits  # свіжий лишився

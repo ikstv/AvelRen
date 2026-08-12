@@ -47,6 +47,10 @@ avelren_restore_engine() {
     restore_psql() {
         restore_db_tool psql -U "$AVELREN_RESTORE_ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
     }
+    # УВАГА: обидва блоки `expected(...)` нижче хардкодять перелік прикладних
+    # відношень. Додав таблицю/послідовність у міграції — онови ОБИДВА блоки,
+    # інакше production-restore впаде вже після dropdb. Дрейф ловить на CI
+    # deploy/restore-allowlist-contract-test.py (звіряє з schema_verify._TABLES_V).
     restore_application_owners() {
         restore_psql -d "$AVELREN_RESTORE_TARGET" -q <<'SQL'
 DO $$

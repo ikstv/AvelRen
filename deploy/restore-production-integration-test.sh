@@ -252,6 +252,7 @@ run_orchestrator() {
         AVELREN_COLLECTOR_PASSWORD="$COLLECTOR_PASSWORD" \
         AVELREN_READINESS_URL=https://disposable.invalid/health \
         AVELREN_READINESS_TIMEOUT_SECONDS=2 AVELREN_FRESHNESS_TIMEOUT_SECONDS=2 \
+        AVELREN_PRE_RESTORE_SNAPSHOT_DIR="$WORK/pre-restore-snapshots" \
         "$@" bash "$ROOT/deploy/restore-production.sh" "$dump" \
         --confirm-production-restore AVELREN-PRODUCTION-RESTORE
 }
@@ -261,6 +262,11 @@ restored=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -At \
     -c 'SELECT title FROM checkpoints WHERE id=987654321;')
 [ "$restored" = "$MARKER" ]
+
+# M-13: знімок поточної бази справді зроблено ДО знищення (реальний pg_dump).
+pre_restore_snap=$(ls "$WORK/pre-restore-snapshots"/avelren-pre-restore-*.sql.gz 2>/dev/null | head -1)
+[ -n "$pre_restore_snap" ] || { echo 'pre-restore snapshot не створено' >&2; exit 1; }
+gzip -t "$pre_restore_snap"
 grep -q 'stop caddy' "$WORK/services.log"
 grep -q 'up -d caddy' "$WORK/services.log"
 grep -q HTTPS_READY "$WORK/services.log"

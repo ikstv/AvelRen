@@ -65,6 +65,24 @@ if [[ "$args" == *' exec -T api python '* ]]; then
         "$PYTHON_BIN" -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
     exit
 fi
+if [[ " $args " == *' db pg_dump '* ]]; then
+    # M-13 pre-restore safety snapshot.
+    [ "${PGPASSWORD:-}" = "${EXPECTED_ADMIN_PASSWORD:?}" ] || {
+        echo 'pre-restore pg_dump did not receive the protected password environment' >&2
+        exit 48
+    }
+    [[ "$args" != *"$EXPECTED_ADMIN_PASSWORD"* ]] || {
+        echo 'admin password leaked into pg_dump argv' >&2
+        exit 49
+    }
+    [[ " $args " == *' -U avelren_admin '* ]] || {
+        echo 'pre-restore pg_dump did not use the canonical admin role' >&2
+        exit 50
+    }
+    [ "${FAKE_PGDUMP_FAIL:-0}" != 1 ] || exit 51
+    printf -- '-- fake pre-restore dump\nSELECT 1;\n'
+    exit 0
+fi
 if [[ " $args " == *' db psql '* ]]; then
     [ "${PGPASSWORD:-}" = "${EXPECTED_ADMIN_PASSWORD:?}" ] || {
         echo 'admin password was not provided through the process environment' >&2
@@ -128,6 +146,7 @@ run_fake() {
     env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$name.log" FAKE_STATE="$WORK/$name.state" \
         AVELREN_STACK_DIR="$WORK/stack" AVELREN_READINESS_TIMEOUT_SECONDS=1 \
         AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 \
+        AVELREN_PRE_RESTORE_SNAPSHOT_DIR="$WORK/$name.snapshot" \
         AVELREN_ADMIN_PASSWORD=admin-contract-secret \
         AVELREN_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/avelren \
         AVELREN_MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/avelren \
@@ -199,6 +218,26 @@ grep -q 'psql -U avelren_admin' "$WORK/success.log"
 ! grep -Eq -- 'psql -U (avelren|avelren_backup|avelren_migrator)( |$)' "$WORK/success.log"
 ! grep -Eq '(admin|migrator|api)-contract-secret' "$WORK/success.log" "$WORK/success.out"
 
+# M-13: pre-restore snapshot зроблено, ДО рушія, admin-роллю, без витоку пароля.
+grep -q 'db pg_dump' "$WORK/success.log"
+snap=$(ls "$WORK/success.snapshot"/avelren-pre-restore-*.sql.gz 2>/dev/null | head -1)
+[ -n "$snap" ] && [ -s "$snap" ] || { echo 'pre-restore snapshot missing or empty' >&2; exit 1; }
+gzip -t "$snap"
+snap_line=$(grep -n 'db pg_dump' "$WORK/success.log" | head -1 | cut -d: -f1)
+eng_line=$(grep -n ENGINE "$WORK/success.log" | head -1 | cut -d: -f1)
+[ "$snap_line" -lt "$eng_line" ] || { echo 'snapshot must precede restore engine' >&2; exit 1; }
+
+# Best-effort: якщо pg_dump падає (пошкоджена база), restore ВСЕ ОДНО завершується.
+if ! run_fake snapshot-fail FAKE_PGDUMP_FAIL=1; then
+    echo 'snapshot failure must not abort restore' >&2
+    sed -n '1,240p' "$WORK/snapshot-fail.out" >&2 || true
+    exit 1
+fi
+grep -q 'production restore complete' "$WORK/snapshot-fail.out"
+grep -q 'pre-restore snapshot не вдався' "$WORK/snapshot-fail.out"
+grep -q ENGINE "$WORK/snapshot-fail.log"
+[ -z "$(ls "$WORK/snapshot-fail.snapshot"/avelren-pre-restore-*.sql.gz 2>/dev/null)" ]
+
 if run_fake sessions FAKE_SESSIONS=1; then echo "session gate should fail" >&2; exit 1; fi
 ! grep -q ENGINE "$WORK/sessions.log"
 assert_failed_closed sessions
@@ -263,4 +302,4 @@ if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service s
 ! grep -q HTTPS_READY "$WORK/running.log"
 assert_failed_closed running
 
-echo "production restore contract tests: 22 passed"
+echo "production restore contract tests: 23 passed"

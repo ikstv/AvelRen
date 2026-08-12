@@ -14,6 +14,7 @@ KNOWN_CLIENTS=${AVELREN_DB_CLIENT_SERVICES:-api collector notifier watchdog}
 READINESS_URL=${AVELREN_READINESS_URL:-https://api.bordersignal.pp.ua/api/health}
 READINESS_TIMEOUT=${AVELREN_READINESS_TIMEOUT_SECONDS:-120}
 FRESHNESS_TIMEOUT=${AVELREN_FRESHNESS_TIMEOUT_SECONDS:-180}
+PRE_RESTORE_SNAPSHOT_DIR=${AVELREN_PRE_RESTORE_SNAPSHOT_DIR:-/var/lib/avelren-backup/pre-restore}
 ADMIN_DB_USER=${AVELREN_ADMIN_DB_USER:-avelren_admin}
 ADMIN_DB_PASSWORD=${AVELREN_ADMIN_PASSWORD:-}
 ADMIN_DATABASE_URL=${AVELREN_ADMIN_DSN:-}
@@ -45,6 +46,11 @@ compose() {
 db_psql() {
     PGPASSWORD="$ADMIN_DB_PASSWORD" compose exec -T -e PGPASSWORD "$DB_SERVICE" \
         psql -U "$ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
+}
+db_pg_dump() {
+    # Пароль лише через середовище (як db_psql), ніколи в argv.
+    PGPASSWORD="$ADMIN_DB_PASSWORD" compose exec -T -e PGPASSWORD "$DB_SERVICE" \
+        pg_dump --no-owner -U "$ADMIN_DB_USER" -d "$1"
 }
 admin_dsn_current_user() {
     local base="$ADMIN_DATABASE_URL" query="" maintenance_dsn
@@ -169,6 +175,25 @@ WHERE datname = :'target'
 ORDER BY pid;
 SQL
     exit 1
+fi
+
+# M-13: best-effort знімок поточної бази ПЕРЕД знищенням. Restore тягне
+# вчорашній бекап і безповоротно викидає все, зібране з ночі, — навіть цілком
+# здорові дані (docs/disaster-recovery.md: автоматичного відкату немає). Момент
+# ідеальний: ingress і клієнти вже зупинені, активних сесій немає — дамп
+# консистентний. Best-effort: якщо база пошкоджена (сам привід для restore),
+# лише попереджаємо й продовжуємо — знімок НЕ має блокувати відновлення.
+snapshot="$PRE_RESTORE_SNAPSHOT_DIR/avelren-pre-restore-$(date -u +%Y%m%d-%H%M%S).sql.gz"
+log "pre-restore safety snapshot: дамп поточної бази у $PRE_RESTORE_SNAPSHOT_DIR"
+if mkdir -p -- "$PRE_RESTORE_SNAPSHOT_DIR" 2>/dev/null \
+    && chmod 0700 -- "$PRE_RESTORE_SNAPSHOT_DIR" 2>/dev/null \
+    && db_pg_dump "$PRODUCTION_TARGET" 2>/dev/null | gzip -9 >"$snapshot" 2>/dev/null \
+    && gzip -t "$snapshot" 2>/dev/null; then
+    chmod 0600 -- "$snapshot" 2>/dev/null || true
+    log "pre-restore snapshot збережено: $snapshot"
+else
+    rm -f -- "$snapshot" 2>/dev/null || true
+    log "УВАГА: pre-restore snapshot не вдався (ймовірно, база пошкоджена) — продовжую restore без нього"
 fi
 
 log "session gate clean; invoking low-level restore engine"

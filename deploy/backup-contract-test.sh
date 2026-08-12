@@ -41,6 +41,14 @@ set -euo pipefail
 cmd=$1; shift
 path() { printf '%s/%s' "$FAKE_REMOTE" "${1#*:}"; }
 case "$cmd" in
+config)
+    # `rclone config show <name>` — preflight перевірки типу remote (M-11).
+    if [ "${FAKE_REMOTE_NOT_CRYPT:-0}" = 1 ]; then
+        printf 'type = drive\n'
+    else
+        printf 'type = crypt\n'
+    fi
+    ;;
 copyto)
     src=$1; dst=$(path "$2")
     [ "${FAKE_UPLOAD_FAIL:-0}" != 1 ] || exit 10
@@ -157,6 +165,14 @@ do
     fi
 done
 
+# M-11: remote не типу crypt → бекап падає на preflight, ДО дампа й штампа.
+if run_case not-crypt FAKE_REMOTE_NOT_CRYPT=1; then
+    echo "expected non-crypt remote gate failure" >&2; exit 1
+fi
+[ ! -e "$WORK/not-crypt/stamp" ]
+[ ! -s "$WORK/not-crypt/calls.log" ]
+assert_no_plaintext "$WORK/not-crypt/work"
+
 # Corrupt gzip validator: test the actual script while replacing only gzip.
 case_dir="$WORK/gzip"; mkdir -p "$case_dir/stack"; make_tools "$case_dir/bin" "$case_dir/remote"
 cat >"$case_dir/bin/gzip" <<'SH'
@@ -185,4 +201,4 @@ mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-not
 run_case unrelated
 [ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
 
-echo "backup contract tests: 17 passed"
+echo "backup contract tests: 18 passed"
