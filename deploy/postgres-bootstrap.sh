@@ -272,6 +272,42 @@ create_roles() {
     admin_psql_maintenance -f "$ROOT/db/security/bootstrap.sql"
 }
 
+# Fail-closed guard проти privilege-escalation через role membership.
+#
+# Canonical-граф не має ЖОДНОГО membership між avelren_%-ролями (bootstrap.sql
+# явно REVOKE'ає admin/migrator memberships — це known-safe baseline). Будь-який
+# ЗАЛИШКОВИЙ avelren_% → avelren_% membership (напр. хтось видав
+# `GRANT avelren_collector TO avelren_api`, і api через SET ROLE отримав чужі
+# права) — це неочікувана ескалація, яку bootstrap НЕ виправляє мовчки:
+# автоматичний REVOKE приховав би факт компрометації. Замість цього — halt із
+# явним повідомленням, щоб адміністратор розслідував походження membership'а і
+# зняв його свідомо (саме так робить інтеграційний тест: спершу бачить fail,
+# потім REVOKE руками адміна, потім повторний bootstrap проходить).
+#
+# Запускається ПІСЛЯ create_roles: baseline-revoke'и bootstrap.sql уже
+# застосовані, тож у чистому стані лишається 0 memberships, і guard мовчить.
+verify_role_memberships() {
+    local forbidden
+    if ! forbidden=$(admin_psql_maintenance --set=bootstrap_stage=verify_memberships \
+        --tuples-only --no-align <<'SQL'
+-- bootstrap-stage:verify_memberships
+SELECT count(*)
+FROM pg_auth_members AS membership
+JOIN pg_roles AS granted_role ON granted_role.oid = membership.roleid
+JOIN pg_roles AS member_role ON member_role.oid = membership.member
+WHERE granted_role.rolname LIKE 'avelren_%'
+   OR member_role.rolname LIKE 'avelren_%';
+SQL
+    ); then
+        fail 'could not verify canonical role memberships'
+    fi
+    case "$forbidden" in
+        0) return 0 ;;
+        [1-9]*) fail 'forbidden canonical role membership detected' ;;
+        *) fail 'canonical role membership query returned an unexpected result' ;;
+    esac
+}
+
 create_database() {
     local exists
     if ! exists=$(database_exists); then
@@ -370,6 +406,7 @@ if [ "$mode" = fresh ] && [ "$cleanup_requested" -eq 1 ]; then
     trap cleanup_after_failed_fresh EXIT
 fi
 create_roles
+verify_role_memberships
 if [ "$mode" = fresh ]; then
     create_database
     provision_extension
