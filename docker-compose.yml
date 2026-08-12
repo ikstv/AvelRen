@@ -1,3 +1,17 @@
+# Спільний build-спец для всіх сервісів на образі `avelren-app:latest`.
+# SOURCE_COMMIT прокидується у Dockerfile як ARG → env AVELREN_GIT_SHA, який
+# `/admin/telemetry.version.git_sha` віддає Server Dashboard. Дефолт — пустий
+# рядок: краще null на клієнті, ніж підроблене «unknown» (див. N5 review #34).
+#
+# Deploy runbook експортує змінну перед build:
+#   export SOURCE_COMMIT=$(git rev-parse HEAD)
+#   sudo -E docker compose build migrate
+# Без `sudo -E` env-змінна не долітає до docker compose під sudo.
+x-avelren-build: &avelren-build
+  context: ./app
+  args:
+    SOURCE_COMMIT: ${SOURCE_COMMIT:-}
+
 services:
   db:
     image: timescale/timescaledb:2.17.2-pg16
@@ -17,7 +31,7 @@ services:
   # Виконується до кожного старту сервісів і завершується. Так схема БД не
   # може розійтися з кодом через забуту міграцію.
   migrate:
-    build: ./app
+    build: *avelren-build
     image: avelren-app:latest
     command: ["python", "-m", "avelren.migrate"]
     environment:
@@ -31,7 +45,7 @@ services:
         condition: service_healthy
 
   collector:
-    build: ./app
+    build: *avelren-build
     image: avelren-app:latest
     restart: unless-stopped
     command: ["python", "-m", "avelren.collector"]
@@ -50,7 +64,7 @@ services:
 
   # Окремо від збирача: історія має накопичуватись, навіть якщо FCM лежить.
   notifier:
-    build: ./app
+    build: *avelren-build
     image: avelren-app:latest
     restart: unless-stopped
     command: ["python", "-m", "avelren.notifier"]
@@ -68,7 +82,7 @@ services:
 
   # Помічає, що система замовкла. Найнебезпечніший збій — тихий.
   watchdog:
-    build: ./app
+    build: *avelren-build
     image: avelren-app:latest
     restart: unless-stopped
     command: ["python", "-m", "avelren.watchdog"]
@@ -88,7 +102,7 @@ services:
         condition: service_completed_successfully
 
   api:
-    build: ./app
+    build: *avelren-build
     image: avelren-app:latest
     restart: unless-stopped
     command: ["uvicorn", "avelren.api:app", "--host", "0.0.0.0", "--port", "8000"]
