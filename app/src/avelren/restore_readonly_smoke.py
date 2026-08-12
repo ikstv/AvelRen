@@ -1,30 +1,18 @@
-"""Read-only application smoke used only by the production restore orchestrator."""
+"""GET-only API smoke used only by the production restore orchestrator."""
 
 import logging
 import os
 import sys
 
-import psycopg
 from fastapi.testclient import TestClient
 
 from .api import app
 from .config import settings
+from .restore_identity import dsn_identity_problems
 
 log = logging.getLogger("avelren.restore_readonly_smoke")
 
 PRODUCTION_VERIFY_CONTEXT = "AVELREN-INTERNAL-PRODUCTION-VERIFY"
-
-
-def _database_facts() -> tuple[str, int, int]:
-    with psycopg.connect(settings.database_dsn, autocommit=True) as conn:
-        row = conn.execute(
-            """
-            SELECT current_database(),
-                   (SELECT count(*) FROM schema_migrations),
-                   (SELECT count(*) FROM timescaledb_information.hypertables)
-            """
-        ).fetchone()
-    return str(row[0]), int(row[1]), int(row[2])
 
 
 def main() -> int:
@@ -32,23 +20,22 @@ def main() -> int:
         level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     expected = os.environ.get("AVELREN_RESTORE_VERIFY_TARGET")
+    expected_role = os.environ.get("AVELREN_RESTORE_VERIFY_ROLE")
     context = os.environ.get("AVELREN_PRODUCTION_VERIFY_CONTEXT")
-    if expected != "avelren" or context != PRODUCTION_VERIFY_CONTEXT:
-        log.error("production read-only smoke requires exact internal context and target")
+    if (
+        expected != "avelren"
+        or expected_role != "avelren_api"
+        or context != PRODUCTION_VERIFY_CONTEXT
+    ):
+        log.error("production read-only smoke requires exact context, target, and role")
         return 2
 
-    database, migrations, hypertables = _database_facts()
-    if database != expected or migrations < 1 or hypertables < 1:
-        log.error(
-            "restored database facts invalid: database=%s migrations=%s hypertables=%s",
-            database,
-            migrations,
-            hypertables,
-        )
+    identity_problems = dsn_identity_problems(settings.database_dsn, expected, expected_role)
+    if identity_problems:
+        for problem in identity_problems:
+            log.error("restore verification identity mismatch: %s", problem)
         return 1
 
-    # GET-only application calls. Unlike restore_smoke, this module never
-    # registers a device or changes restored production data.
     with TestClient(app) as client:
         health = client.get("/health")
         checkpoints = client.get("/checkpoints", params={"include_stale": True})
@@ -63,12 +50,7 @@ def main() -> int:
         log.error("restored production database has no observations")
         return 1
 
-    log.info(
-        "production read-only smoke ok: migrations=%s hypertables=%s checkpoints=%s",
-        migrations,
-        hypertables,
-        len(checkpoints.json()),
-    )
+    log.info("production read-only API smoke ok: checkpoints=%s", len(checkpoints.json()))
     return 0
 
 

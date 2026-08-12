@@ -11,6 +11,23 @@ make_tools() {
     cat >"$bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >>"${FAKE_CALL_LOG:?}"
+[ "${PGPASSWORD:-}" = "${EXPECTED_BACKUP_PASSWORD:?}" ] || {
+    echo 'backup password was not provided through the process environment' >&2
+    exit 14
+}
+[[ " $* " == *' exec -T -e PGPASSWORD db pg_dump --no-owner -U avelren_backup -d avelren '* ]] || {
+    echo 'pg_dump did not use the canonical backup role' >&2
+    exit 15
+}
+[[ " $* " == *' --no-owner '* ]] || {
+    echo 'pg_dump did not use the canonical ownership-neutral format' >&2
+    exit 17
+}
+[[ "$*" != *"$EXPECTED_BACKUP_PASSWORD"* ]] || {
+    echo 'backup password leaked into docker argv' >&2
+    exit 16
+}
 [ "${FAKE_DUMP_FAIL:-0}" != 1 ] || { printf 'partial'; exit 9; }
 if [ "${FAKE_SMALL_DUMP:-0}" = 1 ]; then
     printf 'SELECT 1;\n'
@@ -24,6 +41,14 @@ set -euo pipefail
 cmd=$1; shift
 path() { printf '%s/%s' "$FAKE_REMOTE" "${1#*:}"; }
 case "$cmd" in
+config)
+    # `rclone config show <name>` — preflight перевірки типу remote (M-11).
+    if [ "${FAKE_REMOTE_NOT_CRYPT:-0}" = 1 ]; then
+        printf 'type = drive\n'
+    else
+        printf 'type = crypt\n'
+    fi
+    ;;
 copyto)
     src=$1; dst=$(path "$2")
     [ "${FAKE_UPLOAD_FAIL:-0}" != 1 ] || exit 10
@@ -80,6 +105,8 @@ run_case() {
         AVELREN_BACKUP_REMOTE="fake:$remote" \
         AVELREN_RCLONE_CONFIG="$case_dir/rclone.conf" \
         AVELREN_BACKUP_STAMP="$case_dir/stamp" \
+        AVELREN_BACKUP_PASSWORD=backup-contract-secret \
+        EXPECTED_BACKUP_PASSWORD=backup-contract-secret \
         FAKE_CALL_LOG="$case_dir/calls.log" \
         "$@" bash "$ROOT/deploy/backup.sh"
 }
@@ -96,6 +123,26 @@ run_case success
 assert_no_plaintext "$WORK/success/work"
 remote_dump=$(find "$WORK/success/remote" -type f -name '*.sql.gz' | head -1)
 [ -n "$remote_dump" ] && [ -f "$remote_dump.sha256" ]
+grep -q 'pg_dump --no-owner -U avelren_backup -d avelren' "$WORK/success/calls.log"
+grep -q -- '--no-owner' "$WORK/success/calls.log"
+! grep -Eq 'pg_dump -U (avelren|avelren_admin|avelren_migrator)( |$)' "$WORK/success/calls.log"
+! grep -q 'backup-contract-secret' "$WORK/success/calls.log"
+
+# Role and credential gates run before Docker can reach PostgreSQL.
+for item in \
+    'missing-password:AVELREN_BACKUP_PASSWORD=' \
+    'admin-role:AVELREN_BACKUP_DB_USER=avelren_admin' \
+    'migrator-role:AVELREN_BACKUP_DB_USER=avelren_migrator' \
+    'legacy-role:AVELREN_BACKUP_DB_USER=avelren'
+do
+    name=${item%%:*}; setting=${item#*:}
+    if run_case "$name" "$setting"; then
+        echo "expected backup role gate failure: $name" >&2; exit 1
+    fi
+    [ ! -s "$WORK/$name/calls.log" ]
+    [ ! -e "$WORK/$name/stamp" ]
+    assert_no_plaintext "$WORK/$name/work"
+done
 
 for item in \
     'dump:FAKE_DUMP_FAIL=1' \
@@ -118,20 +165,35 @@ do
     fi
 done
 
+# M-11: remote не типу crypt → бекап падає на preflight, ДО дампа й штампа.
+if run_case not-crypt FAKE_REMOTE_NOT_CRYPT=1; then
+    echo "expected non-crypt remote gate failure" >&2; exit 1
+fi
+[ ! -e "$WORK/not-crypt/stamp" ]
+[ ! -s "$WORK/not-crypt/calls.log" ]
+assert_no_plaintext "$WORK/not-crypt/work"
+
 # Corrupt gzip validator: test the actual script while replacing only gzip.
 case_dir="$WORK/gzip"; mkdir -p "$case_dir/stack"; make_tools "$case_dir/bin" "$case_dir/remote"
 cat >"$case_dir/bin/gzip" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = -t ]; then exit 1; fi
+if [ "${1:-}" = -t ]; then
+    printf 'GZIP_T_REACHED\n' >>"${FAKE_CALL_LOG:?}"
+    exit 1
+fi
 exec /usr/bin/gzip "$@"
 SH
 chmod +x "$case_dir/bin/gzip"
 if env PATH="$case_dir/bin:$PATH" FAKE_REMOTE="$case_dir/remote" \
     AVELREN_STACK_DIR="$case_dir/stack" AVELREN_BACKUP_WORK_DIR="$case_dir/work" \
     AVELREN_BACKUP_REMOTE="fake:$case_dir/remote" AVELREN_RCLONE_CONFIG=x \
-    AVELREN_BACKUP_STAMP="$case_dir/stamp" bash "$ROOT/deploy/backup.sh"; then
+    AVELREN_BACKUP_STAMP="$case_dir/stamp" \
+    AVELREN_BACKUP_PASSWORD=backup-contract-secret \
+    EXPECTED_BACKUP_PASSWORD=backup-contract-secret \
+    FAKE_CALL_LOG="$case_dir/calls.log" bash "$ROOT/deploy/backup.sh"; then
     echo "expected gzip validation failure" >&2; exit 1
 fi
+[ "$(grep -c '^GZIP_T_REACHED$' "$case_dir/calls.log")" -eq 1 ]
 [ ! -e "$case_dir/stamp" ]; assert_no_plaintext "$case_dir/work"
 
 # Cleanup is scoped: unrelated operator file survives every trap.
@@ -139,4 +201,4 @@ mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-not
 run_case unrelated
 [ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
 
-echo "backup contract tests: 13 passed"
+echo "backup contract tests: 18 passed"

@@ -36,6 +36,7 @@ jobs:
             deploy/telemetry-snapshot.sh \
             deploy/avelren-telemetry.service \
             deploy/avelren-telemetry.timer \
+            deploy/compose-security-contract-test.sh \
             db/migrations/008_notification_cancels.sql \
             app/src/avelren/cancels.py \
             android/app/src/main/java/ua/avelren/app/notify/AlertReconciliation.kt \
@@ -59,13 +60,35 @@ jobs:
 
   backend-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Canonical backend workflow
+        timeout-minutes: 20
         run: bash scripts/backend-test.sh
+
+      - name: PostgreSQL shell syntax
+        timeout-minutes: 5
+        run: bash -n deploy/postgres-bootstrap.sh deploy/postgres-adopt.sh deploy/postgres-ownership.lib.sh
+
+      - name: PostgreSQL bootstrap contract
+        timeout-minutes: 5
+        run: bash deploy/postgres-bootstrap-contract-test.sh
+
+      - name: PostgreSQL role privileges and positive service paths
+        timeout-minutes: 30
+        run: bash deploy/postgres-roles-integration-test.sh
+
+      - name: Compose database credential isolation
+        timeout-minutes: 5
+        run: bash deploy/compose-security-contract-test.sh
+
+      - name: Docker Compose config
+        timeout-minutes: 5
+        run: docker compose --env-file .env.example config --quiet
 
       - name: Security/setup contract smoke
         run: |
@@ -109,26 +132,42 @@ jobs:
           systemd-analyze verify deploy/avelren-backup.service
 
       - name: Backup permission, cleanup, verification і stamp contract
+        timeout-minutes: 5
         run: bash deploy/backup-contract-test.sh
 
       - name: Restore contract regression tests
+        timeout-minutes: 10
         run: |
           bash deploy/restore-contract-test.sh
           bash deploy/restore-engine-contract-test.sh
 
       - name: Production orchestrator contract tests
+        timeout-minutes: 10
         run: bash deploy/restore-production-contract-test.sh
 
       - name: Actual disposable restore integration
+        timeout-minutes: 20
         run: bash deploy/restore-integration-test.sh
 
       - name: Disposable production-mode restore integration
+        timeout-minutes: 25
         run: bash deploy/restore-production-integration-test.sh
 
-      - name: Docker Compose config
-        run: |
-          cp .env.example .env
-          POSTGRES_PASSWORD=ci docker compose config --quiet
+      - name: PostgreSQL adoption contract
+        timeout-minutes: 10
+        run: bash deploy/postgres-adoption-contract-test.sh
+
+      - name: Cold adoption integration - before_commit
+        timeout-minutes: 30
+        run: AVELREN_ADOPTION_SCENARIO=before_commit bash deploy/postgres-adoption-integration-test.sh
+
+      - name: Cold adoption integration - after_commit
+        timeout-minutes: 45
+        run: AVELREN_ADOPTION_SCENARIO=after_commit bash deploy/postgres-adoption-integration-test.sh
+
+      - name: Cold adoption integration - success
+        timeout-minutes: 45
+        run: AVELREN_ADOPTION_SCENARIO=success bash deploy/postgres-adoption-integration-test.sh
 
       - name: Snapshot script — синтаксис
         run: bash -n deploy/telemetry-snapshot.sh
@@ -223,6 +262,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # Кешуємо wrapper distribution і Gradle caches. Без цього кожен run
+      # тягне gradle-8.13-bin.zip (~150 MB) з services.gradle.org, і при
+      # обриві TCP-з'єднання весь job валиться на `main` треді wrapper'а.
+      # За добу перед merge #33 таке падіння сталося тричі (PR #34 rerun 1,
+      # PR #34 rerun 2, PR #35 rerun 1) — не випадковий flake, а патерн
+      # rate-limit/network path. `gradle/actions/setup-gradle@v4` — офіційна
+      # рекомендація Gradle: одна дія покриває і wrapper cache, і залежності;
+      # після першого успішного run на main усі PR тягнуть wrapper з кешу.
+      # Semantic build/test — БЕЗ змін.
+      - uses: gradle/actions/setup-gradle@v4
       - name: Заглушка google-services.json
         # Справжній файл — секрет і в git не живе. Для перевірки компіляції
         # достатньо синтаксично валідної заглушки з правильним package.

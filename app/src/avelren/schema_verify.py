@@ -21,12 +21,14 @@
 
 import hashlib
 import logging
+import os
 import sys
 from pathlib import Path
 
 import psycopg
 
 from .config import settings
+from .restore_identity import connection_identity_problems
 
 log = logging.getLogger("avelren.schema_verify")
 
@@ -324,7 +326,16 @@ def main(directory: Path) -> int:
         level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     with psycopg.connect(settings.database_dsn, autocommit=True) as conn:
-        problems = verify(conn, directory)
+        expected_database = os.environ.get("AVELREN_RESTORE_VERIFY_TARGET")
+        expected_role = os.environ.get("AVELREN_RESTORE_VERIFY_ROLE")
+        if (expected_database is None) != (expected_role is None):
+            problems = ["restore verification identity contract is incomplete"]
+        elif expected_database is not None and expected_role is not None:
+            problems = connection_identity_problems(conn, expected_database, expected_role)
+        else:
+            problems = []
+        if not problems:
+            problems = verify(conn, directory)
     if problems:
         log.error("схема НЕ узгоджена з історією міграцій:")
         for p in problems:

@@ -311,11 +311,15 @@ def test_verify_contract_detects_wrong_columns_on_named_constraint(scratch_dsn):
 # --- restore smoke ----------------------------------------------------------
 
 
-def test_restore_smoke_passes_on_migrated_db(scratch_dsn):
+def test_restore_smoke_passes_on_migrated_db(scratch_dsn, monkeypatch):
     """DR-контракт: справжній застосунок піднімається проти щойно змігрованої
     БД з реальними даними і проходить prod-guard + health + auth + devices/secret
     + protected-запит."""
     from avelren import db, restore_smoke
+
+    monkeypatch.setenv("AVELREN_RESTORE_VERIFY_TARGET", "restore_test")
+    monkeypatch.setenv("AVELREN_RESTORE_VERIFY_ROLE", "avelren_api")
+    monkeypatch.setattr(restore_smoke, "dsn_identity_problems", lambda *_: [])
 
     assert migrate.run(MIGRATIONS) == 0
 
@@ -338,7 +342,7 @@ def test_restore_smoke_passes_on_migrated_db(scratch_dsn):
         db._pool = None
 
 
-def test_restore_smoke_fails_on_empty_observations(scratch_dsn):
+def test_restore_smoke_fails_on_empty_observations(scratch_dsn, monkeypatch):
     """Правильна схема, але нульові дані → smoke повертає 1 (DR false PASS неприйнятний).
 
     /health на AvelRen повертає 200 навіть без observations; тому smoke явно
@@ -346,6 +350,10 @@ def test_restore_smoke_fails_on_empty_observations(scratch_dsn):
     даних немає».
     """
     from avelren import db, restore_smoke
+
+    monkeypatch.setenv("AVELREN_RESTORE_VERIFY_TARGET", "restore_test")
+    monkeypatch.setenv("AVELREN_RESTORE_VERIFY_ROLE", "avelren_api")
+    monkeypatch.setattr(restore_smoke, "dsn_identity_problems", lambda *_: [])
 
     assert migrate.run(MIGRATIONS) == 0
     db._pool = None
@@ -359,7 +367,13 @@ def test_restore_smoke_refuses_production_db(monkeypatch):
     """Smoke відмовляється запускатись, якщо current_database() == 'avelren'."""
     from avelren import restore_smoke
 
-    monkeypatch.setattr(restore_smoke, "_current_database", lambda: "avelren")
+    monkeypatch.setenv("AVELREN_RESTORE_VERIFY_TARGET", "restore_test")
+    monkeypatch.setenv("AVELREN_RESTORE_VERIFY_ROLE", "avelren_api")
+    monkeypatch.setattr(
+        restore_smoke,
+        "dsn_identity_problems",
+        lambda *_: ["database identity mismatch: expected restore_test, got avelren"],
+    )
     assert restore_smoke.main() == 1
 
 

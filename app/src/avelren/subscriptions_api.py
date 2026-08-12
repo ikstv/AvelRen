@@ -333,7 +333,7 @@ async def list_eta_targets(
                         LIMIT 1) AS pending_alert_id
                 FROM eta_targets t
                 JOIN checkpoints c ON c.id = t.checkpoint_id
-                WHERE t.device_id = %s
+                WHERE t.device_id = %s AND t.is_active
                 ORDER BY t.target_at
                 """,
                 (device_id,),
@@ -475,11 +475,21 @@ async def admin_telemetry(
         if stale is not None:
             problems = [stale, *problems]
 
+        # Розширення (PR-B): нові блоки backward-compatible, ЖОДНЕ існуюче
+        # поле не видалено і не перейменовано — старий Android продовжить
+        # парсити цю відповідь без змін.
         return {
             "system": system,
             "network": telemetry.network(),
+            "inodes": telemetry.inodes(),
+            "docker": telemetry.docker(),
+            "services": telemetry.services(),
             "pipeline": await telemetry.pipeline(conn),
+            "last_collector_run": await telemetry.last_collector_run(conn),
+            "last_collector_success": await telemetry.last_collector_success(conn),
+            "upstream": telemetry.upstream(),
             "certificate": telemetry.certificate(),
             "backups": telemetry.backups(),
+            "version": await telemetry.version(conn),
             "problems": problems,
         }

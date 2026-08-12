@@ -6,13 +6,20 @@ STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
 COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
 COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
 DB_SERVICE=${AVELREN_DB_SERVICE:-db}
-VERIFY_APP_SERVICE=${AVELREN_VERIFY_APP_SERVICE:-migrate}
+VERIFY_SCHEMA_SERVICE=${AVELREN_VERIFY_SCHEMA_SERVICE:-migrate}
+VERIFY_API_SERVICE=${AVELREN_VERIFY_API_SERVICE:-api}
 API_SERVICE=${AVELREN_API_SERVICE:-api}
 INGRESS_SERVICE=${AVELREN_INGRESS_SERVICE:-caddy}
 KNOWN_CLIENTS=${AVELREN_DB_CLIENT_SERVICES:-api collector notifier watchdog}
 READINESS_URL=${AVELREN_READINESS_URL:-https://api.bordersignal.pp.ua/api/health}
 READINESS_TIMEOUT=${AVELREN_READINESS_TIMEOUT_SECONDS:-120}
 FRESHNESS_TIMEOUT=${AVELREN_FRESHNESS_TIMEOUT_SECONDS:-180}
+PRE_RESTORE_SNAPSHOT_DIR=${AVELREN_PRE_RESTORE_SNAPSHOT_DIR:-/var/lib/avelren-backup/pre-restore}
+ADMIN_DB_USER=${AVELREN_ADMIN_DB_USER:-avelren_admin}
+ADMIN_DB_PASSWORD=${AVELREN_ADMIN_PASSWORD:-}
+ADMIN_DATABASE_URL=${AVELREN_ADMIN_DSN:-}
+MIGRATOR_DATABASE_URL=${AVELREN_MIGRATOR_DSN:-}
+API_DATABASE_URL=${AVELREN_API_DSN:-}
 PRODUCTION_TARGET=avelren
 CONFIRMATION_TOKEN=AVELREN-PRODUCTION-RESTORE
 
@@ -36,7 +43,30 @@ compose() {
     [ -z "$COMPOSE_PROJECT" ] || args+=(-p "$COMPOSE_PROJECT")
     "${args[@]}" "$@"
 }
-db_psql() { compose exec -T "$DB_SERVICE" psql -U avelren -v ON_ERROR_STOP=1 "$@"; }
+db_psql() {
+    PGPASSWORD="$ADMIN_DB_PASSWORD" compose exec -T -e PGPASSWORD "$DB_SERVICE" \
+        psql -U "$ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
+}
+db_pg_dump() {
+    # Пароль лише через середовище (як db_psql), ніколи в argv.
+    PGPASSWORD="$ADMIN_DB_PASSWORD" compose exec -T -e PGPASSWORD "$DB_SERVICE" \
+        pg_dump --no-owner -U "$ADMIN_DB_USER" -d "$1"
+}
+admin_dsn_current_user() {
+    local base="$ADMIN_DATABASE_URL" query="" maintenance_dsn
+    case "$base" in
+        postgresql://*/*) ;;
+        *) return 2 ;;
+    esac
+    if [[ "$base" == *\?* ]]; then
+        query="?${base#*\?}"
+        base=${base%%\?*}
+    fi
+    maintenance_dsn="${base%/*}/postgres${query}"
+    AVELREN_ADMIN_DSN="$maintenance_dsn" compose exec -T -e AVELREN_ADMIN_DSN \
+        "$DB_SERVICE" sh -c \
+        'psql -X --no-psqlrc --tuples-only --no-align --dbname="$AVELREN_ADMIN_DSN" -c "SELECT current_user"'
+}
 
 if [ "$CONFIRMATION" != "$CONFIRMATION_TOKEN" ]; then
     log "ВІДМОВА: production orchestrator потребує exact confirmation token"
@@ -45,7 +75,32 @@ fi
 [ -f "$DUMP" ] || { log "ВІДМОВА: backup artifact не знайдено"; exit 1; }
 gzip -t "$DUMP" || { log "ВІДМОВА: backup artifact corrupt"; exit 1; }
 
+[ "$ADMIN_DB_USER" = avelren_admin ] || {
+    log "restore database role must be avelren_admin"; exit 2;
+}
+[ -n "$ADMIN_DB_PASSWORD" ] || {
+    log "restore database password is required"; exit 2;
+}
+[ -n "$ADMIN_DATABASE_URL" ] || {
+    log "admin verification DSN is required"; exit 2;
+}
+[ -n "$MIGRATOR_DATABASE_URL" ] || {
+    log "migrator verification DSN is required"; exit 2;
+}
+[ -n "$API_DATABASE_URL" ] || {
+    log "API verification DSN is required"; exit 2;
+}
+
 cd "$STACK_DIR"
+admin_current_user=$(admin_dsn_current_user) || {
+    log "admin verification DSN connection failed"
+    exit 2
+}
+[ "$admin_current_user" = avelren_admin ] || {
+    log "admin verification DSN must authenticate as avelren_admin"
+    exit 2
+}
+
 SUCCESS=false
 keep_maintenance_on_failure() {
     local status=$?
@@ -122,6 +177,25 @@ SQL
     exit 1
 fi
 
+# M-13: best-effort знімок поточної бази ПЕРЕД знищенням. Restore тягне
+# вчорашній бекап і безповоротно викидає все, зібране з ночі, — навіть цілком
+# здорові дані (docs/disaster-recovery.md: автоматичного відкату немає). Момент
+# ідеальний: ingress і клієнти вже зупинені, активних сесій немає — дамп
+# консистентний. Best-effort: якщо база пошкоджена (сам привід для restore),
+# лише попереджаємо й продовжуємо — знімок НЕ має блокувати відновлення.
+snapshot="$PRE_RESTORE_SNAPSHOT_DIR/avelren-pre-restore-$(date -u +%Y%m%d-%H%M%S).sql.gz"
+log "pre-restore safety snapshot: дамп поточної бази у $PRE_RESTORE_SNAPSHOT_DIR"
+if mkdir -p -- "$PRE_RESTORE_SNAPSHOT_DIR" 2>/dev/null \
+    && chmod 0700 -- "$PRE_RESTORE_SNAPSHOT_DIR" 2>/dev/null \
+    && db_pg_dump "$PRODUCTION_TARGET" 2>/dev/null | gzip -9 >"$snapshot" 2>/dev/null \
+    && gzip -t "$snapshot" 2>/dev/null; then
+    chmod 0600 -- "$snapshot" 2>/dev/null || true
+    log "pre-restore snapshot збережено: $snapshot"
+else
+    rm -f -- "$snapshot" 2>/dev/null || true
+    log "УВАГА: pre-restore snapshot не вдався (ймовірно, база пошкоджена) — продовжую restore без нього"
+fi
+
 log "session gate clean; invoking low-level restore engine"
 # Production capability is structural: the engine is a source-only library and
 # the public restore.sh CLI rejects every production target.
@@ -142,10 +216,12 @@ compose wait migrate
 AVELREN_STACK_DIR="$STACK_DIR" \
 AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
 AVELREN_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
-AVELREN_VERIFY_APP_SERVICE="$VERIFY_APP_SERVICE" \
+AVELREN_VERIFY_SCHEMA_SERVICE="$VERIFY_SCHEMA_SERVICE" \
+AVELREN_VERIFY_API_SERVICE="$VERIFY_API_SERVICE" \
 AVELREN_VERIFY_MIGRATIONS_DIR="${AVELREN_VERIFY_MIGRATIONS_DIR:-/migrations}" \
 AVELREN_PRODUCTION_VERIFY_CONTEXT=AVELREN-INTERNAL-PRODUCTION-VERIFY \
-AVELREN_VERIFY_DATABASE_URL="${AVELREN_VERIFY_DATABASE_URL:-}" \
+AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DATABASE_URL" \
+AVELREN_VERIFY_API_DSN="$API_DATABASE_URL" \
 bash "$STACK_DIR/deploy/restore-verify.sh" "$PRODUCTION_TARGET"
 
 pre_restart_run=$(db_psql -d "$PRODUCTION_TARGET" -At -c \
