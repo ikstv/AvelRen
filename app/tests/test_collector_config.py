@@ -51,6 +51,16 @@ def test_rejects_noncanonical_echerha_base_url(url: str) -> None:
         validate_collector_settings(make_settings(echerha_base_url=url))
 
 
+@pytest.mark.parametrize("version", [4, 6])
+def test_rejects_non_v5_api_version(version: int) -> None:
+    """Жодного fallback на v4: невірна версія — fail-closed на старті збирача."""
+    with pytest.raises(
+        CollectorConfigurationError,
+        match=r"^invalid collector setting: echerha_api_version$",
+    ):
+        validate_collector_settings(make_settings(echerha_api_version=version))
+
+
 @pytest.mark.parametrize("vehicle_type", [0, 2])
 def test_rejects_non_truck_vehicle_type(vehicle_type: int) -> None:
     with pytest.raises(

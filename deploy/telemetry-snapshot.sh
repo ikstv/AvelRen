@@ -112,6 +112,88 @@ if [ -r "$NET_DEV" ]; then
     )
 fi
 
+# --- inodes ---
+# Диск за байтами може бути на 20%, а за inode на 100% — і create() почне
+# віддавати ENOSPC, хоча df -h нічого не підозрює. Тому окрема секція.
+inodes_total=null
+inodes_used=null
+inodes_used_percent=null
+if inodes_line=$(df -Pi "$FS_PROBE" 2>/dev/null | tail -1); then
+    # `df -Pi` формат: Filesystem Inodes IUsed IFree IUse% Mounted
+    read -r _fs inodes_total inodes_used _ifree ipct _rest <<< "$inodes_line"
+    inodes_used_percent=${ipct%\%}
+    # Якщо будь-яке з чисел не число (наприклад "-" для tmpfs) — залишаємо null.
+    case "$inodes_total" in ''|*[!0-9]*) inodes_total=null ;; esac
+    case "$inodes_used"  in ''|*[!0-9]*) inodes_used=null  ;; esac
+    case "$inodes_used_percent" in ''|*[!0-9]*) inodes_used_percent=null ;; esac
+fi
+
+# --- docker daemon / compose version ---
+# `docker version --format` не має форматного варіанту, який би повернув
+# лише один рядок серверної версії; --format '{{.Server.Version}}' — точно
+# те, що треба. Ненульовий вихід (docker daemon не працює) → null, а не
+# півронути весь snapshot.
+docker_daemon_version=null
+docker_compose_version=null
+if command -v docker >/dev/null 2>&1; then
+    if v=$(docker version --format '{{.Server.Version}}' 2>/dev/null); then
+        [ -n "$v" ] && docker_daemon_version="\"$v\""
+    fi
+    if v=$(docker compose version --short 2>/dev/null); then
+        [ -n "$v" ] && docker_compose_version="\"$v\""
+    fi
+fi
+
+# --- services (per-container status) ---
+# `docker inspect --format` тягне ТІЛЬКИ поля з whitelist. Не використовуємо
+# `docker inspect ... | jq`: jq на живому snapshot може випадково витягти
+# зайве поле (env/mounts), а тут кожне поле іменоване явно — helper 'field'
+# нижче збирає безпечний JSON рядок для одного контейнера. Health може бути
+# порожнім (немає healthcheck) — тоді null. exit_code для running теж null:
+# 0 у running ≠ «успішно завершено».
+#
+# COMPOSE_PROJECT дозволяє нам ловити контейнери, які docker-compose назвав
+# як `<project>-<service>-<n>`. Дефолт — `avelren` (див. docker-compose.yml).
+COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-avelren}
+SERVICE_NAMES="db api collector notifier watchdog caddy"
+
+services_json_parts=""
+for svc in $SERVICE_NAMES; do
+    container="${COMPOSE_PROJECT}-${svc}-1"
+    status="null"; health="null"; started_at="null"
+    restart_count="null"; exit_code="null"; oom_killed="null"; image="null"
+
+    if command -v docker >/dev/null 2>&1 && \
+       raw=$(docker inspect --format \
+         '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.State.StartedAt}}|{{.RestartCount}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.Config.Image}}' \
+         "$container" 2>/dev/null); then
+        IFS='|' read -r s h st rc ec oom img <<< "$raw"
+        status="\"${s}\""
+        if [ "$h" = "none" ]; then health="null"; else health="\"${h}\""; fi
+        started_at="\"${st}\""
+        restart_count="$rc"
+        # exit_code має сенс лише для контейнерів, які завершились: `docker
+        # inspect` у running-стані повертає 0, який виглядає як «успіх», хоча
+        # це просто default. Показуємо null для активних — інакше клієнт
+        # неправильно інтерпретує «0» на живому сервісі.
+        if [ "$s" = "running" ]; then exit_code="null"; else exit_code="$ec"; fi
+        if [ "$oom" = "true" ]; then oom_killed="true"; else oom_killed="false"; fi
+        # image містить лише tag (напр. avelren-app:latest), без env/mounts.
+        image="\"${img}\""
+    fi
+
+    entry=$(cat <<SVC
+    {"name": "$svc", "status": $status, "health": $health, "started_at": $started_at, "restart_count": $restart_count, "exit_code": $exit_code, "oom_killed": $oom_killed, "image": $image}
+SVC
+)
+    if [ -z "$services_json_parts" ]; then
+        services_json_parts="$entry"
+    else
+        services_json_parts="$services_json_parts,
+$entry"
+    fi
+done
+
 # --- backup stamp ---
 backup_stamp=/run/avelren-backup.stamp
 backup_last_run=null
@@ -185,6 +267,18 @@ cat > "$TMP" <<JSON
     "rx_total_gb": $(awk -v b=$rx_total 'BEGIN {printf "%.2f", b/1024/1024/1024}'),
     "tx_total_gb": $(awk -v b=$tx_total 'BEGIN {printf "%.2f", b/1024/1024/1024}')
   },
+  "inodes": {
+    "total": $inodes_total,
+    "used": $inodes_used,
+    "used_percent": $inodes_used_percent
+  },
+  "docker": {
+    "daemon_version": $docker_daemon_version,
+    "compose_version": $docker_compose_version
+  },
+  "services": [
+$services_json_parts
+  ],
   "backups": {
     "last_run": $backup_last_run,
     "age_hours": $backup_age_hours,

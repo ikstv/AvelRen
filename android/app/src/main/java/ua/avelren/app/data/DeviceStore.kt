@@ -36,19 +36,31 @@ object DeviceStore {
     // установку, незалежно від 401-перереєстрації.
     private const val KEY_NOTIF_MIGRATED = "notif_legacy_migrated"
 
+    @Volatile
     private var prefs: SharedPreferences? = null
 
-    private fun prefs(context: Context): SharedPreferences = prefs ?: run {
-        val key = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            FILE,
-            key,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        ).also { prefs = it }
+    private fun prefs(context: Context): SharedPreferences {
+        // Подвійна перевірка з блокуванням. Холодний старт свідомо гонить два
+        // потоки до цього методу одночасно: AvelRenApp.start() на Dispatchers.IO
+        // і MainActivity на головному потоці. Паралельне створення
+        // EncryptedSharedPreferences/MasterKey для одного файлу — відома причина
+        // крашів (KeyStoreException) і псування keyset із безповоротною втратою
+        // облікових даних пристрою (аудит H-4).
+        prefs?.let { return it }
+        return synchronized(this) {
+            prefs ?: run {
+                val key = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                EncryptedSharedPreferences.create(
+                    context,
+                    FILE,
+                    key,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+                ).also { prefs = it }
+            }
+        }
     }
 
     fun credentials(context: Context): Credentials? {

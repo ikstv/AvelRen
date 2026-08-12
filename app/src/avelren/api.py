@@ -8,12 +8,16 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+from psycopg import OperationalError
+from psycopg_pool import PoolTimeout
 
 from . import forecast
 from .config import settings
 from .db import get_pool
 from .limits import BodySizeLimitMiddleware, ConcurrencyGate
+from .ratelimit import check as rate_check
 from .subscriptions_api import router as subscriptions_router
 
 log = logging.getLogger("avelren.api")
@@ -38,6 +42,23 @@ app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.api_max_body_byte
 app.include_router(subscriptions_router)
 
 
+@app.exception_handler(OperationalError)
+@app.exception_handler(PoolTimeout)
+async def _database_unavailable(request: Request, exc: Exception) -> JSONResponse:
+    """Падіння чи недоступність БД — це «спробуй пізніше», а не «баг сервера».
+
+    Без цього кожен публічний GET і тіло write-ендпоінта після auth віддавали б
+    сирий 500, і клієнт не міг відрізнити тимчасову недоступність від помилки.
+    _device у subscriptions_api вже мапить це на 503 точково; тут — глобальний
+    запобіжник для решти шляхів (аудит M-9)."""
+    log.warning("БД недоступна (%s): %s", type(exc).__name__, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Сервіс тимчасово недоступний, спробуйте пізніше"},
+        headers={"Retry-After": "5"},
+    )
+
+
 @app.get("/health")
 async def health() -> dict:
     """Живий сервіс з протухлими даними — теж проблема, тому міряємо свіжість."""
@@ -56,7 +77,7 @@ async def health() -> dict:
 
 
 @app.get("/checkpoints")
-async def checkpoints(include_stale: bool = False) -> list[dict]:
+async def checkpoints(request: Request, include_stale: bool = False) -> list[dict]:
     """Список вантажних КПП для екрана вибору.
 
     Актуальність тримається сама: `last_seen` оновлюється щоциклу, тож новий
@@ -64,6 +85,7 @@ async def checkpoints(include_stale: bool = False) -> list[dict]:
     відпаде. Поріг у добу — щоб коротка аварія нашого збирача не спорожнила
     список у застосунку.
     """
+    rate_check(request, "read")
     async with get_pool().connection() as conn:
         rows = await (
             await conn.execute(
@@ -83,7 +105,7 @@ async def checkpoints(include_stale: bool = False) -> list[dict]:
 
 
 @app.get("/workload")
-async def workload() -> list[dict]:
+async def workload(request: Request) -> list[dict]:
     """Останній зріз по кожній черзі.
 
     `entry_eta` — орієнтовний час в'їзду для того, хто стає в чергу зараз.
@@ -91,6 +113,7 @@ async def workload() -> list[dict]:
     призупиненої черги з нульовим очікуванням прогнозу немає, а не «в'їзд
     просто зараз», тому там `null`.
     """
+    rate_check(request, "read")
     async with get_pool().connection() as conn:
         rows = await (
             await conn.execute(
@@ -114,11 +137,13 @@ async def workload() -> list[dict]:
 
 @app.get("/history/{checkpoint_id}")
 async def history(
+    request: Request,
     checkpoint_id: int,
     hours: int = Query(24, ge=1, le=24 * 90),
 ) -> dict:
     """Історія пункту. За довгі періоди віддаємо погодинні агрегати —
     сирий ряд на 90 днів це 130 тисяч точок, які клієнту нема куди подіти."""
+    rate_check(request, "read")
     since = datetime.now(UTC) - timedelta(hours=hours)
 
     async with _expensive_gate.guard(), get_pool().connection() as conn:
@@ -165,13 +190,16 @@ async def history(
 
 
 @app.get("/forecast/{checkpoint_id}")
-async def forecast_endpoint(checkpoint_id: int, hours: int = Query(24, ge=1, le=168)) -> dict:
+async def forecast_endpoint(
+    request: Request, checkpoint_id: int, hours: int = Query(24, ge=1, le=168)
+) -> dict:
     """Функція №3: прогноз завантаженості.
 
     Поки історії замало, повертає `status: collecting` і порожній список точок.
     Це навмисно: прогноз на добі даних виглядав би переконливо й був би
     вигадкою, а на ньому люди планують рейси.
     """
+    rate_check(request, "read")
     async with _expensive_gate.guard(), get_pool().connection() as conn:
         cp = await (
             await conn.execute(
@@ -188,8 +216,9 @@ async def forecast_endpoint(checkpoint_id: int, hours: int = Query(24, ge=1, le=
 
 
 @app.get("/forecast/{checkpoint_id}/quality")
-async def forecast_quality(checkpoint_id: int) -> dict:
+async def forecast_quality(request: Request, checkpoint_id: int) -> dict:
     """Похибка базової моделі. Без цього числа неможливо сказати, чи майбутня
     складніша модель узагалі щось покращила."""
+    rate_check(request, "read")
     async with _expensive_gate.guard(), get_pool().connection() as conn:
         return await forecast.evaluate(conn, checkpoint_id)

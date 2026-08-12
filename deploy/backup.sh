@@ -13,6 +13,8 @@ MIN_BYTES=${AVELREN_BACKUP_MIN_BYTES:-10240}
 KEEP_DAILY=${AVELREN_KEEP_DAILY:-7}
 KEEP_WEEKLY=${AVELREN_KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${AVELREN_KEEP_MONTHLY:-3}
+BACKUP_DB_USER=${AVELREN_BACKUP_DB_USER:-avelren_backup}
+BACKUP_DB_PASSWORD=${AVELREN_BACKUP_PASSWORD:-}
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
 fail() { log "ПОМИЛКА: $*" >&2; exit 1; }
@@ -30,6 +32,21 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+[ "$BACKUP_DB_USER" = avelren_backup ] || fail "backup database role must be avelren_backup"
+[ -n "$BACKUP_DB_PASSWORD" ] || fail "backup database password is required"
+
+# Гарантія шифрування: remote МУСИТЬ бути типу crypt. Інакше gzip-дамп (gzip —
+# не шифрування) полетів би на off-host сховище відкритим текстом. Заголовок
+# скрипта обіцяє "encrypted", тож перевіряємо це, а не припускаємо: env-override
+# AVELREN_BACKUP_REMOTE чи регресія конфігу легко націлили б бекап на плоский
+# remote (аудит M-11). Дешевий preflight — до дорогого дампа.
+REMOTE_NAME=${REMOTE%%:*}
+[ "$REMOTE_NAME" != "$REMOTE" ] || fail "remote '$REMOTE' має бути у форматі <remote>:<шлях>"
+remote_type=$(rclone config show "$REMOTE_NAME" --config "$RCLONE_CONFIG" 2>/dev/null \
+    | sed -n 's/^[[:space:]]*type[[:space:]]*=[[:space:]]*//p' | head -1)
+[ "$remote_type" = crypt ] || \
+    fail "backup remote '$REMOTE_NAME' має бути типу crypt (виявлено: '${remote_type:-невідомо}') — шифрування не гарантоване"
 
 mkdir -p -- "$WORK_DIR"
 chmod 0700 -- "$WORK_DIR"
@@ -61,7 +78,9 @@ REMOTE_DUMP="$REMOTE/$TIER/$NAME"
 REMOTE_MANIFEST="$REMOTE/$TIER/$MANIFEST_NAME"
 
 log "дамп бази у захищений temporary artifact"
-docker compose exec -T db pg_dump -U avelren -d avelren --no-owner | gzip -9 >"$DUMP"
+PGPASSWORD="$BACKUP_DB_PASSWORD" \
+    docker compose exec -T -e PGPASSWORD db \
+    pg_dump --no-owner -U "$BACKUP_DB_USER" -d avelren | gzip -9 >"$DUMP"
 [ -f "$DUMP" ] || fail "dump artifact не створено"
 [ "$(stat -c %a "$DUMP")" = 600 ] || fail "dump artifact не має mode 0600"
 bytes=$(stat -c %s "$DUMP")

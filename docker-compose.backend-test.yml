@@ -2,11 +2,14 @@ services:
   test-db:
     image: timescale/timescaledb:2.17.2-pg16
     environment:
-      POSTGRES_USER: avelren
+      POSTGRES_USER: avelren_admin
       POSTGRES_PASSWORD: ci-only
-      POSTGRES_DB: avelren_ci
+      POSTGRES_DB: postgres
+      AVELREN_COMPOSE_ENV_GUARD: ${AVELREN_COMPOSE_ENV_GUARD:?missing backend test Compose env guard}
+    volumes:
+      - .:/workspace:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U avelren -d avelren_ci"]
+      test: ["CMD-SHELL", "pg_isready -U avelren_admin -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -16,8 +19,16 @@ services:
       context: .
       dockerfile: app/Dockerfile.test
     environment:
-      DATABASE_URL: postgresql://avelren:ci-only@test-db:5432/avelren_ci
+      DATABASE_URL: postgresql://avelren_migrator:ci-only@test-db:5432/avelren_backend_test
+      ADMIN_DATABASE_URL: postgresql://avelren_admin:ci-only@test-db:5432/avelren_backend_test
+      MIGRATOR_DATABASE_URL: postgresql://avelren_migrator:ci-only@test-db:5432/avelren_backend_test
+      BACKUP_DATABASE_URL: postgresql://avelren_backup:ci-only@test-db:5432/avelren_backend_test
+      COLLECTOR_DATABASE_URL: postgresql://avelren_collector:ci-only@test-db:5432/avelren_backend_test
+      NOTIFIER_DATABASE_URL: postgresql://avelren_notifier:ci-only@test-db:5432/avelren_backend_test
+      WATCHDOG_DATABASE_URL: postgresql://avelren_watchdog:ci-only@test-db:5432/avelren_backend_test
+      API_DATABASE_URL: postgresql://avelren_api:ci-only@test-db:5432/avelren_backend_test
       AVELREN_TEST_DB: "1"
+      AVELREN_COMPOSE_ENV_GUARD: ${AVELREN_COMPOSE_ENV_GUARD:?missing backend test Compose env guard}
     depends_on:
       test-db:
         condition: service_healthy
