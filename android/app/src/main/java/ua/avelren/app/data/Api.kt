@@ -112,6 +112,9 @@ object Api {
     data class TelemetrySystem(
         val uptime_seconds: Int? = null,
         val load_1m: Double? = null,
+        // load_5m приходить з host-snapshot (PR-A). Nullable — старий сервер без
+        // поля продовжує парситись.
+        val load_5m: Double? = null,
         val cpu_count: Int? = null,
         val memory_total_mb: Int = 0,
         val memory_used_mb: Int = 0,
@@ -127,6 +130,12 @@ object Api {
         // важливо: 0 приховав би збій probe за виглядом здорового хоста.
         val updates_pending: Int? = null,
         val updates_security: Int? = null,
+        // Свіжість host-snapshot: null у старого сервера, число — вік у секундах.
+        val snapshot_age_seconds: Int? = null,
+        // Сервер сам виставляє true, якщо snapshot > 5 хв або зник. При true у
+        // problems уже додано telemetry_snapshot_stale — тут дублюємо як явний
+        // булевий сигнал для секції Host.
+        val stale: Boolean? = null,
     )
 
     @Serializable
@@ -143,13 +152,36 @@ object Api {
         val pushes_sent: Long = 0,
         val db_size_mb: Double = 0.0,
         val completeness_percent: Int = 0,
+        // Час останнього спостереження (ISO-8601 з сервера). Джерело істини
+        // «свіжості» конвеєра — з нього рахуємо age на клієнті. Nullable —
+        // порожня БД або старий сервер.
+        val last_observation: String? = null,
+        // Успішні цикли за годину. errors_last_hour уже є; разом дають
+        // success/error split без нового запиту.
+        val runs_last_hour: Int? = null,
+        // Активні (pending) alerts у БД. Розширює картину «сповіщення».
+        val alerts_pending: Int? = null,
+        // Найстаріше observation — «як давно збираємо».
+        val collecting_since: String? = null,
     )
 
     @Serializable
-    data class TelemetryCert(val days_left: Int? = null, val issuer: String? = null)
+    data class TelemetryCert(
+        val days_left: Int? = null,
+        val issuer: String? = null,
+        // Помилка ssl-handshake з host-snapshot (напр. «handshake failed»).
+        // Nullable — все ок або старий сервер.
+        val error: String? = null,
+    )
 
     @Serializable
-    data class TelemetryBackups(val age_hours: Double? = null, val stale: Boolean = false)
+    data class TelemetryBackups(
+        val age_hours: Double? = null,
+        val stale: Boolean = false,
+        // Unix epoch останнього запуску (з host-snapshot). Nullable — копії
+        // ніколи не запускались або старий сервер.
+        val last_run: Long? = null,
+    )
 
     @Serializable
     data class HealthProblem(val kind: String, val detail: String? = null)
