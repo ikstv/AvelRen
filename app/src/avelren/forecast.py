@@ -19,10 +19,17 @@
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from psycopg import AsyncConnection
 
 log = logging.getLogger("avelren.forecast")
+
+# Сезонність прикордонного трафіку живе в локальному часі: «вівторок 09:00» —
+# це київський вівторок, не UTC. Тому і бакетимо історію, і шукаємо майбутній
+# слот за київським часом. Без цього перехід на літній/зимовий час розмазав би
+# один локальний час по різних UTC-слотах у вікні lookback (аудит M-7).
+KYIV = ZoneInfo("Europe/Kyiv")
 
 # Мінімум повторів кожного слоту (день тижня + година), щоб узагалі щось
 # показувати, і скільки треба для повноцінного прогнозу.
@@ -102,8 +109,8 @@ async def forecast(
         await conn.execute(
             """
             SELECT
-                EXTRACT(dow  FROM bucket)::int AS dow,
-                EXTRACT(hour FROM bucket)::int AS hour,
+                EXTRACT(dow  FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
+                EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour,
                 percentile_cont(0.25) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p25,
                 percentile_cont(0.50) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p50,
                 percentile_cont(0.75) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p75,
@@ -121,9 +128,13 @@ async def forecast(
 
     for i in range(1, hours_ahead + 1):
         at = now + timedelta(hours=i)
+        # Слот шукаємо за КИЇВСЬКИМ днем/годиною, щоб збігтися з бакетингом
+        # історії вище (AT TIME ZONE 'Europe/Kyiv'). `at` лишається абсолютним
+        # моментом (UTC) для поля "time".
+        at_local = at.astimezone(KYIV)
         # Python: понеділок = 0, неділя = 6. PostgreSQL: неділя = 0, субота = 6.
-        pg_dow = (at.weekday() + 1) % 7
-        slot = by_slot.get((pg_dow, at.hour))
+        pg_dow = (at_local.weekday() + 1) % 7
+        slot = by_slot.get((pg_dow, at_local.hour))
         if slot is None or slot["samples"] < MIN_SAMPLES_PRELIMINARY:
             continue
 
@@ -152,8 +163,8 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
             """
             WITH actual AS (
                 SELECT bucket, avg_wait_seconds,
-                       EXTRACT(dow  FROM bucket)::int AS dow,
-                       EXTRACT(hour FROM bucket)::int AS hour
+                       EXTRACT(dow  FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
+                       EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour
                 FROM observations_hourly
                 WHERE checkpoint_id = %s
             ),

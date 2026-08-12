@@ -36,6 +36,12 @@ RECOVERY_GIVE_UP_DAYS = 1
 # а не один: під час deploy старий колектор устигає записати 1–2 рядки без
 # derived-статусу, і це не має піднімати тривогу.
 DERIVED_STUCK_THRESHOLD = 3
+# Бекап іде щодоби. >36 год без успішного — це вже ≥2 добові прогони поспіль,
+# що не завершились (одиночний збій, що сам вилікувався вночі, будити не варто).
+# Раніше провал бекапу було видно лише в пасивній адмін-телеметрії — днями
+# (аудит M-12). Штамп кладе deploy/backup.sh на /run після перевіреного аплоуду.
+BACKUP_STALE_HOURS = 36
+BACKUP_STAMP_PATH = Path("/host/run/avelren-backup.stamp")
 
 _stop = asyncio.Event()
 
@@ -129,7 +135,26 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
             "Ядро з виправленням встановлене, але працює старе"
         )
 
+    backup_age = _backup_age_hours()
+    if backup_age is not None and backup_age > BACKUP_STALE_HOURS:
+        problems["backup_stale"] = (
+            f"останній успішний бекап був {int(backup_age)} год тому "
+            "(≥2 добові прогони поспіль не завершились)"
+        )
+
     return problems
+
+
+def _backup_age_hours() -> float | None:
+    """Скільки годин тому deploy/backup.sh востаннє успішно завершився, або None.
+
+    None — штамп ще не створювався: свіжий деплой до першого бекапу, або хост
+    щойно перезавантажився (штамп на /run — tmpfs). І там, і там тривога була б
+    хибною, а timer із Persistent=true скоро відновить штамп.
+    """
+    if not BACKUP_STAMP_PATH.exists():
+        return None
+    return (time.time() - BACKUP_STAMP_PATH.stat().st_mtime) / 3600
 
 
 def _reboot_pending() -> int | None:
@@ -191,7 +216,7 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
                     "INSERT INTO health_alerts (kind, detail) VALUES (%s, %s)", (kind, detail)
                 )
                 log.error("ПРОБЛЕМА %s: %s", kind, detail)
-                if await _notify(conn, client, "AvelRen: проблема", detail):
+                if await _notify(conn, client, "AvelRen: проблема", detail, kind):
                     await conn.execute(
                         """
                         UPDATE health_alerts SET last_sent_at = now(), send_count = send_count + 1
@@ -205,7 +230,7 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
             due = sent is None or (datetime.now(UTC) - sent).total_seconds() > RESEND_INTERVAL
             if due:
                 log.warning("проблема %s триває: %s", kind, detail)
-                if await _notify(conn, client, "AvelRen: проблема триває", detail):
+                if await _notify(conn, client, "AvelRen: проблема триває", detail, kind):
                     await conn.execute(
                         """
                         UPDATE health_alerts SET last_sent_at = now(), send_count = send_count + 1
@@ -238,7 +263,9 @@ async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) 
 
     for r in rows:
         age_days = (datetime.now(UTC) - r["resolved_at"]).total_seconds() / 86400
-        if await _notify(conn, client, "AvelRen відновився", f"{r['kind']}: усе гаразд"):
+        if await _notify(
+            conn, client, "AvelRen відновився", f"{r['kind']}: усе гаразд", r["kind"]
+        ):
             # notified — ЛИШЕ по факту доставки. Give-up іде в окреме поле,
             # щоб по БД можна було відрізнити «доставлено» від «здалися» (B2).
             await conn.execute(
@@ -257,7 +284,7 @@ async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) 
 
 
 async def _notify(
-    conn: AsyncConnection, client: httpx.AsyncClient, title: str, body: str
+    conn: AsyncConnection, client: httpx.AsyncClient, title: str, body: str, kind: str
 ) -> bool:
     tokens = await _admin_tokens(conn)
     if not tokens:
@@ -271,10 +298,23 @@ async def _notify(
                 client,
                 token,
                 {"type": "health", "title": title, "body": body},
-                collapse_key="health",
+                # Окремий ключ на кожен тип проблеми, інакше на офлайн-пристрої
+                # новіша тривога (напр. db_size) мовчки витісняє ще не показану
+                # (напр. collector_silent) — аудит M-10.
+                collapse_key=f"health:{kind}",
                 ttl_seconds=1800,
             )
             delivered = True
+        except fcm.FcmError as exc:
+            # Мертвий адмін-токен інакше ретраїться щоциклу вічно; гасимо його
+            # так само, як notifier гасить мертві клієнтські токени.
+            if exc.dead_token:
+                await conn.execute(
+                    "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s", (token,)
+                )
+                log.warning("вимкнув мертвий адмін-токен")
+            else:
+                log.error("не вдалося надіслати тривогу: %s", exc)
         except Exception as exc:
             log.error("не вдалося надіслати тривогу: %s", exc)
     return delivered

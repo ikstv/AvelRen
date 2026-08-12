@@ -10,6 +10,10 @@ COPY app/pyproject.toml /workspace/app/
 COPY app/src /workspace/app/src
 COPY app/tests /workspace/app/tests
 COPY db/migrations /workspace/db/migrations
+# Restore-allowlist contract звіряє allowlist у `restore-engine.lib.sh` зі
+# схемою — тому обидва мають бути в тесті доступні. Це не бекап-скрипт, а
+# суто static-check артефакт, без секретів; безпечно копіювати цілком.
+COPY deploy /workspace/deploy
 
 RUN pip install --no-cache-dir ./app pytest ruff
 

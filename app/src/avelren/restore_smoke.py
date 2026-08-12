@@ -22,6 +22,7 @@ Restore не можна вважати доведеним лише за counts �
 """
 
 import logging
+import os
 import sys
 
 import psycopg
@@ -29,6 +30,7 @@ from fastapi.testclient import TestClient
 
 from .api import app
 from .config import settings
+from .restore_identity import dsn_identity_problems
 
 log = logging.getLogger("avelren.restore_smoke")
 
@@ -48,6 +50,19 @@ def main() -> int:
     # Shell-wrapper блокує лише literal рядок "avelren", що обходиться параметрами
     # URI; тому Python сам звіряє current_database(). Якщо відповідь "avelren" —
     # негайний вихід, незалежно від того, як саме сформований DATABASE_URL.
+    expected_database = os.environ.get("AVELREN_RESTORE_VERIFY_TARGET")
+    expected_role = os.environ.get("AVELREN_RESTORE_VERIFY_ROLE")
+    if expected_database != "restore_test" or expected_role != "avelren_api":
+        log.error("disposable smoke requires exact restore_test target and API role")
+        return 2
+    identity_problems = dsn_identity_problems(
+        settings.database_dsn, expected_database, expected_role
+    )
+    if identity_problems:
+        for problem in identity_problems:
+            log.error("restore verification identity mismatch: %s", problem)
+        return 1
+
     db_name = _current_database()
     if db_name == "avelren":
         log.error(

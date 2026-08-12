@@ -9,6 +9,7 @@
 
 import asyncio
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import psycopg
@@ -205,3 +206,45 @@ def test_recovery_not_resent_when_already_notified(conn, device, monkeypatch):
 
     assert calls == []  # жодної відправки за історичну resolved-тривогу
     conn.execute("DELETE FROM health_alerts WHERE id=%s", (hid,))
+
+
+# --- M-12: тривога на протухлий бекап --------------------------------------
+
+
+def test_backup_age_hours(monkeypatch, tmp_path):
+    """Чистий хелпер: None без штампа, вік у годинах, поріг протухання."""
+    stamp = tmp_path / "avelren-backup.stamp"
+    monkeypatch.setattr(watchdog, "BACKUP_STAMP_PATH", stamp)
+
+    # Немає штампа — свіжий деплой або щойно ребутнутий хост (штамп на tmpfs):
+    # тривоги бути НЕ має, інакше вона хибна.
+    assert watchdog._backup_age_hours() is None
+
+    # Свіжий бекап — майже нуль годин, не проблема.
+    stamp.touch()
+    assert watchdog._backup_age_hours() < 1
+
+    # 40 год без бекапу — це ≥2 добові прогони поспіль, реальна проблема.
+    old = time.time() - 40 * 3600
+    os.utime(stamp, (old, old))
+    assert watchdog._backup_age_hours() > watchdog.BACKUP_STALE_HOURS
+
+    # 30 год — один пропущений добовий прогін ще терпимо, не будимо адміна.
+    recent = time.time() - 30 * 3600
+    os.utime(stamp, (recent, recent))
+    assert watchdog._backup_age_hours() < watchdog.BACKUP_STALE_HOURS
+
+
+def test_backup_stale_surfaces_in_checks(conn, monkeypatch, tmp_path):
+    """Протухлий штамп піднімає problem 'backup_stale'; свіжий — прибирає."""
+    stamp = tmp_path / "avelren-backup.stamp"
+    stamp.touch()
+    monkeypatch.setattr(watchdog, "BACKUP_STAMP_PATH", stamp)
+
+    old = time.time() - 40 * 3600
+    os.utime(stamp, (old, old))
+    assert "backup_stale" in _run(watchdog._checks)
+
+    now = time.time()
+    os.utime(stamp, (now, now))
+    assert "backup_stale" not in _run(watchdog._checks)

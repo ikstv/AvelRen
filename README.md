@@ -38,6 +38,17 @@ echerha API ──(1 запит / 60 с)──> collector ──> PostgreSQL + T
 
 `collector` та `api` — один Docker-образ, дві різні команди запуску.
 
+## Межа операційної авторизації
+
+> **УВАГА: злиття PR #29 НЕ АВТОРИЗУЄ жодну production-операцію.**
+
+Зокрема, merge PR #29 не дозволяє `production adoption`, `production restore`,
+`deployment`, `credential generation`, `credential rotation`, `legacy NOLOGIN`,
+`legacy REVOKE CONNECT` або закриття issue #15. Production adoption потребує
+окремої явної авторизації (`separate explicit authorization`). Issue #15
+залишається **OPEN навіть після merge**, доки production rollout і retirement
+legacy-ролі не будуть окремо виконані та доведені безпечними.
+
 ## Джерело даних
 
 ```http
@@ -53,19 +64,68 @@ X-User-Agent: UABorder/1.0.0 Web/1.1.0 User/guest
 
 Поле `wait_time` — у секундах. `vehicle_in_active_queues_counts` — авто в черзі.
 
-## Запуск
+## Ролі PostgreSQL
+
+Канонічна модель має сім окремих LOGIN-ролей. Кожен application/runtime-сервіс
+отримує лише свій `DATABASE_URL`; runtime-контейнери не отримують admin,
+migrator, backup або DSN сусідніх сервісів. Контейнер `db` отримує лише
+`POSTGRES_USER`, `POSTGRES_PASSWORD` і `POSTGRES_DB` як bootstrap configuration,
+а не application DSN.
+
+| Роль | Єдина відповідальність |
+|---|---|
+| `avelren_admin` | Лише `bootstrap`, `adoption` і `restore`; не використовується застосунками у runtime. |
+| `avelren_migrator` | Лише `migration`, DDL, володіння application-об'єктами та `schema`/`catalog verification`. |
+| `avelren_backup` | Лише `pg_dump`; без запису, DDL або restore. |
+| `avelren_collector` | Runtime SQL для `countries`, `checkpoints`, `observations`, `collector_runs` і поточного threshold/ETA lifecycle; без доступу до devices та health lifecycle. |
+| `avelren_notifier` | Runtime SQL для `pending notification`, `delivery` state і очищення невалідних `FCM` токенів; без запису спостережень чи health state. |
+| `avelren_watchdog` | Runtime SQL читання `observations` і `collector_runs`, запису лише `health_alerts` та SELECT лише `devices.id`, `devices.is_admin`, `devices.fcm_token` для health notifications; `devices.secret_hash`, усі інші непов'язані device fields і будь-які device writes заборонені. |
+| `avelren_api` | Лише endpoint-authorized `registration`, `authentication`, `subscription`, `ETA`, `history` і `telemetry` SQL; не DDL і не collector writes. |
+
+Порожні змінні `AVELREN_*_PASSWORD` і `AVELREN_*_DSN` перелічені в
+`.env.example`. Реальні значення належать лише авторизованому secret store та
+host configuration і не потрапляють у Git, документацію, логи чи evidence.
+
+## Fresh install
+
+Fresh install є ідемпотентною послідовністю, а не однією транзакцією:
+
+1. `create roles` через `bash deploy/postgres-bootstrap.sh fresh`.
+2. `create database` з owner `avelren_admin`.
+3. Provision `TimescaleDB` від імені admin.
+4. Закрити `database/schema ACL` від `PUBLIC`.
+5. `migrate` від імені `avelren_migrator`.
+6. Виконати privilege та isolation `contracts`.
+7. Лише після GREEN перевірок `start runtime`.
+
+`postgres-bootstrap.sh fresh` потребує `AVELREN_ADMIN_DSN` і всіх семи
+`AVELREN_*_PASSWORD` у середовищі процесу. Значення не передаються аргументами
+командного рядка. Вивід `migrate_handoff` означає тільки перехід до окремого
+migration gate; він не дозволяє пропустити migrations або contracts. Якщо етап
+падає, runtime не запускають. Опція `--disposable-empty-test` дозволена лише для
+доведено нової порожньої тестової БД і не є production cleanup.
+
+Режим `postgres-bootstrap.sh roles-acl` — **disposable-only**. Він переписує
+ownership і ACL уже наявної БД, тобто виконує ту саму за класом мутацію, що й
+adoption, і тому вимагає `AVELREN_TEST_DB=1` та імені цілі з `test` або `ci`.
+Застосування ролей і ACL до production-БД виконується виключно через
+`deploy/postgres-adopt.sh`, який спершу доводить preflight-evidence,
+forward/inverse плани та fingerprints і має перевірений inverse rollback.
+
+Підготовка локального host configuration:
 
 ```bash
-cp .env.example .env    # заповнити POSTGRES_PASSWORD; DATABASE_URL лишити порожнім у Compose
-docker compose up -d
-docker compose logs -f collector
+cp .env.example .env
 ```
 
-Перевірка, що дані пішли:
+Усі secret/DSN placeholders у шаблоні навмисно порожні. Порядок перевірок і
+окремі повільні security/DR/adoption gates описані в
+[`docs/backend-testing.md`](docs/backend-testing.md).
+
+Після окремо авторизованого запуску та проходження всіх gate перевірка API:
 
 ```bash
 curl -s localhost:8000/health
-docker compose exec db psql -U avelren -d avelren -c "SELECT count(*) FROM observations;"
 ```
 
 ## API

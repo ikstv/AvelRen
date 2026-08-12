@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PYTHON_BIN=${PYTHON_BIN:-python3}
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 printf 'SELECT 1;\n' | gzip -c >"$WORK/valid.sql.gz"
@@ -25,6 +26,18 @@ cat >"$BIN/docker" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_LOG"
 args="$*"
+if [[ " $args " == *' exec -T -e AVELREN_ADMIN_DSN db sh -c '* ]]; then
+    [ "${AVELREN_ADMIN_DSN:-}" = "${EXPECTED_ADMIN_DSN:?}" ] || {
+        echo 'admin DSN was not passed to operational DB tooling' >&2
+        exit 46
+    }
+    [[ "$args" != *"$EXPECTED_ADMIN_DSN"* ]] || {
+        echo 'admin DSN leaked into docker argv' >&2
+        exit 47
+    }
+    printf '%s\n' "${FAKE_ADMIN_CURRENT_USER:-avelren_admin}"
+    exit 0
+fi
 if [[ "$args" == *' ps --status running --services'* ]]; then
     if [ -n "${FAKE_RUNNING_SERVICE:-}" ]; then
         printf '%s\n' "$FAKE_RUNNING_SERVICE"
@@ -49,10 +62,44 @@ if [[ "$args" == *' up -d caddy'* ]]; then
     exit 0
 fi
 if [[ "$args" == *' exec -T api python '* ]]; then
-    python -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
+        "$PYTHON_BIN" -c 'import json,sys; v=json.load(sys.stdin); assert isinstance(v,dict); assert v.get("status") in {"ok","stale"}; assert "last_observation" in v; assert "age_seconds" in v'
     exit
 fi
-if [[ "$args" == *' exec -T db psql '* ]]; then
+if [[ " $args " == *' db pg_dump '* ]]; then
+    # M-13 pre-restore safety snapshot.
+    [ "${PGPASSWORD:-}" = "${EXPECTED_ADMIN_PASSWORD:?}" ] || {
+        echo 'pre-restore pg_dump did not receive the protected password environment' >&2
+        exit 48
+    }
+    [[ "$args" != *"$EXPECTED_ADMIN_PASSWORD"* ]] || {
+        echo 'admin password leaked into pg_dump argv' >&2
+        exit 49
+    }
+    [[ " $args " == *' -U avelren_admin '* ]] || {
+        echo 'pre-restore pg_dump did not use the canonical admin role' >&2
+        exit 50
+    }
+    [ "${FAKE_PGDUMP_FAIL:-0}" != 1 ] || exit 51
+    printf -- '-- fake pre-restore dump\nSELECT 1;\n'
+    exit 0
+fi
+if [[ " $args " == *' db psql '* ]]; then
+    [ "${PGPASSWORD:-}" = "${EXPECTED_ADMIN_PASSWORD:?}" ] || {
+        echo 'admin password was not provided through the process environment' >&2
+        exit 42
+    }
+    [[ " $args " == *' exec -T -e PGPASSWORD db psql '* ]] || {
+        echo 'production psql did not receive the protected password environment' >&2
+        exit 43
+    }
+    [[ " $args " == *' -U avelren_admin '* ]] || {
+        echo 'production psql did not use the canonical admin role' >&2
+        exit 44
+    }
+    [[ "$args" != *"$EXPECTED_ADMIN_PASSWORD"* ]] || {
+        echo 'admin password leaked into docker argv' >&2
+        exit 45
+    }
     query=$(cat)
     args="$args $query"
     if [[ "$args" == *'SELECT count(*) FROM pg_stat_activity'* ]]; then
@@ -86,6 +133,9 @@ avelren_restore_engine() {
 SH
 cat >"$WORK/stack/deploy/restore-verify.sh" <<'SH'
 #!/usr/bin/env bash
+[ "${AVELREN_VERIFY_MIGRATOR_DSN:-}" = "${EXPECTED_MIGRATOR_DSN:?}" ]
+[ "${AVELREN_VERIFY_API_DSN:-}" = "${EXPECTED_API_DSN:?}" ]
+[ -z "${AVELREN_VERIFY_DATABASE_URL:-}" ]
 printf 'VERIFY\n' >>"$FAKE_LOG"
 [ "${FAKE_VERIFY_FAIL:-0}" != 1 ]
 SH
@@ -95,11 +145,53 @@ run_fake() {
     shift
     env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$name.log" FAKE_STATE="$WORK/$name.state" \
         AVELREN_STACK_DIR="$WORK/stack" AVELREN_READINESS_TIMEOUT_SECONDS=1 \
-        AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 "$@" \
+        AVELREN_FRESHNESS_TIMEOUT_SECONDS=1 \
+        AVELREN_PRE_RESTORE_SNAPSHOT_DIR="$WORK/$name.snapshot" \
+        AVELREN_ADMIN_PASSWORD=admin-contract-secret \
+        AVELREN_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/avelren \
+        AVELREN_MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/avelren \
+        AVELREN_API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/avelren \
+        EXPECTED_ADMIN_DSN=postgresql://avelren_admin:admin-contract-secret@db:5432/postgres \
+        EXPECTED_MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/avelren \
+        EXPECTED_API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/avelren \
+        EXPECTED_ADMIN_PASSWORD=admin-contract-secret PYTHON_BIN="$PYTHON_BIN" "$@" \
         bash "$ROOT/deploy/restore-production.sh" "$WORK/valid.sql.gz" \
         --confirm-production-restore AVELREN-PRODUCTION-RESTORE \
         >"$WORK/$name.out" 2>&1
 }
+
+# All role/credential inputs are validated before maintenance or DB mutation.
+for item in \
+    'missing-password:AVELREN_ADMIN_PASSWORD=' \
+    'missing-admin-dsn:AVELREN_ADMIN_DSN=' \
+    'missing-migrator-dsn:AVELREN_MIGRATOR_DSN=' \
+    'missing-api-dsn:AVELREN_API_DSN=' \
+    'backup-role:AVELREN_ADMIN_DB_USER=avelren_backup' \
+    'migrator-role:AVELREN_ADMIN_DB_USER=avelren_migrator' \
+    'legacy-role:AVELREN_ADMIN_DB_USER=avelren'
+do
+    name=${item%%:*}; setting=${item#*:}
+    if run_fake "$name" "$setting"; then
+        echo "expected production role gate failure: $name" >&2
+        exit 1
+    fi
+    [ ! -s "$WORK/$name.log" ]
+done
+
+# The DSN identity gate runs before maintenance and rejects a valid connection
+# that authenticates as any role other than the canonical restore admin.
+if run_fake wrong-admin-dsn-user FAKE_ADMIN_CURRENT_USER=avelren_migrator; then
+    echo "admin DSN identity gate should fail" >&2
+    exit 1
+fi
+grep -q 'exec -T -e AVELREN_ADMIN_DSN db sh -c' "$WORK/wrong-admin-dsn-user.log"
+! grep -q 'run --rm --no-deps -T -e DATABASE_URL' "$WORK/wrong-admin-dsn-user.log"
+! grep -q 'stop caddy' "$WORK/wrong-admin-dsn-user.log"
+! grep -q ENGINE "$WORK/wrong-admin-dsn-user.log"
+! grep -q ' db psql ' "$WORK/wrong-admin-dsn-user.log"
+! grep -Eq ' (dropdb|createdb) ' "$WORK/wrong-admin-dsn-user.log"
+! grep -Eq '(admin|migrator|api)-contract-secret' \
+    "$WORK/wrong-admin-dsn-user.log" "$WORK/wrong-admin-dsn-user.out"
 
 assert_failed_closed() {
     local name=$1 log="$WORK/$1.log" out="$WORK/$1.out"
@@ -122,6 +214,29 @@ if ! run_fake success; then
     exit 1
 fi
 grep -q ENGINE "$WORK/success.log"; grep -q VERIFY "$WORK/success.log"
+grep -q 'psql -U avelren_admin' "$WORK/success.log"
+! grep -Eq -- 'psql -U (avelren|avelren_backup|avelren_migrator)( |$)' "$WORK/success.log"
+! grep -Eq '(admin|migrator|api)-contract-secret' "$WORK/success.log" "$WORK/success.out"
+
+# M-13: pre-restore snapshot зроблено, ДО рушія, admin-роллю, без витоку пароля.
+grep -q 'db pg_dump' "$WORK/success.log"
+snap=$(ls "$WORK/success.snapshot"/avelren-pre-restore-*.sql.gz 2>/dev/null | head -1)
+[ -n "$snap" ] && [ -s "$snap" ] || { echo 'pre-restore snapshot missing or empty' >&2; exit 1; }
+gzip -t "$snap"
+snap_line=$(grep -n 'db pg_dump' "$WORK/success.log" | head -1 | cut -d: -f1)
+eng_line=$(grep -n ENGINE "$WORK/success.log" | head -1 | cut -d: -f1)
+[ "$snap_line" -lt "$eng_line" ] || { echo 'snapshot must precede restore engine' >&2; exit 1; }
+
+# Best-effort: якщо pg_dump падає (пошкоджена база), restore ВСЕ ОДНО завершується.
+if ! run_fake snapshot-fail FAKE_PGDUMP_FAIL=1; then
+    echo 'snapshot failure must not abort restore' >&2
+    sed -n '1,240p' "$WORK/snapshot-fail.out" >&2 || true
+    exit 1
+fi
+grep -q 'production restore complete' "$WORK/snapshot-fail.out"
+grep -q 'pre-restore snapshot не вдався' "$WORK/snapshot-fail.out"
+grep -q ENGINE "$WORK/snapshot-fail.log"
+[ -z "$(ls "$WORK/snapshot-fail.snapshot"/avelren-pre-restore-*.sql.gz 2>/dev/null)" ]
 
 if run_fake sessions FAKE_SESSIONS=1; then echo "session gate should fail" >&2; exit 1; fi
 ! grep -q ENGINE "$WORK/sessions.log"
@@ -187,4 +302,4 @@ if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service s
 ! grep -q HTTPS_READY "$WORK/running.log"
 assert_failed_closed running
 
-echo "production restore contract tests: 15 passed"
+echo "production restore contract tests: 23 passed"
