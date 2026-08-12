@@ -223,6 +223,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # Кешуємо wrapper distribution і Gradle caches. Без цього кожен run
+      # тягне gradle-8.13-bin.zip (~150 MB) з services.gradle.org, і при
+      # обриві TCP-з'єднання весь job валиться на `main` треді wrapper'а.
+      # За добу перед merge #33 таке падіння сталося тричі (PR #34 rerun 1,
+      # PR #34 rerun 2, PR #35 rerun 1) — не випадковий flake, а патерн
+      # rate-limit/network path. `gradle/actions/setup-gradle@v4` — офіційна
+      # рекомендація Gradle: одна дія покриває і wrapper cache, і залежності;
+      # після першого успішного run на main усі PR тягнуть wrapper з кешу.
+      # Semantic build/test — БЕЗ змін.
+      - uses: gradle/actions/setup-gradle@v4
       - name: Заглушка google-services.json
         # Справжній файл — секрет і в git не живе. Для перевірки компіляції
         # достатньо синтаксично валідної заглушки з правильним package.
