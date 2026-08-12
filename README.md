@@ -52,15 +52,19 @@ legacy-ролі не будуть окремо виконані та довед�
 ## Джерело даних
 
 ```http
-GET https://back.echerha.gov.ua/api/v4/workload/1
+GET https://back.echerha.gov.ua/api/v5/workload/1
 Accept: application/json
+Content-Type: application/json
 X-Client-Locale: uk
-X-User-Agent: UABorder/1.0.0 Web/1.1.0 User/guest
+X-User-Agent: UABorder/3.9.0 Web/1.1.0 User/guest
+X-Device-Id: <persistent-uuid>
+X-Device-Name: AvelRen collector
 ```
 
 `/1` — вантажівки, `/2` — автобуси. Зараз у скоупі лише вантажівки.
-Без заголовків `X-Client-Locale` і `X-User-Agent` сервіс віддає `403`.
-Авторизації немає; reCAPTCHA стоїть на бронюванні, не на статистиці.
+Гостьовий контракт v5: без цих заголовків сервіс віддає `403`. `X-Device-Id` —
+persistent UUID гостя (див. `ECHERHA_DEVICE_ID`), не секрет. Авторизації немає;
+reCAPTCHA стоїть на бронюванні, не на статистиці.
 
 Поле `wait_time` — у секундах. `vehicle_in_active_queues_counts` — авто в черзі.
 
