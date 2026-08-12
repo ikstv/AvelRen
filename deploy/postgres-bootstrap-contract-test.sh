@@ -78,6 +78,7 @@ if [[ ",${PSQL_FAIL_ON:-}," == *",$stage,"* ]] || [ "${PSQL_FAIL_ON:-}" = cleanu
 fi
 case "$stage" in
     database_exists) printf '%s\n' "${FAKE_DATABASE_EXISTS:-f}" ;;
+    verify_memberships) printf '%s\n' "${FAKE_MEMBERSHIP_COUNT:-0}" ;;
     cleanup_proof)
         case " $* " in
             *' --quiet '*) printf '%s\n' "${FAKE_CLEANUP_PROOF:-t}" ;;
@@ -164,8 +165,23 @@ if ! run_bootstrap "$calls" fresh >"$WORK/success.out" 2>&1; then
     cat "$WORK/success.out" >&2
     fail 'fresh bootstrap unexpectedly failed'
 fi
-assert_order "$calls" roles database_exists create_database extension acl verify
+assert_order "$calls" roles verify_memberships database_exists create_database extension acl verify
 grep -Fxq migrate_handoff "$WORK/success.out" || fail 'missing migrate handoff'
+
+# Fail-closed guard проти privilege-escalation через role membership: якщо
+# після create_roles лишається заборонений avelren_% ↔ avelren_% membership,
+# bootstrap ПАДАЄ до створення бази і НЕ робить автоматичний REVOKE (аудит #29,
+# postgres-roles-integration-test.sh покриває реальну поведінку; тут — логіка
+# скрипта на fake psql). FAKE_MEMBERSHIP_COUNT>0 імітує залишковий membership.
+calls="$WORK/forbidden-membership.calls"
+if FAKE_MEMBERSHIP_COUNT=1 run_bootstrap "$calls" fresh >"$WORK/forbidden-membership.out" 2>&1; then
+    fail 'fresh bootstrap accepted a forbidden canonical role membership'
+fi
+grep -Fq 'forbidden canonical role membership detected' "$WORK/forbidden-membership.out" \
+    || fail 'membership guard did not report the forbidden membership'
+assert_order "$calls" roles verify_memberships
+assert_not_contains "$calls" database_exists
+assert_not_contains "$calls" create_database
 
 for stage in roles database_exists create_database extension acl verify; do
     calls="$WORK/fail-${stage}.calls"
@@ -206,7 +222,7 @@ calls="$WORK/roles-acl.calls"
 FAKE_CALLS="$calls" FAKE_TARGET_DB=avelren_contract_test bootstrap_env \
     env AVELREN_DB_NAME=avelren_contract_test AVELREN_TEST_DB=1 \
     bash "$ROOT/deploy/postgres-bootstrap.sh" roles-acl >"$WORK/roles-acl.out" 2>&1
-assert_order "$calls" roles acl verify
+assert_order "$calls" roles verify_memberships acl verify
 assert_not_contains "$calls" create_database
 assert_not_contains "$calls" extension
 
