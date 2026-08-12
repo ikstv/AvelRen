@@ -62,6 +62,17 @@ if identity != ("avelren_migrator", False):
 compose run --rm --no-deps -T test sh -c \
     'ruff check app/src app/tests && python -m avelren.migrate db/migrations'
 
+# Restore-allowlist contract: суто статична перевірка (БД не потрібна), яка
+# звіряє hardcoded allowlist у `deploy/restore-engine.lib.sh` зі схемою
+# (schema_verify._TABLES_V + `bigserial` у міграціях). Без цього кроку
+# майбутня міграція з новою таблицею проходить CI, а production-restore
+# ловить mismatch уже ПІСЛЯ dropdb — під час DR. `restore-allowlist-
+# contract-test.py` існує в repo, але не був підключений до канонічного
+# гейта — виправляємо саме тут, щоб один і той самий script закривав і
+# локальний прогін, і CI (deploy-скрипти мають бути частиною SLO контрактів,
+# а не окремою чек-листою у голові reviewer'а).
+compose run --rm --no-deps -T test python3 deploy/restore-allowlist-contract-test.py
+
 compose run --rm --no-deps -T \
     -e DATABASE_URL=postgresql://avelren_admin:ci-only@test-db:5432/avelren_backend_test \
     test python -m pytest app/tests -q -p no:cacheprovider

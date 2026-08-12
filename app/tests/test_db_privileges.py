@@ -10,7 +10,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from avelren import alerts, cancels, db, eta, notifier, watchdog
+from avelren import alerts, cancels, db, eta, fcm, notifier, watchdog
 from avelren.api import app
 from avelren.config import settings
 from avelren.models import Country, WorkloadItem
@@ -136,7 +136,12 @@ EXPECTED_DEVICE_COLUMN_PRIVILEGES = {
     "WATCHDOG_DATABASE_URL": {
         "id": {"SELECT"},
         "is_admin": {"SELECT"},
-        "fcm_token": {"SELECT"},
+        # UPDATE потрібен для гасіння мертвого адмін-FCM-токена
+        # (watchdog._notify → UPDATE devices SET fcm_token=NULL). Раніше
+        # тут стояв тільки SELECT, і код M-10 падав під роллю watchdog у
+        # проді — див. регресійний тест
+        # `test_watchdog_dead_fcm_token_updates_devices_under_watchdog_role`.
+        "fcm_token": {"SELECT", "UPDATE"},
     },
     "API_DATABASE_URL": {
         "id": {"SELECT"},
@@ -804,6 +809,85 @@ def test_watchdog_positive_service_paths_cover_health_and_recovery(monkeypatch):
             admin.execute("DELETE FROM devices WHERE id = %s", (device_id,))
             admin.execute("DELETE FROM observations WHERE checkpoint_id = %s", (checkpoint_id,))
             admin.execute("DELETE FROM checkpoints WHERE id = %s", (checkpoint_id,))
+
+
+def test_watchdog_dead_fcm_token_updates_devices_under_watchdog_role(monkeypatch):
+    """M-10 регресія: dead-FCM-token гасіння виконується `UPDATE devices SET
+    fcm_token = NULL` у watchdog._notify. Без `GRANT UPDATE (fcm_token) ON
+    devices TO avelren_watchdog` цей рядок падає з SQLSTATE 42501, і
+    watchdog вічно ретраїть той самий мертвий токен щоциклу.
+
+    Позитивний тест вище (`..._cover_health_and_recovery`) не покриває цей
+    шлях: у нього `fake_send` повертає None, тобто dead-token гілка ніколи
+    не виконується. Цей тест ЯВНО кидає `FcmError(dead_token=True)` під
+    роллю `avelren_watchdog` і перевіряє:
+
+    1. cycle завершується без винятку (grant присутній);
+    2. `devices.fcm_token` фактично встановлений у NULL;
+    3. `health_alerts` рядок був створений (тобто цикл не впав до вставки).
+    """
+    role = "avelren_watchdog"
+    dead_token = f"dead-admin-{uuid.uuid4().hex}"
+    device_id = str(uuid.uuid4())
+
+    async def fake_dead_send(*args, **kwargs):
+        # Реальна форма FcmError із проду: канонічний dead-token від FCM.
+        raise fcm.FcmError(
+            http_status=404,
+            canonical_status="NOT_FOUND",
+            fcm_error_code="UNREGISTERED",
+            message="Requested entity was not found.",
+            dead_token=True,
+            retryable=False,
+        )
+
+    monkeypatch.setattr("avelren.fcm.send", fake_dead_send)
+
+    with connect_env("ADMIN_DATABASE_URL") as admin:
+        admin.execute(
+            "INSERT INTO devices (id, fcm_token, is_admin) VALUES (%s, %s, true)",
+            (device_id, dead_token),
+        )
+
+    async def exercise(pool):
+        # `no_data` проблема виникне автоматично (в БД немає observations).
+        # Це триггерить INSERT у health_alerts і виклик _notify, який
+        # спробує UPDATE devices SET fcm_token=NULL для нашого dead_token.
+        with privilege_path(role, "dead-token UPDATE", "devices.fcm_token"):
+            await watchdog.run_cycle(client=None)
+
+    health_id = None
+    try:
+        asyncio.run(run_with_role_pool("WATCHDOG_DATABASE_URL", exercise))
+
+        with connect_env("ADMIN_DATABASE_URL") as admin:
+            # 1. fcm_token дійсно занулений — саме UPDATE devices пройшов.
+            token_after = scalar(
+                admin, "SELECT fcm_token FROM devices WHERE id = %s", (device_id,)
+            )
+            assert token_after is None, (
+                f"watchdog має занулити мертвий fcm_token, отримали: {token_after!r}"
+            )
+            # 2. Цикл дійшов до вставки health_alert — тобто _notify не
+            #    впав до самого UPDATE devices, а виконав його.
+            row = admin.execute(
+                "SELECT id, send_count FROM health_alerts "
+                "WHERE kind = 'no_data' AND resolved_at IS NULL"
+            ).fetchone()
+            assert row is not None, "no_data health_alert має бути створений"
+            health_id = row[0]
+            # send_count лишається 0: dead-token не рахується як успішна
+            # доставка (delivered=False), і `UPDATE health_alerts SET
+            # last_sent_at, send_count` не виконується. Це важливий контракт:
+            # ми не «зараховуємо» dead-token як alert-доставку.
+            assert row[1] == 0, (
+                f"dead-token НЕ доставка; send_count має бути 0, отримали {row[1]}"
+            )
+    finally:
+        with connect_env("ADMIN_DATABASE_URL") as admin:
+            if health_id is not None:
+                admin.execute("DELETE FROM health_alerts WHERE id = %s", (health_id,))
+            admin.execute("DELETE FROM devices WHERE id = %s", (device_id,))
 
 
 def test_api_positive_routes_use_api_role_for_reads_and_lifecycles():

@@ -99,6 +99,12 @@ GRANT DELETE ON notification_cancels TO avelren_notifier;
 -- Watchdog: read health inputs and own only the health-alert lifecycle.
 GRANT SELECT ON observations, collector_runs, health_alerts TO avelren_watchdog;
 GRANT SELECT (id, is_admin, fcm_token) ON devices TO avelren_watchdog;
+-- Мертвий адмін-токен FCM watchdog має самостійно гасити (`UPDATE devices SET
+-- fcm_token = NULL`), інакше кожен health-alert ретраїть один і той самий
+-- мертвий токен щоциклу вічно. Раніше цього grant'у не було, і M-10-fix у
+-- коді (watchdog.py:313) на practice падав із permission denied під роллю
+-- avelren_watchdog — регресія M-10 з independent review PR #29.
+GRANT UPDATE (fcm_token) ON devices TO avelren_watchdog;
 GRANT INSERT, UPDATE ON health_alerts TO avelren_watchdog;
 GRANT USAGE ON SEQUENCE health_alerts_id_seq TO avelren_watchdog;
 
