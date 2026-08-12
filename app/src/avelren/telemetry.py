@@ -25,6 +25,23 @@ from pathlib import Path
 
 from psycopg import AsyncConnection
 
+from . import __version__ as APP_VERSION
+from .config import settings
+
+# Whitelist полів, що ми віддаємо для кожного контейнера. Свідомо ВЕЛИКА
+# паранойя тут: raw `docker inspect` містить env (може мати креденшіали),
+# mounts (розкриває шляхи secrets), cmd, labels. Розширюємо цей набір лише
+# явно і з обґрунтуванням у коментарі — не «а давайте додамо всі поля».
+_SERVICE_ALLOWED_FIELDS = frozenset(
+    {"status", "health", "started_at", "restart_count", "exit_code", "oom_killed", "image"}
+)
+
+# Whitelist контейнерів, які ми знаємо і хочемо показувати. Будь-що інше з
+# snapshot ігнорується — щоб випадкове поле в JSON не з'явилось на клієнті.
+_SERVICE_ALLOWED_NAMES = frozenset(
+    {"db", "api", "collector", "notifier", "watchdog", "caddy"}
+)
+
 # Каталог bind-mount snapshot-файлу. Змінна для тестів; у docker-compose
 # монтується /var/lib/avelren-telemetry:/telemetry:ro.
 SNAPSHOT_PATH = Path(os.environ.get("AVELREN_TELEMETRY_SNAPSHOT", "/telemetry/host.json"))
@@ -113,6 +130,135 @@ async def pipeline(conn: AsyncConnection) -> dict:
     data["completeness_percent"] = min(100, round(runs / 60 * 100))
 
     return data
+
+
+async def last_collector_run(conn: AsyncConnection) -> dict | None:
+    """Останній цикл збирача — успіх чи ні, включно з HTTP-статусом upstream.
+
+    Потрібно, щоб Server Dashboard не покладався на непрямі сигнали
+    (last_observation, errors_last_hour): у режимі «ЄЧерга відповідає 502
+    щохвилини» observations стають протухлими, а причину видно лише в цьому
+    рядку. Свідомо НЕ віддаємо `body_sha256` — це технічний артефакт для
+    порівняння payload'ів, клієнту не потрібен і потенційно пришвидшить
+    інференс, чи є на upstream new content.
+    """
+    row = await (
+        await conn.execute(
+            """
+            SELECT time, http_status, duration_ms, rows_written, error,
+                   derived_processed_at, derived_error
+            FROM collector_runs
+            ORDER BY time DESC
+            LIMIT 1
+            """
+        )
+    ).fetchone()
+    return dict(row) if row else None
+
+
+async def last_collector_success(conn: AsyncConnection) -> dict | None:
+    """Останній успішний цикл. Окремо від last_run — потрібно розрізняти
+    «ЄЧерга щойно повернула 200, збережено N рядків» vs «останній цикл впав,
+    попередній успіх був годину тому». Без цього поля дашборд однаково
+    показує ⚪ на «щойно почалися проблеми» і на «давно все зламано»."""
+    row = await (
+        await conn.execute(
+            """
+            SELECT time, http_status, duration_ms, rows_written
+            FROM collector_runs
+            WHERE error IS NULL AND http_status = 200 AND rows_written > 0
+            ORDER BY time DESC
+            LIMIT 1
+            """
+        )
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upstream() -> dict:
+    """Що і куди зараз ходить збирач. Не читає БД: сам endpoint береться з
+    settings — джерела правди для того ж collector'а. Клієнт бачить зв'язку
+    «ось цей URL, ось з нього ми качаємо» без здогадок."""
+    return {
+        "base_url": settings.echerha_base_url,
+        "workload_url": settings.workload_url,
+        "vehicle_type": settings.echerha_vehicle_type,
+        "poll_interval_seconds": settings.poll_interval_seconds,
+    }
+
+
+def services() -> list[dict]:
+    """Список контейнерів зі snapshot. Whitelist полів застосовується ТУТ, не
+    в snapshot-скрипті: навіть якщо host-скрипт випадково запише зайве поле,
+    API нічого зайвого не віддасть. Це classic defence-in-depth — один
+    неувічний коміт у deploy/ не має відкрити канал для утечки env/mounts."""
+    raw = _snapshot().get("services") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str) or name not in _SERVICE_ALLOWED_NAMES:
+            continue
+        safe: dict = {"name": name}
+        for field in _SERVICE_ALLOWED_FIELDS:
+            if field in entry:
+                safe[field] = entry[field]
+        out.append(safe)
+    # Стабільний порядок — щоб UI не «стрибав» між композиціями.
+    order = ["db", "api", "collector", "notifier", "watchdog", "caddy"]
+    out.sort(key=lambda s: order.index(s["name"]) if s["name"] in order else 999)
+    return out
+
+
+def docker() -> dict:
+    """Версії docker daemon і compose зі snapshot. Мета — на дашборді видно,
+    коли хост відстає від рекомендованої версії."""
+    raw = _snapshot().get("docker") or {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        "daemon_version": raw.get("daemon_version"),
+        "compose_version": raw.get("compose_version"),
+    }
+
+
+def inodes() -> dict:
+    """Використання inode. Заповнена filesystem по inode виглядає як «диску
+    ще купа», аж поки не спробуєш створити файл. Тому окремо від diskUsage."""
+    raw = _snapshot().get("inodes") or {}
+    if not isinstance(raw, dict):
+        return {"total": None, "used": None, "used_percent": None}
+    return {
+        "total": raw.get("total"),
+        "used": raw.get("used"),
+        "used_percent": raw.get("used_percent"),
+    }
+
+
+async def version(conn: AsyncConnection) -> dict:
+    """Ідентифікація версії застосунку на сервері.
+
+    - `app_version` беремо з `__version__` пакета (єдине джерело правди).
+    - `git_sha` — з env `AVELREN_GIT_SHA`, який docker-build проставляє з
+      `SOURCE_COMMIT` (див. Dockerfile). У dev-режимі його може не бути —
+      тоді null, а не «unknown»: клієнт має розрізняти «версія відома, це dev»
+      від «версія була, але зникла».
+    - `migrations_version` — max(version) з `schema_migrations`. Свіжа схема
+      і застарілий код (або навпаки) — головний клас deploy-збоїв.
+    """
+    row = await (
+        await conn.execute(
+            "SELECT max(version) AS v FROM schema_migrations"
+        )
+    ).fetchone()
+    return {
+        "app_version": APP_VERSION,
+        "git_sha": os.environ.get("AVELREN_GIT_SHA") or None,
+        "migrations_version": (row["v"] if row else None),
+    }
 
 
 def network() -> dict:

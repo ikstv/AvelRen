@@ -183,6 +183,71 @@ object Api {
         val last_run: Long? = null,
     )
 
+    // ---- PR-B: per-container і глобальні розширення ----
+    //
+    // Усі нові поля nullable / мають дефолт: старий сервер (без PR-B) далі
+    // парситься тим же клієнтом; новий сервер із PR-B, але старий клієнт —
+    // теж працює (ignoreUnknownKeys).
+
+    @Serializable
+    data class TelemetryService(
+        val name: String,
+        val status: String? = null,
+        val health: String? = null,
+        val started_at: String? = null,
+        val restart_count: Int? = null,
+        val exit_code: Int? = null,
+        val oom_killed: Boolean? = null,
+        val image: String? = null,
+    )
+
+    @Serializable
+    data class TelemetryDocker(
+        val daemon_version: String? = null,
+        val compose_version: String? = null,
+    )
+
+    @Serializable
+    data class TelemetryInodes(
+        val total: Long? = null,
+        val used: Long? = null,
+        val used_percent: Int? = null,
+    )
+
+    @Serializable
+    data class TelemetryUpstream(
+        val base_url: String? = null,
+        val workload_url: String? = null,
+        val vehicle_type: Int? = null,
+        val poll_interval_seconds: Int? = null,
+    )
+
+    @Serializable
+    data class TelemetryLastRun(
+        val time: String? = null,
+        val http_status: Int? = null,
+        val duration_ms: Int? = null,
+        val rows_written: Int? = null,
+        val error: String? = null,
+        val derived_processed_at: String? = null,
+        val derived_error: String? = null,
+    )
+
+    @Serializable
+    data class TelemetryLastSuccess(
+        val time: String? = null,
+        val http_status: Int? = null,
+        val duration_ms: Int? = null,
+        val rows_written: Int? = null,
+    )
+
+    @Serializable
+    data class TelemetryVersion(
+        val app_version: String? = null,
+        val git_sha: String? = null,
+        val migrations_version: String? = null,
+    )
+
     @Serializable
     data class HealthProblem(val kind: String, val detail: String? = null)
 
@@ -194,6 +259,14 @@ object Api {
         val certificate: TelemetryCert,
         val backups: TelemetryBackups,
         val problems: List<HealthProblem> = emptyList(),
+        // PR-B — усе опціональне для сумісності зі старим сервером.
+        val services: List<TelemetryService> = emptyList(),
+        val docker: TelemetryDocker? = null,
+        val inodes: TelemetryInodes? = null,
+        val upstream: TelemetryUpstream? = null,
+        val last_collector_run: TelemetryLastRun? = null,
+        val last_collector_success: TelemetryLastSuccess? = null,
+        val version: TelemetryVersion? = null,
     )
 
     /** Canonical перелік активних (pending) alert'ів для reconciliation (A-02). */

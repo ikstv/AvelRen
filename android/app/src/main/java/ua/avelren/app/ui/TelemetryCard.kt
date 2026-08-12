@@ -45,12 +45,24 @@ fun TelemetryCard(t: Api.Telemetry?) {
     val backupStatus = ServerDashboardStatus.backup(t.backups)
     val certStatus = ServerDashboardStatus.certificate(t.certificate)
     val watchdogStatus = ServerDashboardStatus.watchdog(t.problems)
-    val upstreamStatus = ServerDashboardStatus.upstream(t.problems)
+    // PR-B: якщо backend дав реальні поля — рахуємо на них; інакше fallback
+    // на непрямі сигнали.
+    val upstreamStatus = if (t.last_collector_run != null) {
+        ServerDashboardStatus.upstream(
+            t.last_collector_run, t.last_collector_success, t.problems, nowEpochSeconds
+        )
+    } else {
+        ServerDashboardStatus.upstream(t.problems)
+    }
+    val servicesOverall = if (t.services.isNotEmpty()) {
+        ServerDashboardStatus.overall(t.services.map { ServerDashboardStatus.service(it) })
+    } else SectionStatus.UNKNOWN
+    val inodesStatus = ServerDashboardStatus.inodes(t.inodes)
     val billingStatus = ServerDashboardStatus.billing()
 
     val overall = ServerDashboardStatus.overall(
-        listOf(hostStatus, collectorStatus, databaseStatus, backupStatus,
-            certStatus, watchdogStatus)
+        listOf(hostStatus, servicesOverall, collectorStatus, databaseStatus,
+            backupStatus, certStatus, watchdogStatus, upstreamStatus, inodesStatus)
     )
 
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
@@ -70,16 +82,18 @@ fun TelemetryCard(t: Api.Telemetry?) {
             }
 
             SectionHeader("🖥 Host", hostStatus)
-            HostSection(t.system, nowEpochSeconds)
+            HostSection(t.system, t.inodes, inodesStatus)
 
-            SectionHeader("🐳 Services", SectionStatus.UNKNOWN)
-            ServicesSection(t.pipeline)
+            SectionHeader("🐳 Services", servicesOverall)
+            ServicesSection(t.services, t.pipeline)
 
             SectionHeader("📡 Collector", collectorStatus)
-            CollectorSection(t.pipeline, nowEpochSeconds)
+            CollectorSection(t.pipeline, t.last_collector_run, t.last_collector_success,
+                nowEpochSeconds)
 
             SectionHeader("🌐 ЄЧерга", upstreamStatus)
-            UpstreamSection(t.problems)
+            UpstreamSection(t.upstream, t.last_collector_run, t.last_collector_success,
+                t.problems)
 
             SectionHeader("🗄 Database", databaseStatus)
             DatabaseSection(t.pipeline)
@@ -91,7 +105,7 @@ fun TelemetryCard(t: Api.Telemetry?) {
             WatchdogSection(t.problems)
 
             SectionHeader("💾 Backup", backupStatus)
-            BackupSection(t.backups, nowEpochSeconds)
+            BackupSection(t.backups)
 
             SectionHeader("🔒 Certificate", certStatus)
             CertificateSection(t.certificate)
@@ -100,7 +114,7 @@ fun TelemetryCard(t: Api.Telemetry?) {
             BillingSection()
 
             SectionHeader("📦 Version", SectionStatus.UNKNOWN)
-            VersionSection()
+            VersionSection(t.version, t.docker)
         }
     }
 }
@@ -119,7 +133,11 @@ private fun SectionHeader(title: String, status: SectionStatus) {
 }
 
 @Composable
-private fun HostSection(system: Api.TelemetrySystem, nowEpochSeconds: Long) {
+private fun HostSection(
+    system: Api.TelemetrySystem,
+    inodes: Api.TelemetryInodes?,
+    inodesStatus: SectionStatus,
+) {
     if (system.stale == true) {
         Text("⚠ Host-снапшот протух — дані нижче застаріли",
             style = MaterialTheme.typography.bodySmall,
@@ -167,24 +185,50 @@ private fun HostSection(system: Api.TelemetrySystem, nowEpochSeconds: Long) {
     val snapAge = system.snapshot_age_seconds
     Line("Свіжість host-снапшоту",
         snapAge?.let { formatAgeSeconds(it.toLong()) } ?: "⚪ невідомо")
+
+    // Inode usage. Заповнена filesystem за inode виглядає як «диску купа»,
+    // поки не спробуєш створити файл — тому окрема лінія.
+    val inodesText = when {
+        inodes?.used_percent == null -> "⚪ невідомо"
+        inodes.total != null -> "${inodes.used_percent}% (${inodes.used}/${inodes.total})"
+        else -> "${inodes.used_percent}%"
+    }
+    Line("Inode ${inodesStatus.emoji}", inodesText)
 }
 
 @Composable
-private fun ServicesSection(pipeline: Api.TelemetryPipeline) {
-    // Per-container статуси приходять з PR-B. Зараз доступні лише два непрямі
-    // сигнали: api (сам факт відповіді), db (запит до pipeline повернувся).
-    // Решта — чесний ⚪ Unknown, а не «⚠ здається живий».
-    Line("api", ServerDashboardStatus.apiService().emoji + " OK")
-    Line("db", ServerDashboardStatus.dbService(pipeline).emoji +
-        if (pipeline.observations > 0) " OK" else " невідомо")
-    Line("collector", "⚪ per-container статус — PR-B")
-    Line("notifier", "⚪ per-container статус — PR-B")
-    Line("watchdog", "⚪ per-container статус — PR-B")
-    Line("caddy", "⚪ per-container статус — PR-B")
+private fun ServicesSection(
+    services: List<Api.TelemetryService>,
+    pipeline: Api.TelemetryPipeline,
+) {
+    if (services.isEmpty()) {
+        // Backend без PR-B — fallback на непрямі сигнали (як у PR-A).
+        Line("api", ServerDashboardStatus.apiService().emoji + " OK (непрямо)")
+        Line("db", ServerDashboardStatus.dbService(pipeline).emoji +
+            if (pipeline.observations > 0) " OK (непрямо)" else " невідомо")
+        Line("collector/notifier/watchdog/caddy", "⚪ backend без PR-B")
+        return
+    }
+    services.forEach { svc ->
+        val st = ServerDashboardStatus.service(svc)
+        val details = buildString {
+            append(svc.status ?: "?")
+            svc.health?.let { append(" · $it") }
+            svc.restart_count?.let { rc -> if (rc > 0) append(" · restart ×$rc") }
+            if (svc.oom_killed == true) append(" · OOM")
+            svc.exit_code?.let { append(" · exit $it") }
+        }
+        Line("${st.emoji} ${svc.name}", details)
+    }
 }
 
 @Composable
-private fun CollectorSection(pipeline: Api.TelemetryPipeline, nowEpochSeconds: Long) {
+private fun CollectorSection(
+    pipeline: Api.TelemetryPipeline,
+    lastRun: Api.TelemetryLastRun?,
+    lastSuccess: Api.TelemetryLastSuccess?,
+    nowEpochSeconds: Long,
+) {
     val age = ServerDashboardStatus.observationAgeSeconds(
         pipeline.last_observation, nowEpochSeconds)
     Line("Свіжість даних", age?.let { formatAgeSeconds(it) } ?: "⚪ невідомо")
@@ -193,20 +237,44 @@ private fun CollectorSection(pipeline: Api.TelemetryPipeline, nowEpochSeconds: L
         pipeline.runs_last_hour?.toString() ?: "⚪ невідомо")
     Line("Помилок за годину", "${pipeline.errors_last_hour}")
     Line("Повнота", "${pipeline.completeness_percent}%")
+
+    // PR-B: реальний останній цикл — з HTTP-статусом і причиною помилки.
+    if (lastRun != null) {
+        val runText = buildString {
+            lastRun.http_status?.let { append("HTTP $it") } ?: append("HTTP ?")
+            lastRun.duration_ms?.let { append(" · $it мс") }
+            lastRun.rows_written?.let { append(" · $it рядків") }
+            lastRun.error?.let { append(" · ⚠ $it") }
+        }
+        Line("Останній цикл", runText)
+        Line("Час циклу", lastRun.time ?: "⚪ невідомо")
+    }
+    if (lastSuccess != null) {
+        val successAge = ServerDashboardStatus.observationAgeSeconds(
+            lastSuccess.time, nowEpochSeconds)
+        Line("Останній успіх",
+            successAge?.let { formatAgeSeconds(it) } ?: "⚪ невідомо")
+    }
 }
 
 @Composable
-private fun UpstreamSection(problems: List<Api.HealthProblem>) {
-    // Upstream-специфічну телеметрію (HTTP статус, URL v5) додає PR-B у
-    // /admin/telemetry. До того — чесно unknown + непрямий сигнал через
-    // collector_silent, який уже видно в Watchdog.
+private fun UpstreamSection(
+    upstream: Api.TelemetryUpstream?,
+    lastRun: Api.TelemetryLastRun?,
+    lastSuccess: Api.TelemetryLastSuccess?,
+    problems: List<Api.HealthProblem>,
+) {
     if (problems.any { it.kind == "collector_silent" || it.kind == "no_data" }) {
         Line("Стан", "🔴 недоступний (див. Watchdog)")
-    } else {
-        Line("Стан", "⚪ окрема телеметрія — PR-B")
     }
-    Line("Ендпоінт", "⚪ буде у PR-B")
-    Line("Останній успішний запит", "⚪ буде у PR-B")
+    Line("Ендпоінт", upstream?.workload_url ?: "⚪ невідомо")
+    Line("Тип ТЗ", upstream?.vehicle_type?.toString() ?: "⚪ невідомо")
+    Line("Інтервал",
+        upstream?.poll_interval_seconds?.let { "$it с" } ?: "⚪ невідомо")
+    Line("HTTP статус (останній цикл)",
+        lastRun?.http_status?.toString() ?: "⚪ невідомо")
+    Line("Помилка останнього циклу", lastRun?.error ?: "—")
+    Line("Останній успішний запит", lastSuccess?.time ?: "⚪ невідомо")
 }
 
 @Composable
@@ -242,7 +310,7 @@ private fun WatchdogSection(problems: List<Api.HealthProblem>) {
 }
 
 @Composable
-private fun BackupSection(backups: Api.TelemetryBackups, nowEpochSeconds: Long) {
+private fun BackupSection(backups: Api.TelemetryBackups) {
     val ageText = when {
         backups.age_hours == null -> "⚪ немає"
         backups.age_hours < 1 -> "щойно"
@@ -274,11 +342,14 @@ private fun BillingSection() {
 }
 
 @Composable
-private fun VersionSection() {
+private fun VersionSection(version: Api.TelemetryVersion?, docker: Api.TelemetryDocker?) {
     Line("Застосунок", "v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})")
-    Line("Server app version", "⚪ буде у PR-B")
-    Line("Server commit", "⚪ буде у PR-B")
-    Line("Migrations", "⚪ буде у PR-B")
+    Line("Server app version", version?.app_version ?: "⚪ невідомо")
+    Line("Server commit",
+        version?.git_sha?.let { it.take(12) } ?: "⚪ невідомо")
+    Line("Migrations", version?.migrations_version ?: "⚪ невідомо")
+    Line("Docker daemon", docker?.daemon_version ?: "⚪ невідомо")
+    Line("Docker Compose", docker?.compose_version ?: "⚪ невідомо")
 }
 
 @Composable

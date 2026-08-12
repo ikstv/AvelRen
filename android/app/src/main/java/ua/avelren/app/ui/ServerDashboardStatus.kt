@@ -179,4 +179,62 @@ object ServerDashboardStatus {
     fun dbService(pipeline: Api.TelemetryPipeline): SectionStatus =
         if (pipeline.observations > 0 || pipeline.db_size_mb > 0.0) SectionStatus.OK
         else SectionStatus.UNKNOWN
+
+    // ---- PR-B: реальні per-container статуси і upstream з бекенду ----
+
+    /** Статус одного контейнера з `docker inspect` (whitelist полів).
+     *  Пороги свідомо строгі: `unhealthy` — одразу ERROR, `restarting` — WARN
+     *  (перезапуск нормальний під навантаженням, але часто = проблема).
+     *  Відсутність поля → UNKNOWN, а не OK. */
+    fun service(svc: Api.TelemetryService): SectionStatus {
+        val status = svc.status ?: return SectionStatus.UNKNOWN
+        val health = svc.health
+        return when {
+            status == "exited" || status == "dead" -> SectionStatus.ERROR
+            status == "restarting" -> SectionStatus.WARN
+            health == "unhealthy" -> SectionStatus.ERROR
+            health == "starting" -> SectionStatus.WARN
+            svc.oom_killed == true -> SectionStatus.ERROR
+            status == "running" -> SectionStatus.OK
+            else -> SectionStatus.UNKNOWN
+        }
+    }
+
+    /** ЄЧерга з реальним HTTP-статусом (PR-B заміняє попередній UNKNOWN). */
+    fun upstream(
+        lastRun: Api.TelemetryLastRun?,
+        lastSuccess: Api.TelemetryLastSuccess?,
+        problems: List<Api.HealthProblem>,
+        nowEpochSeconds: Long,
+    ): SectionStatus {
+        // Watchdog уже підняв тривогу — вірити йому в першу чергу.
+        if (problems.any { it.kind == "collector_silent" || it.kind == "no_data" }) {
+            return SectionStatus.ERROR
+        }
+        if (lastRun == null) return SectionStatus.UNKNOWN
+
+        val http = lastRun.http_status
+        val successAge = observationAgeSeconds(lastSuccess?.time, nowEpochSeconds)
+
+        return when {
+            lastRun.error != null && http != 200 -> SectionStatus.ERROR
+            http != null && http >= 500 -> SectionStatus.ERROR
+            http != null && http >= 400 -> SectionStatus.WARN
+            successAge != null && successAge > COLLECTOR_STALE_THRESHOLD_SECONDS ->
+                SectionStatus.WARN
+            http == 200 -> SectionStatus.OK
+            else -> SectionStatus.UNKNOWN
+        }
+    }
+
+    /** Inode usage. Заповнена filesystem за inode виглядає як «диску купа»,
+     *  а create() починає повертати ENOSPC — тому окремий сигнал. */
+    fun inodes(inodes: Api.TelemetryInodes?): SectionStatus {
+        val pct = inodes?.used_percent ?: return SectionStatus.UNKNOWN
+        return when {
+            pct >= 90 -> SectionStatus.ERROR
+            pct >= 75 -> SectionStatus.WARN
+            else -> SectionStatus.OK
+        }
+    }
 }
