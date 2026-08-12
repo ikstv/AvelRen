@@ -257,6 +257,23 @@ run_orchestrator() {
         --confirm-production-restore AVELREN-PRODUCTION-RESTORE
 }
 
+# M-13 preconditions: production restore OVERWRITES an existing production
+# database, and the pre-restore snapshot exists to capture that database before
+# it is destroyed. The test must therefore restore INTO a real, pre-existing
+# `avelren` — otherwise the orchestrator's `pg_dump -d avelren` fails with
+# "database avelren does not exist", no snapshot is produced, and the M-13
+# assertion below can never pass. Bootstrap + migrate + seed a distinct
+# pre-restore marker so the snapshot dumps genuine prior production state
+# (id 987654319 is overwritten by the restore's 987654321 marker).
+bootstrap_database "$TARGET_DB"
+DATABASE_URL="$MIGRATOR_TARGET_DSN" real_compose run --rm --no-deps -T \
+    -e DATABASE_URL test python -m avelren.migrate db/migrations
+PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q \
+    -c "INSERT INTO checkpoints
+        (id, title, for_vehicle_type, first_seen, last_seen)
+        VALUES (987654319, 'pre-restore-original-state', 1, now(), now());"
+
 run_orchestrator "$DUMP"
 restored=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -At \
