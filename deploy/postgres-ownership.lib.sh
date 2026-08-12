@@ -1039,10 +1039,15 @@ _canonical_target_acl_rows() {
     for column in id is_admin fcm_token; do
         _emit_target_relation_acl devices "$column" avelren_watchdog SELECT
     done
+    # watchdog гасить мертвий адмін-FCM-токен (UPDATE devices SET fcm_token=NULL);
+    # дзеркало GRANT UPDATE (fcm_token) ON devices TO avelren_watchdog у migration 010.
+    _emit_target_relation_acl devices fcm_token avelren_watchdog UPDATE
     _emit_target_relation_acl health_alerts object avelren_watchdog INSERT UPDATE
     _emit_target_relation_acl health_alerts_id_seq object avelren_watchdog USAGE
 
-    for name in countries checkpoints observations observations_hourly collector_runs subscriptions alerts eta_targets eta_alerts health_alerts; do
+    # schema_migrations: /admin/telemetry version-блок читає max(version) під роллю
+    # avelren_api; дзеркало GRANT SELECT ON schema_migrations TO avelren_api у 010.
+    for name in countries checkpoints observations observations_hourly collector_runs subscriptions alerts eta_targets eta_alerts health_alerts schema_migrations; do
         _emit_target_relation_acl "$name" object avelren_api SELECT
     done
     for column in id fcm_token platform secret_hash is_admin last_seen; do
