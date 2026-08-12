@@ -254,4 +254,124 @@ class ServerDashboardStatusTest {
         val s = Api.TelemetrySystem(memory_total_mb = 100, memory_used_mb = 500)
         assertEquals(100, ServerDashboardStatus.memoryPercent(s))
     }
+
+    // ---- PR-B: service ----------------------------------------------------
+
+    @Test fun `service — running healthy = OK`() {
+        val svc = Api.TelemetryService(name = "api", status = "running", health = "healthy")
+        assertEquals(SectionStatus.OK, ServerDashboardStatus.service(svc))
+    }
+
+    @Test fun `service — running без health-check теж OK`() {
+        val svc = Api.TelemetryService(name = "collector", status = "running", health = null)
+        assertEquals(SectionStatus.OK, ServerDashboardStatus.service(svc))
+    }
+
+    @Test fun `service — unhealthy = ERROR навіть коли status=running`() {
+        val svc = Api.TelemetryService(name = "db", status = "running", health = "unhealthy")
+        assertEquals(SectionStatus.ERROR, ServerDashboardStatus.service(svc))
+    }
+
+    @Test fun `service — exited = ERROR`() {
+        val svc = Api.TelemetryService(name = "collector", status = "exited", exit_code = 137)
+        assertEquals(SectionStatus.ERROR, ServerDashboardStatus.service(svc))
+    }
+
+    @Test fun `service — OOM killed = ERROR навіть якщо status=running`() {
+        val svc = Api.TelemetryService(name = "collector", status = "running", oom_killed = true)
+        assertEquals(SectionStatus.ERROR, ServerDashboardStatus.service(svc))
+    }
+
+    @Test fun `service — restarting = WARN`() {
+        val svc = Api.TelemetryService(name = "api", status = "restarting")
+        assertEquals(SectionStatus.WARN, ServerDashboardStatus.service(svc))
+    }
+
+    @Test fun `service — starting health = WARN`() {
+        val svc = Api.TelemetryService(name = "db", status = "running", health = "starting")
+        assertEquals(SectionStatus.WARN, ServerDashboardStatus.service(svc))
+    }
+
+    @Test fun `service — відсутній status = UNKNOWN`() {
+        val svc = Api.TelemetryService(name = "caddy")
+        assertEquals(SectionStatus.UNKNOWN, ServerDashboardStatus.service(svc))
+    }
+
+    // ---- PR-B: upstream з реальними полями --------------------------------
+
+    @Test fun `upstream PR-B — HTTP 200 і свіжий успіх = OK`() {
+        val run = Api.TelemetryLastRun(http_status = 200, error = null)
+        val success = Api.TelemetryLastSuccess(
+            time = "2099-01-01T00:00:00Z", http_status = 200)
+        assertEquals(SectionStatus.OK,
+            ServerDashboardStatus.upstream(run, success, emptyList(), 1000L))
+    }
+
+    @Test fun `upstream PR-B — HTTP 502 = ERROR`() {
+        val run = Api.TelemetryLastRun(http_status = 502, error = "gateway")
+        assertEquals(SectionStatus.ERROR,
+            ServerDashboardStatus.upstream(run, null, emptyList(), 1000L))
+    }
+
+    @Test fun `upstream PR-B — HTTP 429 = WARN`() {
+        val run = Api.TelemetryLastRun(http_status = 429, error = "rate")
+        assertEquals(SectionStatus.ERROR,  // 429 з error != null => ERROR
+            ServerDashboardStatus.upstream(run, null, emptyList(), 1000L))
+    }
+
+    @Test fun `upstream PR-B — HTTP 429 без error = WARN`() {
+        val run = Api.TelemetryLastRun(http_status = 429, error = null)
+        assertEquals(SectionStatus.WARN,
+            ServerDashboardStatus.upstream(run, null, emptyList(), 1000L))
+    }
+
+    @Test fun `upstream PR-B — HTTP 200 з error != null = ERROR (N1 регресія)`() {
+        // Реальний сценарій: `fetch_workload` дістав body, але json-parse
+        // впав → collector записує http_status=200 і error="parse failed".
+        // Раніше умова `error != null && http != 200` пропускала цей стан як
+        // OK. Тепер будь-яка помилка = ERROR.
+        val run = Api.TelemetryLastRun(http_status = 200, error = "parse failed")
+        val success = Api.TelemetryLastSuccess(
+            time = "2099-01-01T00:00:00Z", http_status = 200)
+        assertEquals(SectionStatus.ERROR,
+            ServerDashboardStatus.upstream(run, success, emptyList(), 1000L))
+    }
+
+    @Test fun `upstream PR-B — watchdog collector_silent перекриває будь-що`() {
+        val run = Api.TelemetryLastRun(http_status = 200, error = null)
+        val problems = listOf(Api.HealthProblem(kind = "collector_silent"))
+        assertEquals(SectionStatus.ERROR,
+            ServerDashboardStatus.upstream(run, null, problems, 1000L))
+    }
+
+    @Test fun `upstream PR-B — null run = UNKNOWN`() {
+        assertEquals(SectionStatus.UNKNOWN,
+            ServerDashboardStatus.upstream(null, null, emptyList(), 1000L))
+    }
+
+    // ---- PR-B: inodes -----------------------------------------------------
+
+    @Test fun `inodes — null = UNKNOWN`() {
+        assertEquals(SectionStatus.UNKNOWN, ServerDashboardStatus.inodes(null))
+    }
+
+    @Test fun `inodes — used_percent null = UNKNOWN`() {
+        assertEquals(SectionStatus.UNKNOWN,
+            ServerDashboardStatus.inodes(Api.TelemetryInodes()))
+    }
+
+    @Test fun `inodes — 30 percent = OK`() {
+        assertEquals(SectionStatus.OK,
+            ServerDashboardStatus.inodes(Api.TelemetryInodes(used_percent = 30)))
+    }
+
+    @Test fun `inodes — 80 percent = WARN`() {
+        assertEquals(SectionStatus.WARN,
+            ServerDashboardStatus.inodes(Api.TelemetryInodes(used_percent = 80)))
+    }
+
+    @Test fun `inodes — 95 percent = ERROR`() {
+        assertEquals(SectionStatus.ERROR,
+            ServerDashboardStatus.inodes(Api.TelemetryInodes(used_percent = 95)))
+    }
 }

@@ -38,7 +38,12 @@ sudo systemctl status --no-pager avelren-telemetry.service
 test -s /var/lib/avelren-telemetry/host.json && echo "snapshot OK"
 
 # 4. Перебудувати образ і підняти API з новими mounts.
-sudo docker compose build migrate          # той самий образ avelren-app:latest
+#    SOURCE_COMMIT вставляється у образ як AVELREN_GIT_SHA і потрапляє в
+#    /admin/telemetry.version.git_sha (Server Dashboard, PR-B). Без цього
+#    рядка клієнт назавжди бачитиме «⚪ невідомо» у «Server commit».
+#    `sudo -E` обов'язковий — без нього sudo вирізає env.
+export SOURCE_COMMIT=$(git rev-parse HEAD)
+sudo -E docker compose build migrate       # той самий образ avelren-app:latest
 sudo docker compose up -d --force-recreate api
 
 # 5. Довести, що ізоляція справді сталася.
