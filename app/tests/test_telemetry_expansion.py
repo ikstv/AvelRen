@@ -71,7 +71,12 @@ def test_services_returns_whitelisted_fields(snapshot):
 def test_services_strips_fields_outside_whitelist(snapshot):
     """Security-регресія: якщо host-скрипт випадково додасть поле поза
     whitelist (env, mounts, cmd, ports), telemetry МАЄ його викинути. Без
-    цього одна необережна правка в deploy/ відкриває канал утечки secrets."""
+    цього одна необережна правка в deploy/ відкриває канал утечки secrets.
+
+    N2 (review PR #34): раніше тест перевіряв лише кілька відомих forbidden
+    keys. Тепер positive-allowlist: `entry.keys() ⊆ {"name"} ∪ ALLOWED`. Це
+    робить регресію mutation-safe — навіть якщо injected поле не збігається
+    з блеклістом (напр., майбутній `secrets_path`), тест впаде."""
     snapshot(
         {
             "services": [
@@ -85,6 +90,9 @@ def test_services_strips_fields_outside_whitelist(snapshot):
                     "cmd": ["python", "-m", "avelren.api"],
                     "network_settings": {"IPAddress": "10.0.0.5"},
                     "labels": {"com.docker.compose.project": "avelren"},
+                    # Поле, якого немає в поточному blacklist — саме сценарій,
+                    # що позитивний allowlist ловить, а негативний пропускає.
+                    "secrets_path": "/run/secrets/firebase.json",
                 }
             ]
         },
@@ -93,9 +101,41 @@ def test_services_strips_fields_outside_whitelist(snapshot):
     result = telemetry.services()
     assert len(result) == 1
     entry = result[0]
-    forbidden = {"env", "mounts", "cmd", "network_settings", "labels", "config"}
-    assert not (forbidden & set(entry.keys())), (
-        f"утечка полів поза whitelist: {forbidden & set(entry.keys())}"
+
+    # Positive-allowlist інваріант: жодного поля поза дозволеним набором.
+    allowed = {"name"} | telemetry._SERVICE_ALLOWED_FIELDS
+    extra = set(entry.keys()) - allowed
+    assert not extra, f"поля поза whitelist: {extra}"
+
+    # Явна перевірка типових ризикових ключів — залишаю для читабельності
+    # діагностики (перший рядок збою вкаже конкретно на утечку secrets).
+    forbidden = {"env", "mounts", "cmd", "network_settings", "labels",
+                 "config", "secrets_path"}
+    leaked = forbidden & set(entry.keys())
+    assert not leaked, f"утечка полів поза whitelist: {leaked}"
+
+
+def test_services_whitelist_blocks_unseen_future_field(snapshot):
+    """Mutation-регресія: тест доводить, що конкретний refactor «повертаємо
+    весь entry» (напр. `out.append(dict(entry))`) буде спійманий. Іменований
+    сценарій ловить клас багу, а не конкретне ім'я поля."""
+    hypothetical_new_field = "future_docker_inspect_field_2027"
+    snapshot(
+        {
+            "services": [
+                {
+                    "name": "api",
+                    "status": "running",
+                    hypothetical_new_field: "should never appear on client",
+                }
+            ]
+        },
+        collected_at=datetime.now(UTC),
+    )
+    entry = telemetry.services()[0]
+    assert hypothetical_new_field not in entry, (
+        f"whitelist пропустив невідоме поле {hypothetical_new_field!r} — "
+        "це саме той клас регресії, від якого захищає positive-allowlist"
     )
 
 

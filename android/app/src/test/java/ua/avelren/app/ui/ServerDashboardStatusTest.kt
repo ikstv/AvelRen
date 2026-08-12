@@ -325,6 +325,18 @@ class ServerDashboardStatusTest {
             ServerDashboardStatus.upstream(run, null, emptyList(), 1000L))
     }
 
+    @Test fun `upstream PR-B — HTTP 200 з error != null = ERROR (N1 регресія)`() {
+        // Реальний сценарій: `fetch_workload` дістав body, але json-parse
+        // впав → collector записує http_status=200 і error="parse failed".
+        // Раніше умова `error != null && http != 200` пропускала цей стан як
+        // OK. Тепер будь-яка помилка = ERROR.
+        val run = Api.TelemetryLastRun(http_status = 200, error = "parse failed")
+        val success = Api.TelemetryLastSuccess(
+            time = "2099-01-01T00:00:00Z", http_status = 200)
+        assertEquals(SectionStatus.ERROR,
+            ServerDashboardStatus.upstream(run, success, emptyList(), 1000L))
+    }
+
     @Test fun `upstream PR-B — watchdog collector_silent перекриває будь-що`() {
         val run = Api.TelemetryLastRun(http_status = 200, error = null)
         val problems = listOf(Api.HealthProblem(kind = "collector_silent"))
