@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     contact_email: str = ""
     log_level: str = "INFO"
 
+    # --- Обмеження ресурсів public API (#16) ---
+    # statement_timeout лише для пулу API-процесу (не глобальна політика сервера).
+    api_statement_timeout_ms: int = 5000
+    # Скільки ОДНОЧАСНИХ дорогих читань (history/forecast/quality) дозволяємо.
+    # МУСИТЬ бути менше за db.POOL_MAX_SIZE, щоб лишити конекшени для дешевих
+    # health/workload під навантаженням (інакше дорогі читання вичерпають пул).
+    api_max_concurrent_expensive: int = 3
+    # Максимальний розмір тіла запиту; усі наші тіла — малий JSON.
+    api_max_body_bytes: int = 16 * 1024
+
     # Службовий ключ Firebase. Лежить на сервері повз git, права 600.
     fcm_credentials_path: str = ""
 
