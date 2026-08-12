@@ -149,10 +149,12 @@ async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
 
 @router.put("/devices/token")
 async def update_token(
+    request: Request,
     body: TokenIn,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict:
+    rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         async with conn.transaction():
@@ -234,10 +236,12 @@ async def create_subscription(
 
 @router.delete("/subscriptions/{subscription_id}", status_code=204)
 async def delete_subscription(
+    request: Request,
     subscription_id: int,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> None:
+    rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         async with conn.transaction():
@@ -268,11 +272,13 @@ async def delete_subscription(
 
 @router.post("/alerts/{alert_id}/ack")
 async def acknowledge_alert(
+    request: Request,
     alert_id: int,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict:
     """Кнопка «ОК». Після неї повтори припиняються назавжди."""
+    rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         row = await (
@@ -380,10 +386,12 @@ async def create_eta_target(
 
 @router.delete("/eta-targets/{target_id}", status_code=204)
 async def delete_eta_target(
+    request: Request,
     target_id: int,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> None:
+    rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         async with conn.transaction():
@@ -413,10 +421,12 @@ async def delete_eta_target(
 
 @router.post("/eta-alerts/{alert_id}/ack")
 async def acknowledge_eta_alert(
+    request: Request,
     alert_id: int,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict:
+    rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         row = await (

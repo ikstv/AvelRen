@@ -13,9 +13,15 @@ log = logging.getLogger(__name__)
 _pool: AsyncConnectionPool | None = None
 
 
-def get_pool() -> AsyncConnectionPool:
+def get_pool(statement_timeout_ms: int | None = None) -> AsyncConnectionPool:
     global _pool
     if _pool is None:
+        kwargs: dict = {"row_factory": dict_row}
+        if statement_timeout_ms is not None:
+            # Застосовується per-connection лише для пулу ЦЬОГО процесу (API його
+            # вмикає в lifespan). collector/notifier/watchdog створюють свій пул
+            # без параметра й timeout не отримують — це не глобальна політика БД.
+            kwargs["options"] = f"-c statement_timeout={int(statement_timeout_ms)}"
         _pool = AsyncConnectionPool(
             settings.database_dsn,
             min_size=1,
@@ -24,7 +30,7 @@ def get_pool() -> AsyncConnectionPool:
             # сміє з'їдати цей бюджет — інакше цикл зникає без сліду.
             timeout=5,
             open=False,
-            kwargs={"row_factory": dict_row},
+            kwargs=kwargs,
         )
     return _pool
 

@@ -13,20 +13,28 @@ from fastapi import FastAPI, HTTPException, Query
 from . import forecast
 from .config import settings
 from .db import get_pool
+from .limits import BodySizeLimitMiddleware, ConcurrencyGate
 from .subscriptions_api import router as subscriptions_router
 
 log = logging.getLogger("avelren.api")
 
+# Дорогі читання (агрегації історії/прогнозу) проходять спільний gate: під
+# навантаженням вони не сміють вичерпати пул і покласти дешеві health/workload
+# (аудит #16). Дешеві ендпоінти gate НЕ проходять.
+_expensive_gate = ConcurrencyGate(settings.api_max_concurrent_expensive)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    pool = get_pool()
+    # statement_timeout вмикається саме тут: він стосується лише пулу API-процесу.
+    pool = get_pool(settings.api_statement_timeout_ms)
     await pool.open(wait=True, timeout=30)
     yield
     await pool.close()
 
 
 app = FastAPI(title="AvelRen", version="0.1.0", lifespan=lifespan)
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.api_max_body_bytes)
 app.include_router(subscriptions_router)
 
 
@@ -113,7 +121,7 @@ async def history(
     сирий ряд на 90 днів це 130 тисяч точок, які клієнту нема куди подіти."""
     since = datetime.now(UTC) - timedelta(hours=hours)
 
-    async with get_pool().connection() as conn:
+    async with _expensive_gate.guard(), get_pool().connection() as conn:
         cp = await (
             await conn.execute("SELECT id, title FROM checkpoints WHERE id = %s", (checkpoint_id,))
         ).fetchone()
@@ -164,7 +172,7 @@ async def forecast_endpoint(checkpoint_id: int, hours: int = Query(24, ge=1, le=
     Це навмисно: прогноз на добі даних виглядав би переконливо й був би
     вигадкою, а на ньому люди планують рейси.
     """
-    async with get_pool().connection() as conn:
+    async with _expensive_gate.guard(), get_pool().connection() as conn:
         cp = await (
             await conn.execute(
                 "SELECT id, title, flag_emoji FROM checkpoints WHERE id = %s", (checkpoint_id,)
@@ -183,5 +191,5 @@ async def forecast_endpoint(checkpoint_id: int, hours: int = Query(24, ge=1, le=
 async def forecast_quality(checkpoint_id: int) -> dict:
     """Похибка базової моделі. Без цього числа неможливо сказати, чи майбутня
     складніша модель узагалі щось покращила."""
-    async with get_pool().connection() as conn:
+    async with _expensive_gate.guard(), get_pool().connection() as conn:
         return await forecast.evaluate(conn, checkpoint_id)
