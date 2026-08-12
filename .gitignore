@@ -39,3 +39,7 @@ app/build/
 # superpowers brainstorm runtime state
 .superpowers/
 .worktrees/
+
+# Local scratch: backup copies of tracked files and stale locks. Machine-local
+# only; never required on a fresh clone.
+_to_delete/
