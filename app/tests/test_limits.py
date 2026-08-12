@@ -13,9 +13,17 @@ from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
+from avelren import db
+from avelren.config import settings
 from avelren.limits import BodySizeLimitMiddleware, ConcurrencyGate
 
 LIMIT = 1024
+
+
+def test_expensive_gate_reserves_pool_headroom() -> None:
+    """Дорогий gate мусить бути МЕНШИЙ за розмір пулу, інакше дорогі читання
+    вичерпають усі конекшени й заморять дешеві health/workload (#16)."""
+    assert settings.api_max_concurrent_expensive < db.POOL_MAX_SIZE
 
 
 def _echo_app() -> BodySizeLimitMiddleware:

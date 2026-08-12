@@ -41,7 +41,9 @@ class Settings(BaseSettings):
     # statement_timeout лише для пулу API-процесу (не глобальна політика сервера).
     api_statement_timeout_ms: int = 5000
     # Скільки ОДНОЧАСНИХ дорогих читань (history/forecast/quality) дозволяємо.
-    api_max_concurrent_expensive: int = 8
+    # МУСИТЬ бути менше за db.POOL_MAX_SIZE, щоб лишити конекшени для дешевих
+    # health/workload під навантаженням (інакше дорогі читання вичерпають пул).
+    api_max_concurrent_expensive: int = 3
     # Максимальний розмір тіла запиту; усі наші тіла — малий JSON.
     api_max_body_bytes: int = 16 * 1024
 

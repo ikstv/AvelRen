@@ -12,6 +12,12 @@ log = logging.getLogger(__name__)
 
 _pool: AsyncConnectionPool | None = None
 
+# Верхня межа конекшенів у пулі. Винесено в константу, бо від неї залежить
+# запас для дешевих ендпоінтів: дорогий concurrency-gate має бути МЕНШИЙ за це
+# число (див. Settings.api_max_concurrent_expensive), інакше дорогі читання
+# заберуть усі конекшени й заморять health/workload.
+POOL_MAX_SIZE = 5
+
 
 def get_pool(statement_timeout_ms: int | None = None) -> AsyncConnectionPool:
     global _pool
@@ -25,7 +31,7 @@ def get_pool(statement_timeout_ms: int | None = None) -> AsyncConnectionPool:
         _pool = AsyncConnectionPool(
             settings.database_dsn,
             min_size=1,
-            max_size=5,
+            max_size=POOL_MAX_SIZE,
             # Коротко: цикл збирача має 60 с на все, і чекання з'єднання не
             # сміє з'їдати цей бюджет — інакше цикл зникає без сліду.
             timeout=5,
