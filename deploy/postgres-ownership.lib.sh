@@ -1335,20 +1335,26 @@ BEGIN
         RAISE EXCEPTION 'target canonical ownership surface mismatch (% rows)', mismatch_count;
     END IF;
 
-    IF EXISTS (
-        SELECT 1
-        FROM pg_shdepend AS dependency
-        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
-        WHERE dependency.refclassid = 'pg_authid'::regclass
-          AND dependency.deptype = 'o'
-          AND owner_role.rolname = 'avelren'
-          AND (
-              dependency.dbid = 0
-              OR dependency.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-          )
-    ) THEN
-        RAISE EXCEPTION 'residual legacy ownership detected';
-    END IF;
+    DECLARE
+        residual_detail text;
+    BEGIN
+        SELECT string_agg(
+                   dependency.classid::regclass::text || ':' || dependency.objid::text
+                   || ':dbid=' || dependency.dbid::text, ', ')
+          INTO residual_detail
+          FROM pg_shdepend AS dependency
+          JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
+         WHERE dependency.refclassid = 'pg_authid'::regclass
+           AND dependency.deptype = 'o'
+           AND owner_role.rolname = 'avelren'
+           AND (
+               dependency.dbid = 0
+               OR dependency.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+           );
+        IF residual_detail IS NOT NULL THEN
+            RAISE EXCEPTION 'residual legacy ownership detected: %', residual_detail;
+        END IF;
+    END;
 END
 $avelren_verify$;
 DROP TABLE avelren_expected_ownership;
