@@ -1746,19 +1746,25 @@ SQL
 DO $avelren_inverse_exact_verify$
 DECLARE
     mismatch_count bigint;
+    mismatch_detail text;
 BEGIN
     WITH mismatch AS (
-        (SELECT row_text FROM avelren_expected_manifest
-         EXCEPT ALL
-         SELECT row_text FROM avelren_actual_manifest)
+        (SELECT 'EXPECTED_ONLY'::text AS side, row_text
+           FROM (SELECT row_text FROM avelren_expected_manifest
+                 EXCEPT ALL
+                 SELECT row_text FROM avelren_actual_manifest) AS expected_only)
         UNION ALL
-        (SELECT row_text FROM avelren_actual_manifest
-         EXCEPT ALL
-         SELECT row_text FROM avelren_expected_manifest)
+        (SELECT 'ACTUAL_ONLY'::text AS side, row_text
+           FROM (SELECT row_text FROM avelren_actual_manifest
+                 EXCEPT ALL
+                 SELECT row_text FROM avelren_expected_manifest) AS actual_only)
     )
-    SELECT count(*) INTO mismatch_count FROM mismatch;
+    SELECT count(*), string_agg(side || ' | ' || row_text, chr(10) ORDER BY side, row_text)
+      INTO mismatch_count, mismatch_detail
+      FROM mismatch;
     IF mismatch_count <> 0 THEN
-        RAISE EXCEPTION 'inverse rollback exact manifest mismatch (% rows)', mismatch_count;
+        RAISE EXCEPTION 'inverse rollback exact manifest mismatch (% rows)%',
+            mismatch_count, chr(10) || mismatch_detail;
     END IF;
 END
 $avelren_inverse_exact_verify$;
