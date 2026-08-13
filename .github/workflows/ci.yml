@@ -141,6 +141,10 @@ jobs:
           bash deploy/restore-contract-test.sh
           bash deploy/restore-engine-contract-test.sh
 
+      - name: Restore allowlist contract
+        timeout-minutes: 5
+        run: python3 deploy/restore-allowlist-contract-test.py
+
       - name: Production orchestrator contract tests
         timeout-minutes: 10
         run: bash deploy/restore-production-contract-test.sh

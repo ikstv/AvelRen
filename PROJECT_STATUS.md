@@ -128,8 +128,6 @@ contexts as of `0fd0495` (push run 31712618623).
 
 Documented follow-ups, not yet wired:
 
-- `deploy/restore-allowlist-contract-test.py` exists in-tree but is not yet a
-  CI step.
 - Negative drift-check case: deliberately create a Timescale chunk between
   capture and mutation in a disposable run and assert the adoption ABORTS
   with the expected message. Turns the runbook claim above into an executable
