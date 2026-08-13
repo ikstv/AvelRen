@@ -44,6 +44,7 @@ bash deploy/postgres-roles-integration-test.sh
 bash deploy/backup-contract-test.sh
 bash deploy/restore-contract-test.sh
 bash deploy/restore-engine-contract-test.sh
+python3 deploy/restore-allowlist-contract-test.py
 bash deploy/restore-production-contract-test.sh
 
 bash deploy/restore-integration-test.sh
