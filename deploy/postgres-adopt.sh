@@ -136,10 +136,12 @@ production_assert_roles_exist() {
 # legacy role and must roll back.
 production_assert_legacy_untouched() {
     local state
+    # Concatenating booleans yields the text 'true'/'false' (a bare boolean
+    # column would render 't'/'f'); compare against that exact rendering.
     state=$(_adoption_psql "$ADMIN_DSN" -tAc \
-        "SELECT rolsuper||','||rolcanlogin FROM pg_roles WHERE rolname='avelren';") || \
+        "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren';") || \
         route_post_commit_failure 'cannot verify legacy avelren role state'
-    [ "$state" = 't,t' ] || \
+    [ "$state" = 'true,true' ] || \
         route_post_commit_failure "legacy avelren role altered during adoption (rolsuper,rolcanlogin=$state)"
 }
 
@@ -642,6 +644,11 @@ if [ "$PRODUCTION_ADOPT" = true ]; then
     if ! compose up -d caddy api collector notifier watchdog; then
         log 'ADOPTION WARNING: clients did not restart cleanly on the legacy DSN; manual check required' >&2
     fi
+    # Signal the keep_runtime_stopped EXIT trap that the committed adoption
+    # succeeded and the runtime was restored, so a clean exit 0 is not mistaken
+    # for a post-COMMIT failure and inverse-rolled-back. (No DSN cutover happens
+    # here; the flag only means "adoption is committed, do not auto-roll-back".)
+    ADOPTION_CUTOVER_SUCCESSFUL=true
     MAINTENANCE_ENTERED=false
     log 'Stage 3B.2 production adoption complete; HARD STOP'
     exit 0

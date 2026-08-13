@@ -173,6 +173,10 @@ jobs:
         timeout-minutes: 45
         run: AVELREN_ADOPTION_SCENARIO=success bash deploy/postgres-adoption-integration-test.sh
 
+      - name: Cold adoption integration - production
+        timeout-minutes: 45
+        run: AVELREN_ADOPTION_SCENARIO=production bash deploy/postgres-adoption-integration-test.sh
+
       - name: Snapshot script — синтаксис
         run: bash -n deploy/telemetry-snapshot.sh
 

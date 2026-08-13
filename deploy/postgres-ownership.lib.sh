@@ -1346,6 +1346,21 @@ BEGIN
               dependency.dbid = 0
               OR dependency.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
           )
+          -- Exclude this session's own temporary relations. The canonical
+          -- surface check above already ignores pg_my_temp_schema() objects;
+          -- the residual check must do the same, otherwise a verify temp table
+          -- (avelren_expected_ownership / _acl) created under a legacy `avelren`
+          -- admin connection — exactly the production 3B.2 case — is misread as
+          -- residual legacy ownership. Disposable runs connect as avelren_admin
+          -- so their temp tables never triggered this.
+          AND NOT (
+              dependency.classid = 'pg_class'::regclass
+              AND dependency.objid IN (
+                  SELECT relation.oid
+                  FROM pg_class AS relation
+                  WHERE relation.relnamespace = pg_my_temp_schema()
+              )
+          )
     ) THEN
         RAISE EXCEPTION 'residual legacy ownership detected';
     END IF;

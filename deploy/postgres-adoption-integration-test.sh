@@ -7,8 +7,9 @@ readonly ROOT
 
 [ "${AVELREN_ADOPTION_SCENARIO:-}" = before_commit ] || \
     [ "${AVELREN_ADOPTION_SCENARIO:-}" = after_commit ] || \
-    [ "${AVELREN_ADOPTION_SCENARIO:-}" = success ] || {
-    echo 'adoption integration requires AVELREN_ADOPTION_SCENARIO=before_commit, after_commit, or success' >&2
+    [ "${AVELREN_ADOPTION_SCENARIO:-}" = success ] || \
+    [ "${AVELREN_ADOPTION_SCENARIO:-}" = production ] || {
+    echo 'adoption integration requires AVELREN_ADOPTION_SCENARIO=before_commit, after_commit, success, or production' >&2
     exit 2
 }
 FOCUSED_CASE=${AVELREN_ADOPTION_FOCUSED_CASE:-all}
@@ -359,8 +360,8 @@ fi
 MSYS_NO_PATHCONV=1 "$ADOPTION_REAL_DOCKER" compose \
     --project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE" \
     -p "$ADOPTION_PROJECT" -f "$ADOPTION_COMPOSE_FILE" \
-    exec -T -e PGPASSWORD=ci-only db \
-    psql -U avelren_admin -d avelren_adoption_test "$@" <"$input"
+    exec -T -e PGPASSWORD="${ADOPTION_PSQL_PASSWORD:-ci-only}" db \
+    psql -U "${ADOPTION_PSQL_ROLE:-avelren_admin}" -d avelren_adoption_test "$@" <"$input"
 SH
 cat >"$BIN/docker" <<'SH'
 #!/usr/bin/env bash
@@ -969,6 +970,10 @@ exact_commit=$HEAD
 EOF
 chmod 600 "$PREFLIGHT"
 
+PROD_TOKEN_FILE="$WORK/production-token"
+printf '%s' 'AVELREN-POSTGRES-ADOPTION-PROD' >"$PROD_TOKEN_FILE"
+chmod 600 "$PROD_TOKEN_FILE"
+
 run_adoption() {
     env PATH="$BIN:$PATH" AVELREN_PSQL_BIN="$BIN/psql" AVELREN_DOCKER_BIN="$BIN/docker" \
         ADOPTION_REAL_DOCKER="$REAL_DOCKER" ADOPTION_PROJECT_DIR="$COMPOSE_PROJECT_DIR" \
@@ -996,6 +1001,37 @@ run_adoption() {
         ADOPTION_INVERSE_STAGE_TEST="${ADOPTION_INVERSE_STAGE_TEST:-0}" \
         ADOPTION_INVERSE_STAGE_LOG="$WORK/inverse-stage.log" \
         bash "$ROOT/deploy/postgres-adopt.sh" --confirm-adoption AVELREN-POSTGRES-ADOPTION
+}
+
+# Stage 3B.2 production adoption path. Unlike run_adoption (disposable), this
+# exercises `--production-adopt`: no AVELREN_TEST_DB, no failpoints, a real prod
+# confirmation token, and the fixture-gated target override (limited to the
+# disposable *test* database). The admin connection is asserted as legacy
+# `avelren` via AVELREN_CURRENT_DB_USER (the psql stub authenticates as the
+# superuser avelren_admin, which is equivalent for REASSIGN/GRANT); the point of
+# this scenario is the adoption logic and its production hold, not auth wiring.
+run_production_adoption() {
+    env PATH="$BIN:$PATH" AVELREN_PSQL_BIN="$BIN/psql" AVELREN_DOCKER_BIN="$BIN/docker" \
+        ADOPTION_REAL_DOCKER="$REAL_DOCKER" ADOPTION_PROJECT_DIR="$COMPOSE_PROJECT_DIR" \
+        ADOPTION_ENV_FILE="$COMPOSE_ENV_FILE" ADOPTION_PROJECT="$PROJECT" \
+        ADOPTION_COMPOSE_FILE="$COMPOSE_FILE" ADOPTION_SERVICE_LOG="$WORK/services.log" \
+        ADOPTION_SERVICE_STATE="$WORK/services.state" \
+        ADOPTION_FORWARD_LOG="$WORK/forward.log" ADOPTION_GATE_LOG="$WORK/gates.log" \
+        AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
+        AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
+        AVELREN_ADMIN_TOOL_DSN="$ADMIN_TOOL_DSN" AVELREN_MIGRATOR_DSN="$MIGRATOR_DSN" \
+        AVELREN_BACKUP_DSN="$BACKUP_DSN" AVELREN_COLLECTOR_DSN="$COLLECTOR_DSN" \
+        AVELREN_NOTIFIER_DSN="$NOTIFIER_DSN" AVELREN_WATCHDOG_DSN="$WATCHDOG_DSN" \
+        AVELREN_API_DSN="$API_DSN" \
+        AVELREN_ADOPTION_SUCCESS_GATE_RUNNER="$BIN/success-gate" \
+        AVELREN_RECOVERY_PREFLIGHT_FILE="$PREFLIGHT" AVELREN_EVIDENCE_DIR="$EVIDENCE" \
+        AVELREN_ALLOW_DIRTY_TEST=1 \
+        AVELREN_PRODUCTION_TARGET_OVERRIDE="$TARGET_DB" \
+        ADOPTION_PSQL_ROLE=avelren ADOPTION_PSQL_PASSWORD=legacy-ci-only \
+        ADOPTION_FAULT_DIR="$WORK" \
+        bash "$ROOT/deploy/postgres-adopt.sh" \
+            --confirm-adoption AVELREN-POSTGRES-ADOPTION \
+            --production-adopt --production-token-file "$PROD_TOKEN_FILE"
 }
 
 RETIREMENT_SOAK_FILE=
@@ -2223,6 +2259,51 @@ EOF
     fi
 
     echo 'postgres adoption success integration: PASS'
+elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
+    # Stage 3B.2 production adoption happy-path against the disposable database.
+    # The suite setup already built the exact pre-state 3B.2 expects: seven
+    # least-privilege roles provisioned, legacy `avelren` SUPERUSER owning the
+    # database/schema/objects, migrations 001-009 applied. Run --production-adopt
+    # and prove the committed outcome and its invariants.
+    prod_failures=0
+    prod_fail() { echo "production adoption assertion FAILED: $*" >&2; prod_failures=$((prod_failures + 1)); }
+    prod_query() {
+        PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
+            psql -U avelren_admin -d "$TARGET_DB" -tAc "$1"
+    }
+
+    if ! run_production_adoption >"$WORK/production.out" 2>&1; then
+        cat "$WORK/production.out" >&2
+        echo 'production adoption did not exit 0' >&2
+        exit 1
+    fi
+
+    # 1. All seven least-privilege roles still exist.
+    for prod_role in avelren_admin avelren_migrator avelren_backup avelren_collector \
+        avelren_notifier avelren_watchdog avelren_api; do
+        [ "$(prod_query "SELECT 1 FROM pg_roles WHERE rolname='$prod_role'")" = 1 ] || \
+            prod_fail "role $prod_role is absent after adoption"
+    done
+
+    # 2. Ownership moved off legacy avelren onto avelren_migrator for public relations.
+    owned_by_legacy=$(prod_query "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','S','v','m','p') AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren')")
+    [ "$owned_by_legacy" = 0 ] || prod_fail "legacy avelren still owns $owned_by_legacy public objects"
+    owned_by_migrator=$(prod_query "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','S','v','m','p') AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')")
+    [ "${owned_by_migrator:-0}" -gt 0 ] || prod_fail 'avelren_migrator owns no public objects after adoption'
+
+    # 3. Legacy avelren stays SUPERUSER + LOGIN — retirement is a later, separate gate.
+    [ "$(prod_query "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren'")" = 'true,true' ] || \
+        prod_fail 'legacy avelren is no longer SUPERUSER+LOGIN'
+
+    # 4. schema_migrations intentionally stays at 009 — 010 is stamped later (3D), not 3B.2.
+    prod_latest=$(prod_query "SELECT max(version) FROM schema_migrations")
+    case "$prod_latest" in
+        009_observability) ;;
+        *) prod_fail "schema_migrations advanced to '$prod_latest'; expected 009_observability" ;;
+    esac
+
+    [ "$prod_failures" -eq 0 ] || { echo "$prod_failures production assertion(s) failed" >&2; exit 1; }
+    echo 'postgres adoption production integration: PASS'
 else
     echo 'postgres adoption before_commit integration: PASS'
 fi
