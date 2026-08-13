@@ -417,6 +417,13 @@ EOF
                 --project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE" \
                 -p "$ADOPTION_PROJECT" -f "$ADOPTION_COMPOSE_FILE" \
                 up --detach caddy api collector notifier watchdog >/dev/null
+        elif grep -Fxq 'stage=committed' "$AVELREN_EVIDENCE_DIR/stage" 2>/dev/null; then
+            # Production hold (Stage 3B.2): committed adoption restarts clients on
+            # the unchanged legacy DSN — no cutover gates, no rollback.
+            MSYS_NO_PATHCONV=1 "$ADOPTION_REAL_DOCKER" compose \
+                --project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE" \
+                -p "$ADOPTION_PROJECT" -f "$ADOPTION_COMPOSE_FILE" \
+                up --detach caddy api collector notifier watchdog >/dev/null
         elif ! cmp -s "$AVELREN_EVIDENCE_DIR/original.tsv" \
                     "$AVELREN_EVIDENCE_DIR/after-failure.tsv" ||
              ! cmp -s "$AVELREN_EVIDENCE_DIR/original.sha256" \
