@@ -270,13 +270,25 @@ DATABASE_URL="$MIGRATOR_DSN" real_compose run --rm --no-deps -T \
 
 # Materialize a real Timescale chunk so provenance and exact-owner checks cannot
 # pass against extension metadata alone.
+#
+# The chunk must exist BEFORE the manifest is captured and no further chunk may
+# appear while adoption runs: a chunk materialising mid-run adds catalog rows the
+# captured manifest never saw, and the exact inverse-rollback comparison then
+# reports a mismatch even though the rollback itself was perfect. Timescale's
+# default 7-day chunks are epoch-aligned (1970-01-01 was a Thursday), so a fixed
+# fixture date and the runtime `now()` inserts drift into different chunks as the
+# calendar moves. 2026-08-13 00:00 UTC is exactly such a boundary (day 20678 =
+# 2954*7), which is why every run from that date failed while the day before
+# passed on identical code. Pin the interval so the fixture and every runtime
+# insert always share one chunk, and seed at `now()` rather than a fixed date.
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+SELECT set_chunk_time_interval('public.observations', INTERVAL '36500 days');
 INSERT INTO public.checkpoints (id, title, for_vehicle_type)
 VALUES (-1, 'Task 6 ownership fixture', 1);
 INSERT INTO public.observations
     (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused)
-VALUES (TIMESTAMPTZ '2026-08-08 00:00:00+00', -1, 60, 1, false);
+VALUES (now(), -1, 60, 1, false);
 SQL
 
 # Make a production-like pre-adoption database: legacy owns the database,
