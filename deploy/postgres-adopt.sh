@@ -10,6 +10,8 @@ source "$ROOT/deploy/postgres-ownership.lib.sh"
 
 CONFIRMATION=
 RETIRE_LEGACY=false
+PRODUCTION_ADOPT=false
+PROD_TOKEN_FILE=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --confirm-adoption)
@@ -21,6 +23,16 @@ while [ "$#" -gt 0 ]; do
             [ "$RETIRE_LEGACY" = false ] || { echo 'duplicate retirement argument' >&2; exit 2; }
             RETIRE_LEGACY=true
             shift
+            ;;
+        --production-adopt)
+            [ "$PRODUCTION_ADOPT" = false ] || { echo 'duplicate production argument' >&2; exit 2; }
+            PRODUCTION_ADOPT=true
+            shift
+            ;;
+        --production-token-file)
+            [ "$#" -ge 2 ] || { echo 'production token file path missing' >&2; exit 2; }
+            PROD_TOKEN_FILE=$2
+            shift 2
             ;;
         *) echo 'unknown adoption argument' >&2; exit 2 ;;
     esac
@@ -50,6 +62,89 @@ RETIREMENT_GATE_RUNNER=${AVELREN_ADOPTION_RETIREMENT_GATE_RUNNER:-}
 ACCEPTED_SOAK_FILE=${AVELREN_ACCEPTED_SOAK_FILE:-}
 RETIREMENT_FAILPOINT=${AVELREN_RETIREMENT_FAILPOINT:-}
 
+PRODUCTION_TOKEN_EXPECTED=AVELREN-POSTGRES-ADOPTION-PROD
+
+# Stage 3B.2 production ownership/ACL adoption against the live `avelren`
+# database. Role provisioning (db/security/bootstrap.sql, step 3B.1) is a prior,
+# separate operation; this mode NEVER creates roles — it asserts the 7 roles
+# already exist and then performs the same committed forward adoption the
+# disposable path proves, holding BEFORE any migrate / DSN cutover / restart.
+if [ "$PRODUCTION_ADOPT" = true ]; then
+    [ "$RETIRE_LEGACY" = false ]        || fail 'production adoption forbids --retire-legacy'
+    [ "${AVELREN_TEST_DB:-}" != 1 ]     || fail 'production adoption forbids AVELREN_TEST_DB'
+    # Production target is exactly `avelren`. The integration suite exercises this
+    # very path against a disposable database, so a narrow, test-fixture-only
+    # override is allowed — but ONLY for a disposable *test*/*ci* target, never
+    # for `avelren` itself. In production no override is set and the exact-name
+    # check below is the sole gate; even if the override variable were somehow
+    # set on the host, a production `avelren` target is not *test*/*ci* and is
+    # rejected, so the guard cannot be bypassed against the real database.
+    if [ -n "${AVELREN_PRODUCTION_TARGET_OVERRIDE:-}" ]; then
+        case "$TARGET_DB" in
+            *test*|*ci*) ;;
+            *) fail 'production target override is limited to disposable *test*/*ci* targets' ;;
+        esac
+        [ "$TARGET_DB" = "$AVELREN_PRODUCTION_TARGET_OVERRIDE" ] || \
+            fail 'production target does not match the fixture override'
+    else
+        [ "$TARGET_DB" = avelren ] || fail 'production target must be exactly avelren'
+    fi
+    [ -z "$FAILPOINT" ]                 || fail 'production adoption forbids an adoption failpoint'
+    [ -z "$POST_COMMIT_GATE" ]          || fail 'production adoption forbids a post-commit gate injection'
+    [ -z "$COMMITTED_FAILPOINT" ]       || fail 'production adoption forbids a committed-adoption failpoint'
+    [ "$CORRUPT_INVERSE" = 0 ]          || fail 'production adoption forbids inverse corruption'
+    [ -n "$SUCCESS_GATE_RUNNER" ]       || fail 'production adoption requires a privilege-contract gate runner'
+    # Production confirmation token: read from a 0400/0600 file we own, never
+    # from argv (no ps/argv exposure) and never echoed into logs or evidence.
+    [ -n "$PROD_TOKEN_FILE" ]           || fail 'production adoption requires --production-token-file'
+    [ -f "$PROD_TOKEN_FILE" ] && [ ! -L "$PROD_TOKEN_FILE" ] || fail 'production token file is invalid'
+    case "$(stat -c '%a' "$PROD_TOKEN_FILE")" in 400|600) ;; *) fail 'production token file mode must be 0400 or 0600' ;; esac
+    [ "$(stat -c '%u' "$PROD_TOKEN_FILE")" = "$(id -u)" ] || fail 'production token file owner mismatch'
+    # `read` returns non-zero on EOF without a trailing newline even though it
+    # captured the line, so validate the captured value rather than the status.
+    _prod_token=
+    IFS= read -r _prod_token <"$PROD_TOKEN_FILE" || true
+    [ -n "$_prod_token" ] || fail 'cannot read production token file'
+    [ "$_prod_token" = "$PRODUCTION_TOKEN_EXPECTED" ] || fail 'production token mismatch'
+    unset _prod_token
+    # Drive the committed-forward machinery like the success cutover, but a
+    # production hold (below) intercepts before any post-commit gate or cutover.
+    FAILPOINT=success
+fi
+
+# Read-only: every least-privilege role must already exist (provisioned in
+# 3B.1). Production adoption reassigns ownership/ACL to them; it never creates
+# them, so an absent role is a hard refusal, not something to paper over.
+production_assert_roles_exist() {
+    local role present admin_super
+    for role in avelren_admin avelren_migrator avelren_backup avelren_collector \
+        avelren_notifier avelren_watchdog avelren_api; do
+        present=$(_adoption_psql "$ADMIN_DSN" -tAc \
+            "SELECT 1 FROM pg_roles WHERE rolname='$role';") || \
+            fail 'cannot inspect least-privilege roles'
+        [ "$present" = 1 ] || \
+            fail "role $role is absent; run role provisioning (3B.1 bootstrap.sql) first"
+    done
+    admin_super=$(_adoption_psql "$ADMIN_DSN" -tAc \
+        "SELECT rolsuper FROM pg_roles WHERE rolname='avelren_admin';") || \
+        fail 'cannot inspect avelren_admin attributes'
+    [ "$admin_super" = t ] || fail 'role avelren_admin must be SUPERUSER before adoption'
+}
+
+# Invariant across 3B/3C/3D/3E: legacy `avelren` stays SUPERUSER+LOGIN until the
+# separate retirement gate (3F). A violation here means adoption altered the
+# legacy role and must roll back.
+production_assert_legacy_untouched() {
+    local state
+    # Concatenating booleans yields the text 'true'/'false' (a bare boolean
+    # column would render 't'/'f'); compare against that exact rendering.
+    state=$(_adoption_psql "$ADMIN_DSN" -tAc \
+        "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren';") || \
+        route_post_commit_failure 'cannot verify legacy avelren role state'
+    [ "$state" = 'true,true' ] || \
+        route_post_commit_failure "legacy avelren role altered during adoption (rolsuper,rolcanlogin=$state)"
+}
+
 compose() {
     local args=("$DOCKER_BIN" compose)
     [ -z "$COMPOSE_FILE" ] || args+=(-f "$COMPOSE_FILE")
@@ -74,8 +169,10 @@ fi
 
 # Task 6 deliberately has no normal COMMIT path. The only SQL mutation exercise
 # is disposable and must prove transaction rollback before Task 7 exists.
-[ "${AVELREN_TEST_DB:-}" = 1 ] || fail 'Task 6 adoption execution is disposable-only'
-case "$TARGET_DB" in *test*|*ci*) ;; *) fail 'disposable target name must contain test or ci' ;; esac
+if [ "$PRODUCTION_ADOPT" != true ]; then
+    [ "${AVELREN_TEST_DB:-}" = 1 ] || fail 'Task 6 adoption execution is disposable-only'
+    case "$TARGET_DB" in *test*|*ci*) ;; *) fail 'disposable target name must contain test or ci' ;; esac
+fi
 if [ "$RETIRE_LEGACY" = true ]; then
     [ -z "$FAILPOINT" ] || fail 'legacy retirement does not accept an adoption failpoint'
     [ -z "$POST_COMMIT_GATE" ] || fail 'legacy retirement does not accept a post-commit failpoint'
@@ -88,7 +185,7 @@ if [ "$RETIRE_LEGACY" = true ]; then
         fail 'retirement failure injection is disposable-only'
 else
     case "$FAILPOINT" in before_commit|after_commit|success) ;; *) fail 'adoption failpoint must be before_commit, after_commit, or success' ;; esac
-    [ "$FAILPOINT" = before_commit ] || [ "${AVELREN_TEST_DB:-}" = 1 ] || fail 'committed adoption is disposable-only'
+    [ "$FAILPOINT" = before_commit ] || [ "${AVELREN_TEST_DB:-}" = 1 ] || [ "$PRODUCTION_ADOPT" = true ] || fail 'committed adoption is disposable-only'
     [ -z "$POST_COMMIT_GATE" ] || case "$POST_COMMIT_GATE" in migrate|privilege_contracts|compose_credential_switch|smoke|collector_freshness|environment_isolation) ;; *) fail 'unknown post-commit gate' ;; esac
     [ -z "$COMMITTED_FAILPOINT" ] || case "$COMMITTED_FAILPOINT" in cleanup|capture|verification|signal_hup|signal_int|signal_term) ;; *) fail 'unknown committed-adoption failpoint' ;; esac
     case "$CORRUPT_INVERSE" in 0|1|invalid_sql|incomplete) ;; *) fail 'unknown inverse corruption mode' ;; esac
@@ -152,7 +249,16 @@ if [ -n "${AVELREN_CURRENT_DB_USER:-}" ]; then
 else
     admin_user=$(_adoption_psql "$ADMIN_DSN" -c 'SELECT current_user;') || fail 'admin connection failed'
 fi
-[ "$admin_user" = avelren_admin ] || fail 'admin connection must authenticate as avelren_admin'
+if [ "$PRODUCTION_ADOPT" = true ]; then
+    # 3B.2 bootstraps under the legacy `avelren` SUPERUSER: it is the only role
+    # that can REASSIGN OWNED / GRANT before avelren_admin owns anything. The
+    # avelren_admin identity is asserted below by role existence + attributes.
+    [ "$admin_user" = avelren ] || \
+        fail 'production adoption must bootstrap as the legacy avelren superuser'
+    production_assert_roles_exist
+else
+    [ "$admin_user" = avelren_admin ] || fail 'admin connection must authenticate as avelren_admin'
+fi
 
 retire_legacy_role() {
     local stage_file original_manifest committed_manifest validated_manifest marker
@@ -472,6 +578,26 @@ publish_committed_stage() {
         "$isolation_result" "$smoke_result" "$freshness_result"
 }
 
+if [ "$PRODUCTION_ADOPT" = true ]; then
+    # Test-only drift injection: materialise a catalog object between the
+    # preflight capture and the in-window recapture to prove the drift check
+    # aborts. Fail-closed — only ever runs under the disposable target override,
+    # never in production (no override there).
+    if [ -n "${AVELREN_PRODUCTION_DRIFT_INJECT:-}" ]; then
+        [ -n "${AVELREN_PRODUCTION_TARGET_OVERRIDE:-}" ] || \
+            fail 'drift injection is test-fixture-only'
+        _adoption_psql "$ADMIN_DSN" \
+            -c 'CREATE TABLE IF NOT EXISTS public.avelren_drift_probe (id integer);' || \
+            fail 'drift injection failed'
+    fi
+    # Second, in-window manifest capture immediately before the first mutation.
+    # ORIGINAL_MANIFEST was taken before maintenance; re-capture now and abort on
+    # any catalog drift between preflight and the mutation window.
+    capture_manifest "$ADMIN_DSN" "$EVIDENCE_DIR/pre-mutation.tsv"
+    cmp -s "$ORIGINAL_MANIFEST" "$EVIDENCE_DIR/pre-mutation.tsv" || \
+        fail 'catalog drifted between preflight and mutation window'
+fi
+
 log 'client-stop gate PASS; executing committed forward adoption'
 ADOPTION_FORWARD_COMMITTED=false
 if ! execute_committed_adoption "$ADMIN_DSN" "$ORIGINAL_MANIFEST" "$FORWARD_PLAN" "$EVIDENCE_DIR"; then
@@ -511,6 +637,38 @@ run_post_commit_gate() {
     esac
     log "post-commit gate $gate PASS"
 }
+
+if [ "$PRODUCTION_ADOPT" = true ]; then
+    # Production hold for Stage 3B.2: run ONLY the read-only privilege-contract
+    # acceptance. Never run migrate (schema_migrations stays 009 by design — 010
+    # is stamped later when the migrator runs on its own DSN), never
+    # compose_credential_switch / DSN cutover, never smoke on a new runtime.
+    if ! run_post_commit_gate privilege_contracts; then
+        route_post_commit_failure 'production privilege-contract acceptance failed'
+    fi
+    production_assert_legacy_untouched
+    publish_committed_stage || \
+        route_post_commit_failure 'production committed stage evidence publication failed'
+    log 'production adoption committed: 7 roles own/grant per contract; legacy avelren SUPERUSER+LOGIN intact; schema_migrations intentionally unchanged (009)'
+    # Signal the keep_runtime_stopped EXIT trap that the committed adoption
+    # succeeded, so neither a clean exit nor a restart glitch below is mistaken
+    # for a post-COMMIT failure and inverse-rolled-back. The commit is valid and
+    # must NOT be rolled back for a mere restart failure. (No DSN cutover happens
+    # here; the flag only means "adoption is committed, do not auto-roll-back".)
+    ADOPTION_CUTOVER_SUCCESSFUL=true
+    MAINTENANCE_ENTERED=false
+    # Bring clients back on the UNCHANGED legacy DSN (.env untouched; DSN cutover
+    # is a later, separate gate). This restart is not a cutover. A restart
+    # failure is surfaced as a distinct non-zero exit — the adoption is already
+    # committed and correct, so it is not rolled back, but the operator must not
+    # read a down runtime as a clean success.
+    if ! compose up -d caddy api collector notifier watchdog; then
+        log 'ADOPTION COMMITTED, but clients did NOT restart on the legacy DSN. The adoption is valid and must NOT be rolled back; restart the clients manually (compose up -d) and verify health.' >&2
+        exit 3
+    fi
+    log 'Stage 3B.2 production adoption complete; HARD STOP'
+    exit 0
+fi
 
 for gate in migrate privilege_contracts compose_credential_switch smoke collector_freshness environment_isolation; do
     if ! run_post_commit_gate "$gate"; then
