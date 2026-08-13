@@ -1342,7 +1342,7 @@ BEGIN
                    dependency.classid::regclass::text || ':' || dependency.objid::text
                    || ':dbid=' || dependency.dbid::text
                    || CASE WHEN dependency.classid = 'pg_class'::regclass THEN
-                          ' (' || COALESCE((SELECT n.nspname || '.' || c.relname || ' relkind=' || c.relkind
+                          ' (' || COALESCE((SELECT n.nspname || '.' || c.relname || ' relkind=' || c.relkind::text
                                               FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                                              WHERE c.oid = dependency.objid), 'gone') || ')'
                       ELSE '' END, ', ')
