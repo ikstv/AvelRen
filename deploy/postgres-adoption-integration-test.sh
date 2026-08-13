@@ -281,6 +281,14 @@ DATABASE_URL="$MIGRATOR_DSN" real_compose run --rm --no-deps -T \
 # 2954*7), which is why every run from that date failed while the day before
 # passed on identical code. Pin the interval so the fixture and every runtime
 # insert always share one chunk, and seed at `now()` rather than a fixed date.
+#
+# The interval is deliberately ~100 years rather than production's 7 days: an
+# epoch-aligned 36500-day bucket spans roughly 1970-2069, so every timestamp this
+# suite can produce lands in one chunk and the next boundary is unreachable
+# within the life of the test. Do NOT "restore realism" by lowering it back to 7
+# days. Chunk-interval fidelity proves nothing here — this suite verifies
+# owner/ACL manifests, not partitioning behaviour — and lowering it re-arms the
+# exact failure described above, silently, on a date nobody will predict.
 PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q <<'SQL'
 SELECT set_chunk_time_interval('public.observations', INTERVAL '36500 days');
