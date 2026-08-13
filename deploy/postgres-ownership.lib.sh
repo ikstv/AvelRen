@@ -1340,7 +1340,12 @@ BEGIN
     BEGIN
         SELECT string_agg(
                    dependency.classid::regclass::text || ':' || dependency.objid::text
-                   || ':dbid=' || dependency.dbid::text, ', ')
+                   || ':dbid=' || dependency.dbid::text
+                   || CASE WHEN dependency.classid = 'pg_class'::regclass THEN
+                          ' (' || COALESCE((SELECT n.nspname || '.' || c.relname || ' relkind=' || c.relkind
+                                              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                                             WHERE c.oid = dependency.objid), 'gone') || ')'
+                      ELSE '' END, ', ')
           INTO residual_detail
           FROM pg_shdepend AS dependency
           JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
