@@ -650,17 +650,22 @@ if [ "$PRODUCTION_ADOPT" = true ]; then
     publish_committed_stage || \
         route_post_commit_failure 'production committed stage evidence publication failed'
     log 'production adoption committed: 7 roles own/grant per contract; legacy avelren SUPERUSER+LOGIN intact; schema_migrations intentionally unchanged (009)'
-    # Bring clients back on the UNCHANGED legacy DSN (.env untouched; DSN cutover
-    # is a later, separate gate). This restart is not a cutover.
-    if ! compose up -d caddy api collector notifier watchdog; then
-        log 'ADOPTION WARNING: clients did not restart cleanly on the legacy DSN; manual check required' >&2
-    fi
     # Signal the keep_runtime_stopped EXIT trap that the committed adoption
-    # succeeded and the runtime was restored, so a clean exit 0 is not mistaken
-    # for a post-COMMIT failure and inverse-rolled-back. (No DSN cutover happens
+    # succeeded, so neither a clean exit nor a restart glitch below is mistaken
+    # for a post-COMMIT failure and inverse-rolled-back. The commit is valid and
+    # must NOT be rolled back for a mere restart failure. (No DSN cutover happens
     # here; the flag only means "adoption is committed, do not auto-roll-back".)
     ADOPTION_CUTOVER_SUCCESSFUL=true
     MAINTENANCE_ENTERED=false
+    # Bring clients back on the UNCHANGED legacy DSN (.env untouched; DSN cutover
+    # is a later, separate gate). This restart is not a cutover. A restart
+    # failure is surfaced as a distinct non-zero exit — the adoption is already
+    # committed and correct, so it is not rolled back, but the operator must not
+    # read a down runtime as a clean success.
+    if ! compose up -d caddy api collector notifier watchdog; then
+        log 'ADOPTION COMMITTED, but clients did NOT restart on the legacy DSN. The adoption is valid and must NOT be rolled back; restart the clients manually (compose up -d) and verify health.' >&2
+        exit 3
+    fi
     log 'Stage 3B.2 production adoption complete; HARD STOP'
     exit 0
 fi

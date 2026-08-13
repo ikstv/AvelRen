@@ -1006,10 +1006,11 @@ run_adoption() {
 # Stage 3B.2 production adoption path. Unlike run_adoption (disposable), this
 # exercises `--production-adopt`: no AVELREN_TEST_DB, no failpoints, a real prod
 # confirmation token, and the fixture-gated target override (limited to the
-# disposable *test* database). The admin connection is asserted as legacy
-# `avelren` via AVELREN_CURRENT_DB_USER (the psql stub authenticates as the
-# superuser avelren_admin, which is equivalent for REASSIGN/GRANT); the point of
-# this scenario is the adoption logic and its production hold, not auth wiring.
+# disposable *test* database). The psql stub is pointed at the real legacy
+# `avelren` superuser via ADOPTION_PSQL_ROLE / ADOPTION_PSQL_PASSWORD, so the
+# production admin-user check (current_user = avelren) passes against the actual
+# connection; the point of this scenario is the adoption logic and its
+# production hold, not auth wiring.
 run_production_adoption() {
     env PATH="$BIN:$PATH" AVELREN_PSQL_BIN="$BIN/psql" AVELREN_DOCKER_BIN="$BIN/docker" \
         ADOPTION_REAL_DOCKER="$REAL_DOCKER" ADOPTION_PROJECT_DIR="$COMPOSE_PROJECT_DIR" \
@@ -2288,8 +2289,12 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
         exit 1
     }
     # The abort happens before any ownership mutation; only the injected probe
-    # table remains. Drop it so the happy-path run sees the canonical pre-state.
-    prod_query 'DROP TABLE IF EXISTS public.avelren_drift_probe;' >/dev/null
+    # table remains. Drop it so the happy-path run sees the canonical pre-state;
+    # a failed drop would silently corrupt that pre-state, so surface it.
+    prod_query 'DROP TABLE IF EXISTS public.avelren_drift_probe;' >/dev/null || {
+        echo 'failed to drop drift probe table before happy-path run' >&2
+        exit 1
+    }
     echo 'postgres adoption production drift-abort: PASS'
 
     if ! run_production_adoption >"$WORK/production.out" 2>&1; then
