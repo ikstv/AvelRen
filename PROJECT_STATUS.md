@@ -118,3 +118,5 @@ lives in the tree; wiring it into the workflow is a documented follow-up.
 
 Anything beyond this — production adoption, PR merges, issue closures, ECHERHA
 rollout — requires a fresh explicit authorization, not this document.
+
+<!-- ci probe: baseline adoption suite on pull_request event -->
