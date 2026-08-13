@@ -2277,6 +2277,9 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
         echo 'production adoption did not exit 0' >&2
         exit 1
     fi
+    echo '--- production adoption log ---' >&2
+    cat "$WORK/production.out" >&2
+    echo '--- end production adoption log ---' >&2
 
     # 1. All seven least-privilege roles still exist.
     for prod_role in avelren_admin avelren_migrator avelren_backup avelren_collector \
