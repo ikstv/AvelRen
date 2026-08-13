@@ -1335,31 +1335,35 @@ BEGIN
         RAISE EXCEPTION 'target canonical ownership surface mismatch (% rows)', mismatch_count;
     END IF;
 
-    DECLARE
-        residual_detail text;
-    BEGIN
-        SELECT string_agg(
-                   dependency.classid::regclass::text || ':' || dependency.objid::text
-                   || ':dbid=' || dependency.dbid::text
-                   || CASE WHEN dependency.classid = 'pg_class'::regclass THEN
-                          ' (' || COALESCE((SELECT n.nspname || '.' || c.relname || ' relkind=' || c.relkind::text
-                                              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                                             WHERE c.oid = dependency.objid), 'gone') || ')'
-                      ELSE '' END, ', ')
-          INTO residual_detail
-          FROM pg_shdepend AS dependency
-          JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
-         WHERE dependency.refclassid = 'pg_authid'::regclass
-           AND dependency.deptype = 'o'
-           AND owner_role.rolname = 'avelren'
-           AND (
-               dependency.dbid = 0
-               OR dependency.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-           );
-        IF residual_detail IS NOT NULL THEN
-            RAISE EXCEPTION 'residual legacy ownership detected: %', residual_detail;
-        END IF;
-    END;
+    IF EXISTS (
+        SELECT 1
+        FROM pg_shdepend AS dependency
+        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
+        WHERE dependency.refclassid = 'pg_authid'::regclass
+          AND dependency.deptype = 'o'
+          AND owner_role.rolname = 'avelren'
+          AND (
+              dependency.dbid = 0
+              OR dependency.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+          )
+          -- Exclude this session's own temporary relations. The canonical
+          -- surface check above already ignores pg_my_temp_schema() objects;
+          -- the residual check must do the same, otherwise a verify temp table
+          -- (avelren_expected_ownership / _acl) created under a legacy `avelren`
+          -- admin connection — exactly the production 3B.2 case — is misread as
+          -- residual legacy ownership. Disposable runs connect as avelren_admin
+          -- so their temp tables never triggered this.
+          AND NOT (
+              dependency.classid = 'pg_class'::regclass
+              AND dependency.objid IN (
+                  SELECT relation.oid
+                  FROM pg_class AS relation
+                  WHERE relation.relnamespace = pg_my_temp_schema()
+              )
+          )
+    ) THEN
+        RAISE EXCEPTION 'residual legacy ownership detected';
+    END IF;
 END
 $avelren_verify$;
 DROP TABLE avelren_expected_ownership;
