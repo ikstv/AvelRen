@@ -72,7 +72,23 @@ PRODUCTION_TOKEN_EXPECTED=AVELREN-POSTGRES-ADOPTION-PROD
 if [ "$PRODUCTION_ADOPT" = true ]; then
     [ "$RETIRE_LEGACY" = false ]        || fail 'production adoption forbids --retire-legacy'
     [ "${AVELREN_TEST_DB:-}" != 1 ]     || fail 'production adoption forbids AVELREN_TEST_DB'
-    [ "$TARGET_DB" = avelren ]          || fail 'production target must be exactly avelren'
+    # Production target is exactly `avelren`. The integration suite exercises this
+    # very path against a disposable database, so a narrow, test-fixture-only
+    # override is allowed — but ONLY for a disposable *test*/*ci* target, never
+    # for `avelren` itself. In production no override is set and the exact-name
+    # check below is the sole gate; even if the override variable were somehow
+    # set on the host, a production `avelren` target is not *test*/*ci* and is
+    # rejected, so the guard cannot be bypassed against the real database.
+    if [ -n "${AVELREN_PRODUCTION_TARGET_OVERRIDE:-}" ]; then
+        case "$TARGET_DB" in
+            *test*|*ci*) ;;
+            *) fail 'production target override is limited to disposable *test*/*ci* targets' ;;
+        esac
+        [ "$TARGET_DB" = "$AVELREN_PRODUCTION_TARGET_OVERRIDE" ] || \
+            fail 'production target does not match the fixture override'
+    else
+        [ "$TARGET_DB" = avelren ] || fail 'production target must be exactly avelren'
+    fi
     [ -z "$FAILPOINT" ]                 || fail 'production adoption forbids an adoption failpoint'
     [ -z "$POST_COMMIT_GATE" ]          || fail 'production adoption forbids a post-commit gate injection'
     [ -z "$COMMITTED_FAILPOINT" ]       || fail 'production adoption forbids a committed-adoption failpoint'
