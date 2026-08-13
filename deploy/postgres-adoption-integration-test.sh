@@ -360,8 +360,8 @@ fi
 MSYS_NO_PATHCONV=1 "$ADOPTION_REAL_DOCKER" compose \
     --project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE" \
     -p "$ADOPTION_PROJECT" -f "$ADOPTION_COMPOSE_FILE" \
-    exec -T -e PGPASSWORD=ci-only db \
-    psql -U avelren_admin -d avelren_adoption_test "$@" <"$input"
+    exec -T -e PGPASSWORD="${ADOPTION_PSQL_PASSWORD:-ci-only}" db \
+    psql -U "${ADOPTION_PSQL_ROLE:-avelren_admin}" -d avelren_adoption_test "$@" <"$input"
 SH
 cat >"$BIN/docker" <<'SH'
 #!/usr/bin/env bash
@@ -1026,8 +1026,8 @@ run_production_adoption() {
         AVELREN_ADOPTION_SUCCESS_GATE_RUNNER="$BIN/success-gate" \
         AVELREN_RECOVERY_PREFLIGHT_FILE="$PREFLIGHT" AVELREN_EVIDENCE_DIR="$EVIDENCE" \
         AVELREN_ALLOW_DIRTY_TEST=1 \
-        AVELREN_CURRENT_DB_USER=avelren AVELREN_CATALOG_FIXTURE_DIR="$WORK" \
         AVELREN_PRODUCTION_TARGET_OVERRIDE="$TARGET_DB" \
+        ADOPTION_PSQL_ROLE=avelren ADOPTION_PSQL_PASSWORD=legacy-ci-only \
         ADOPTION_FAULT_DIR="$WORK" \
         bash "$ROOT/deploy/postgres-adopt.sh" \
             --confirm-adoption AVELREN-POSTGRES-ADOPTION \
