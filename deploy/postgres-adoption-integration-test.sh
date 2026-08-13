@@ -1027,6 +1027,7 @@ run_production_adoption() {
         AVELREN_RECOVERY_PREFLIGHT_FILE="$PREFLIGHT" AVELREN_EVIDENCE_DIR="$EVIDENCE" \
         AVELREN_ALLOW_DIRTY_TEST=1 \
         AVELREN_PRODUCTION_TARGET_OVERRIDE="$TARGET_DB" \
+        AVELREN_PRODUCTION_DRIFT_INJECT="${AVELREN_PRODUCTION_DRIFT_INJECT:-}" \
         ADOPTION_PSQL_ROLE=avelren ADOPTION_PSQL_PASSWORD=legacy-ci-only \
         ADOPTION_FAULT_DIR="$WORK" \
         bash "$ROOT/deploy/postgres-adopt.sh" \
@@ -2271,6 +2272,25 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
         PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
             psql -U avelren_admin -d "$TARGET_DB" -tAc "$1"
     }
+
+    # Negative case first (on the still-pristine pre-state): a catalog object
+    # appearing between the preflight capture and the in-window recapture must
+    # abort adoption before any mutation. This turns the runbook's drift-check
+    # fail-safe into an executable guarantee.
+    if AVELREN_PRODUCTION_DRIFT_INJECT=1 run_production_adoption >"$WORK/drift.out" 2>&1; then
+        cat "$WORK/drift.out" >&2
+        echo 'production adoption with injected drift did NOT abort' >&2
+        exit 1
+    fi
+    grep -q 'catalog drifted between preflight and mutation window' "$WORK/drift.out" || {
+        cat "$WORK/drift.out" >&2
+        echo 'drift abort did not report the expected reason' >&2
+        exit 1
+    }
+    # The abort happens before any ownership mutation; only the injected probe
+    # table remains. Drop it so the happy-path run sees the canonical pre-state.
+    prod_query 'DROP TABLE IF EXISTS public.avelren_drift_probe;' >/dev/null
+    echo 'postgres adoption production drift-abort: PASS'
 
     if ! run_production_adoption >"$WORK/production.out" 2>&1; then
         cat "$WORK/production.out" >&2

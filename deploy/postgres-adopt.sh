@@ -579,6 +579,17 @@ publish_committed_stage() {
 }
 
 if [ "$PRODUCTION_ADOPT" = true ]; then
+    # Test-only drift injection: materialise a catalog object between the
+    # preflight capture and the in-window recapture to prove the drift check
+    # aborts. Fail-closed — only ever runs under the disposable target override,
+    # never in production (no override there).
+    if [ -n "${AVELREN_PRODUCTION_DRIFT_INJECT:-}" ]; then
+        [ -n "${AVELREN_PRODUCTION_TARGET_OVERRIDE:-}" ] || \
+            fail 'drift injection is test-fixture-only'
+        _adoption_psql "$ADMIN_DSN" \
+            -c 'CREATE TABLE IF NOT EXISTS public.avelren_drift_probe (id integer);' || \
+            fail 'drift injection failed'
+    fi
     # Second, in-window manifest capture immediately before the first mutation.
     # ORIGINAL_MANIFEST was taken before maintenance; re-capture now and abort on
     # any catalog drift between preflight and the mutation window.
