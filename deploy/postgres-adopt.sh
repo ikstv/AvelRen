@@ -136,10 +136,12 @@ production_assert_roles_exist() {
 # legacy role and must roll back.
 production_assert_legacy_untouched() {
     local state
+    # Concatenating booleans yields the text 'true'/'false' (a bare boolean
+    # column would render 't'/'f'); compare against that exact rendering.
     state=$(_adoption_psql "$ADMIN_DSN" -tAc \
-        "SELECT rolsuper||','||rolcanlogin FROM pg_roles WHERE rolname='avelren';") || \
+        "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren';") || \
         route_post_commit_failure 'cannot verify legacy avelren role state'
-    [ "$state" = 't,t' ] || \
+    [ "$state" = 'true,true' ] || \
         route_post_commit_failure "legacy avelren role altered during adoption (rolsuper,rolcanlogin=$state)"
 }
 
