@@ -1,0 +1,41 @@
+# Supply-chain gate (issue #23): CodeQL static analysis for the Python backend.
+# Runs on every push to main, every PR, and weekly so newly-published queries
+# catch latent issues even when the code is quiet. Actions are pinned to commit
+# SHAs to match the repo convention (see ci.yml) — Dependabot re-pins them.
+#
+# Scope note: only Python is analysed here. Kotlin/Java CodeQL needs a full
+# Gradle build inside the CodeQL job and is deliberately left as a follow-up so
+# this gate lands green and reliable rather than flaky.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "27 3 * * 1"  # Mondays 03:27 UTC — off-peak, distinct from other jobs.
+
+jobs:
+  analyze:
+    name: Analyze (python)
+    runs-on: ubuntu-latest
+    permissions:
+      # Least privilege: CodeQL needs to publish results and read the code.
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
+        with:
+          languages: python
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
+        with:
+          category: /language:python
