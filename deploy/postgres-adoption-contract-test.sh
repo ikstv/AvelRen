@@ -143,10 +143,16 @@ build_forward_plan "$EVIDENCE/original.tsv" "$EVIDENCE/forward.sql" "$ROOT/db/mi
 build_inverse_plan "$EVIDENCE/original.tsv" "$EVIDENCE/inverse.sql"
 [ "$(stat -c '%a' "$EVIDENCE/forward.sql")" = 600 ] || fail 'forward plan is not mode 0600'
 [ "$(stat -c '%a' "$EVIDENCE/inverse.sql")" = 600 ] || fail 'inverse plan is not mode 0600'
-grep -q '^REASSIGN OWNED BY "avelren" TO "avelren_admin";' "$EVIDENCE/forward.sql" || fail 'forward plan lacks controlled reassignment'
+# Bootstrap-superuser topology (Decision B): the forward plan must NOT use a
+# blanket `REASSIGN OWNED BY avelren` (which would sweep the whole cluster the
+# bootstrap role owns). Only explicit per-object ownership handoff of the
+# canonical application relations to avelren_migrator is allowed.
+! grep -q 'REASSIGN OWNED' "$EVIDENCE/forward.sql" || fail 'forward plan must not use blanket REASSIGN OWNED'
 grep -q '^ALTER TABLE "public"\."alerts" OWNER TO "avelren_migrator";' "$EVIDENCE/forward.sql" || fail 'forward plan lacks application handoff'
-grep -q '^REASSIGN OWNED BY "avelren_migrator" TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks migrator rollback boundary'
-grep -q '^REASSIGN OWNED BY "avelren_admin" TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks admin/extension rollback boundary'
+# Inverse likewise reverses only the application relations, per object, with no
+# blanket REASSIGN OWNED.
+! grep -q 'REASSIGN OWNED' "$EVIDENCE/inverse.sql" || fail 'inverse plan must not use blanket REASSIGN OWNED'
+grep -q '^ALTER TABLE "public"\."alerts" OWNER TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks explicit application ownership rollback'
 grep -q 'GRANT SELECT ON TABLE "public"\."devices" TO "avelren_api"' "$EVIDENCE/inverse.sql" || fail 'inverse plan was not generated from original ACL manifest'
 
 GRANT_OPTION_MANIFEST="$EVIDENCE/grant-option-source.tsv"
