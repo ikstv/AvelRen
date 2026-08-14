@@ -92,9 +92,15 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
                 )
 
             # last_seen оновлюємо лише після успішної перевірки — інакше сам
-            # факт оновлення був би оракулом «id існує».
+            # факт оновлення був би оракулом «id існує». Throttle до однієї
+            # години: last_seen потрібен тільки для ознаки «активний за добу»
+            # (is_active), тож немає сенсу писати в devices на КОЖЕН
+            # авторизований запит — інакше звичайний GET перетворюється на
+            # write і створює непотрібне навантаження на БД (аудит MED).
             await conn.execute(
-                "UPDATE devices SET last_seen = now() WHERE id = %s", (x_device_id,)
+                "UPDATE devices SET last_seen = now() "
+                "WHERE id = %s AND last_seen < now() - INTERVAL '1 hour'",
+                (x_device_id,),
             )
     except HTTPException:
         # Наші власні 400/401/503 — прокидаємо як є, не мапимо на 503.
