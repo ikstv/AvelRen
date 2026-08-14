@@ -10,7 +10,9 @@
 """
 
 import asyncio
+import json
 import logging
+import os
 import signal
 import time
 from datetime import UTC, datetime
@@ -39,9 +41,25 @@ DERIVED_STUCK_THRESHOLD = 3
 # Бекап іде щодоби. >36 год без успішного — це вже ≥2 добові прогони поспіль,
 # що не завершились (одиночний збій, що сам вилікувався вночі, будити не варто).
 # Раніше провал бекапу було видно лише в пасивній адмін-телеметрії — днями
-# (аудит M-12). Штамп кладе deploy/backup.sh на /run після перевіреного аплоуду.
+# (аудит M-12).
 BACKUP_STALE_HOURS = 36
-BACKUP_STAMP_PATH = Path("/host/run/avelren-backup.stamp")
+# backup-stamp і reboot-required факти беремо з host-snapshot (той самий
+# /telemetry/host.json, що вже читає API за SEC-1), а не монтуючи весь хостовий
+# /run у контейнер (аудит M-1: широкий /run тягнув і docker.sock). Snapshot
+# оновлюється щохвилини systemd-таймером і вже містить backups.age_hours та
+# system.reboot_pending_days.
+SNAPSHOT_PATH = Path(os.environ.get("AVELREN_TELEMETRY_SNAPSHOT", "/telemetry/host.json"))
+
+
+def _read_snapshot() -> dict | None:
+    """Розпарсений host-snapshot, або None якщо його ще/уже немає чи він битий.
+
+    None веде себе як «невідомо» — краще не тривожити на основі відсутніх даних,
+    ніж кричати хибно (той самий fail-safe, що був для відсутнього штампа)."""
+    try:
+        return json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 _stop = asyncio.Event()
 
@@ -152,9 +170,13 @@ def _backup_age_hours() -> float | None:
     щойно перезавантажився (штамп на /run — tmpfs). І там, і там тривога була б
     хибною, а timer із Persistent=true скоро відновить штамп.
     """
-    if not BACKUP_STAMP_PATH.exists():
+    snapshot = _read_snapshot()
+    if snapshot is None:
         return None
-    return (time.time() - BACKUP_STAMP_PATH.stat().st_mtime) / 3600
+    age = snapshot.get("backups", {}).get("age_hours")
+    if not isinstance(age, (int, float)):
+        return None
+    return float(age)
 
 
 def _reboot_pending() -> int | None:
@@ -164,11 +186,16 @@ def _reboot_pending() -> int | None:
     попередження. Але тоді хтось має помічати цей файл — інакше ядро з
     відомою вразливістю встановлене, а працює старе, і так місяцями.
     """
-    flag = Path("/host/run/reboot-required")
-    if not flag.exists():
+    snapshot = _read_snapshot()
+    if snapshot is None:
         return None
-    age = time.time() - flag.stat().st_mtime
-    return int(age // 86400)
+    system = snapshot.get("system", {})
+    if not system.get("reboot_required"):
+        return None
+    days = system.get("reboot_pending_days")
+    if not isinstance(days, int):
+        return None
+    return days
 
 
 async def _open_alerts(conn: AsyncConnection) -> dict[str, dict]:

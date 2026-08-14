@@ -106,9 +106,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
     volumes:
       - ./secrets:/secrets:ro
-      # Лише для /run/reboot-required: контейнер інакше не бачить, що хост
-      # просить перезавантаження. Тільки читання.
-      - /run:/host/run:ro
+      # host-факти (backup-stamp, reboot-required) беремо з host-snapshot, як
+      # API за SEC-1 — без монтування всього /run (де є й docker.sock; аудит
+      # M-1). Snapshot пише systemd-таймер (deploy/telemetry-snapshot.sh).
+      - /var/lib/avelren-telemetry:/telemetry:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

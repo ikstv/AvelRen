@@ -55,6 +55,13 @@ ENV
 
 run_compose_config
 
+# M-1: no service may bind-mount the whole host /run (it carries docker.sock);
+# watchdog reads host facts (backup-stamp, reboot-required) from the /telemetry
+# snapshot instead. Guard against a regression that re-adds the broad mount.
+if grep -Eq 'host/run|[^a-z]/run:' "$RESOLVED"; then
+    fail 'a service bind-mounts the whole host /run (M-1); use the /telemetry snapshot'
+fi
+
 PYTHON_BIN=${PYTHON_BIN:-python3}
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     PYTHON_BIN=python
