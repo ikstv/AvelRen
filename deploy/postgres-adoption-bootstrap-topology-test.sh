@@ -358,6 +358,45 @@ real_compose run --rm --no-deps -T \
     || fail 'privilege_contracts failed after bootstrap-topology adoption'
 echo 'bootstrap-topology privilege_contracts: PASS'
 
+# ---- 4.5 the PRODUCTION gate's exact pytest invocation ------------------------
+# The step above is the developer-shaped run: it supplies DATABASE_URL and
+# AVELREN_TEST_DB=1, so app/tests/conftest.py's destructive-suite guard is
+# satisfied. The production gate (deploy/postgres-privilege-gate.sh) cannot do
+# that — the guard also demands a database name containing test/ci, and the live
+# database is `avelren`. Satisfying it would disable the very safeguard that
+# keeps DELETE-running tests away from production, so the gate uses
+# `--noconftest` instead.
+#
+# Regression 2026-08-14: the gate shipped WITHOUT that flag and aborted with
+# `Exit: DATABASE_URL не задано` (rc=3) before a single assertion, failing the
+# post-commit acceptance and rolling back a correctly committed adoption. It was
+# never caught because the gate's own contract test drives a FAKE docker (argv
+# assertions only) and CI merely `bash -n`-checked it — the real pytest
+# invocation had never run anywhere.
+#
+# So reproduce that invocation faithfully here, against a real adopted database:
+# the same seven introspection-only tests, the same --noconftest, and
+# deliberately NO DATABASE_URL and NO AVELREN_TEST_DB. If conftest is ever
+# required again, or one of these tests grows a conftest fixture, this fails.
+echo '>>> production gate pytest invocation (no conftest, no DATABASE_URL)'
+GATE_TESTS=app/tests/test_db_privileges.py
+ADMIN_DATABASE_URL="$ADMIN_TOOL_DSN" BACKUP_DATABASE_URL="$BACKUP_DSN" \
+COLLECTOR_DATABASE_URL="$COLLECTOR_DSN" NOTIFIER_DATABASE_URL="$NOTIFIER_DSN" \
+WATCHDOG_DATABASE_URL="$WATCHDOG_DSN" API_DATABASE_URL="$API_DSN" \
+real_compose run --rm --no-deps -T \
+    -e ADMIN_DATABASE_URL -e BACKUP_DATABASE_URL -e COLLECTOR_DATABASE_URL \
+    -e NOTIFIER_DATABASE_URL -e WATCHDOG_DATABASE_URL -e API_DATABASE_URL \
+    test python -m pytest -q -p no:cacheprovider --noconftest \
+        "$GATE_TESTS::test_role_has_no_elevated_capability" \
+        "$GATE_TESTS::test_table_privileges_match_frozen_acl" \
+        "$GATE_TESTS::test_sequence_privileges_match_frozen_acl" \
+        "$GATE_TESTS::test_device_column_privileges_match_frozen_acl" \
+        "$GATE_TESTS::test_column_scoped_updates_match_frozen_acl" \
+        "$GATE_TESTS::test_column_scoped_selects_match_frozen_acl" \
+        "$GATE_TESTS::test_public_has_no_existing_application_object_privileges" >/dev/null \
+    || fail 'production gate pytest invocation failed (the 2026-08-14 regression)'
+echo 'bootstrap-topology production-gate invocation: PASS'
+
 # ---- 5. TimescaleDB runtime, before and after avelren -> NOLOGIN --------------
 # The continuous-aggregate view is owned by migrator, but its materialisation
 # hypertable + chunks stay owned by avelren. Prove that hypertable operations
