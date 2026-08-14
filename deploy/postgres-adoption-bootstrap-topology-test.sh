@@ -243,6 +243,39 @@ SQL
 { printf '%s\n' 'BEGIN;' "$CLOSURE_SQL" 'COMMIT;'; } | db_psql >/dev/null || fail 'pre-adoption closure invariant failed'
 echo 'bootstrap-topology pre-adoption (topology + closure ∩ protected = 0): PASS'
 
+# ---- 2.5 unexpected-database refusal (real catalog, pre-mutation) ------------
+# Production regression 2026-08-14: a leftover disposable `restore_test` database
+# owned by avelren_admin sat in the live cluster. Nothing refused it — the
+# allowlist accepted a `shared` database with that owner — and plan generation
+# then read BOTH database rows into the identity, emitting a broken
+# `... ON DATABASE avelren\nrestore_test FROM ...`. Adoption failed on a SQL
+# syntax error instead of a stated contract violation. Prove here, against a real
+# catalog (fixtures cannot show that `database_inventory` actually captures the
+# second database), that such a topology is refused BEFORE any mutation.
+echo '>>> unexpected-database refusal'
+REFUSE_EVID="$WORK/refuse"; mkdir -p "$REFUSE_EVID"; chmod 700 "$REFUSE_EVID"
+prepare_evidence_dir "$REFUSE_EVID"
+db_psql -c 'CREATE DATABASE avelren_leftover_test OWNER avelren_admin' >/dev/null \
+    || fail 'could not create the leftover database fixture'
+capture_manifest "$LEGACY_DSN" "$REFUSE_EVID/leftover.tsv"
+grep -q $'\tdatabase\t.*\tavelren_leftover_test\t' "$REFUSE_EVID/leftover.tsv" \
+    || fail 'capture did not record the leftover database — the scoping regression is not being exercised'
+if validate_owned_object_allowlist "$REFUSE_EVID/leftover.tsv" >"$REFUSE_EVID/out" 2>&1; then
+    db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
+    fail 'an unexpected database owned by a canonical role must be refused'
+fi
+grep -q 'unexpected database owned by a canonical role: avelren_leftover_test' "$REFUSE_EVID/out" \
+    || { db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
+         fail 'refusal must name the offending database'; }
+# Plan generation must refuse too, even with errexit suppressed by the `if`.
+if build_forward_plan "$REFUSE_EVID/leftover.tsv" "$REFUSE_EVID/forward.sql" \
+        "$ROOT/db/migrations/010_postgresql_least_privilege.sql" >/dev/null 2>&1; then
+    db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
+    fail 'forward plan must not be generated while an unexpected database exists'
+fi
+db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || fail 'leftover fixture cleanup failed'
+echo 'bootstrap-topology unexpected-database refusal: PASS'
+
 # ---- 3. forward adoption (plans applied in-transaction) -----------------------
 echo '>>> forward adoption: build + apply plans, verify ownership'
 EVID="$WORK/evidence"; mkdir -p "$EVID"; chmod 700 "$EVID"
