@@ -16,6 +16,10 @@ services:
   db:
     image: timescale/timescaledb:2.17.2-pg16
     restart: unless-stopped
+    # Resource ceilings so no single container can starve the host and take
+    # PostgreSQL down with it (audit MED). db gets the largest share.
+    mem_limit: 1g
+    cpus: 1.5
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -34,6 +38,8 @@ services:
     build: *avelren-build
     image: avelren-app:latest
     command: ["python", "-m", "avelren.migrate"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       DATABASE_URL: ${AVELREN_MIGRATOR_DSN}
       LOG_LEVEL: ${LOG_LEVEL}
@@ -49,6 +55,8 @@ services:
     image: avelren-app:latest
     restart: unless-stopped
     command: ["python", "-m", "avelren.collector"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       DATABASE_URL: ${AVELREN_COLLECTOR_DSN}
       ECHERHA_BASE_URL: ${ECHERHA_BASE_URL}
@@ -68,6 +76,8 @@ services:
     image: avelren-app:latest
     restart: unless-stopped
     command: ["python", "-m", "avelren.notifier"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       DATABASE_URL: ${AVELREN_NOTIFIER_DSN}
       FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH}
@@ -86,6 +96,8 @@ services:
     image: avelren-app:latest
     restart: unless-stopped
     command: ["python", "-m", "avelren.watchdog"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       DATABASE_URL: ${AVELREN_WATCHDOG_DSN}
       FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH}
@@ -106,6 +118,8 @@ services:
     image: avelren-app:latest
     restart: unless-stopped
     command: ["uvicorn", "avelren.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    mem_limit: 512m
+    cpus: 1.0
     environment:
       DATABASE_URL: ${AVELREN_API_DSN}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
@@ -125,6 +139,8 @@ services:
   caddy:
     image: caddy:2.9.1-alpine
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
     ports:
       - "80:80"
       - "443:443"
