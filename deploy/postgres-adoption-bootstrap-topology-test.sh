@@ -238,7 +238,9 @@ BEGIN
 END $v$;
 SQL
 )
-printf '%s\n' "$CLOSURE_SQL" | db_psql >/dev/null || fail 'pre-adoption closure invariant failed'
+# Wrap in one transaction so the ON COMMIT DROP temp tables survive across the
+# statements (in psql autocommit each statement would otherwise commit + drop).
+{ printf '%s\n' 'BEGIN;' "$CLOSURE_SQL" 'COMMIT;'; } | db_psql >/dev/null || fail 'pre-adoption closure invariant failed'
 echo 'bootstrap-topology pre-adoption (topology + closure ∩ protected = 0): PASS'
 
 # ---- 3. forward adoption (plans applied in-transaction) -----------------------
@@ -251,6 +253,15 @@ capture_manifest "$LEGACY_DSN" "$ORIG"
 validate_owned_object_allowlist "$ORIG"
 build_forward_plan "$ORIG" "$FWD" "$ROOT/db/migrations/010_postgresql_least_privilege.sql"
 build_inverse_plan "$ORIG" "$INV"
+
+# Rigorous exact round-trip: apply forward + verifier + inverse in a single
+# rolled-back transaction and prove the recaptured manifest is byte-identical to
+# ORIG, with the catalog left unchanged. This is the strict "inverse restores the
+# exact baseline" proof, run BEFORE any committed runtime activity so intervening
+# TimescaleDB chunk creation cannot perturb the comparison.
+validate_plan_round_trip "$LEGACY_DSN" "$ORIG" "$FWD" "$INV" \
+    || fail 'exact forward/inverse round-trip (rolled back) did not restore ORIG'
+echo 'bootstrap-topology exact round-trip (rolled back, byte-identical): PASS'
 
 # Apply forward in one transaction with the verifier appended, exactly like the
 # committed adoption driver, then COMMIT. A verifier failure aborts the tx.
@@ -265,13 +276,34 @@ build_inverse_plan "$ORIG" "$INV"
 [ "$(db_psql -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','S','v') AND pg_get_userbyid(c.relowner)='avelren_migrator'")" = 20 ] \
     || fail 'not exactly 20 canonical relations owned by migrator after forward'
 [ "$(db_psql -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = avelren ] || fail 'database owner changed'
-[ "$(db_psql -c "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='public'")" = avelren ] || fail 'public schema owner changed'
+# In the bootstrap-superuser topology the public schema is owned by the virtual
+# pg_database_owner role (verified on production), and adoption must leave that
+# untouched — it is never reassigned to avelren directly.
+[ "$(db_psql -c "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='public'")" = pg_database_owner ] || fail 'public schema owner changed'
 [ "$(db_psql -c "SELECT pg_get_userbyid(extowner) FROM pg_extension WHERE extname='timescaledb'")" = avelren ] || fail 'extension owner changed'
-[ "$(db_psql -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname LIKE '%timescaledb%' AND pg_get_userbyid(c.relowner) IN ('avelren_migrator','avelren_admin')")" = 0 ] \
-    || fail 'migrator/admin own timescale internals after forward'
+# Decision B / Option A: adoption's TimescaleDB-aware closure legitimately moves
+# the adopted hypertables' managed internals (chunks + cagg materialisation in
+# _timescaledb_internal) to avelren_migrator — the in-transaction verifier proves
+# that transfer is exactly the closure. The external invariants that remain are:
+# (a) the protected TS extension-catalog schemas are owned by nobody but avelren,
+# and (b) avelren_admin owns nothing anywhere in the TimescaleDB surface,
+# including _timescaledb_internal.
+[ "$(db_psql -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('_timescaledb_catalog','_timescaledb_config','_timescaledb_functions','_timescaledb_cache','_timescaledb_debug','timescaledb_information','timescaledb_experimental') AND pg_get_userbyid(c.relowner) IN ('avelren_migrator','avelren_admin')")" = 0 ] \
+    || fail 'migrator/admin own protected timescale catalog after forward'
+[ "$(db_psql -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname LIKE '_timescaledb%' AND pg_get_userbyid(c.relowner)='avelren_admin'")" = 0 ] \
+    || fail 'admin owns timescale internals after forward'
 echo 'bootstrap-topology forward adoption + verifier: PASS'
 
 # ---- 4. privilege contract ---------------------------------------------------
+# The watchdog privilege contracts drive `no_data` health detection, which only
+# fires when a checkpoint has no recent observations. Clear the setup fixture row
+# (as the migrator that now owns the hypertable — also proving migrator DELETE)
+# so those contracts see the empty-observations state they assert against. The
+# TimescaleDB runtime section below re-inserts its own rows, so this does not
+# disturb the cascade adoption already verified above.
+db_psql_role avelren_migrator "$MIGRATOR_PW" \
+    -c "DELETE FROM public.observations WHERE checkpoint_id = -1" >/dev/null \
+    || fail 'migrator could not clear fixture observations before privilege_contracts'
 echo '>>> privilege_contracts (frozen ACL) against the adopted db'
 DATABASE_URL="$MIGRATOR_DSN" ADMIN_DATABASE_URL="$ADMIN_TOOL_DSN" MIGRATOR_DATABASE_URL="$MIGRATOR_DSN" \
 BACKUP_DATABASE_URL="$BACKUP_DSN" COLLECTOR_DATABASE_URL="$COLLECTOR_DSN" NOTIFIER_DATABASE_URL="$NOTIFIER_DSN" \
@@ -318,24 +350,31 @@ timescale_runtime post-nologin
 # Restore LOGIN so the inverse round-trip returns to the exact baseline.
 db_psql_role avelren_admin "$ADMIN_PW" -c "ALTER ROLE avelren LOGIN" >/dev/null
 
-# ---- 6. inverse round-trip ---------------------------------------------------
-echo '>>> inverse round-trip: restore exact baseline ownership'
-BASE="$EVID/baseline.tsv"; AFTER="$EVID/after.tsv"
-# Baseline was ORIG (captured pre-forward). Apply inverse, recapture, compare.
+# ---- 6. committed inverse: full ownership restoration -----------------------
+# The exact byte-identical round-trip was already proven above in a rolled-back
+# transaction. Here we apply the inverse over the COMMITTED forward state — after
+# the runtime section has legitimately created new TimescaleDB chunks — so an
+# exact manifest cmp against the pre-runtime ORIG is neither possible nor
+# meaningful (new chunks are real data-plane objects, not an ownership defect).
+# The invariant that matters is ownership restoration: every adopted object,
+# including the newly-created chunks, returns to the legacy avelren, and no
+# adoption role retains ownership of anything.
+echo '>>> committed inverse: full ownership restoration to legacy avelren'
 {
     printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
     cat "$INV"
     printf '%s\n' "SELECT 'INVERSE_OK';" 'COMMIT;'
 } | db_psql >/dev/null || fail 'inverse plan failed'
-capture_manifest "$LEGACY_DSN" "$AFTER"
-cmp -s "$ORIG" "$AFTER" || {
-    diff <(sort "$ORIG") <(sort "$AFTER") | head -40 >&2 || true
-    fail 'inverse round-trip did not restore the exact original manifest'
-}
 [ "$(db_psql -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','S','v') AND pg_get_userbyid(c.relowner)='avelren'")" = 20 ] \
     || fail 'canonical relations not returned to avelren after inverse'
-[ "$(db_psql -c "SELECT count(*) FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')")" = 0 ] \
-    || fail 'avelren_migrator still owns objects after inverse'
-echo 'bootstrap-topology inverse round-trip (exact baseline): PASS'
+# No adoption role owns ANY relation after inverse (subsumes the migrator check
+# and also catches an orphaned chunk left on migrator/admin).
+[ "$(db_psql -c "SELECT count(*) FROM pg_class WHERE relowner IN (SELECT oid FROM pg_roles WHERE rolname IN ('avelren_admin','avelren_migrator','avelren_backup','avelren_collector','avelren_notifier','avelren_watchdog','avelren_api'))")" = 0 ] \
+    || fail 'an adoption role still owns objects after inverse'
+# Every TimescaleDB internal object (including chunks created during the runtime
+# section) is owned by the legacy avelren — none stranded on an adoption role.
+[ "$(db_psql -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname LIKE '_timescaledb%' AND pg_get_userbyid(c.relowner) <> 'avelren'")" = 0 ] \
+    || fail 'timescale internals not fully returned to avelren after inverse'
+echo 'bootstrap-topology committed inverse (full ownership restoration): PASS'
 
 echo 'postgres adoption bootstrap-topology integration: PASS'
