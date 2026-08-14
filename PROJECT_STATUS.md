@@ -1,114 +1,105 @@
 # AvelRen — Project Status Snapshot
 
-Snapshot date: 2026-08-13 (post PR #40 merge, post PR #37 rebase). Purpose:
-single canonical document to resume work from another PC without replaying
-prior sessions. This document does not grant any production authorization.
-See README section "Межа операційної авторизації" and
-`docs/disaster-recovery.md` for the hard operational boundary.
+Snapshot date: 2026-08-14. Purpose: single canonical document to resume work
+from another PC without replaying prior sessions. **This document grants no
+production authorization.** See README "Межа операційної авторизації",
+`docs/disaster-recovery.md`, and `AGENTS.md` for the hard operational boundary.
 
 ## Canonical baseline
 
 - Repository: `https://github.com/ikstv/AvelRen.git`
-- Main branch: `main`
-- `main` head at snapshot: `0fd0495` — squash-merge of PR #40
-  (adoption fixture chunk pinning + mismatch dump + rationale comment).
-- Active development branch: `feat/postgres-production-adopt`
-  (PR #37, DRAFT), head `386b897`, rebased onto `0fd0495`, CI GREEN on its
-  own merits (all four adoption checks PASS on `--production-adopt` code).
+- Main branch: `main`; head at snapshot: **`faf1ed2`**.
+- No long-lived feature branch is "the" dev branch anymore — work is one
+  short-lived branch + draft PR per task (see the work plan).
 
-Recover exact SHAs on any machine with:
+Recover exact state on any machine:
 
 ```bash
 git fetch --all --prune
-git rev-parse origin/main
-git rev-parse origin/feat/postgres-production-adopt
-gh pr view 37 --json headRefOid,state,isDraft
+git rev-parse origin/main        # expect faf1ed2 or later
+gh pr list --state open
+gh issue list --state open
 ```
 
-## Incident record: 2026-08-13 adoption-suite failure (RESOLVED)
+## What changed since the 2026-08-13 snapshot (READ THIS)
 
-From 2026-08-13 the adoption integration suite (`after_commit`) failed on
-every run, on `main` as well as branches: "inverse rollback exact manifest
-mismatch (39 rows)". Root cause: the fixture seeded `observations` at a fixed
-date while runtime gates insert at `now()`; 2026-08-13 00:00 UTC is an exact
-epoch-aligned 7-day Timescale chunk boundary (20678 / 7 = 2954), so from that
-date the two inserts landed in different chunks and the autonomously created
-chunk appeared as ACTUAL_ONLY rows in the exact manifest verification. The
-rollback itself was never wrong.
+The previous snapshot said "PR #37 DRAFT, do not merge". **That is now stale.**
+PR #37 (the `--production-adopt` code) was reviewed, got a conditional technical
+GO, and was **squash-merged into main** (`dcf1edf`). Merging the *code* did NOT
+authorize any production operation — see the boundary below.
 
-Fix (PR #40, squash-merged as `0fd0495`): pin `chunk_time_interval` to
-36500 days before the fixture insert AND seed at `now()`. Do NOT lower the
-interval back to 7 days — see the comment block in
-`deploy/postgres-adoption-integration-test.sh` (around line 283). Side effect
-kept: manifest mismatches now dump the differing rows, not just a count.
-Deliberately NOT done: tolerating Timescale chunk objects in exact
-verification (would mask real ownership anomalies; separate discussed PR
-only).
+Merged since then (all in `main`): #37 (production adoption path), #41 (status
+refresh), #42 (allowlist contract wired into CI), #44 (privacy/retention docs),
+#45 (full 2026-08-14 audit + pre-adoption DR procedure), #46 (H-1: async OAuth
+refresh off the event loop), #47 (MED: throttle `last_seen` writes to 1/hour),
+#48 (H-5: SHA-pin GitHub Actions), #49 (MED: compose memory/CPU limits).
+Closed: #30 (superseded by #31), #13/#14/#17/#20/#21/#24 (implemented + tested;
+closed with justification).
 
-Post-merge verification: the first direct-push `main` run since 2026-08-12
-(run 31712618623, 7m7s) is GREEN — this also retires the push-vs-PR
-hypothesis conclusively (the difference was calendar-driven, not
-event-driven).
+**Open PR:** **#50** (`test/production-failure-rollback-case`) — OPEN (not
+draft), CI GREEN. Adds the production-mode **failure → inverse rollback → exact
+original** integration case (all three production sub-cases green:
+drift-abort, failure-rollback, happy-path). Awaiting human review/merge.
 
-Operational takeaway for the adoption runbook: if a Timescale chunk appears
-between capture and mutation in production, the drift check
-(`pre-mutation.tsv`) ABORTS adoption. This is fail-safe behaviour, known by
-name — not a mystery failure. Operators must know this before 3B.2.
+## Production rollout state (least-privilege, issue #15)
 
-## Open PRs
+Real production database state (host `averlen-helsinki`):
 
-| PR | Branch | State | Notes |
-|---|---|---|---|
-| #37 | `feat/postgres-production-adopt` | DRAFT, CI GREEN | Production adoption (`postgres-adopt.sh`, +123/−4). Rebased onto `0fd0495`. Do NOT merge, do NOT convert out of DRAFT — production adoption is not authorized. |
-| #30 | `hotfix/echerha-v5-contract` | OPEN, DRAFT | Base is `ci/production-04eaea-hotfix-base` (NOT main). Its content (єЧерга v5 contract) is already forward-ported to main via #31 (`108e4ee`) → factually superseded. Closing it is a human decision; architect recommendation: close with a comment pointing to #31. |
+- **Stage 3A** (fresh verified backup) — done. Backup proven restorable live
+  (346k rows restored under legacy `avelren` into a disposable target,
+  2026-08-14).
+- **Stage 3B.1** (role provisioning) — **DONE ON PROD (2026-08-14)**:
+  `bootstrap.sql` created the 7 least-privilege roles. Verified: `avelren_admin`
+  SUPERUSER; 6 workers LOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER; legacy `avelren`
+  **untouched** (SUPERUSER+LOGIN); ownership **unchanged** (still single-role);
+  `schema_migrations` = 009. Evidence on host under `/opt/avelren/evidence/`.
+- **Stage 3B.2** (ownership/ACL adoption) and **3C–3F** — **NOT STARTED**,
+  require a separate explicit human GO. Prod is still single-role: `avelren`
+  owns everything, migrations at 009.
 
-Merged since the 2026-08-12 snapshot: #29 (runtime role split, `f9cc884`),
-#31 (єЧерга v5 forward-port, `108e4ee`), #32 (API resource bounds), #33 / #35
-(Android Server Dashboard), #36 (Gradle wrapper cache), #40 (CI chunk fix,
-`0fd0495`). Closed without merge: #34 (replaced by #35), #38 (baseline
-probe), #39 (diagnostics; instrumentation carried into #40).
+Prod git checkout is at `a5d642a`; an uplift to current `main` is needed before
+3B.2 (for `--production-adopt`), as a read-only step under the runbook.
 
-## Open issues (highest-signal only)
+## Open issues
 
-- #15 — PostgreSQL runtime role split. PR #29 is merged, but the issue stays
-  OPEN by policy: it closes only after separately authorized production
-  rollout AND retirement of the legacy role AND both proven safe.
-- Remaining issues: see `gh issue list`. Do NOT start speculative work on
-  these without an explicit task.
+- **#15** least-privilege — in progress (3B.1 done). Closes only after full
+  authorized rollout (3B.2–3F) + legacy retirement. Do NOT close.
+- **#18** Android API 36 — hard Google Play deadline ~2026-08-31; compileSdk/
+  targetSdk still 35. Highest calendar priority.
+- **#19** FCM ownership / device+collector_runs retention — design gate.
+- **#22** external black-box monitor — not started.
+- **#23** supply-chain — partially: SHA-pin done (#48); mypy + pip-audit remain.
+- **#25** — privacy docs done (#44); release/signing runbook remains.
+- **#26** audit aggregator — held until #15/#18.
 
 ## What is authorized right now
 
 - Backend, deploy, Android, docs code changes on feature branches.
-- Local disposable Docker Compose runs via `scripts/backend-test.sh`.
-- Running slow static / contract / integration gates in
-  `docs/backend-testing.md`.
-- Opening / updating draft PRs against feature branches.
+- Local disposable Docker Compose runs via `scripts/backend-test.sh`; slow
+  gates per `docs/backend-testing.md`.
+- Opening / updating draft PRs.
 
 ## What is NOT authorized (hard boundary)
 
-- Any production operation on ECHERHA / PostgreSQL: no SSH, no deploy, no
-  adoption, no restore, no credential generation or rotation, no legacy
-  NOLOGIN, no legacy `REVOKE CONNECT`.
-- Merging PR #37; converting PR #37 out of DRAFT.
-- Closing issue #15.
-- ECHERHA v5 production rollout beyond what #31 already merged as code.
-- Force-push or history rewrite on any branch, with a single standing
-  exception: rebasing a feature branch onto `main` followed by
-  `git push --force-with-lease` of that feature branch only.
+- Any production operation on ECHERHA / PostgreSQL beyond the completed 3A/3B.1:
+  no 3B.2–3F adoption, no DSN cutover, no restore, no credential generation or
+  rotation, no legacy NOLOGIN / `REVOKE CONNECT`, no new prod deploy.
+- **Merging any PR** — human decision (agent stops at draft/green).
+- Closing issue #15 (and #25 until its runbook lands).
+- Force-push/history rewrite, with one exception: rebasing a feature branch onto
+  `main` + `git push --force-with-lease` of that branch only.
+
+Merging the #37 *code* did not lift any of this. Production execution stays
+gated on explicit human authorization, per operation.
 
 ## Secrets and machine-local state
 
-- Tracked template: `.env.example`. All password / DSN slots are intentionally
-  empty. Real values live only in the authorized host secret store.
-- Never-committed: `.env`, `secrets/`, `*service-account*.json`,
-  `google-services.json`, `android/local.properties`, `/data/`, build
-  outputs, virtualenvs, IDE state. Enforced by `.gitignore`.
+- Tracked template: `.env.example` — all password/DSN slots intentionally empty.
+- Never committed: `.env`, `secrets/`, `*service-account*.json`,
+  `google-services.json`, `android/local.properties`, `/data/`, build outputs,
+  virtualenvs, IDE state. Enforced by `.gitignore`.
 
 ## Bring-up on a new PC
-
-Prerequisites: Git, Docker Desktop (with `docker compose`), Git Bash / MSYS
-on Windows, JDK 17+ and Android SDK for Android builds, Python 3 only for
-local tooling outside the Docker workflow.
 
 ```bash
 git clone https://github.com/ikstv/AvelRen.git
@@ -117,31 +108,15 @@ cp .env.example .env             # placeholders only; leave secret fields empty
 bash scripts/backend-test.sh     # canonical fast backend gate (Docker)
 ```
 
-Slow / focused gates (privilege, backup, restore, adoption, allowlist
-contract, integration): see `docs/backend-testing.md`. Run only what a task
-requires.
+## Next reasonable actions
 
-## CI parity (canonical checks)
+Follow the sequential work plan (T-01 … T-14): status refresh (this) → land
+PR #50 (review, human merge) → **Android API 36 (#18, deadline)** → Android
+release config → Caddy body-limit → watchdog /run scope → compose healthchecks
+→ backup RPO → collector/watchdog tests → Android notification tests → CI split
+(mypy/pip-audit/coverage) → retention + FCM-ownership design → external monitor
+→ release-signing runbook. One branch + draft PR per task; do not chain without
+an explicit request.
 
-Defined in `.github/workflows/ci.yml`. GREEN on `main` in both PR and push
-contexts as of `0fd0495` (push run 31712618623).
-
-Documented follow-ups, not yet wired:
-
-- Negative drift-check case: deliberately create a Timescale chunk between
-  capture and mutation in a disposable run and assert the adoption ABORTS
-  with the expected message. Turns the runbook claim above into an executable
-  guarantee. Separate PR; do not bundle with feature work.
-
-## Next reasonable actions (choose explicitly, do not chain)
-
-1. Resolve PR #30 (recommendation above; human authorization required to
-   close).
-2. Wire `restore-allowlist-contract-test.py` into `.github/workflows/ci.yml`
-   (small, separate PR).
-3. Negative drift-check case (separate PR, after item 2).
-4. Dedicated production-mode adoption case → review → 3B.1 (bootstrap.sql
-   roles) → separate explicit GO for 3B.2.
-
-Anything beyond this — production adoption, PR merges, issue closures,
-ECHERHA rollout — requires a fresh explicit authorization, not this document.
+Anything in Phase F — 3B.2–3F production rollout, PR merges, issue closures —
+requires fresh explicit human authorization, not this document.
