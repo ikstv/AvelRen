@@ -1,12 +1,26 @@
 # Supply-chain gate (issue #23): Dependabot keeps every dependency ecosystem in
-# the repo under automated security + version watch. Grouped so a routine bump
-# wave arrives as one PR per ecosystem instead of a swarm. CI (the existing
-# `ci.yml`) is the gate that proves each bump is safe before it can merge.
+# the repo under automated security + version watch. CI (ci.yml + codeql.yml) is
+# the gate that proves each bump is safe before it can merge.
+#
+# Grouping rule: minor/patch together, majors on their own — per ecosystem.
+#
+# The first run of this config grouped EVERYTHING per ecosystem, which produced
+# PR #67: fifteen Android updates in one changeset, including Gradle 8.13 -> 9.7,
+# AGP 8.7 -> 9.3 and Kotlin 2.0 -> 2.4. That is not a dependency bump, it is a
+# coordinated toolchain migration (AGP 9 has built-in Kotlin support, so
+# `org.jetbrains.kotlin.android` must be REMOVED from the build script), and it
+# failed CI immediately. Bundled with routine patches it is also unreviewable:
+# nothing in it can land until the migration is done.
+#
+# Splitting by update-type keeps routine and security bumps flowing green and
+# mergeable on their own, while each breaking migration arrives as an isolated,
+# clearly-scoped PR that can be planned — see issue #18, which explicitly says
+# not to combine the Android API 36 track with a broad dependency upgrade.
 version: 2
 updates:
-  # GitHub Actions — the repo already pins every `uses:` to a commit SHA;
-  # Dependabot re-pins to the new SHA (and updates the trailing version comment)
-  # when an action releases, so pinning never means silently going stale.
+  # GitHub Actions — the repo pins every `uses:` to a commit SHA; Dependabot
+  # re-pins to the new SHA (and updates the trailing version comment) on release,
+  # so pinning never means silently going stale.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -14,6 +28,10 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: [minor, patch]
+      actions-major:
+        patterns: ["*"]
+        update-types: [major]
 
   # Python backend (app/pyproject.toml).
   - package-ecosystem: pip
@@ -23,8 +41,14 @@ updates:
     groups:
       python:
         patterns: ["*"]
+        update-types: [minor, patch]
+      python-major:
+        patterns: ["*"]
+        update-types: [major]
 
-  # Android client (Gradle version catalog + build scripts).
+  # Android client (Gradle version catalog + build scripts). The major group is
+  # where the AGP/Gradle/Kotlin toolchain migration will land — expect it to need
+  # real work, not a rubber-stamp merge.
   - package-ecosystem: gradle
     directory: /android
     schedule:
@@ -32,6 +56,10 @@ updates:
     groups:
       android:
         patterns: ["*"]
+        update-types: [minor, patch]
+      android-major:
+        patterns: ["*"]
+        update-types: [major]
 
   # Backend container base images (app/Dockerfile, app/Dockerfile.test).
   - package-ecosystem: docker
@@ -41,9 +69,15 @@ updates:
     groups:
       backend-images:
         patterns: ["*"]
+        update-types: [minor, patch]
+      backend-images-major:
+        patterns: ["*"]
+        update-types: [major]
 
   # Compose stack images (docker-compose*.yml at the repo root: timescaledb,
   # caddy). The app image is built locally and is not a registry dependency.
+  # A major here means a PostgreSQL/TimescaleDB major — a data-migration event,
+  # never a routine bump, so it must arrive alone.
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -51,3 +85,7 @@ updates:
     groups:
       compose-images:
         patterns: ["*"]
+        update-types: [minor, patch]
+      compose-images-major:
+        patterns: ["*"]
+        update-types: [major]
