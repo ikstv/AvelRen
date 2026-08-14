@@ -6,6 +6,7 @@
 єдиною кнопкою «ОК».
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -135,7 +136,11 @@ async def send(
     повернувся з офлайну, отримав би пачку протухлих повторів про чергу, якої
     вже немає. З collapse_key офлайн-пристрій отримує ОДНЕ, останнє.
     """
-    creds, project_id = _creds()
+    # _creds() may do a synchronous OAuth token refresh (network round-trip to
+    # Google) when the cached token expires. Run it in a worker thread so it
+    # never blocks the event loop and stalls other in-flight notifications/API
+    # requests (audit H-1).
+    creds, project_id = await asyncio.to_thread(_creds)
 
     android: dict[str, Any] = {
         # Високий пріоритет будить пристрій у режимі сну — без цього
