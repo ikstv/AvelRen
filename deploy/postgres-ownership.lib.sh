@@ -327,10 +327,14 @@ relation_base AS (
       -- superuser, so it owns the system catalogs too. Those are never part of
       -- the adoption surface and must stay owned by `avelren`; exclude them so
       -- the `relowner IN canonical_roles` clause above does not sweep them in.
-      -- (`_timescaledb_*` / timescale schemas are NOT excluded — they are the
-      -- TimescaleDB internals, captured and classified as `timescale`.)
-      AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
-      AND namespace.nspname NOT LIKE 'pg\_toast%'
+      -- Key the exclusion on the dependency ROOT namespace, not the object's own
+      -- schema: application TOAST tables live in pg_toast but are rooted in
+      -- public and MUST stay in the surface, while system tables and their TOAST
+      -- (rooted in pg_catalog / information_schema) are dropped. `_timescaledb_*`
+      -- objects are rooted in public/timescale, so they are kept and classified
+      -- as `timescale`.
+      AND (root_namespace.nspname IS NULL
+           OR root_namespace.nspname NOT IN ('pg_catalog', 'information_schema'))
 ),
 routine_base AS (
     SELECT routine.oid, namespace.nspname, routine.proname, routine.prokind,
