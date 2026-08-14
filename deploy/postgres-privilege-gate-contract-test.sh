@@ -83,6 +83,27 @@ done
 case "$line" in *' migrate '*|*'avelren.migrate'*) fail 'C: gate must not run migrate' ;; esac
 echo 'C introspection-only subset, no DML/positive-commit/migrate: PASS'
 
+# --- C2: conftest must be disabled --------------------------------------------
+# Regression, production 2026-08-14: the gate aborted with
+# `Exit: DATABASE_URL не задано` (rc=3) before running a single assertion,
+# because app/tests/conftest.py guards the DESTRUCTIVE suite — it requires
+# DATABASE_URL, AVELREN_TEST_DB=1, and a database name containing test/ci. The
+# production database is `avelren`, so that guard can never pass here. The gate
+# must therefore not load the conftest; the selected tests are self-contained.
+#
+# Equally important: the gate must NOT try to satisfy the guard instead. Setting
+# DATABASE_URL / AVELREN_TEST_DB=1 for the production database would disable the
+# safeguard that keeps the destructive suite away from production, so assert
+# those are never forwarded.
+case " $line " in *' --noconftest '*) ;; *) fail "C2: --noconftest missing: $line" ;; esac
+for forbidden in DATABASE_URL AVELREN_TEST_DB; do
+    case " $line " in
+        *" -e $forbidden "*|*" $forbidden="*)
+            fail "C2: gate must not satisfy the destructive-suite guard via $forbidden: $line" ;;
+    esac
+done
+echo 'C2 conftest disabled, destructive-suite guard not subverted: PASS'
+
 # --- D: DSNs forwarded by name only, never by value ---------------------------
 for name in ADMIN_DATABASE_URL COLLECTOR_DATABASE_URL NOTIFIER_DATABASE_URL \
     WATCHDOG_DATABASE_URL API_DATABASE_URL BACKUP_DATABASE_URL; do
