@@ -442,6 +442,12 @@ cat >"$BIN/success-gate" <<'SH'
 set -euo pipefail
 
 gate=${1:?success gate is required}
+# Test-only: fail a named post-commit gate to drive the production inverse
+# rollback path (AVELREN_PRODUCTION_GATE_FAIL=privilege_contracts).
+if [ "${AVELREN_PRODUCTION_GATE_FAIL:-}" = "$gate" ]; then
+    echo "success gate $gate FAIL (injected for rollback test)" >&2
+    exit 1
+fi
 [ "$(cat "$ADOPTION_SERVICE_STATE")" = stopped ] || {
     echo "$gate ran after the new runtime started" >&2
     exit 1
@@ -1036,6 +1042,7 @@ run_production_adoption() {
         AVELREN_ALLOW_DIRTY_TEST=1 \
         AVELREN_PRODUCTION_TARGET_OVERRIDE="$TARGET_DB" \
         AVELREN_PRODUCTION_DRIFT_INJECT="${AVELREN_PRODUCTION_DRIFT_INJECT:-}" \
+        AVELREN_PRODUCTION_GATE_FAIL="${AVELREN_PRODUCTION_GATE_FAIL:-}" \
         ADOPTION_PSQL_ROLE=avelren ADOPTION_PSQL_PASSWORD=legacy-ci-only \
         ADOPTION_FAULT_DIR="$WORK" \
         bash "$ROOT/deploy/postgres-adopt.sh" \
@@ -2303,6 +2310,34 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
         exit 1
     }
     echo 'postgres adoption production drift-abort: PASS'
+
+    # Post-mutation failure -> inverse rollback -> exact original state.
+    # Inject a privilege_contracts gate failure AFTER the committed forward
+    # adoption; the production hold must route to inverse rollback and restore
+    # the exact original owner/ACL. This is the case that matters most after the
+    # "39 rows" history — it proves rollback on a real production-mode run, not
+    # just the disposable after_commit path.
+    if AVELREN_PRODUCTION_GATE_FAIL=privilege_contracts \
+        run_production_adoption >"$WORK/rollback.out" 2>&1; then
+        cat "$WORK/rollback.out" >&2
+        echo 'production adoption with injected post-commit failure did NOT fail' >&2
+        exit 1
+    fi
+    grep -q 'inverse rollback verified' "$WORK/rollback.out" || {
+        cat "$WORK/rollback.out" >&2
+        echo 'expected verified inverse rollback not observed' >&2
+        exit 1
+    }
+    # Exact original state restored (adopt.sh already verified the exact fingerprint
+    # internally; cross-check externally): ownership back on legacy avelren,
+    # migrator owns nothing, avelren still SUPERUSER+LOGIN, schema_migrations 009.
+    rb_legacy=$(prod_query "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','S','v','m','p') AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren')")
+    [ "${rb_legacy:-0}" -gt 0 ] || { echo "rollback incomplete: legacy avelren owns 0 public objects" >&2; exit 1; }
+    rb_migrator=$(prod_query "SELECT count(*) FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')")
+    [ "$rb_migrator" = 0 ] || { echo "rollback incomplete: avelren_migrator still owns $rb_migrator objects" >&2; exit 1; }
+    [ "$(prod_query "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren'")" = 'true,true' ] || { echo "rollback: legacy avelren no longer SUPERUSER+LOGIN" >&2; exit 1; }
+    [ "$(prod_query "SELECT max(version) FROM schema_migrations")" = 009_observability ] || { echo "rollback: schema_migrations changed" >&2; exit 1; }
+    echo 'postgres adoption production failure-rollback: PASS'
 
     if ! run_production_adoption >"$WORK/production.out" 2>&1; then
         cat "$WORK/production.out" >&2
