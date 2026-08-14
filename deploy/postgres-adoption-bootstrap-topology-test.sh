@@ -267,12 +267,22 @@ fi
 grep -q 'unexpected database owned by a canonical role: avelren_leftover_test' "$REFUSE_EVID/out" \
     || { db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
          fail 'refusal must name the offending database'; }
-# Plan generation must refuse too, even with errexit suppressed by the `if`.
+# Plan generation must refuse on BOTH paths, even with errexit suppressed by the
+# `if` — each builder validates independently, so fixing only one still leaves a
+# route from a refused manifest to a written plan.
 if build_forward_plan "$REFUSE_EVID/leftover.tsv" "$REFUSE_EVID/forward.sql" \
         "$ROOT/db/migrations/010_postgresql_least_privilege.sql" >/dev/null 2>&1; then
     db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
     fail 'forward plan must not be generated while an unexpected database exists'
 fi
+[ ! -s "$REFUSE_EVID/forward.sql" ] || { db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
+    fail 'refused manifest still produced a forward plan'; }
+if build_inverse_plan "$REFUSE_EVID/leftover.tsv" "$REFUSE_EVID/inverse.sql" >/dev/null 2>&1; then
+    db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
+    fail 'inverse plan must not be generated while an unexpected database exists'
+fi
+[ ! -s "$REFUSE_EVID/inverse.sql" ] || { db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || true
+    fail 'refused manifest still produced an inverse plan'; }
 db_psql -c 'DROP DATABASE avelren_leftover_test' >/dev/null || fail 'leftover fixture cleanup failed'
 echo 'bootstrap-topology unexpected-database refusal: PASS'
 

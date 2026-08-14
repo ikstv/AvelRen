@@ -216,12 +216,22 @@ done
 grep -q 'unexpected database owned by a canonical role: restore_test' "$WORK/extra-database.out" \
     || fail 'unexpected shared database must be refused by name before any mutation'
 
-# Belt-and-braces: plan generation must never be reached for such a manifest.
+# Plan generation must never be reached for such a manifest — on BOTH paths.
+# Each builder validates independently, so a fix applied to only one of them
+# would still leave a way to produce a plan from a refused manifest. The `if`
+# wrapper is load-bearing: it suppresses errexit exactly the way a real caller
+# in an `if`/`&&`/`||` context would, which is how defect (3) stayed invisible.
+# Assert both the non-zero status and the absence of an output file: a builder
+# that refused but had already written a partial plan would still be a defect.
 if build_forward_plan "$WORK/extra-database.tsv" "$WORK/extra-database-forward.sql" \
         "$ROOT/db/migrations/010_postgresql_least_privilege.sql" >/dev/null 2>&1; then
     fail 'forward plan must not be generated from a manifest with an unexpected database'
 fi
 [ ! -s "$WORK/extra-database-forward.sql" ] || fail 'refused manifest still produced a forward plan'
+if build_inverse_plan "$WORK/extra-database.tsv" "$WORK/extra-database-inverse.sql" >/dev/null 2>&1; then
+    fail 'inverse plan must not be generated from a manifest with an unexpected database'
+fi
+[ ! -s "$WORK/extra-database-inverse.sql" ] || fail 'refused manifest still produced an inverse plan'
 
 # The orchestrator must reject catalog surprises before Compose stop or SQL mutation.
 BIN="$WORK/bin"
