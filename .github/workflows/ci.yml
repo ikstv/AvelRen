@@ -72,7 +72,7 @@ jobs:
 
       - name: PostgreSQL shell syntax
         timeout-minutes: 5
-        run: bash -n deploy/postgres-bootstrap.sh deploy/postgres-adopt.sh deploy/postgres-ownership.lib.sh
+        run: bash -n deploy/postgres-bootstrap.sh deploy/postgres-adopt.sh deploy/postgres-ownership.lib.sh deploy/postgres-adoption-bootstrap-topology-test.sh
 
       - name: PostgreSQL bootstrap contract
         timeout-minutes: 5
@@ -181,6 +181,10 @@ jobs:
       - name: Cold adoption integration - production
         timeout-minutes: 45
         run: AVELREN_ADOPTION_SCENARIO=production bash deploy/postgres-adoption-integration-test.sh
+
+      - name: Bootstrap-superuser topology adoption integration
+        timeout-minutes: 45
+        run: bash deploy/postgres-adoption-bootstrap-topology-test.sh
 
       - name: Snapshot script — синтаксис
         run: bash -n deploy/telemetry-snapshot.sh
