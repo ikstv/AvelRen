@@ -46,20 +46,29 @@ updates:
         patterns: ["*"]
         update-types: [major]
 
-  # Android client (Gradle version catalog + build scripts). The major group is
-  # where the AGP/Gradle/Kotlin toolchain migration will land — expect it to need
-  # real work, not a rubber-stamp merge.
+  # Android client (Gradle version catalog + build scripts).
+  #
+  # Version updates are PARKED (open-pull-requests-limit: 0) until the toolchain
+  # migration tracked in issue #18 lands. Security updates still open — the limit
+  # only suppresses routine version PRs, never security ones.
+  #
+  # Why parked: the Android toolchain is entangled and moves as one unit. Even a
+  # nominally "minor" bump breaks the build — PR #71 raised Kotlin 2.0.21→2.4.10
+  # (semver-minor) and it failed with `jvmTarget: String is an error, migrate to
+  # the compilerOptions DSL`; PR #67 raised AGP 8→9 + Gradle 8→9 which additionally
+  # requires removing the org.jetbrains.kotlin.android plugin. Kotlin, ktor, AGP
+  # and Gradle must be upgraded together, with build-script changes and a real
+  # Android 16 device check — that is issue #18, not a Dependabot auto-merge. Left
+  # un-parked, Dependabot reopens an un-mergeable red PR every week.
+  #
+  # Un-park (delete open-pull-requests-limit) once #18 has moved the toolchain
+  # onto current AGP/Gradle/Kotlin and the build script uses the compilerOptions
+  # DSL, so routine bumps build green again.
   - package-ecosystem: gradle
     directory: /android
     schedule:
       interval: weekly
-    groups:
-      android:
-        patterns: ["*"]
-        update-types: [minor, patch]
-      android-major:
-        patterns: ["*"]
-        update-types: [major]
+    open-pull-requests-limit: 0
 
   # Backend container base images (app/Dockerfile, app/Dockerfile.test).
   - package-ecosystem: docker
