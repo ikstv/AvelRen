@@ -27,6 +27,34 @@ proven. This runbook documents safety contracts; it is not that authorization.
 No password, DSN, token, resolved environment, decrypted dump, or credential
 value belongs in this file, Git, CI output, PR comments, or evidence.
 
+## Pre-adoption recovery (single-role production)
+
+Everything above assumes the post-adoption role model. Until the least-privilege
+rollout completes (issue #15, stages 3B.1–3F), production is still a **single
+`avelren` SUPERUSER** that owns the database, the TimescaleDB extension, and all
+objects. In that state the restore engine (`restore.sh` / `restore-engine.lib.sh`)
+**does not apply** — by design it requires `avelren_admin` and verifies extension
+ownership as `avelren_admin` (contract-enforced). This is not a bug; it is the
+adoption-era guard.
+
+If production must be recovered before adoption completes, use a plain,
+timescale-aware manual restore under the legacy `avelren` superuser into a
+disposable target first (never over the live database blind):
+
+1. Pull and decrypt the chosen backup off-host (`rclone copy` from the crypt
+   remote decrypts automatically); verify `gzip -t`.
+2. `createdb` a disposable target; `CREATE EXTENSION IF NOT EXISTS timescaledb`.
+3. **`SELECT timescaledb_pre_restore();`** — required, or hypertable/chunk
+   foreign keys fail mid-load (`observations is not a hypertable`).
+4. Load the dump (`zcat dump | psql -d <target>`).
+5. **`SELECT timescaledb_post_restore();`** — re-registers chunks.
+6. Verify row counts, `max(version)` in `schema_migrations`, and table set.
+
+Steps 3 and 5 are the difference between a clean restore and a stuck one; a
+manual `psql` load without them leaves the hypertable half-registered. This
+manual path retires the moment adoption completes — after 3B the standard
+engine flow above is the DR path, and this section becomes historical.
+
 ## Prerequisites
 
 - Authorized operator access to the production host and external backup vault.
