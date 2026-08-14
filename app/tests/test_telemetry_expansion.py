@@ -405,3 +405,72 @@ def test_admin_telemetry_services_still_authenticated(
     # is_admin навмисно НЕ виставляємо.
     r = api_client.get("/admin/telemetry", headers=device.headers())
     assert r.status_code == 403
+
+
+# ============================================================================
+# completeness_percent — рахує УСПІШНІ цикли, а не спроби (issue #22)
+# ============================================================================
+
+def _add_collector_run(conn, minutes_ago: int, *, error: str | None) -> None:
+    conn.execute(
+        "INSERT INTO collector_runs (time, error) VALUES (now() - make_interval(mins => %s), %s)",
+        (minutes_ago, error),
+    )
+
+
+def test_completeness_ignores_failed_cycles(device, api_client, conn, snapshot):
+    """Регресія issue #22: коли ЄЧерга щохвилини віддає помилку, collector_runs
+    усе одно поповнюється, але жодне спостереження не зібране. Completeness має
+    рахувати УСПІШНІ цикли (error IS NULL), інакше показує 100% повноти під час
+    повного збою збору даних."""
+    _make_admin(conn, device)
+    snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
+    conn.execute("DELETE FROM collector_runs")
+
+    # 60 циклів за годину, але ВСІ з помилкою — повнота має бути 0, не 100.
+    for m in range(60):
+        _add_collector_run(conn, m, error="502 Bad Gateway")
+
+    body = api_client.get("/admin/telemetry", headers=device.headers()).json()
+    pipeline = body["pipeline"]
+    assert pipeline["runs_last_hour"] == 60
+    assert pipeline["errors_last_hour"] == 60
+    assert pipeline["successful_runs_last_hour"] == 0
+    assert pipeline["completeness_percent"] == 0
+
+    conn.execute("DELETE FROM collector_runs")
+
+
+def test_completeness_counts_only_successful_cycles(device, api_client, conn, snapshot):
+    """Змішаний годину: 30 успішних + 30 з помилкою → повнота 50%, не 100%."""
+    _make_admin(conn, device)
+    snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
+    conn.execute("DELETE FROM collector_runs")
+
+    for m in range(30):
+        _add_collector_run(conn, m, error=None)
+    for m in range(30, 60):
+        _add_collector_run(conn, m, error="timeout")
+
+    body = api_client.get("/admin/telemetry", headers=device.headers()).json()
+    pipeline = body["pipeline"]
+    assert pipeline["runs_last_hour"] == 60
+    assert pipeline["successful_runs_last_hour"] == 30
+    assert pipeline["completeness_percent"] == 50
+
+    conn.execute("DELETE FROM collector_runs")
+
+
+def test_completeness_full_when_all_cycles_succeed(device, api_client, conn, snapshot):
+    """60 успішних циклів → 100%. Кламп min(100, ...) утримує стелю."""
+    _make_admin(conn, device)
+    snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
+    conn.execute("DELETE FROM collector_runs")
+
+    for m in range(60):
+        _add_collector_run(conn, m, error=None)
+
+    body = api_client.get("/admin/telemetry", headers=device.headers()).json()
+    assert body["pipeline"]["completeness_percent"] == 100
+
+    conn.execute("DELETE FROM collector_runs")
