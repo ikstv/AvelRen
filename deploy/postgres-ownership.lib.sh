@@ -1032,12 +1032,15 @@ _emit_target_relation_acl() {
 
 _canonical_target_acl_rows() {
     local role name column
+    # Decision B: the database and the public schema stay owned by the legacy
+    # `avelren` (they are no longer reassigned to avelren_admin), so a superuser
+    # GRANT on them records `avelren` — the owner — as the grantor.
     for role in avelren_migrator avelren_backup avelren_collector avelren_notifier avelren_watchdog avelren_api; do
-        _emit_target_acl database - - database object avelren_admin "$role" CONNECT
+        _emit_target_acl database - - database object avelren "$role" CONNECT
     done
-    _emit_target_acl schema public public schema object avelren_admin avelren_migrator USAGE CREATE
+    _emit_target_acl schema public public schema object avelren avelren_migrator USAGE CREATE
     for role in avelren_backup avelren_collector avelren_notifier avelren_watchdog avelren_api; do
-        _emit_target_acl schema public public schema object avelren_admin "$role" USAGE
+        _emit_target_acl schema public public schema object avelren "$role" USAGE
     done
 
     for name in countries checkpoints observations observations_hourly collector_runs devices subscriptions subscription_state alerts eta_targets eta_alerts health_alerts notification_cancels schema_migrations \
@@ -1275,38 +1278,85 @@ SQL
     _canonical_relations
     printf '%s\n' '\.'
     cat <<'SQL'
--- Mechanical application ownership closure: the canonical relations plus every
--- object PostgreSQL co-owns with them on ALTER ... OWNER, derived from pg_depend
--- (internal/auto dependencies: TOAST tables, indexes, composite rowtypes, array
--- types, owned sequences). No hand-listed object kinds.
-CREATE TEMP TABLE avelren_app_closure ON COMMIT DROP AS
-WITH RECURSIVE seed AS (
-    SELECT 'pg_class'::regclass::oid AS classid, c.oid AS objid
-    FROM avelren_canonical_app a
-    JOIN pg_namespace n ON n.nspname = a.schema_name
-    JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = a.object_name
-), closure(classid, objid) AS (
-    SELECT classid, objid FROM seed
+-- Base application relations that end up owned by avelren_migrator: the
+-- canonical relations PLUS the TimescaleDB internals that `ALTER ... OWNER`
+-- cascades along with an adopted hypertable / continuous aggregate (its chunks,
+-- compressed + materialization hypertables, and cagg partial/direct views).
+-- pg_depend does NOT model this cascade, so it is resolved from the TimescaleDB
+-- catalog. This is the reality proven by the bootstrap-topology integration test.
+CREATE TEMP TABLE avelren_base_rel ON COMMIT DROP AS
+WITH RECURSIVE adopted_ht(id) AS (
+    SELECT h.id FROM _timescaledb_catalog.hypertable h
+    JOIN avelren_canonical_app a ON a.schema_name = h.schema_name AND a.object_name = h.table_name
     UNION
-    SELECT d.classid, d.objid
-    FROM pg_depend d
-    JOIN closure cl ON d.refclassid = cl.classid AND d.refobjid = cl.objid
-    WHERE d.deptype IN ('i','a')
-      AND d.classid IN ('pg_class'::regclass, 'pg_type'::regclass)
+    SELECT ca.mat_hypertable_id FROM _timescaledb_catalog.continuous_agg ca
+    JOIN avelren_canonical_app a ON a.schema_name = ca.user_view_schema AND a.object_name = ca.user_view_name
+    UNION
+    SELECT h.compressed_hypertable_id FROM _timescaledb_catalog.hypertable h
+    JOIN adopted_ht ah ON ah.id = h.id WHERE h.compressed_hypertable_id IS NOT NULL
+), ts_relnames(s, t) AS (
+    SELECT h.schema_name, h.table_name
+    FROM _timescaledb_catalog.hypertable h JOIN adopted_ht ah ON ah.id = h.id
+    UNION
+    SELECT c.schema_name, c.table_name
+    FROM _timescaledb_catalog.chunk c JOIN adopted_ht ah ON ah.id = c.hypertable_id
+    UNION
+    SELECT ca.partial_view_schema, ca.partial_view_name
+    FROM _timescaledb_catalog.continuous_agg ca
+    JOIN avelren_canonical_app a ON a.schema_name = ca.user_view_schema AND a.object_name = ca.user_view_name
+    UNION
+    SELECT ca.direct_view_schema, ca.direct_view_name
+    FROM _timescaledb_catalog.continuous_agg ca
+    JOIN avelren_canonical_app a ON a.schema_name = ca.user_view_schema AND a.object_name = ca.user_view_name
 )
-SELECT DISTINCT classid, objid FROM closure;
+SELECT c.oid
+FROM avelren_canonical_app a
+JOIN pg_namespace n ON n.nspname = a.schema_name
+JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = a.object_name
+UNION
+SELECT r.oid
+FROM ts_relnames x
+JOIN pg_class r ON r.oid = to_regclass(format('%I.%I', x.s, x.t));
 
--- Protected TimescaleDB surface, classified explicitly (NOT "anything that looks
--- allowable"): relations/types in a TimescaleDB schema, or extension members of
--- timescaledb. Adoption must never transfer any of these to migrator/admin.
+-- Full ownership closure: base relations + the objects PostgreSQL co-owns with
+-- them on ALTER ... OWNER — indexes, TOAST tables and their indexes, composite
+-- rowtypes and array types. Enumerated explicitly (pg_index / reltoastrelid /
+-- reltype / typarray) rather than via pg_depend deptype, so constraint-backed
+-- (primary-key / unique) indexes are captured too.
+CREATE TEMP TABLE avelren_app_closure ON COMMIT DROP AS
+SELECT 'pg_class'::regclass::oid AS classid, oid AS objid FROM avelren_base_rel
+UNION
+SELECT 'pg_class'::regclass::oid, i.indexrelid FROM pg_index i
+ WHERE i.indrelid IN (SELECT oid FROM avelren_base_rel)
+UNION
+SELECT 'pg_class'::regclass::oid, c.reltoastrelid FROM pg_class c
+ WHERE c.oid IN (SELECT oid FROM avelren_base_rel) AND c.reltoastrelid <> 0
+UNION
+SELECT 'pg_class'::regclass::oid, ti.indexrelid FROM pg_index ti
+ WHERE ti.indrelid IN (SELECT reltoastrelid FROM pg_class WHERE oid IN (SELECT oid FROM avelren_base_rel) AND reltoastrelid <> 0)
+UNION
+SELECT 'pg_type'::regclass::oid, c.reltype FROM pg_class c
+ WHERE c.oid IN (SELECT oid FROM avelren_base_rel) AND c.reltype <> 0
+UNION
+SELECT 'pg_type'::regclass::oid, t.typarray FROM pg_type t
+ WHERE t.oid IN (SELECT reltype FROM pg_class WHERE oid IN (SELECT oid FROM avelren_base_rel) AND reltype <> 0)
+   AND t.typarray <> 0;
+
+-- Protected TimescaleDB EXTENSION surface that must NOT move to migrator/admin:
+-- the extension's own catalog / config / function schemas and its extension
+-- members. `_timescaledb_internal` is DELIBERATELY excluded — it holds the
+-- adopted-hypertable data that TimescaleDB moves to the new owner along with the
+-- hypertable, and which is therefore part of the application closure above.
 CREATE TEMP TABLE avelren_protected_surface ON COMMIT DROP AS
 SELECT 'pg_class'::regclass::oid AS classid, c.oid AS objid
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname LIKE '%timescaledb%'
+WHERE n.nspname IN ('_timescaledb_catalog','_timescaledb_config','_timescaledb_functions',
+                    '_timescaledb_cache','_timescaledb_debug','timescaledb_information','timescaledb_experimental')
 UNION
 SELECT 'pg_type'::regclass::oid, t.oid
 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-WHERE n.nspname LIKE '%timescaledb%'
+WHERE n.nspname IN ('_timescaledb_catalog','_timescaledb_config','_timescaledb_functions',
+                    '_timescaledb_cache','_timescaledb_debug','timescaledb_information','timescaledb_experimental')
 UNION
 SELECT dep.classid, dep.objid
 FROM pg_depend dep
@@ -1420,6 +1470,7 @@ END
 $avelren_verify$;
 DROP TABLE avelren_app_closure;
 DROP TABLE avelren_protected_surface;
+DROP TABLE avelren_base_rel;
 DROP TABLE avelren_canonical_app;
 SQL
 }
