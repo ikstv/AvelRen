@@ -43,3 +43,14 @@ app/build/
 # Local scratch: backup copies of tracked files and stale locks. Machine-local
 # only; never required on a fresh clone.
 _to_delete/
+
+# Operational compose override, machine-local. Stage 3B.2 adoption keeps the
+# runtime on the legacy `avelren` DSN (adopt.sh restarts clients "on the
+# UNCHANGED legacy DSN"; the per-role DSN cutover is the separate 3C gate). On a
+# host that is mid-rollout — un-adopted, or where a rolled-back adoption revoked
+# the per-role grants — the tracked compose's per-role DSNs cannot connect, so
+# the operator (or adopt.sh) supplies a legacy-DSN override here. It must NOT be
+# committed (it is host state), and it must NOT dirty the worktree: the adoption
+# clean-worktree guard would otherwise refuse to run while the override that
+# keeps the site up is present. Removed at the 3C cutover.
+docker-compose.override.yml
