@@ -784,7 +784,7 @@ EOF
 }
 
 validate_owned_object_allowlist() {
-    local manifest=$1 expected actual extensions allowed_roots temporary root
+    local manifest=$1 expected actual extensions allowed_roots temporary root unexpected_databases
     [ -f "$manifest" ] || ownership_fail 'manifest not found'
     temporary=$(dirname "$manifest")
     expected=$(mktemp "$temporary/.expected.XXXXXX")
@@ -843,10 +843,31 @@ validate_owned_object_allowlist() {
         return 1
     fi
 
+    # An adopted cluster hosts exactly ONE database in the adoption surface: the
+    # application target. `database_inventory` already drops the pinned system
+    # databases (postgres/template0/template1), so any remaining non-application
+    # row is a database some canonical role owns that nobody declared — a
+    # disposable restore target left behind, a manual copy, a half-finished
+    # migration. Adoption must refuse it BEFORE any mutation and say which one:
+    # such a database is not inert (a leftover `restore_test` on production
+    # 2026-08-14 kept a TimescaleDB background worker and scheduled compression
+    # and continuous-aggregate policies running against the live instance), and
+    # its ACL/ownership rows perturb the surface the plans are built from.
+    unexpected_databases=$(awk -F '\t' '$1=="object" && $2=="database" && $13!="application" {print $5}' \
+        "$manifest" | LC_ALL=C sort -u | tr '\n' ' ')
+    if [ -n "${unexpected_databases% }" ]; then
+        rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
+        ownership_fail "unexpected database owned by a canonical role: ${unexpected_databases% }"
+        return 1
+    fi
+
     if ! awk -F '\t' -v target="${AVELREN_TARGET_DB:?AVELREN_TARGET_DB is required}" -v legacy="$AVELREN_LEGACY_ROLE" '
         $1=="object" && $2=="database" && $13=="application" {
             databases++; if ($3 != target || $5 != target || $7 != legacy) bad=1
         }
+        # Unreachable for database rows: the pre-check above refuses any
+        # non-application database outright. Kept as a defence-in-depth floor in
+        # case the pre-check is ever narrowed.
         $1=="object" && $2=="database" && $13=="shared" {
             if ($7 == legacy || ($7 != "avelren_admin" && $7 != "avelren_migrator")) bad=1
         }
@@ -917,8 +938,20 @@ EOF
 
 build_forward_plan() {
     local manifest=$1 output=$2 migration=$3 temporary schema name kind keyword database_identity subject
-    validate_owned_object_allowlist "$manifest"
-    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" {print $14}' "$manifest")
+    # Check explicitly: `ownership_fail` only warns and returns 1, so an
+    # unchecked call leaves the refusal enforced by `set -e` alone — and errexit
+    # is suppressed whenever the caller sits in an `if`, `&&` or `||` context.
+    # A validation failure must stop plan generation on its own merits.
+    validate_owned_object_allowlist "$manifest" || return 1
+    # Scope the identity to the APPLICATION database. The manifest legitimately
+    # carries `shared` database rows (any other database a canonical role owns),
+    # so an unscoped extraction returns several lines and silently produces a
+    # multi-line, syntactically broken `... ON DATABASE <a>\n<b> FROM ...`.
+    # Observed on production 2026-08-14: a leftover disposable `restore_test`
+    # database owned by avelren_admin broke plan generation this way.
+    # validate_owned_object_allowlist above now refuses such a topology outright;
+    # this filter keeps the extraction correct by construction regardless.
+    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" && $13=="application" {print $14}' "$manifest")
     [ -n "$database_identity" ] || ownership_fail 'validated database identity missing from manifest'
     [ "$(basename "$migration")" = 010_postgresql_least_privilege.sql ] || ownership_fail 'unexpected ACL migration path'
     [ -f "$migration" ] || ownership_fail 'ACL migration not found'
@@ -979,8 +1012,20 @@ _role_sql() {
 build_inverse_plan() {
     local manifest=$1 output=$2 temporary scope name kind owner subject grantor grantee privilege grantable source identity
     local object_keyword grantee_sql grantor_sql option role database_identity schema keyword
-    validate_owned_object_allowlist "$manifest"
-    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" {print $14}' "$manifest")
+    # Check explicitly: `ownership_fail` only warns and returns 1, so an
+    # unchecked call leaves the refusal enforced by `set -e` alone — and errexit
+    # is suppressed whenever the caller sits in an `if`, `&&` or `||` context.
+    # A validation failure must stop plan generation on its own merits.
+    validate_owned_object_allowlist "$manifest" || return 1
+    # Scope the identity to the APPLICATION database. The manifest legitimately
+    # carries `shared` database rows (any other database a canonical role owns),
+    # so an unscoped extraction returns several lines and silently produces a
+    # multi-line, syntactically broken `... ON DATABASE <a>\n<b> FROM ...`.
+    # Observed on production 2026-08-14: a leftover disposable `restore_test`
+    # database owned by avelren_admin broke plan generation this way.
+    # validate_owned_object_allowlist above now refuses such a topology outright;
+    # this filter keeps the extraction correct by construction regardless.
+    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" && $13=="application" {print $14}' "$manifest")
     [ -n "$database_identity" ] || ownership_fail 'validated database identity missing from manifest'
     temporary=$(_evidence_temp "$output")
     {
