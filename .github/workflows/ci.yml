@@ -129,6 +129,9 @@ jobs:
           bash -n deploy/restore-verify-guard-contract-test.sh
           bash -n deploy/restore-production-contract-test.sh
           bash -n deploy/restore-production-integration-test.sh
+          bash -n deploy/postgres-privilege-gate.sh
+          bash -n deploy/postgres-privilege-gate-contract-test.sh
+          docker compose -f docker-compose.yml -f docker-compose.privilege-gate.yml config >/dev/null
           sudo install -m 0755 deploy/backup.sh /usr/local/sbin/avelren-backup
           systemd-analyze verify deploy/avelren-backup.service
 
