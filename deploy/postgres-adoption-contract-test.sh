@@ -98,6 +98,17 @@ EOF
         extra-shared)
             printf '%s\n' 'object	ownership	0	1262	16385	0	avelren	reject	-	-	-	-	shared	0:1262:16385:0' >>"$dir/shared.tsv"
             ;;
+        extra-database)
+            # Regression, production 2026-08-14: a leftover disposable
+            # `restore_test` database owned by avelren_admin survived in the
+            # cluster. `extra-shared` above only ever modelled a shared
+            # *ownership* row, never a second *database*, so nothing rejected it:
+            # the allowlist's `shared` database rule accepts an avelren_admin
+            # owner, and plan generation then read BOTH database rows into the
+            # identity and emitted a syntactically broken `... ON DATABASE a\nb
+            # FROM ...`. Adoption must refuse such a topology outright instead.
+            printf '%s\n' 'object	database	restore_test	-	restore_test	database	avelren_admin	-	-	-	-	-	shared	restore_test' >>"$dir/database.tsv"
+            ;;
         unknown-owner)
             sed 's/\tavelren\t-/\tunexpected_owner\t-/' "$dir/database.tsv" >"$dir/database.tmp"
             mv "$dir/database.tmp" "$dir/database.tsv"
@@ -143,10 +154,16 @@ build_forward_plan "$EVIDENCE/original.tsv" "$EVIDENCE/forward.sql" "$ROOT/db/mi
 build_inverse_plan "$EVIDENCE/original.tsv" "$EVIDENCE/inverse.sql"
 [ "$(stat -c '%a' "$EVIDENCE/forward.sql")" = 600 ] || fail 'forward plan is not mode 0600'
 [ "$(stat -c '%a' "$EVIDENCE/inverse.sql")" = 600 ] || fail 'inverse plan is not mode 0600'
-grep -q '^REASSIGN OWNED BY "avelren" TO "avelren_admin";' "$EVIDENCE/forward.sql" || fail 'forward plan lacks controlled reassignment'
+# Bootstrap-superuser topology (Decision B): the forward plan must NOT use a
+# blanket `REASSIGN OWNED BY avelren` (which would sweep the whole cluster the
+# bootstrap role owns). Only explicit per-object ownership handoff of the
+# canonical application relations to avelren_migrator is allowed.
+! grep -q 'REASSIGN OWNED' "$EVIDENCE/forward.sql" || fail 'forward plan must not use blanket REASSIGN OWNED'
 grep -q '^ALTER TABLE "public"\."alerts" OWNER TO "avelren_migrator";' "$EVIDENCE/forward.sql" || fail 'forward plan lacks application handoff'
-grep -q '^REASSIGN OWNED BY "avelren_migrator" TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks migrator rollback boundary'
-grep -q '^REASSIGN OWNED BY "avelren_admin" TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks admin/extension rollback boundary'
+# Inverse likewise reverses only the application relations, per object, with no
+# blanket REASSIGN OWNED.
+! grep -q 'REASSIGN OWNED' "$EVIDENCE/inverse.sql" || fail 'inverse plan must not use blanket REASSIGN OWNED'
+grep -q '^ALTER TABLE "public"\."alerts" OWNER TO "avelren";' "$EVIDENCE/inverse.sql" || fail 'inverse plan lacks explicit application ownership rollback'
 grep -q 'GRANT SELECT ON TABLE "public"\."devices" TO "avelren_api"' "$EVIDENCE/inverse.sql" || fail 'inverse plan was not generated from original ACL manifest'
 
 GRANT_OPTION_MANIFEST="$EVIDENCE/grant-option-source.tsv"
@@ -182,7 +199,7 @@ capture_manifest ignored "$EVIDENCE/repeated.tsv"
 second_hash=$(manifest_fingerprint "$EVIDENCE/repeated.tsv")
 [ "$first_hash" = "$second_hash" ] || fail 'manifest fingerprint is not deterministic'
 
-for variant in extra-relation missing-relation extra-extension extra-tablespace extra-shared unknown-owner extra-schema extra-function extra-type missing-timescale-binding extra-timescale-binding; do
+for variant in extra-relation missing-relation extra-extension extra-tablespace extra-shared extra-database unknown-owner extra-schema extra-function extra-type missing-timescale-binding extra-timescale-binding; do
     fixture="$WORK/$variant"
     make_fixture "$fixture" "$variant"
     AVELREN_CATALOG_FIXTURE_DIR="$fixture" capture_manifest ignored "$WORK/$variant.tsv"
@@ -190,6 +207,31 @@ for variant in extra-relation missing-relation extra-extension extra-tablespace 
         fail "$variant should fail closed"
     fi
 done
+
+# The unexpected-database refusal must name the offending database: an operator
+# reading the log has to know WHICH database to deal with, and the refusal must
+# arrive as a stated contract violation rather than as a downstream SQL syntax
+# error from a multi-line database identity (that is how it surfaced on
+# production before this check existed).
+grep -q 'unexpected database owned by a canonical role: restore_test' "$WORK/extra-database.out" \
+    || fail 'unexpected shared database must be refused by name before any mutation'
+
+# Plan generation must never be reached for such a manifest — on BOTH paths.
+# Each builder validates independently, so a fix applied to only one of them
+# would still leave a way to produce a plan from a refused manifest. The `if`
+# wrapper is load-bearing: it suppresses errexit exactly the way a real caller
+# in an `if`/`&&`/`||` context would, which is how defect (3) stayed invisible.
+# Assert both the non-zero status and the absence of an output file: a builder
+# that refused but had already written a partial plan would still be a defect.
+if build_forward_plan "$WORK/extra-database.tsv" "$WORK/extra-database-forward.sql" \
+        "$ROOT/db/migrations/010_postgresql_least_privilege.sql" >/dev/null 2>&1; then
+    fail 'forward plan must not be generated from a manifest with an unexpected database'
+fi
+[ ! -s "$WORK/extra-database-forward.sql" ] || fail 'refused manifest still produced a forward plan'
+if build_inverse_plan "$WORK/extra-database.tsv" "$WORK/extra-database-inverse.sql" >/dev/null 2>&1; then
+    fail 'inverse plan must not be generated from a manifest with an unexpected database'
+fi
+[ ! -s "$WORK/extra-database-inverse.sql" ] || fail 'refused manifest still produced an inverse plan'
 
 # The orchestrator must reject catalog surprises before Compose stop or SQL mutation.
 BIN="$WORK/bin"
