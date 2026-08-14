@@ -1,6 +1,6 @@
 services:
   test-db:
-    image: timescale/timescaledb:2.17.2-pg16
+    image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
     environment:
       POSTGRES_USER: avelren_admin
       POSTGRES_PASSWORD: ci-only
