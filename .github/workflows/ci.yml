@@ -126,6 +126,7 @@ jobs:
           bash -n deploy/restore-engine-contract-test.sh
           bash -n deploy/restore-production.sh
           bash -n deploy/restore-verify.sh
+          bash -n deploy/restore-verify-guard-contract-test.sh
           bash -n deploy/restore-production-contract-test.sh
           bash -n deploy/restore-production-integration-test.sh
           sudo install -m 0755 deploy/backup.sh /usr/local/sbin/avelren-backup
@@ -140,6 +141,7 @@ jobs:
         run: |
           bash deploy/restore-contract-test.sh
           bash deploy/restore-engine-contract-test.sh
+          bash deploy/restore-verify-guard-contract-test.sh
 
       - name: Restore allowlist contract
         timeout-minutes: 5
