@@ -112,7 +112,7 @@ async def pipeline(conn: AsyncConnection) -> dict:
                                                                           AS errors_last_hour,
                 (SELECT count(*) FROM collector_runs
                   WHERE time > now() - INTERVAL '1 hour' AND error IS NULL)
-                                                                          AS successful_runs_last_hour,
+                                                        AS successful_runs_last_hour,
                 (SELECT count(*) FROM devices)                            AS devices,
                 (SELECT count(*) FROM subscriptions WHERE is_active)      AS subscriptions,
                 (SELECT count(*) FROM eta_targets WHERE is_active)        AS eta_targets,
