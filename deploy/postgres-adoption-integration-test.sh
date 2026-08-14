@@ -2339,11 +2339,52 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
     [ "$(prod_query "SELECT max(version) FROM schema_migrations")" = 009_observability ] || { echo "rollback: schema_migrations changed" >&2; exit 1; }
     echo 'postgres adoption production failure-rollback: PASS'
 
+    # Reset the observable side-channels so the happy-path run's evidence is not
+    # confused with the drift-abort/rollback sub-cases above. Clients are up
+    # before the maintenance window, as in production.
+    : >"$WORK/gates.log"
+    : >"$WORK/services.log"
+    printf '%s\n' running >"$WORK/services.state"
+
     if ! run_production_adoption >"$WORK/production.out" 2>&1; then
         cat "$WORK/production.out" >&2
         echo 'production adoption did not exit 0' >&2
         exit 1
     fi
+
+    # H. Stage 3B.2 boundary — the production hold must run ONLY the read-only
+    # privilege-contract acceptance and restart clients on the UNCHANGED legacy
+    # DSN: never migrate, never a DSN cutover, never a second (credential-
+    # switched) engine, never a restart onto a new DSN. adopt.sh guarantees this
+    # by construction (the production hold exits before the full cutover gate
+    # loop); assert the observable evidence so a regression in that control flow
+    # is caught here rather than only in review.
+    #
+    # H.1 Exactly one gate ran — privilege_contracts. Its presence proves the
+    # acceptance ran; its being the ONLY line proves migrate, compose_credential_
+    # switch, smoke, collector_freshness and environment_isolation did NOT.
+    printf '%s\n' privilege_contracts >"$WORK/expected-production-gates"
+    cmp -s "$WORK/expected-production-gates" "$WORK/gates.log" || \
+        prod_fail "production hold ran gates other than privilege_contracts: [$(tr '\n' ',' <"$WORK/gates.log")]"
+
+    # H.2 The published stage is a committed hold, not an accepted cutover.
+    grep -Fxq 'stage=committed' "$EVIDENCE/stage" || \
+        prod_fail 'production stage is not the committed hold'
+    if grep -Fxq 'stage=cutover_complete' "$EVIDENCE/stage" || \
+       grep -Fxq 'accepted_cutover=PASS' "$EVIDENCE/stage"; then
+        prod_fail 'production hold recorded a DSN cutover'
+    fi
+
+    # H.3 Clients were brought back with `up -d` on the legacy DSN (exactly once),
+    # after the maintenance stop — no second, credential-switched runtime.
+    [ "$(grep -c 'up -d caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || \
+        prod_fail 'production hold did not restart clients on the legacy DSN exactly once'
+    grep -q 'stop caddy api collector notifier watchdog' "$WORK/services.log" || \
+        prod_fail 'production hold did not enter a maintenance stop'
+
+    # H.4 Clients are running again after the committed hold.
+    [ "$(cat "$WORK/services.state")" = running ] || \
+        prod_fail 'clients were not restarted after the committed production hold'
 
     # 1. All seven least-privilege roles still exist.
     for prod_role in avelren_admin avelren_migrator avelren_backup avelren_collector \
