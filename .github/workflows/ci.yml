@@ -154,6 +154,15 @@ jobs:
         timeout-minutes: 10
         run: bash deploy/restore-production-contract-test.sh
 
+      # The privilege gate is the post-commit acceptance for production adoption.
+      # It was previously only `bash -n`-checked, never executed, which is how a
+      # gate that could not run at all reached a production attempt (2026-08-14):
+      # it aborted on app/tests/conftest.py's destructive-suite guard before any
+      # assertion. A syntax check cannot catch that; running the contract can.
+      - name: Privilege gate contract
+        timeout-minutes: 5
+        run: bash deploy/postgres-privilege-gate-contract-test.sh
+
       - name: Actual disposable restore integration
         timeout-minutes: 20
         run: bash deploy/restore-integration-test.sh
