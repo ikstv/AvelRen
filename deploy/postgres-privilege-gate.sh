@@ -64,14 +64,33 @@ cd "$ROOT"
 # non-mutating by construction.
 TESTS=app/tests/test_db_privileges.py
 
-# `exec` so pytest's exit status is this runner's exit status verbatim.
+# `--noconftest` is REQUIRED, not an optimisation. app/tests/conftest.py exists to
+# protect the destructive suite: its `pytest_configure` aborts before collection
+# unless DATABASE_URL is set, AVELREN_TEST_DB=1, AND the database name contains
+# "test" or "ci". Production's database is `avelren`, so that guard can never be
+# satisfied here — correctly, because it is guarding a suite that runs DELETEs.
+#
+# Without this flag the gate aborted with `Exit: DATABASE_URL не задано` (rc=3)
+# before running a single assertion. That is what failed the 3B.2 production
+# attempt on 2026-08-14: the post-commit gate could not run, so a correctly
+# committed adoption was rolled back.
+#
+# Satisfying the guard instead — exporting DATABASE_URL and AVELREN_TEST_DB=1 for
+# the production database — would defeat the exact safeguard that stops the
+# destructive suite from touching production. So the gate must not load that
+# conftest at all. It does not need it: the seven tests selected below are
+# introspection-only and self-contained; they build their own connections from
+# the per-role *_DATABASE_URL variables via `connect_env()` and use no conftest
+# fixture. `app/tests/conftest.py` is the only conftest in the tree, so nothing
+# else is lost. Normal pytest runs still load it and are still refused against a
+# non-test database.
 exec "$DOCKER_BIN" compose \
     -f "$COMPOSE_FILE" -f "$GATE_COMPOSE_FILE" -p "$COMPOSE_PROJECT" \
     run --rm --no-deps -T \
     -e ADMIN_DATABASE_URL -e COLLECTOR_DATABASE_URL -e NOTIFIER_DATABASE_URL \
     -e WATCHDOG_DATABASE_URL -e API_DATABASE_URL -e BACKUP_DATABASE_URL \
     "$GATE_SERVICE" \
-    python -m pytest -q -p no:cacheprovider \
+    python -m pytest -q -p no:cacheprovider --noconftest \
         "$TESTS::test_role_has_no_elevated_capability" \
         "$TESTS::test_table_privileges_match_frozen_acl" \
         "$TESTS::test_sequence_privileges_match_frozen_acl" \

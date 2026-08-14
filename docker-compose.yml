@@ -61,6 +61,16 @@ services:
       DATABASE_URL: ${AVELREN_COLLECTOR_DSN}
       ECHERHA_BASE_URL: ${ECHERHA_BASE_URL}
       ECHERHA_VEHICLE_TYPE: ${ECHERHA_VEHICLE_TYPE}
+      # The collector identifies itself to eCherha with a device identity.
+      # config.py requires ECHERHA_DEVICE_ID to be a valid UUID; without these
+      # the collector aborts at startup with "ECHERHA_DEVICE_ID must be a valid
+      # UUID" and collects nothing. They were missing here while present in .env,
+      # so a container recreated from the current compose could not collect
+      # (surfaced by the 2026-08-14 adoption incident, which recreated it).
+      ECHERHA_API_VERSION: ${ECHERHA_API_VERSION}
+      ECHERHA_CLIENT_VERSION: ${ECHERHA_CLIENT_VERSION}
+      ECHERHA_DEVICE_ID: ${ECHERHA_DEVICE_ID}
+      ECHERHA_DEVICE_NAME: ${ECHERHA_DEVICE_NAME}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
       HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS}
       CONTACT_EMAIL: ${CONTACT_EMAIL}

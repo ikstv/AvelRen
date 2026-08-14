@@ -58,6 +58,24 @@ jobs:
             exit 1
           fi
 
+      # AGENTS.md rule 1: only the `collector` service talks to echerha.gov.ua —
+      # never the mobile app, web front-end or user's browser. If a client lacks
+      # data we extend our own API, we do not let the client reach eCherha
+      # directly. Enforce it: the Android app's production sources must contain no
+      # string literal naming echerha / *.gov.ua (a hard-coded upstream URL or
+      # host). Matches quoted literals only, so the documenting comment in
+      # Api.kt — which names the host in prose to state the rule — does not trip
+      # it; test sources are excluded because they legitimately deserialize the
+      # server's telemetry, which reports the collector's upstream URL as data.
+      - name: Мобільний застосунок не ходить до єЧерги
+        run: |
+          set -e
+          if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main --include='*.kt'; then
+            echo "ПОРУШЕННЯ AGENTS.md правило 1: у застосунку знайдено пряме посилання на єЧергу/gov.ua."
+            echo "Клієнт має ходити ВИКЛЮЧНО на наш API (BuildConfig.API_BASE_URL). Розширюйте API, не пускайте телефон назовні."
+            exit 1
+          fi
+
   backend-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 240
@@ -153,6 +171,15 @@ jobs:
       - name: Production orchestrator contract tests
         timeout-minutes: 10
         run: bash deploy/restore-production-contract-test.sh
+
+      # The privilege gate is the post-commit acceptance for production adoption.
+      # It was previously only `bash -n`-checked, never executed, which is how a
+      # gate that could not run at all reached a production attempt (2026-08-14):
+      # it aborted on app/tests/conftest.py's destructive-suite guard before any
+      # assertion. A syntax check cannot catch that; running the contract can.
+      - name: Privilege gate contract
+        timeout-minutes: 5
+        run: bash deploy/postgres-privilege-gate-contract-test.sh
 
       - name: Actual disposable restore integration
         timeout-minutes: 20
