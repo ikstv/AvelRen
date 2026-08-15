@@ -8,8 +8,8 @@
 """
 
 import asyncio
+import json
 import os
-import time
 from datetime import UTC, datetime, timedelta
 
 import psycopg
@@ -211,40 +211,40 @@ def test_recovery_not_resent_when_already_notified(conn, device, monkeypatch):
 # --- M-12: тривога на протухлий бекап --------------------------------------
 
 
-def test_backup_age_hours(monkeypatch, tmp_path):
-    """Чистий хелпер: None без штампа, вік у годинах, поріг протухання."""
-    stamp = tmp_path / "avelren-backup.stamp"
-    monkeypatch.setattr(watchdog, "BACKUP_STAMP_PATH", stamp)
+def _write_snapshot(monkeypatch, tmp_path, data):
+    snap = tmp_path / "host.json"
+    snap.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", snap)
 
-    # Немає штампа — свіжий деплой або щойно ребутнутий хост (штамп на tmpfs):
-    # тривоги бути НЕ має, інакше вона хибна.
+
+def test_backup_age_hours(monkeypatch, tmp_path):
+    """Чистий хелпер: None без snapshot/поля, вік із snapshot, поріг протухання."""
+    monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", tmp_path / "absent.json")
+
+    # Немає snapshot — свіжий деплой або щойно ребутнутий хост: тривоги НЕ має.
+    assert watchdog._backup_age_hours() is None
+
+    # Поле є, але null (штамп ще не створювався) — теж None, не хибна тривога.
+    _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": None}})
     assert watchdog._backup_age_hours() is None
 
     # Свіжий бекап — майже нуль годин, не проблема.
-    stamp.touch()
+    _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 0.5}})
     assert watchdog._backup_age_hours() < 1
 
     # 40 год без бекапу — це ≥2 добові прогони поспіль, реальна проблема.
-    old = time.time() - 40 * 3600
-    os.utime(stamp, (old, old))
+    _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 40.0}})
     assert watchdog._backup_age_hours() > watchdog.BACKUP_STALE_HOURS
 
     # 30 год — один пропущений добовий прогін ще терпимо, не будимо адміна.
-    recent = time.time() - 30 * 3600
-    os.utime(stamp, (recent, recent))
+    _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 30.0}})
     assert watchdog._backup_age_hours() < watchdog.BACKUP_STALE_HOURS
 
 
 def test_backup_stale_surfaces_in_checks(conn, monkeypatch, tmp_path):
-    """Протухлий штамп піднімає problem 'backup_stale'; свіжий — прибирає."""
-    stamp = tmp_path / "avelren-backup.stamp"
-    stamp.touch()
-    monkeypatch.setattr(watchdog, "BACKUP_STAMP_PATH", stamp)
-
-    old = time.time() - 40 * 3600
-    os.utime(stamp, (old, old))
+    """Протухлий вік піднімає problem 'backup_stale'; свіжий — прибирає."""
+    _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 40.0}})
     assert "backup_stale" in _run(watchdog._checks)
 
-    now = time.time()
-    os.utime(stamp, (now, now))
+    _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 0.0}})
     assert "backup_stale" not in _run(watchdog._checks)
