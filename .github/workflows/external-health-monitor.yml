@@ -1,0 +1,106 @@
+# Independent black-box monitor (issue #22, audit F8). The runtime's own
+# watchdog alerts over FCM through this same API — so a host/network/Docker
+# outage silences the app AND its alarm at once (that is exactly what
+# happened 2026-08-14: the outage was noticed only because an operator was
+# watching). This job runs on GitHub's infrastructure, not AvelRen's, and
+# checks the public endpoint from outside — so it keeps working when the
+# host doesn't. Alerting is a GitHub issue (dead-man's-switch: opened once
+# per outage, auto-closed on recovery), deliberately avoiding any channel
+# that routes back through the AvelRen stack.
+name: External health monitor
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+env:
+  HEALTH_URL: https://api.bordersignal.pp.ua/health
+  OUTAGE_LABEL: monitor:outage
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ensure outage label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "$OUTAGE_LABEL" --repo "$GITHUB_REPOSITORY" \
+            --color d73a4a \
+            --description "Opened by the external health monitor; closes automatically on recovery" \
+            --force
+
+      - name: Probe public /health from outside the AvelRen host
+        id: probe
+        run: |
+          set +e
+          http_code=$(curl -sS --connect-timeout 10 --max-time 15 \
+            -o /tmp/health.json -w '%{http_code}' "$HEALTH_URL")
+          curl_exit=$?
+          set -e
+
+          status=unknown
+          age=null
+          if [ "$curl_exit" -eq 0 ] && [ -s /tmp/health.json ]; then
+            status=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo unknown)
+            age=$(jq -r '.age_seconds // "null"' /tmp/health.json 2>/dev/null || echo null)
+          fi
+
+          healthy=false
+          if [ "$curl_exit" -eq 0 ] && [ "$http_code" = "200" ] && [ "$status" = "ok" ]; then
+            healthy=true
+          fi
+
+          {
+            echo "healthy=$healthy"
+            echo "http_code=$http_code"
+            echo "curl_exit=$curl_exit"
+            echo "status=$status"
+            echo "age=$age"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find open outage issue
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label "$OUTAGE_LABEL" --state open --json number -q '.[0].number // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      # First failing probe after a healthy period: open exactly one issue.
+      # Later failing probes while it's still open change nothing here — no
+      # per-poll spam, the issue itself is the ongoing signal.
+      - name: Open outage issue
+        if: steps.probe.outputs.healthy == 'false' && steps.existing.outputs.number == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "🔴 external monitor: /health check failing" \
+            --label "$OUTAGE_LABEL" \
+            --body "Independent check against \`$HEALTH_URL\`, run from GitHub Actions (not the AvelRen host), is failing.
+
+- HTTP status: \`${{ steps.probe.outputs.http_code }}\`
+- curl exit code: \`${{ steps.probe.outputs.curl_exit }}\`
+- reported status: \`${{ steps.probe.outputs.status }}\`
+- age_seconds: \`${{ steps.probe.outputs.age }}\`
+- first detected: $(date -u +%FT%TZ)
+
+This issue closes automatically when the next scheduled probe (every 10 min) succeeds. If it does not, /health is still down or unreachable — check the host directly."
+
+      # Recovery: close the one issue this outage opened, with a timestamp
+      # so the outage duration is visible in the issue history.
+      - name: Close resolved outage issue
+        if: steps.probe.outputs.healthy == 'true' && steps.existing.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY" \
+            --body "Recovered: $(date -u +%FT%TZ). HTTP 200, status ok."
+          gh issue close "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY"
