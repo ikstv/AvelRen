@@ -1,5 +1,6 @@
 package ua.avelren.app.data
 
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,11 +34,22 @@ class InstallationRepository(
             store.load()?.also { creds = it; _state.value = InstallationState.Ready(it.deviceId) }
         }
         resumePendingTokenSync()
-        val token = runCatching { tokens.currentToken() }.getOrNull()
+        val tokenResult = runCatching { tokens.currentToken() }
+        val token = tokenResult.getOrNull()
         if (token != null) onNewFcmToken(token)
         else if (mutex.withLock { creds ?: store.load() } == null &&
             pendingTokenMutex.withLock { pendingTokens.load() } == null) {
-            _state.value = InstallationState.Unavailable("немає FCM-токена для реєстрації")
+            // Аудит 2026-08-15: цей виняток раніше ковтався мовчки
+            // (.getOrNull()), і саме тому потрібен був тимчасовий Log.e,
+            // щоб дістати справжню причину (невалідний google-services.json
+            // → FirebaseMessaging.getToken() кидав IllegalArgumentException
+            // ще до мережі). Reason тепер несе повідомлення винятку, а не
+            // узагальнений текст; Log.w — постійний, щоб наступного разу
+            // причина була видна з першого logcat, без тимчасової правки коду.
+            val cause = tokenResult.exceptionOrNull()
+            val reason = cause?.message ?: "немає FCM-токена для реєстрації"
+            Log.w("Installation", "FCM-токен недоступний: installation Unavailable", cause)
+            _state.value = InstallationState.Unavailable(reason)
         }
     }
 

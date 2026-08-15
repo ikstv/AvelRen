@@ -299,6 +299,24 @@ class InstallationRepositoryTest {
         assertNull(store.current)
     }
 
+    // 16 — аудит 2026-08-15: причина Unavailable мала нести справжній виняток
+    // FCM-провайдера, а не узагальнений текст. Раніше .getOrNull() ковтав його
+    // мовчки, і саме тому знадобився тимчасовий Log.e, щоб дістати "Please set
+    // a valid API key" при зламаному google-services.json.
+    @Test
+    fun `initialize with no credentials surfaces the real token failure as reason`() = runTest {
+        val api = FakeApi()
+        val store = FakeStore(seed = null)
+        val tokens = FakeTokens().apply { fail = true }
+        val r = repo(api, store, tokens, backgroundScope)
+
+        r.initialize()
+
+        val state = r.state.value
+        assertTrue(state is InstallationState.Unavailable)
+        assertEquals("play services offline", (state as InstallationState.Unavailable).reason)
+    }
+
     // 12 (seam для UI без instrumented Compose)
     @Test
     fun `protected load runs when installation becomes Ready`() = runTest(UnconfinedTestDispatcher()) {
