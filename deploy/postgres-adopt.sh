@@ -152,6 +152,54 @@ compose() {
     "${args[@]}" "$@"
 }
 
+# Stage 3B.2 restarts the runtime on the legacy `avelren` DSN — see the comments
+# at each restart site. The tracked compose wires runtime services to per-role
+# DSNs, which only work once adoption's migration-010 grants exist. On an
+# un-adopted database — including one a rollback has just restored to its
+# pre-adoption state, revoking those grants — the per-role roles cannot connect
+# and every service fails `permission denied`, taking the site down. That is the
+# 2026-08-14 outage. Restart through a generated overlay that remaps the runtime
+# services to the legacy DSN, so they come up whether or not the grants exist.
+#
+# The overlay carries `${DATABASE_URL}` (resolved from the stack .env at compose
+# time), never a literal credential, and `:?` makes an unset legacy DSN fail
+# loudly instead of substituting an empty one. This is NOT the 3C per-role
+# cutover: that restart (below, after all success gates) is left on the per-role
+# DSNs by design.
+_write_legacy_dsn_overlay() {
+    local path=$1
+    cat >"$path" <<'YAML'
+services:
+  migrate:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?legacy DSN required for the 3B.2 runtime restart}
+  collector:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?legacy DSN required for the 3B.2 runtime restart}
+  notifier:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?legacy DSN required for the 3B.2 runtime restart}
+  watchdog:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?legacy DSN required for the 3B.2 runtime restart}
+  api:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?legacy DSN required for the 3B.2 runtime restart}
+YAML
+}
+
+restart_runtime_on_legacy_dsn() {
+    local overlay="$EVIDENCE_DIR/legacy-dsn.override.yml"
+    _write_legacy_dsn_overlay "$overlay"
+    # An explicit base + overlay pair: `-f` disables compose's default file
+    # discovery, so the base must be named too. In production COMPOSE_FILE is
+    # empty and the base is the stack's docker-compose.yml (adopt.sh has cd'd to
+    # STACK_DIR); in the disposable tests it is the temp compose file.
+    local args=("$DOCKER_BIN" compose -f "${COMPOSE_FILE:-docker-compose.yml}" -f "$overlay")
+    [ -z "$COMPOSE_PROJECT" ] || args+=(-p "$COMPOSE_PROJECT")
+    "${args[@]}" up -d caddy api collector notifier watchdog
+}
+
 [ -n "$EVIDENCE_DIR" ] || fail 'evidence directory is required'
 if [ "$RETIRE_LEGACY" = true ]; then
     retirement_attempt_commit=NOT_VERIFIED
@@ -547,7 +595,7 @@ rollback_committed_adoption() {
             return 1
         fi
         log 'post-commit inverse rollback verified: exact owner/ACL fingerprint restored'
-        if ! compose up -d caddy api collector notifier watchdog; then
+        if ! restart_runtime_on_legacy_dsn; then
             log 'ADOPTION FAILED: verified rollback completed but previous runtime restart failed; manual intervention required' >&2
             return 1
         fi
@@ -662,7 +710,7 @@ if [ "$PRODUCTION_ADOPT" = true ]; then
     # failure is surfaced as a distinct non-zero exit — the adoption is already
     # committed and correct, so it is not rolled back, but the operator must not
     # read a down runtime as a clean success.
-    if ! compose up -d caddy api collector notifier watchdog; then
+    if ! restart_runtime_on_legacy_dsn; then
         log 'ADOPTION COMMITTED, but clients did NOT restart on the legacy DSN. The adoption is valid and must NOT be rolled back; restart the clients manually (compose up -d) and verify health.' >&2
         exit 3
     fi

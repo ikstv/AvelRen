@@ -1299,6 +1299,33 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
             echo "$name did not restart only after exact verification" >&2
             exit 1
         }
+        # F2 regression (the 2026-08-14 runtime outage). The rollback restored the
+        # per-adoption DB to its pre-adoption state, revoking the per-role grants,
+        # so the runtime MUST be restarted on the legacy DSN or every service
+        # fails `permission denied` and the site stays down. Prove adopt.sh
+        # restarts through the generated legacy-DSN overlay — the exact mechanism
+        # whose absence caused the outage. (This is a contract assertion on the
+        # recorded compose invocation; the disposable harness cannot open a real
+        # per-role connection because its runtime services are sleep placeholders,
+        # which is itself why the outage was invisible here before this guard.)
+        grep -q 'legacy-dsn.override.yml' "$WORK/services.log" || {
+            echo "$name restarted the runtime without the legacy-DSN overlay (2026-08-14 outage class)" >&2
+            exit 1
+        }
+        [ -f "$EVIDENCE/legacy-dsn.override.yml" ] || {
+            echo "$name did not write the legacy-DSN overlay" >&2
+            exit 1
+        }
+        grep -qF 'DATABASE_URL: ${DATABASE_URL' "$EVIDENCE/legacy-dsn.override.yml" || {
+            echo "$name overlay does not remap the runtime to the legacy DSN" >&2
+            exit 1
+        }
+        # The overlay must carry ${DATABASE_URL}, resolved from .env at compose
+        # time — never a literal credential written to the evidence dir.
+        ! grep -qE 'postgresql://|ci-only|PASSWORD' "$EVIDENCE/legacy-dsn.override.yml" || {
+            echo "$name overlay leaked a literal credential to disk" >&2
+            exit 1
+        }
         grep -Fxq 'stage=post_commit_rollback' "$EVIDENCE/stage"
         grep -Fxq 'inverse_verified=PASS' "$EVIDENCE/stage"
     }
