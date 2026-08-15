@@ -34,6 +34,16 @@ WORK=$(mktemp -d)
 readonly PROJECT COMPOSE_FILE_POSIX COMPOSE_PROJECT_DIR_POSIX COMPOSE_ENV_FILE_POSIX WORK
 
 printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=isolated' >"$COMPOSE_ENV_FILE_POSIX"
+# F2. adopt.sh's legacy-DSN overlay carries `${DATABASE_URL:?...}`, resolved from
+# the stack .env at compose time — never a literal credential in the overlay. In
+# production that value lives in the stack's .env; the disposable harness has to
+# supply the equivalent or the 3B.2 restart fails closed on the `:?` guard
+# instead of exercising the path under test. This is the legacy `avelren` role,
+# deliberately the SAME DSN production falls back to, so the probe's
+# actual_role= verdict distinguishes a legacy restart from a per-role one.
+printf '%s\n' \
+    'DATABASE_URL=postgresql://avelren:legacy-ci-only@db:5432/avelren_adoption_test' \
+    >>"$COMPOSE_ENV_FILE_POSIX"
 printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=poison' >"$COMPOSE_PROJECT_DIR_POSIX/.env"
 
 COMPOSE_FILE=$COMPOSE_FILE_POSIX
@@ -161,10 +171,71 @@ cleanup() {
 trap cleanup EXIT
 
 cat >"$COMPOSE_FILE_POSIX" <<EOF
-x-runtime: &runtime
+x-idle: &idle
   image: timescale/timescaledb:2.17.2-pg16
   entrypoint: ["/bin/sh", "-c"]
   command: ["trap 'exit 0' TERM INT; while :; do sleep 3600; done"]
+  depends_on:
+    db:
+      condition: service_healthy
+# F2. The runtime services used to be inert sleepers, which is exactly why the
+# 2026-08-14 outage was invisible to this suite: a restart onto a DSN whose role
+# cannot connect looked identical to a healthy one. Each runtime service now
+# opens a real connection with the DATABASE_URL Compose actually resolved for it
+# and prints one machine-readable verdict, then idles as before.
+#
+# The run id ties a verdict to one specific forwarded \`up\`. Without it a stale
+# PASS from an earlier scenario in the same Compose project would be read as
+# this scenario's result — the containers are long-lived and \`logs\` is
+# cumulative. current_user is reported rather than self-asserted so the
+# assertion can check WHICH role connected, not merely that something did.
+x-runtime: &runtime
+  image: timescale/timescaledb:2.17.2-pg16
+  entrypoint: ["/bin/sh", "-c"]
+  # Every \$ below is doubled. Compose interpolates the whole model — including
+  # command strings — BEFORE the container ever sees them, so a single-\$ shell
+  # variable here is substituted at parse time, not at run time. Unescaped, this
+  # script emits a blank verdict (\`PROBE_RESULT= ... actual_role=\`) and inlines
+  # the resolved DSN, credential and all, into the container's command line
+  # where \`docker inspect\` and \`compose config\` expose it. \$\$ is Compose's
+  # literal-\$ escape and is what reaches /bin/sh.
+  #
+  # The single-\$ interpolations are deliberate and live in \`environment:\` below:
+  # those MUST resolve at parse time, because that is how the run id reaches the
+  # container at all.
+  command:
+    - |
+      probe_role=UNKNOWN
+      probe_verdict=FAIL
+      # Connecting is NOT the contract. 010 grants no CONNECT and revokes none:
+      # LOGIN comes from bootstrap.sql, outside 010, and PUBLIC keeps its default
+      # CONNECT. So after a rollback strips 010 the per-role roles still connect
+      # fine and \`SELECT current_user\` — which needs no table privilege at all —
+      # still returns cleanly. A verdict built on that alone can never go FAIL,
+      # which is why the 2026-08-14 outage was caught here only by comparing the
+      # role name. The verdict is only load-bearing if it touches a relation 010
+      # actually grants, so each service reads one table from its own grant set.
+      for _ in 1 2 3 4 5; do
+          if probe_role=\$\$(psql "\$\$DATABASE_URL" -Atqc 'SELECT current_user' 2>/dev/null); then
+              # A row is not required and must not be: these tables are legitimately
+              # empty here. Only the absence of an error proves the privilege.
+              if psql "\$\$DATABASE_URL" -Atqc \\
+                  "SELECT 1 FROM \$\${AVELREN_PROBE_TABLE:-missing_probe_table} LIMIT 1" \\
+                  >/dev/null 2>&1; then
+                  probe_verdict=PASS
+                  break
+              fi
+              # Keep the role: connected-but-unprivileged is the outage signature,
+              # and the assertion still needs to report WHICH role got that far.
+              probe_verdict=FAIL
+          else
+              probe_role=UNKNOWN
+          fi
+          sleep 2
+      done
+      echo "PROBE_RESULT=\$\$probe_verdict run_id=\$\${AVELREN_PROBE_RUN_ID:-none} service=\$\${AVELREN_PROBE_SERVICE:-unknown} actual_role=\$\$probe_role table=\$\${AVELREN_PROBE_TABLE:-none}"
+      trap 'exit 0' TERM INT
+      while :; do sleep 3600; done
   depends_on:
     db:
       condition: service_healthy
@@ -197,20 +268,48 @@ services:
     <<: *runtime
     environment:
       DATABASE_URL: postgresql://avelren_api:api-ci-only@db:5432/avelren_adoption_test
+      AVELREN_PROBE_SERVICE: api
+      AVELREN_PROBE_RUN_ID: \${AVELREN_PROBE_RUN_ID:-none}
+      # 010 grants avelren_api table-level SELECT on checkpoints.
+      AVELREN_PROBE_TABLE: checkpoints
   collector:
     <<: *runtime
     environment:
       DATABASE_URL: postgresql://avelren_collector:collector-ci-only@db:5432/avelren_adoption_test
+      AVELREN_PROBE_SERVICE: collector
+      AVELREN_PROBE_RUN_ID: \${AVELREN_PROBE_RUN_ID:-none}
+      # 010 grants avelren_collector SELECT,INSERT,UPDATE on checkpoints.
+      AVELREN_PROBE_TABLE: checkpoints
   notifier:
     <<: *runtime
     environment:
       DATABASE_URL: postgresql://avelren_notifier:notifier-ci-only@db:5432/avelren_adoption_test
+      AVELREN_PROBE_SERVICE: notifier
+      AVELREN_PROBE_RUN_ID: \${AVELREN_PROBE_RUN_ID:-none}
+      # 010 grants avelren_notifier table-level SELECT on alerts.
+      AVELREN_PROBE_TABLE: alerts
   watchdog:
     <<: *runtime
     environment:
       DATABASE_URL: postgresql://avelren_watchdog:watchdog-ci-only@db:5432/avelren_adoption_test
+      AVELREN_PROBE_SERVICE: watchdog
+      AVELREN_PROBE_RUN_ID: \${AVELREN_PROBE_RUN_ID:-none}
+      # 010 grants avelren_watchdog table-level SELECT on observations.
+      AVELREN_PROBE_TABLE: observations
+  # adopt.sh's generated legacy-DSN overlay names \`migrate\` alongside the four
+  # runtime services. Compose validates the whole merged model on every command,
+  # so an overlay key for a service the base file never declares aborts the
+  # restart with "no image or build context" — for the base file's OWN services
+  # too. This service exists so the overlay is loadable; it is never in the
+  # \`up\` list adopt.sh passes, so it is declared and never started.
+  migrate:
+    <<: *idle
+    environment:
+      DATABASE_URL: postgresql://avelren_migrator:migrator-ci-only@db:5432/avelren_adoption_test
+  # caddy carries no DATABASE_URL in production either — it must stay a pure
+  # idler, or the probe would assert connectivity for a service that has no DSN.
   caddy:
-    <<: *runtime
+    <<: *idle
 EOF
 
 readonly TARGET_DB=avelren_adoption_test
@@ -368,6 +467,71 @@ cat >"$BIN/docker" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$ADOPTION_SERVICE_LOG"
 state=$(cat "$ADOPTION_SERVICE_STATE" 2>/dev/null || printf running)
+
+# Forward the caller's OWN argv to the real docker instead of rebuilding it.
+# Rebuilding is what hid the 2026-08-14 outage: adopt.sh's `-f <legacy overlay>`
+# was dropped on the floor, so the harness restarted the runtime on the tracked
+# per-role DSNs and never exercised the overlay it was asserting the text of.
+#
+# Everything up to the compose subcommand is a global flag and stays in `pre`;
+# the subcommand and its arguments stay in `post`. The boundary is the
+# subcommand, NOT the first `-f`: adopt.sh's post-cutover restart goes through
+# its generic compose() helper, which emits NO `-f` at all when COMPOSE_FILE is
+# empty (it is, here). Anchoring on `-f` would leave that call unanchored.
+_forward() {
+    local -a pre=() post=()
+    local seen=0 has_f=0 has_p=0 want_path=0 a
+    for a in "$@"; do
+        if [ "$seen" -eq 1 ]; then post+=("$a"); continue; fi
+        if [ "$want_path" -eq 1 ]; then
+            want_path=0
+            # adopt.sh writes the overlay into the evidence dir as a POSIX path.
+            # MSYS_NO_PATHCONV=1 (correctly) stops the shell rewriting it, so on
+            # Windows the conversion has to happen here or Docker Desktop is
+            # handed a path it cannot resolve.
+            case "$a" in
+                /*) if command -v cygpath >/dev/null 2>&1; then a=$(cygpath -w "$a"); fi ;;
+            esac
+            pre+=("$a")
+            continue
+        fi
+        case "$a" in
+            up|down|ps|stop|logs|inspect)
+                seen=1
+                post+=("$a")
+                if [ "$a" = up ]; then
+                    # --no-deps is load-bearing: `db` is a depends_on of every
+                    # runtime service and holds the disposable cluster in the
+                    # container itself (no volume). Recreating it would destroy
+                    # the database mid-adoption. --force-recreate makes the probe
+                    # re-run for this run id even when the resolved config is
+                    # byte-identical to the previous scenario's.
+                    post+=(--no-deps --force-recreate)
+                fi
+                continue
+                ;;
+            -f|--file) has_f=1; want_path=1 ;;
+            -p|--project-name) has_p=1 ;;
+        esac
+        pre+=("$a")
+    done
+    # Only supply what the caller did not: adopt.sh adds its own -p when
+    # COMPOSE_PROJECT is set, and duplicating it makes compose reject the call.
+    [ "$has_f" -eq 1 ] || pre+=(-f "$ADOPTION_COMPOSE_FILE")
+    [ "$has_p" -eq 1 ] || pre+=(-p "$ADOPTION_PROJECT")
+    pre+=(--project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE")
+    MSYS_NO_PATHCONV=1 "$ADOPTION_REAL_DOCKER" "${pre[@]}" "${post[@]}"
+}
+
+# One id per forwarded `up`, published so the assertions read this restart's
+# verdict and never a cumulative earlier one.
+_forward_up() {
+    AVELREN_PROBE_RUN_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s' "$$" "${RANDOM}")
+    export AVELREN_PROBE_RUN_ID
+    printf '%s\n' "$AVELREN_PROBE_RUN_ID" >"$ADOPTION_PROBE_RUN_ID"
+    _forward "$@" >/dev/null
+}
+
 case " $* " in
     *' ps --status running --services '*)
         if [ "$state" = running ]; then
@@ -413,17 +577,14 @@ EOF
                     exit 1
                 }
             done
-            MSYS_NO_PATHCONV=1 "$ADOPTION_REAL_DOCKER" compose \
-                --project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE" \
-                -p "$ADOPTION_PROJECT" -f "$ADOPTION_COMPOSE_FILE" \
-                up --detach caddy api collector notifier watchdog >/dev/null
+            # Forward only AFTER every gate above has passed. These checks are
+            # the fail-closed core of the cutover contract; a blanket top-level
+            # forward would silently delete them.
+            _forward_up "$@"
         elif grep -Fxq 'stage=committed' "$AVELREN_EVIDENCE_DIR/stage" 2>/dev/null; then
             # Production hold (Stage 3B.2): committed adoption restarts clients on
             # the unchanged legacy DSN — no cutover gates, no rollback.
-            MSYS_NO_PATHCONV=1 "$ADOPTION_REAL_DOCKER" compose \
-                --project-directory "$ADOPTION_PROJECT_DIR" --env-file "$ADOPTION_ENV_FILE" \
-                -p "$ADOPTION_PROJECT" -f "$ADOPTION_COMPOSE_FILE" \
-                up --detach caddy api collector notifier watchdog >/dev/null
+            _forward_up "$@"
         elif ! cmp -s "$AVELREN_EVIDENCE_DIR/original.tsv" \
                     "$AVELREN_EVIDENCE_DIR/after-failure.tsv" ||
              ! cmp -s "$AVELREN_EVIDENCE_DIR/original.sha256" \
@@ -432,6 +593,12 @@ EOF
              ! grep -Fxq 'inverse_verified=PASS' "$AVELREN_EVIDENCE_DIR/stage"; then
                 echo 'restart attempted before exact inverse verification' >&2
                 exit 1
+        else
+            # Post-commit rollback restart (Stage 3B.2 after an exact inverse).
+            # This branch previously verified the evidence and then started
+            # nothing, so the one restart whose DSN the 2026-08-14 outage broke
+            # was the one restart never actually performed here.
+            _forward_up "$@"
         fi
         printf '%s\n' running >"$ADOPTION_SERVICE_STATE"
         ;;
@@ -983,6 +1150,13 @@ PROD_TOKEN_FILE="$WORK/production-token"
 printf '%s' 'AVELREN-POSTGRES-ADOPTION-PROD' >"$PROD_TOKEN_FILE"
 chmod 600 "$PROD_TOKEN_FILE"
 
+# AVELREN_COMPOSE_FILE names the disposable stack explicitly. It is not
+# cosmetic: with it unset adopt.sh falls back to `-f docker-compose.yml`
+# resolved against STACK_DIR, i.e. the repository's PRODUCTION compose file —
+# and would additionally pull in a docker-compose.override.yml sitting next to
+# it. That was harmless only while the docker stub discarded the caller's argv;
+# now that the argv is forwarded verbatim, the 3B.2 restart would be attempted
+# against the wrong stack entirely (real build contexts, real volumes).
 run_adoption() {
     env PATH="$BIN:$PATH" AVELREN_PSQL_BIN="$BIN/psql" AVELREN_DOCKER_BIN="$BIN/docker" \
         ADOPTION_REAL_DOCKER="$REAL_DOCKER" ADOPTION_PROJECT_DIR="$COMPOSE_PROJECT_DIR" \
@@ -990,6 +1164,8 @@ run_adoption() {
         ADOPTION_COMPOSE_FILE="$COMPOSE_FILE" ADOPTION_SERVICE_LOG="$WORK/services.log" \
         ADOPTION_SERVICE_STATE="$WORK/services.state" \
         ADOPTION_FORWARD_LOG="$WORK/forward.log" ADOPTION_GATE_LOG="$WORK/gates.log" \
+        ADOPTION_PROBE_RUN_ID="$WORK/probe-run-id" \
+        AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
         AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
         AVELREN_ADMIN_TOOL_DSN="$ADMIN_TOOL_DSN" AVELREN_MIGRATOR_DSN="$MIGRATOR_DSN" \
@@ -1027,6 +1203,8 @@ run_production_adoption() {
         ADOPTION_COMPOSE_FILE="$COMPOSE_FILE" ADOPTION_SERVICE_LOG="$WORK/services.log" \
         ADOPTION_SERVICE_STATE="$WORK/services.state" \
         ADOPTION_FORWARD_LOG="$WORK/forward.log" ADOPTION_GATE_LOG="$WORK/gates.log" \
+        ADOPTION_PROBE_RUN_ID="$WORK/probe-run-id" \
+        AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
         AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
         AVELREN_ADMIN_TOOL_DSN="$ADMIN_TOOL_DSN" AVELREN_MIGRATOR_DSN="$MIGRATOR_DSN" \
@@ -1077,11 +1255,116 @@ run_db_sql() {
         psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q
 }
 
+# --- F2: runtime connectivity verdicts -------------------------------------
+# The suite asserted the TEXT of the compose invocation ("does the argv mention
+# the overlay") and inferred connectivity from it. That inference is exactly
+# what failed on 2026-08-14: the overlay was named and the runtime still could
+# not connect. These helpers read the verdict the containers themselves report.
+PROBE_LINE=
+PROBE_STATE=
+
+# Both results are returned through globals, never stdout: a `$(...)` capture
+# would run this in a subshell, and the PROBE_LINE the caller needs to report
+# WHICH role connected would be discarded with that subshell — leaving the
+# role assertion comparing against an empty string and failing every run.
+#
+# Three states, not two. A probe that never appears (container never started,
+# image pull stalled, compose forwarded nothing) is a different defect from a
+# probe that ran and said FAIL, and collapsing them into one boolean sends the
+# next reader looking in the wrong place.
+wait_for_probe_result() {
+    local service=$1 run_id=$2 deadline=$((SECONDS + 90)) line
+    PROBE_LINE=
+    PROBE_STATE=timeout
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        line=$(real_compose logs --no-color "$service" 2>/dev/null |
+            grep -F 'PROBE_RESULT=' | grep -F "run_id=$run_id " | tail -n 1) || true
+        if [ -n "$line" ]; then
+            PROBE_LINE=$line
+            case "$line" in
+                *PROBE_RESULT=PASS*) PROBE_STATE=pass ;;
+                *) PROBE_STATE=fail ;;
+            esac
+            return 0
+        fi
+        sleep 2
+    done
+    return 0
+}
+
+probe_diagnostics() {
+    local service=$1
+    real_compose ps >&2 || true
+    real_compose logs --no-color --tail 40 "$service" >&2 || true
+}
+
+# mode=legacy    -> every runtime service must have connected as the legacy role
+#                   (the 3B.2 restart, whether after rollback or a committed hold)
+# mode=per_role  -> each service must have connected as its own least-privilege
+#                   role (the 3C cutover, which is deliberately NOT on legacy)
+assert_runtime_probe() {
+    local context=$1 mode=$2 run_id service expected state actual
+    run_id=$(cat "$WORK/probe-run-id" 2>/dev/null || printf '')
+    [ -n "$run_id" ] || {
+        echo "$context: no runtime restart was forwarded to Compose at all" >&2
+        exit 1
+    }
+    for service in api collector notifier watchdog; do
+        case "$mode" in
+            legacy) expected=avelren ;;
+            per_role) expected="avelren_$service" ;;
+            *) echo "unknown probe mode $mode" >&2; exit 1 ;;
+        esac
+        wait_for_probe_result "$service" "$run_id"
+        state=$PROBE_STATE
+        case "$state" in
+            pass) ;;
+            fail)
+                echo "$context: $service restarted but could NOT reach its data on this DSN — connect refused, or connected without the table privilege 010 grants (2026-08-14 outage class) [$PROBE_LINE]" >&2
+                probe_diagnostics "$service"
+                exit 1
+                ;;
+            timeout)
+                echo "$context: $service reported no probe verdict for run $run_id within 90s" >&2
+                probe_diagnostics "$service"
+                exit 1
+                ;;
+        esac
+        # Connectivity alone is not the contract: a restart that connects as the
+        # WRONG role is the same outage with a different symptom. Trust
+        # current_user from the server, never the DSN the probe was handed.
+        #
+        # Extract and compare the role EXACTLY. A `*actual_role=$expected*`
+        # glob cannot do this job: every per-role name is a prefix extension of
+        # the legacy one, so `actual_role=avelren_api` matches an expected
+        # `avelren` and mode=legacy silently accepts the exact per-role restart
+        # the 2026-08-14 outage consisted of. Trim at the first character that
+        # cannot appear in a role name to drop the CR `compose logs` appends.
+        actual=${PROBE_LINE##*actual_role=}
+        actual=${actual%%[![:alnum:]_]*}
+        [ "$actual" = "$expected" ] || {
+            echo "$context: $service connected as $actual, expected $expected [$PROBE_LINE]" >&2
+            exit 1
+        }
+    done
+}
+
+# Scenarios share one long-lived Compose project, so a previous scenario's
+# containers would otherwise satisfy the next scenario's probe before its own
+# restart happened. Remove only the runtime services: `down` would take `db`
+# with it, and the disposable cluster lives in that container with no volume.
+reset_runtime_containers() {
+    real_compose rm --force --stop --volumes \
+        api collector notifier watchdog caddy migrate >/dev/null 2>&1 || true
+    rm -f "$WORK/probe-run-id"
+}
+
 assert_preflight_rejects_unknown_object() {
     local name=$1 setup=$2 cleanup_sql=$3
     run_db_sql <"$setup"
     rm -rf "$EVIDENCE"
     : >"$WORK/services.log"
+    rm -f "$WORK/probe-run-id"
     printf '%s\n' running >"$WORK/services.state"
     if run_adoption >"$WORK/$name.out" 2>&1; then
         echo "$name should fail ownership preflight" >&2
@@ -1197,6 +1480,7 @@ PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -q \
     -c 'CREATE TABLE public.unexpected_relation(id integer); ALTER TABLE public.unexpected_relation OWNER TO avelren;'
 : >"$WORK/services.log"
+rm -f "$WORK/probe-run-id"
 if run_adoption >"$WORK/unknown.out" 2>&1; then
     echo 'unexpected application relation should fail closed' >&2
     exit 1
@@ -1214,6 +1498,7 @@ fi
 # Canonical before_commit scenario must mutate inside one transaction, fail,
 # and leave the exact original owner/ACL fingerprint intact with runtime stopped.
 : >"$WORK/services.log"
+rm -f "$WORK/probe-run-id"
 printf '%s\n' running >"$WORK/services.state"
 if run_adoption >"$WORK/before-commit.out" 2>&1; then
     echo 'before_commit failpoint should abort adoption' >&2
@@ -1242,11 +1527,17 @@ grep -q 'before_commit rollback verified' "$WORK/before-commit.out"
 }
 
 if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
+# F2. Scenarios share one long-lived Compose project. Drop any runtime
+# containers a previous scenario left behind so this scenario's probe
+# verdicts can only come from its own restart.
+reset_runtime_containers
+
     assert_refused_before_mutation() {
         local name=$1 failpoint=$2 expected=$3 current_manifest
         current_manifest="$WORK/$name-current.tsv"
         rm -rf "$EVIDENCE"
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         printf '%s\n' running >"$WORK/services.state"
         if ADOPTION_FAILPOINT="$failpoint" run_adoption >"$WORK/$name.out" 2>&1; then
             echo "$name terminal path should fail closed" >&2
@@ -1328,6 +1619,10 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
         }
         grep -Fxq 'stage=post_commit_rollback' "$EVIDENCE/stage"
         grep -Fxq 'inverse_verified=PASS' "$EVIDENCE/stage"
+        # The assertions above prove adopt.sh NAMED the overlay. This one proves
+        # the restart it produced actually works: every runtime service opened a
+        # connection, and did so as the legacy role the rollback left grants for.
+        assert_runtime_probe "$name" legacy
     }
 
     assert_committed_failure_rollback() {
@@ -1335,6 +1630,7 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
         output="$WORK/committed-$failurepoint.out"
         rm -rf "$EVIDENCE"
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         printf '%s\n' running >"$WORK/services.state"
         if ADOPTION_FAILPOINT=after_commit ADOPTION_COMMITTED_FAILPOINT="$failurepoint" \
             run_adoption >"$output" 2>&1; then
@@ -1359,6 +1655,7 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
         current_manifest="$WORK/committed-cleanup-current.tsv"
         rm -rf "$EVIDENCE"
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         : >"$WORK/forward.log"
         printf '%s\n' running >"$WORK/services.state"
         if ADOPTION_FAILPOINT=after_commit ADOPTION_COMMITTED_FAILPOINT=cleanup \
@@ -1412,6 +1709,7 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
         current_manifest="$WORK/post-commit-signal-term-current.tsv"
         rm -rf "$EVIDENCE"
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         : >"$WORK/forward.log"
         : >"$WORK/gates.log"
         printf '%s\n' running >"$WORK/services.state"
@@ -1503,6 +1801,7 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
         fi
         rm -rf "$EVIDENCE"
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         : >"$WORK/gates.log"
         printf '%s\n' running >"$WORK/services.state"
         if ADOPTION_FAILPOINT=after_commit ADOPTION_POST_COMMIT_GATE="$gate" \
@@ -1691,6 +1990,7 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
             *) echo 'unknown post-commit evidence fault' >&2; exit 1 ;;
         esac
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         printf '%s\n' running >"$WORK/services.state"
         if ADOPTION_FAILPOINT=after_commit ADOPTION_POST_COMMIT_GATE=smoke \
             ADOPTION_EVIDENCE_FAULT="$fault" run_adoption >"$output" 2>&1; then
@@ -1760,6 +2060,7 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
         rm -rf "$EVIDENCE"
         rm -f "$WORK/inverse-stage.log"
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         printf '%s\n' running >"$WORK/services.state"
         if ADOPTION_FAILPOINT=after_commit ADOPTION_POST_COMMIT_GATE=smoke \
             ADOPTION_CORRUPT_INVERSE="$mode" ADOPTION_INVERSE_STAGE_TEST="$stage_test" \
@@ -1843,6 +2144,11 @@ if [ "${AVELREN_ADOPTION_SCENARIO}" = after_commit ]; then
 
     echo "postgres adoption after_commit integration ($FOCUSED_CASE): PASS"
 elif [ "${AVELREN_ADOPTION_SCENARIO}" = success ]; then
+# F2. Scenarios share one long-lived Compose project. Drop any runtime
+# containers a previous scenario left behind so this scenario's probe
+# verdicts can only come from its own restart.
+reset_runtime_containers
+
     assert_startup_stop_failure_routes_inverse() {
         local output current_manifest status route_count
         output="$WORK/startup-stop-failure.out"
@@ -1850,6 +2156,7 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = success ]; then
         rm -rf "$EVIDENCE"
         rm -f "$WORK/startup-up-fault-consumed" "$WORK/startup-stop-fault-consumed"
         : >"$WORK/services.log"
+        rm -f "$WORK/probe-run-id"
         : >"$WORK/forward.log"
         : >"$WORK/gates.log"
         printf '%s\n' running >"$WORK/services.state"
@@ -1930,6 +2237,7 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = success ]; then
     make_unsafe_link "$WORK/stage-symlink-victim" "$EVIDENCE/stage"
     assert_unsafe_link_platform "$EVIDENCE/stage"
     : >"$WORK/services.log"
+    rm -f "$WORK/probe-run-id"
     : >"$WORK/forward.log"
     : >"$WORK/gates.log"
     printf '%s\n' running >"$WORK/services.state"
@@ -1964,6 +2272,10 @@ EOF
         echo 'new runtime was not started exactly once after success gates' >&2
         exit 1
     }
+    # 3C is the one restart deliberately left on the per-role DSNs. Asserting
+    # per_role here is what stops a future "fix" from making the legacy overlay
+    # unconditional and quietly reverting the least-privilege cutover.
+    assert_runtime_probe 'success cutover' per_role
     if ! grep -Fxq 'schema_verification_role=avelren_migrator' "$WORK/success.out" ||
        ! grep -Fxq 'application_dml_role=avelren_migrator' "$WORK/success.out" ||
        ! grep -Fxq 'application_verification_role=avelren_api' "$WORK/success.out" ||
@@ -2305,6 +2617,11 @@ EOF
 
     echo 'postgres adoption success integration: PASS'
 elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
+# F2. Scenarios share one long-lived Compose project. Drop any runtime
+# containers a previous scenario left behind so this scenario's probe
+# verdicts can only come from its own restart.
+reset_runtime_containers
+
     # Stage 3B.2 production adoption happy-path against the disposable database.
     # The suite setup already built the exact pre-state 3B.2 expects: seven
     # least-privilege roles provisioned, legacy `avelren` SUPERUSER owning the
@@ -2373,6 +2690,7 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
     # before the maintenance window, as in production.
     : >"$WORK/gates.log"
     : >"$WORK/services.log"
+    rm -f "$WORK/probe-run-id"
     printf '%s\n' running >"$WORK/services.state"
 
     if ! run_production_adoption >"$WORK/production.out" 2>&1; then
@@ -2414,6 +2732,12 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
     # H.4 Clients are running again after the committed hold.
     [ "$(cat "$WORK/services.state")" = running ] || \
         prod_fail 'clients were not restarted after the committed production hold'
+
+    # H.5 …and "running" means connected. The production hold restarts onto the
+    # UNCHANGED legacy DSN, so every service must come back as the legacy role.
+    # A per-role verdict here would mean the hold performed a DSN cutover it is
+    # explicitly forbidden from performing.
+    assert_runtime_probe 'production hold' legacy
 
     # 1. All seven least-privilege roles still exist.
     for prod_role in avelren_admin avelren_migrator avelren_backup avelren_collector \
