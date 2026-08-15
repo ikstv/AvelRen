@@ -1,0 +1,26 @@
+# Stage 3B.2 privilege_contracts acceptance gate — a one-off pytest container.
+#
+# Overlaid on the production compose file, e.g.
+#   docker compose -f docker-compose.yml -f docker-compose.privilege-gate.yml \
+#       -p <prod project> run --rm --no-deps -T privilege-gate ...
+# so the gate joins the production project's default network and can reach the
+# live `db` service. It is started ONLY by deploy/postgres-privilege-gate.sh via
+# `docker compose run --no-deps privilege-gate` — never as a long-running
+# service, never with its dependencies reconciled (`--no-deps` guarantees the
+# production `db`/app services are never started or recreated; see incident
+# 2026-08-14 / restore-verify isolation).
+#
+# The image is app/Dockerfile.test: it bundles app/tests + pytest, so it can run
+# the frozen-ACL contract directly. The runner overrides the image CMD with an
+# explicit, introspection-only pytest selection (has_*_privilege catalog reads,
+# zero DML), so this container never migrates, never mutates, and never touches
+# schema — it only reads the catalog to accept or reject the adopted ACL.
+services:
+  privilege-gate:
+    build:
+      context: .
+      dockerfile: app/Dockerfile.test
+    # No depends_on: the gate attaches to the already-running production db over
+    # the project network. Per-role DSNs are provided at run time via `-e NAME`
+    # (value from the environment, never on the command line).
+    restart: "no"

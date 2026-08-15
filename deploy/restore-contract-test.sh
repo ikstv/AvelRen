@@ -44,7 +44,7 @@ cat >"$BIN/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"${FAKE_LOG:?}"
-if [[ " $* " == *' run --rm -T '* ]]; then
+if [[ " $* " == *' run --rm --no-deps -T '* ]]; then
     if [[ " $* " == *' avelren.schema_verify '* ]]; then
         expected=${EXPECTED_MIGRATOR_DSN:?}
         expected_role=avelren_migrator
@@ -103,6 +103,7 @@ for item in migrator api; do
     if env PATH="$BIN:$PATH" FAKE_LOG="$WORK/verify-missing-$item.log" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DSN" \
         AVELREN_VERIFY_API_DSN="$API_DSN" \
+        AVELREN_COMPOSE_PROJECT=restore-verify-contract \
         bash "$ROOT/deploy/restore-verify.sh" restore_test >/dev/null 2>&1; then
         echo "expected missing $item verification DSN denial" >&2
         exit 1
@@ -118,6 +119,7 @@ env PATH="$BIN:$PATH" FAKE_LOG="$WORK/verify.log" \
     AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DSN" \
     AVELREN_VERIFY_API_DSN="$API_DSN" EXPECTED_MIGRATOR_DSN="$MIGRATOR_DSN" \
     EXPECTED_API_DSN="$API_DSN" \
+    AVELREN_COMPOSE_PROJECT=restore-verify-contract \
     bash "$ROOT/deploy/restore-verify.sh" restore_test >/dev/null
 [ "$(wc -l <"$WORK/verify.log")" -eq 2 ]
 if grep -Eq '(migrator|api)-contract-secret' "$WORK/verify.log"; then
