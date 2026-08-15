@@ -86,13 +86,13 @@ jobs:
             --label "$OUTAGE_LABEL" \
             --body "Independent check against \`$HEALTH_URL\`, run from GitHub Actions (not the AvelRen host), is failing.
 
-- HTTP status: \`${{ steps.probe.outputs.http_code }}\`
-- curl exit code: \`${{ steps.probe.outputs.curl_exit }}\`
-- reported status: \`${{ steps.probe.outputs.status }}\`
-- age_seconds: \`${{ steps.probe.outputs.age }}\`
-- first detected: $(date -u +%FT%TZ)
+            - HTTP status: \`${{ steps.probe.outputs.http_code }}\`
+            - curl exit code: \`${{ steps.probe.outputs.curl_exit }}\`
+            - reported status: \`${{ steps.probe.outputs.status }}\`
+            - age_seconds: \`${{ steps.probe.outputs.age }}\`
+            - first detected: $(date -u +%FT%TZ)
 
-This issue closes automatically when the next scheduled probe (every 10 min) succeeds. If it does not, /health is still down or unreachable — check the host directly."
+            This issue closes automatically when the next scheduled probe (every 10 min) succeeds. If it does not, /health is still down or unreachable — check the host directly."
 
       # Recovery: close the one issue this outage opened, with a timestamp
       # so the outage duration is visible in the issue history.
