@@ -67,13 +67,10 @@
 - #18 chore: Міграція Android на API 36 / Migrate Android to API 36
 - #15 security: Розділення PostgreSQL runtime roles / Split PostgreSQL runtime roles
 
-## Гілки проти main
+## Гілки на origin проти main
 
 | Гілка | Попереду | Позаду |
 |---|---|---|
-| `chore/generated-state` | 0 | 0 |
-| `dependabot/github_actions/actions-major-3211396fef` | 2 | 9 |
+| `dependabot/docker/app/backend-images-6dafb4a59b` | 2 | 1 |
 | `docs/readme-professional` | 1 | 29 |
 | `feat/android-api36-t03` | 1 | 29 |
-| `feat/external-health-monitor-f8` | 4 | 8 |
-| `test/f2-faithful-runtime-connectivity` | 1 | 0 |

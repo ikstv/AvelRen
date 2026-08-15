@@ -148,18 +148,42 @@ emit_remote() {
     printf '\n'
 }
 
+# Читаються рефи origin, а не refs/heads, і не лише тому, що раннер CI має одну
+# локальну гілку (там таблиця вийшла б порожня, і перший автопуш затер би
+# змістовну версію). Головне — детермінованість: якщо локальний прогін і прогін
+# у CI дають різний вивід, `--check` починає блимати, а бот воює з розробником
+# за той самий файл. Локальні непушені гілки свідомо не показуються: гілка, якої
+# немає на origin, однаково невидима ні CI, ні тому, хто робить рев'ю, і "гнити"
+# у сенсі розходження з main їй нема перед ким.
 emit_branches() {
-    printf '## Гілки проти main\n\n'
-    printf '| Гілка | Попереду | Позаду |\n|---|---|---|\n'
-    git for-each-ref --format='%(refname:short)' refs/heads |
-    while read -r br; do
-        [ "$br" = main ] && continue
+    local rows='' ref br name counts behind ahead
+    # Ітеруємо по ПОВНОМУ refname. `%(refname:short)` скорочує
+    # refs/remotes/origin/HEAD просто до `origin`, у якому немає слеша, тож
+    # відрізати префікс `origin/` не вийде і символічний реф проліз би в
+    # таблицю окремим рядком `origin | 0 | 0`. Гірше за косметику: локальний
+    # клон має origin/HEAD, а checkout у раннері зазвичай ні — тобто саме та
+    # розбіжність локально↔CI, яку цей перехід на origin і мав прибрати.
+    while read -r ref; do
+        case "$ref" in refs/remotes/origin/HEAD) continue ;; esac
+        br=${ref#refs/remotes/}
+        name=${br#origin/}
+        case "$name" in main|'') continue ;; esac
         counts=$(git rev-list --left-right --count "$MAIN_REF...$br" 2>/dev/null) || continue
         behind=$(printf '%s' "$counts" | cut -f1)
         ahead=$(printf '%s' "$counts" | cut -f2)
-        printf '| `%s` | %s | %s |\n' "$br" "$ahead" "$behind"
-    done
-    printf '\n'
+        rows="$rows| \`$name\` | $ahead | $behind |
+"
+    done < <(git for-each-ref --format='%(refname)' refs/remotes/origin)
+
+    printf '## Гілки на origin проти main\n\n'
+    if [ -z "$rows" ]; then
+        # Порожньо тут означає не "все змерджено", а "рефи origin не завантажені"
+        # (напр. shallow clone або checkout без fetch-depth: 0). Мовчазна порожня
+        # таблиця читалась би як здоровий стан — тому кажемо прямо.
+        printf '%s\n\n' '_Рефи `origin` недоступні в цьому клоні — таблицю пропущено. У CI потрібен `fetch-depth: 0`._'
+        return 0
+    fi
+    printf '| Гілка | Попереду | Позаду |\n|---|---|---|\n%s\n' "$rows"
 }
 
 generated=$( { emit; emit_remote; emit_branches; } )
