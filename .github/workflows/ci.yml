@@ -134,7 +134,7 @@ jobs:
           set -euo pipefail
           ! grep -A3 '^:80 {' deploy/Caddyfile | grep -q 'reverse_proxy'
           grep -A1 '^:80 {' deploy/Caddyfile | grep -q 'redir https://{host}{uri} permanent'
-          grep -A6 '^https://api\.bordersignal\.pp\.ua {' deploy/Caddyfile | grep -q 'reverse_proxy api:8000'
+          grep -A14 '^https://api\.bordersignal\.pp\.ua {' deploy/Caddyfile | grep -q 'reverse_proxy api:8000'
           ! grep -q '^DATABASE_URL=postgresql://avelren:@' .env.example
           python - <<'PY'
           from pathlib import Path
@@ -151,10 +151,16 @@ jobs:
           assert "header_up -x-forwarded-for" in caddy
           assert "header_up -x-avelren-client-ip" in caddy
           assert "header_up x-avelren-client-ip {http.request.remote.host}" in caddy
+          assert "request_body" in caddy and "max_size 64kb" in caddy, "Caddy /api/* must cap request body (M-2)"
           assert "x-avelren-client-ip" in rate
           assert "x-forwarded-for" not in rate
           print("trusted-proxy contract ok")
           PY
+
+      - name: Caddyfile validate
+        run: |
+          docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.9.1-alpine caddy validate --config /etc/caddy/Caddyfile
 
       - name: DR restore-verify — синтаксис
         run: |
@@ -340,7 +346,21 @@ jobs:
       - name: Заглушка google-services.json
         # Справжній файл — секрет і в git не живе. Для перевірки компіляції
         # достатньо синтаксично валідної заглушки з правильним package.
+        #
+        # Пишемо заглушку ЛИШЕ якщо файлу ще немає. На CI checkout завжди
+        # чистий (секрет у git не потрапляє), тож умова істинна й заглушка
+        # створюється як і раніше. Але якщо цей самий крок виконати на машині
+        # розробника (відтворення CI-збірки, `act`, ручний запуск блоку), то
+        # безумовний `cat >` мовчки затирав справжній google-services.json
+        # стабом `ci-stub` — і застосунок втрачав FCM (валідний ключ →
+        # IllegalArgumentException "valid API key", немає токена, installation
+        # лишається Unavailable). Саме це поклало клієнт 2026-08-14. Guard
+        # робить крок безпечним для локального запуску.
         run: |
+          if [ -f android/app/google-services.json ]; then
+            echo "google-services.json уже присутній — залишаю як є (не перезаписую стабом)."
+            exit 0
+          fi
           cat > android/app/google-services.json <<'EOF'
           {
             "project_info": {
