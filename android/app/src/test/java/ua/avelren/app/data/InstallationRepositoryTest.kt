@@ -69,7 +69,13 @@ class InstallationRepositoryTest {
         store: CredentialStore,
         tokens: FcmTokenProvider,
         scope: kotlinx.coroutines.CoroutineScope,
-    ) = InstallationRepository(api, store, tokens, scope)
+    ) = InstallationRepository(
+        api, store, tokens, scope,
+        // no-op: android.util.Log — платформний стаб, у plain JUnit кидає
+        // "not mocked". Інжектуємо тут замість глобального testOptions, щоб
+        // не приховувати потенційні проблеми в інших unit-тестах модуля.
+        logUnavailable = { _, _ -> },
+    )
 
     // 1
     @Test
@@ -297,6 +303,24 @@ class InstallationRepositoryTest {
 
         assertTrue(r.state.value is InstallationState.Unavailable)
         assertNull(store.current)
+    }
+
+    // 16 — аудит 2026-08-15: причина Unavailable мала нести справжній виняток
+    // FCM-провайдера, а не узагальнений текст. Раніше .getOrNull() ковтав його
+    // мовчки, і саме тому знадобився тимчасовий Log.e, щоб дістати "Please set
+    // a valid API key" при зламаному google-services.json.
+    @Test
+    fun `initialize with no credentials surfaces the real token failure as reason`() = runTest {
+        val api = FakeApi()
+        val store = FakeStore(seed = null)
+        val tokens = FakeTokens().apply { fail = true }
+        val r = repo(api, store, tokens, backgroundScope)
+
+        r.initialize()
+
+        val state = r.state.value
+        assertTrue(state is InstallationState.Unavailable)
+        assertEquals("play services offline", (state as InstallationState.Unavailable).reason)
     }
 
     // 12 (seam для UI без instrumented Compose)
