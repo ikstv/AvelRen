@@ -2729,7 +2729,12 @@ reset_runtime_containers
     rb_migrator=$(prod_query "SELECT count(*) FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')")
     [ "$rb_migrator" = 0 ] || { echo "rollback incomplete: avelren_migrator still owns $rb_migrator objects" >&2; exit 1; }
     [ "$(prod_query "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren'")" = 'true,true' ] || { echo "rollback: legacy avelren no longer SUPERUSER+LOGIN" >&2; exit 1; }
-    [ "$(prod_query "SELECT max(version) FROM schema_migrations")" = 009_observability ] || { echo "rollback: schema_migrations changed" >&2; exit 1; }
+    # Report the observed version, not just that it moved. The way this fails is
+    # a restart that let `migrate` start and stamp 010, and naming the version
+    # makes that legible from the failure line alone instead of requiring a
+    # separate query against a database the harness tears down on exit.
+    rb_schema=$(prod_query "SELECT max(version) FROM schema_migrations")
+    [ "$rb_schema" = 009_observability ] || { echo "rollback: schema_migrations changed to '$rb_schema' (expected 009_observability; a restart applied a migration)" >&2; exit 1; }
     echo 'postgres adoption production failure-rollback: PASS'
 
     # Reset the observable side-channels so the happy-path run's evidence is not

@@ -774,8 +774,8 @@ if [ "$FAILPOINT" = success ]; then
     # service list does not stop Compose from resolving depends_on and starting
     # migrate. This is the post-cutover restart, so the 010 grants certainly
     # exist by now and migrate would run and stamp unprompted. The migrate
-    # success gate above is the sanctioned place for that, and it runs the
-    # migration deliberately through the `test` service — not as a side effect
+    # success gate above is the sanctioned place for that: it runs through the
+    # configured gate runner as a deliberate, gated step — not as a side effect
     # of bringing the runtime back up.
     if ! compose up -d --no-deps caddy api collector notifier watchdog; then
         log 'new runtime start failed; restoring maintenance before inverse rollback' >&2
