@@ -191,11 +191,29 @@ YAML
 restart_runtime_on_legacy_dsn() {
     local overlay="$EVIDENCE_DIR/legacy-dsn.override.yml"
     _write_legacy_dsn_overlay "$overlay"
-    # An explicit base + overlay pair: `-f` disables compose's default file
-    # discovery, so the base must be named too. In production COMPOSE_FILE is
-    # empty and the base is the stack's docker-compose.yml (adopt.sh has cd'd to
-    # STACK_DIR); in the disposable tests it is the temp compose file.
-    local args=("$DOCKER_BIN" compose -f "${COMPOSE_FILE:-docker-compose.yml}" -f "$overlay")
+    # Naming files with `-f` disables compose's default file discovery, so the
+    # base must be named too. In production COMPOSE_FILE is empty and the base is
+    # the stack's docker-compose.yml (adopt.sh has cd'd to STACK_DIR); in the
+    # disposable tests it is the temp compose file.
+    local args=("$DOCKER_BIN" compose -f "${COMPOSE_FILE:-docker-compose.yml}")
+    # Discovery would also have loaded docker-compose.override.yml next to that
+    # default base, so name it explicitly or this restart silently drops it.
+    # Production's override carries more than the legacy DSN: at the deployed
+    # commit it also supplies the collector's ECHERHA_API_VERSION,
+    # ECHERHA_CLIENT_VERSION, ECHERHA_DEVICE_ID and ECHERHA_DEVICE_NAME, which
+    # the tracked compose there does not yet define and which config.py
+    # fail-closes without. Dropping it would restart the runtime straight into
+    # the *second* failure mode of the 2026-08-14 outage while recovering from
+    # the first. Only for the default base: when COMPOSE_FILE names a file
+    # explicitly, discovery was already off before this change and no
+    # operational override is in play.
+    if [ -z "$COMPOSE_FILE" ] && [ -f docker-compose.override.yml ]; then
+        args+=(-f docker-compose.override.yml)
+    fi
+    # Last `-f` wins, so the generated overlay keeps the final say over whatever
+    # DATABASE_URL the operational override sets — including after 3C, when that
+    # file is expected to stop forcing the legacy DSN.
+    args+=(-f "$overlay")
     [ -z "$COMPOSE_PROJECT" ] || args+=(-p "$COMPOSE_PROJECT")
     "${args[@]}" up -d caddy api collector notifier watchdog
 }
