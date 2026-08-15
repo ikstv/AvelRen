@@ -76,6 +76,27 @@ jobs:
             exit 1
           fi
 
+  # Supply-chain gate (issue #23, audit F4): a CycloneDX SBOM of the whole tree
+  # (python deps from app/pyproject.toml, gradle catalog, pinned images) on every
+  # push to main, kept as a build artifact. This is the inventory half of #23 —
+  # what exactly ships — so a disclosed CVE can be answered from the artifact
+  # instead of by re-deriving the dependency set. Pinned by commit SHA like every
+  # other action here (v0.24.0); Dependabot re-pins it.
+  sbom:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Generate CycloneDX SBOM (syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: avelren-sbom.cdx.json
+
   backend-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 240
@@ -315,7 +336,7 @@ jobs:
       # рекомендація Gradle: одна дія покриває і wrapper cache, і залежності;
       # після першого успішного run на main усі PR тягнуть wrapper з кешу.
       # Semantic build/test — БЕЗ змін.
-      - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
       - name: Заглушка google-services.json
         # Справжній файл — секрет і в git не живе. Для перевірки компіляції
         # достатньо синтаксично валідної заглушки з правильним package.
