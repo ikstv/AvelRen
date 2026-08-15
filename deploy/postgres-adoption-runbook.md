@@ -15,7 +15,34 @@ what the operator follows on the real host.
 - Stage 3A done: a fresh verified backup exists and is retrievable off-host.
 - The 7 role passwords/DSNs are present in the production `.env` (operator's
   hand; Claude never generates or sees them).
-- Prod checkout is at the exact expected commit, clean worktree.
+- Prod checkout is at the exact expected commit, clean worktree. See
+  *Clean-worktree invariant* below — `postgres-adopt.sh` refuses with `worktree
+  is dirty` if anything untracked sits in the checkout.
+
+## Clean-worktree invariant (read before 3B.1 and 3B.2)
+
+`postgres-adopt.sh` runs `git status --porcelain=v1 --untracked-files=all` in the
+checkout and refuses (`worktree is dirty`) unless it is empty. `AVELREN_ALLOW_DIRTY_TEST`
+bypasses this check but is **test-only and must never be set in production**. Two
+kinds of operational file have dirtied the live checkout in the past and each
+belongs **outside** `/opt/avelren`, not inside it:
+
+- **Adoption evidence.** `AVELREN_EVIDENCE_DIR` must be an absolute path **outside
+  the repo checkout** — e.g. `/var/lib/avelren-adoption/evidence/3b2-<UTC>` — never
+  under `/opt/avelren`. The test suites already isolate evidence in a temp dir
+  outside the repo; production must do the same. An evidence directory written
+  inside the checkout dirties the worktree and blocks adoption (this is exactly
+  what a prior 3B.1 run did with `/opt/avelren/evidence/3b1-*`).
+- **Operator helpers.** Any ad-hoc script the operator places on the host (for
+  example a DSN-builder) must live outside the checkout (e.g. `/root` or
+  `/usr/local/sbin`), not at the repo root.
+
+Pre-adoption step (operator's hand, read-only to the database): confirm
+`git -C /opt/avelren status --porcelain` is empty. If not, relocate the offending
+files out of the checkout (do **not** delete evidence — move it) until it is clean.
+These are host-local operational artifacts, deliberately **not** tracked and
+deliberately **not** `.gitignore`d — hiding them in-tree would only mask a
+misplaced file; the fix is to keep them out of the checkout.
 
 ## 3B.1 — role provisioning (separate GO)
 

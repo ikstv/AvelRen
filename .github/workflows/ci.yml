@@ -14,7 +14,7 @@ jobs:
   completeness:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Критичні файли присутні в дереві git
         run: |
           set -e
@@ -58,12 +58,51 @@ jobs:
             exit 1
           fi
 
+      # AGENTS.md rule 1: only the `collector` service talks to echerha.gov.ua —
+      # never the mobile app, web front-end or user's browser. If a client lacks
+      # data we extend our own API, we do not let the client reach eCherha
+      # directly. Enforce it: the Android app's production sources must contain no
+      # string literal naming echerha / *.gov.ua (a hard-coded upstream URL or
+      # host). Matches quoted literals only, so the documenting comment in
+      # Api.kt — which names the host in prose to state the rule — does not trip
+      # it; test sources are excluded because they legitimately deserialize the
+      # server's telemetry, which reports the collector's upstream URL as data.
+      - name: Мобільний застосунок не ходить до єЧерги
+        run: |
+          set -e
+          if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main --include='*.kt'; then
+            echo "ПОРУШЕННЯ AGENTS.md правило 1: у застосунку знайдено пряме посилання на єЧергу/gov.ua."
+            echo "Клієнт має ходити ВИКЛЮЧНО на наш API (BuildConfig.API_BASE_URL). Розширюйте API, не пускайте телефон назовні."
+            exit 1
+          fi
+
+  # Supply-chain gate (issue #23, audit F4): a CycloneDX SBOM of the whole tree
+  # (python deps from app/pyproject.toml, gradle catalog, pinned images) on every
+  # push to main, kept as a build artifact. This is the inventory half of #23 —
+  # what exactly ships — so a disclosed CVE can be answered from the artifact
+  # instead of by re-deriving the dependency set. Pinned by commit SHA like every
+  # other action here (v0.24.0); Dependabot re-pins it.
+  sbom:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate CycloneDX SBOM (syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: avelren-sbom.cdx.json
+
   backend-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Canonical backend workflow
@@ -72,7 +111,7 @@ jobs:
 
       - name: PostgreSQL shell syntax
         timeout-minutes: 5
-        run: bash -n deploy/postgres-bootstrap.sh deploy/postgres-adopt.sh deploy/postgres-ownership.lib.sh
+        run: bash -n deploy/postgres-bootstrap.sh deploy/postgres-adopt.sh deploy/postgres-ownership.lib.sh deploy/postgres-adoption-bootstrap-topology-test.sh
 
       - name: PostgreSQL bootstrap contract
         timeout-minutes: 5
@@ -95,7 +134,7 @@ jobs:
           set -euo pipefail
           ! grep -A3 '^:80 {' deploy/Caddyfile | grep -q 'reverse_proxy'
           grep -A1 '^:80 {' deploy/Caddyfile | grep -q 'redir https://{host}{uri} permanent'
-          grep -A6 '^https://api\.bordersignal\.pp\.ua {' deploy/Caddyfile | grep -q 'reverse_proxy api:8000'
+          grep -A14 '^https://api\.bordersignal\.pp\.ua {' deploy/Caddyfile | grep -q 'reverse_proxy api:8000'
           ! grep -q '^DATABASE_URL=postgresql://avelren:@' .env.example
           python - <<'PY'
           from pathlib import Path
@@ -112,10 +151,16 @@ jobs:
           assert "header_up -x-forwarded-for" in caddy
           assert "header_up -x-avelren-client-ip" in caddy
           assert "header_up x-avelren-client-ip {http.request.remote.host}" in caddy
+          assert "request_body" in caddy and "max_size 64kb" in caddy, "Caddy /api/* must cap request body (M-2)"
           assert "x-avelren-client-ip" in rate
           assert "x-forwarded-for" not in rate
           print("trusted-proxy contract ok")
           PY
+
+      - name: Caddyfile validate
+        run: |
+          docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.9.1-alpine caddy validate --config /etc/caddy/Caddyfile
 
       - name: DR restore-verify — синтаксис
         run: |
@@ -126,8 +171,12 @@ jobs:
           bash -n deploy/restore-engine-contract-test.sh
           bash -n deploy/restore-production.sh
           bash -n deploy/restore-verify.sh
+          bash -n deploy/restore-verify-guard-contract-test.sh
           bash -n deploy/restore-production-contract-test.sh
           bash -n deploy/restore-production-integration-test.sh
+          bash -n deploy/postgres-privilege-gate.sh
+          bash -n deploy/postgres-privilege-gate-contract-test.sh
+          docker compose -f docker-compose.yml -f docker-compose.privilege-gate.yml config >/dev/null
           sudo install -m 0755 deploy/backup.sh /usr/local/sbin/avelren-backup
           systemd-analyze verify deploy/avelren-backup.service
 
@@ -140,6 +189,7 @@ jobs:
         run: |
           bash deploy/restore-contract-test.sh
           bash deploy/restore-engine-contract-test.sh
+          bash deploy/restore-verify-guard-contract-test.sh
 
       - name: Restore allowlist contract
         timeout-minutes: 5
@@ -148,6 +198,15 @@ jobs:
       - name: Production orchestrator contract tests
         timeout-minutes: 10
         run: bash deploy/restore-production-contract-test.sh
+
+      # The privilege gate is the post-commit acceptance for production adoption.
+      # It was previously only `bash -n`-checked, never executed, which is how a
+      # gate that could not run at all reached a production attempt (2026-08-14):
+      # it aborted on app/tests/conftest.py's destructive-suite guard before any
+      # assertion. A syntax check cannot catch that; running the contract can.
+      - name: Privilege gate contract
+        timeout-minutes: 5
+        run: bash deploy/postgres-privilege-gate-contract-test.sh
 
       - name: Actual disposable restore integration
         timeout-minutes: 20
@@ -176,6 +235,10 @@ jobs:
       - name: Cold adoption integration - production
         timeout-minutes: 45
         run: AVELREN_ADOPTION_SCENARIO=production bash deploy/postgres-adoption-integration-test.sh
+
+      - name: Bootstrap-superuser topology adoption integration
+        timeout-minutes: 45
+        run: bash deploy/postgres-adoption-bootstrap-topology-test.sh
 
       - name: Snapshot script — синтаксис
         run: bash -n deploy/telemetry-snapshot.sh
@@ -265,8 +328,8 @@ jobs:
   android-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "17"
@@ -279,11 +342,25 @@ jobs:
       # рекомендація Gradle: одна дія покриває і wrapper cache, і залежності;
       # після першого успішного run на main усі PR тягнуть wrapper з кешу.
       # Semantic build/test — БЕЗ змін.
-      - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Заглушка google-services.json
         # Справжній файл — секрет і в git не живе. Для перевірки компіляції
         # достатньо синтаксично валідної заглушки з правильним package.
+        #
+        # Пишемо заглушку ЛИШЕ якщо файлу ще немає. На CI checkout завжди
+        # чистий (секрет у git не потрапляє), тож умова істинна й заглушка
+        # створюється як і раніше. Але якщо цей самий крок виконати на машині
+        # розробника (відтворення CI-збірки, `act`, ручний запуск блоку), то
+        # безумовний `cat >` мовчки затирав справжній google-services.json
+        # стабом `ci-stub` — і застосунок втрачав FCM (валідний ключ →
+        # IllegalArgumentException "valid API key", немає токена, installation
+        # лишається Unavailable). Саме це поклало клієнт 2026-08-14. Guard
+        # робить крок безпечним для локального запуску.
         run: |
+          if [ -f android/app/google-services.json ]; then
+            echo "google-services.json уже присутній — залишаю як є (не перезаписую стабом)."
+            exit 0
+          fi
           cat > android/app/google-services.json <<'EOF'
           {
             "project_info": {

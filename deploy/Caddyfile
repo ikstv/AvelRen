@@ -3,6 +3,13 @@ https://api.bordersignal.pp.ua {
 	encode gzip
 
 	handle /api/* {
+		# Обмежуємо тіло запиту до того, як воно потрапить в API: неавтен-
+		# тифікований POST /devices читає тіло в памʼять, тож без стелі один
+		# великий запит — дешевий спосіб з'їсти памʼять. 64KB із запасом
+		# покриває найбільший легітимний payload (реєстрація/підписки).
+		request_body {
+			max_size 64KB
+		}
 		uri strip_prefix /api
 		reverse_proxy api:8000 {
 			header_up -X-Forwarded-For

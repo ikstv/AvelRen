@@ -31,6 +31,10 @@ AVELREN_WATCHDOG_DSN=WATCHDOG_SENTINEL
 AVELREN_API_DSN=API_SENTINEL
 REARM_FACTOR=REARM_FACTOR_SENTINEL
 ECHERHA_VEHICLE_TYPE=ECHERHA_VEHICLE_TYPE_SENTINEL
+ECHERHA_API_VERSION=ECHERHA_API_VERSION_SENTINEL
+ECHERHA_CLIENT_VERSION=ECHERHA_CLIENT_VERSION_SENTINEL
+ECHERHA_DEVICE_ID=ECHERHA_DEVICE_ID_SENTINEL
+ECHERHA_DEVICE_NAME=ECHERHA_DEVICE_NAME_SENTINEL
 ENV
     (
         cd "$STACK"
@@ -49,11 +53,22 @@ ENV
         AVELREN_API_DSN=API_SENTINEL \
         REARM_FACTOR=REARM_FACTOR_SENTINEL \
         ECHERHA_VEHICLE_TYPE=ECHERHA_VEHICLE_TYPE_SENTINEL \
+        ECHERHA_API_VERSION=ECHERHA_API_VERSION_SENTINEL \
+        ECHERHA_CLIENT_VERSION=ECHERHA_CLIENT_VERSION_SENTINEL \
+        ECHERHA_DEVICE_ID=ECHERHA_DEVICE_ID_SENTINEL \
+        ECHERHA_DEVICE_NAME=ECHERHA_DEVICE_NAME_SENTINEL \
         docker compose --env-file .env config --format json >"$RESOLVED" 2>"$COMPOSE_ERROR"
     ) || fail 'docker compose config failed'
 }
 
 run_compose_config
+
+# M-1: no service may bind-mount the whole host /run (it carries docker.sock);
+# watchdog reads host facts (backup-stamp, reboot-required) from the /telemetry
+# snapshot instead. Guard against a regression that re-adds the broad mount.
+if grep -Eq 'host/run|[^a-z]/run:' "$RESOLVED"; then
+    fail 'a service bind-mounts the whole host /run (M-1); use the /telemetry snapshot'
+fi
 
 PYTHON_BIN=${PYTHON_BIN:-python3}
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -86,6 +101,16 @@ all_database_sentinels = {
 functional_setting_owners = {
     "REARM_FACTOR": ({"collector"}, "REARM_FACTOR_SENTINEL"),
     "ECHERHA_VEHICLE_TYPE": ({"collector", "api"}, "ECHERHA_VEHICLE_TYPE_SENTINEL"),
+    # The collector's eCherha device identity. config.py requires these (and
+    # aborts at startup if ECHERHA_DEVICE_ID is unset/blank), .env supplies them,
+    # but the compose collector service did not forward them — so a container
+    # recreated from the current compose failed with "ECHERHA_DEVICE_ID must be a
+    # valid UUID" and collected nothing (2026-08-14 adoption incident). Assert the
+    # collector — and only the collector — receives each of them.
+    "ECHERHA_API_VERSION": ({"collector"}, "ECHERHA_API_VERSION_SENTINEL"),
+    "ECHERHA_CLIENT_VERSION": ({"collector"}, "ECHERHA_CLIENT_VERSION_SENTINEL"),
+    "ECHERHA_DEVICE_ID": ({"collector"}, "ECHERHA_DEVICE_ID_SENTINEL"),
+    "ECHERHA_DEVICE_NAME": ({"collector"}, "ECHERHA_DEVICE_NAME_SENTINEL"),
 }
 privileged_variable_names = {
     "AVELREN_ADMIN_DSN",
