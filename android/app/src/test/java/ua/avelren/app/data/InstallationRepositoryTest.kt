@@ -69,7 +69,13 @@ class InstallationRepositoryTest {
         store: CredentialStore,
         tokens: FcmTokenProvider,
         scope: kotlinx.coroutines.CoroutineScope,
-    ) = InstallationRepository(api, store, tokens, scope)
+    ) = InstallationRepository(
+        api, store, tokens, scope,
+        // no-op: android.util.Log — платформний стаб, у plain JUnit кидає
+        // "not mocked". Інжектуємо тут замість глобального testOptions, щоб
+        // не приховувати потенційні проблеми в інших unit-тестах модуля.
+        logUnavailable = { _, _ -> },
+    )
 
     // 1
     @Test

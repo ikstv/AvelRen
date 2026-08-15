@@ -42,17 +42,6 @@ android {
         compose = true
         buildConfig = true
     }
-
-    testOptions {
-        unitTests {
-            // InstallationRepository тепер логує через android.util.Log
-            // (аудит 2026-08-15). Без цього plain JUnit-тести падають з
-            // "Method w in android.util.Log not mocked" — стандартний
-            // android.jar-стаб кидає замість повернення значення. Тут просто
-            // JVM-тестове середовище, продакшн-логування не чіпає.
-            isReturnDefaultValues = true
-        }
-    }
 }
 
 dependencies {

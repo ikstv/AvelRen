@@ -19,6 +19,12 @@ class InstallationRepository(
     private val scope: CoroutineScope,
     private val pendingTokens: PendingFcmTokenStore = InMemoryPendingFcmTokenStore(),
     private val retryScheduler: FcmTokenRetryScheduler = ImmediateFcmTokenRetryScheduler(),
+    // Інжектований, як і решта залежностей вище: android.util.Log — платформний
+    // стаб, у plain JUnit кидає "not mocked". Продакшн отримує реальний Log.w
+    // за замовчуванням; тести підміняють no-op, не чіпаючи глобальний
+    // testOptions (див. коментар у InstallationRepositoryTest.kt).
+    private val logUnavailable: (String, Throwable?) -> Unit =
+        { msg, cause -> Log.w("Installation", msg, cause) },
 ) {
     private val _state = MutableStateFlow<InstallationState>(InstallationState.Initializing)
     val state: StateFlow<InstallationState> = _state.asStateFlow()
@@ -48,7 +54,7 @@ class InstallationRepository(
             // причина була видна з першого logcat, без тимчасової правки коду.
             val cause = tokenResult.exceptionOrNull()
             val reason = cause?.message ?: "немає FCM-токена для реєстрації"
-            Log.w("Installation", "FCM-токен недоступний: installation Unavailable", cause)
+            logUnavailable("FCM-токен недоступний: installation Unavailable", cause)
             _state.value = InstallationState.Unavailable(reason)
         }
     }
