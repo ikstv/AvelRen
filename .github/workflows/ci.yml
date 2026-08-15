@@ -315,7 +315,7 @@ jobs:
       # рекомендація Gradle: одна дія покриває і wrapper cache, і залежності;
       # після першого успішного run на main усі PR тягнуть wrapper з кешу.
       # Semantic build/test — БЕЗ змін.
-      - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
       - name: Заглушка google-services.json
         # Справжній файл — секрет і в git не живе. Для перевірки компіляції
         # достатньо синтаксично валідної заглушки з правильним package.
