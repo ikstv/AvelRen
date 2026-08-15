@@ -110,6 +110,9 @@ async def pipeline(conn: AsyncConnection) -> dict:
                 (SELECT count(*) FROM collector_runs
                   WHERE time > now() - INTERVAL '1 hour' AND error IS NOT NULL)
                                                                           AS errors_last_hour,
+                (SELECT count(*) FROM collector_runs
+                  WHERE time > now() - INTERVAL '1 hour' AND error IS NULL)
+                                                        AS successful_runs_last_hour,
                 (SELECT count(*) FROM devices)                            AS devices,
                 (SELECT count(*) FROM subscriptions WHERE is_active)      AS subscriptions,
                 (SELECT count(*) FROM eta_targets WHERE is_active)        AS eta_targets,
@@ -125,9 +128,14 @@ async def pipeline(conn: AsyncConnection) -> dict:
     data["db_size_mb"] = round((data.pop("db_bytes", 0) or 0) / 1024**2, 1)
 
     # Очікуємо 60 циклів на годину. Менше — були прогалини, і це видно одразу.
-    runs = data.get("runs_last_hour") or 0
+    # Completeness рахує УСПІШНІ цикли (error IS NULL), а не просто спроби:
+    # коли ЄЧерга щохвилини віддає 502, collector_runs усе одно поповнюється
+    # (runs_last_hour → 60), але жодне спостереження не зібране. Рахувати спроби
+    # означало б показувати 100% повноти під час повного збою збору даних —
+    # рівно те, від чого completeness має захищати.
+    successful = data.get("successful_runs_last_hour") or 0
     data["cycles_expected_per_hour"] = 60
-    data["completeness_percent"] = min(100, round(runs / 60 * 100))
+    data["completeness_percent"] = min(100, round(successful / 60 * 100))
 
     return data
 

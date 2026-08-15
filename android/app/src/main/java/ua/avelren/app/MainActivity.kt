@@ -10,18 +10,25 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.NotificationPermission
 import ua.avelren.app.data.NotificationPermissionState
+import ua.avelren.app.data.ThemePrefs
 import ua.avelren.app.notify.Notifications
 import ua.avelren.app.ui.AvelRenScreen
+import ua.avelren.app.ui.OnboardingScreen
+import ua.avelren.app.ui.theme.AvelRenTheme
+import ua.avelren.app.ui.theme.ThemeMode
 
 class MainActivity : ComponentActivity() {
 
@@ -66,13 +73,28 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme {
+            val ctx = LocalContext.current
+            val mode by ThemePrefs.themeModeFlow(ctx)
+                .collectAsStateWithLifecycle(ThemeMode.SYSTEM)
+            val onboardingSeen by ThemePrefs.onboardingSeenFlow(ctx)
+                .collectAsStateWithLifecycle(false)
+            val scope = rememberCoroutineScope()
+            AvelRenTheme(mode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AvelRenScreen(
-                        permissionState = permissionState,
-                        onRequestPermission = ::launchRequest,
-                        onOpenSettings = ::openNotificationSettings,
-                    )
+                    if (!onboardingSeen) {
+                        OnboardingScreen(
+                            version = BuildConfig.VERSION_NAME,
+                            onStart = { scope.launch { ThemePrefs.setOnboardingSeen(ctx) } },
+                        )
+                    } else {
+                        AvelRenScreen(
+                            permissionState = permissionState,
+                            onRequestPermission = ::launchRequest,
+                            onOpenSettings = ::openNotificationSettings,
+                            themeMode = mode,
+                            onThemeChange = { scope.launch { ThemePrefs.setThemeMode(ctx, it) } },
+                        )
+                    }
                 }
             }
         }

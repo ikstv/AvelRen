@@ -158,7 +158,10 @@ database_inventory AS (
            CASE WHEN database.datname = current_database() THEN 'application' ELSE 'shared' END AS source
     FROM pg_database AS database
     WHERE database.datname = current_database()
-       OR database.datdba IN (SELECT role_oid FROM canonical_roles)
+       -- Exclude the system databases (postgres/template0/template1) the cluster
+       -- bootstrap `avelren` owns; they are never part of the adoption surface.
+       OR (database.datdba IN (SELECT role_oid FROM canonical_roles)
+           AND database.datname NOT IN ('postgres', 'template0', 'template1'))
 ),
 timescale_extension AS (
     SELECT oid, extowner
@@ -183,8 +186,15 @@ namespace_base AS (
       ON member.classid = 'pg_namespace'::regclass
      AND member.objid = namespace.oid
      AND member.objsubid = 0
-    WHERE namespace.nspname = 'public'
-       OR namespace.nspowner IN (SELECT role_oid FROM canonical_roles)
+    WHERE (namespace.nspname = 'public'
+           OR namespace.nspowner IN (SELECT role_oid FROM canonical_roles))
+      -- Exclude system schemas the bootstrap `avelren` owns; the `_timescaledb_*`
+      -- schemas are owned by canonical roles too but are kept (classified
+      -- timescale). No-op in the clusteradmin topology where clusteradmin owns
+      -- these schemas.
+      AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND namespace.nspname NOT LIKE 'pg\_toast%'
+      AND namespace.nspname NOT LIKE 'pg\_temp%'
        OR member.objid IS NOT NULL
 ),
 extension_base AS (
@@ -193,8 +203,13 @@ extension_base AS (
            format('%I', extension.extname) AS identity,
            CASE WHEN extension.extname = 'timescaledb' THEN 'timescale' ELSE 'extension' END AS source
     FROM pg_extension AS extension
-    WHERE extension.extname = 'timescaledb'
-       OR extension.extowner IN (SELECT role_oid FROM canonical_roles)
+    WHERE (extension.extname = 'timescaledb'
+           OR extension.extowner IN (SELECT role_oid FROM canonical_roles))
+      -- plpgsql is a pinned system-default extension; in the bootstrap topology
+      -- the legacy `avelren` owns it, but it is part of the protected system
+      -- surface, never the adoption surface. (In the clusteradmin topology it is
+      -- owned by clusteradmin and was never captured, so this is a no-op there.)
+      AND extension.extname <> 'plpgsql'
 ),
 timescale_hypertable_base AS (
     SELECT hypertable.hypertable_schema AS nspname,
@@ -323,6 +338,18 @@ relation_base AS (
       -- Session-local scratch relations are never part of the adoption surface.
       AND namespace.nspname NOT LIKE 'pg\_temp\_%'
       AND namespace.nspname NOT LIKE 'pg\_toast\_temp\_%'
+      -- Production topology: the legacy `avelren` role is the cluster bootstrap
+      -- superuser, so it owns the system catalogs too. Those are never part of
+      -- the adoption surface and must stay owned by `avelren`; exclude them so
+      -- the `relowner IN canonical_roles` clause above does not sweep them in.
+      -- Key the exclusion on the dependency ROOT namespace, not the object's own
+      -- schema: application TOAST tables live in pg_toast but are rooted in
+      -- public and MUST stay in the surface, while system tables and their TOAST
+      -- (rooted in pg_catalog / information_schema) are dropped. `_timescaledb_*`
+      -- objects are rooted in public/timescale, so they are kept and classified
+      -- as `timescale`.
+      AND (root_namespace.nspname IS NULL
+           OR root_namespace.nspname NOT IN ('pg_catalog', 'information_schema'))
 ),
 routine_base AS (
     SELECT routine.oid, namespace.nspname, routine.proname, routine.prokind,
@@ -338,9 +365,15 @@ routine_base AS (
       ON member.classid = 'pg_proc'::regclass
      AND member.objid = routine.oid
      AND member.objsubid = 0
-    WHERE namespace.nspname = 'public'
-       OR routine.proowner IN (SELECT role_oid FROM canonical_roles)
-       OR member.objid IS NOT NULL
+    WHERE (namespace.nspname = 'public'
+           OR routine.proowner IN (SELECT role_oid FROM canonical_roles)
+           OR member.objid IS NOT NULL)
+      -- Production topology: exclude system catalogs the bootstrap `avelren`
+      -- owns; they are never part of the adoption surface. (`_timescaledb_*`
+      -- routines are extension members and remain captured/classified as
+      -- `timescale`.)
+      AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND namespace.nspname NOT LIKE 'pg\_toast%'
 ),
 type_edges AS (
     SELECT type.oid AS child_oid, type.typelem AS parent_oid
@@ -413,6 +446,10 @@ type_base AS (
       -- never part of the adoption surface.
       AND namespace.nspname NOT LIKE 'pg\_temp\_%'
       AND namespace.nspname NOT LIKE 'pg\_toast\_temp\_%'
+      -- Production topology: exclude system-catalog types the bootstrap
+      -- `avelren` owns; they stay owned by `avelren` and are out of surface.
+      AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND namespace.nspname NOT LIKE 'pg\_toast%'
 ),
 default_acl_base AS (
     SELECT defaults.oid, defaults.defaclrole, defaults.defaclnamespace,
@@ -747,7 +784,7 @@ EOF
 }
 
 validate_owned_object_allowlist() {
-    local manifest=$1 expected actual extensions allowed_roots temporary root
+    local manifest=$1 expected actual extensions allowed_roots temporary root unexpected_databases
     [ -f "$manifest" ] || ownership_fail 'manifest not found'
     temporary=$(dirname "$manifest")
     expected=$(mktemp "$temporary/.expected.XXXXXX")
@@ -806,15 +843,44 @@ validate_owned_object_allowlist() {
         return 1
     fi
 
+    # An adopted cluster hosts exactly ONE database in the adoption surface: the
+    # application target. `database_inventory` already drops the pinned system
+    # databases (postgres/template0/template1), so any remaining non-application
+    # row is a database some canonical role owns that nobody declared — a
+    # disposable restore target left behind, a manual copy, a half-finished
+    # migration. Adoption must refuse it BEFORE any mutation and say which one:
+    # such a database is not inert (a leftover `restore_test` on production
+    # 2026-08-14 kept a TimescaleDB background worker and scheduled compression
+    # and continuous-aggregate policies running against the live instance), and
+    # its ACL/ownership rows perturb the surface the plans are built from.
+    unexpected_databases=$(awk -F '\t' '$1=="object" && $2=="database" && $13!="application" {print $5}' \
+        "$manifest" | LC_ALL=C sort -u | tr '\n' ' ')
+    if [ -n "${unexpected_databases% }" ]; then
+        rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
+        ownership_fail "unexpected database owned by a canonical role: ${unexpected_databases% }"
+        return 1
+    fi
+
     if ! awk -F '\t' -v target="${AVELREN_TARGET_DB:?AVELREN_TARGET_DB is required}" -v legacy="$AVELREN_LEGACY_ROLE" '
         $1=="object" && $2=="database" && $13=="application" {
             databases++; if ($3 != target || $5 != target || $7 != legacy) bad=1
         }
+        # Unreachable for database rows: the pre-check above refuses any
+        # non-application database outright. Kept as a defence-in-depth floor in
+        # case the pre-check is ever narrowed.
         $1=="object" && $2=="database" && $13=="shared" {
             if ($7 == legacy || ($7 != "avelren_admin" && $7 != "avelren_migrator")) bad=1
         }
         $1=="object" && $2=="schema" && $13=="application" {
-            schemas++; if ($4 != "public" || $5 != "public" || $7 != legacy || $8 != "root") bad=1
+            # public may be owned by the legacy role directly, or by the virtual
+            # pg_database_owner role. The latter is safe ONLY because the
+            # application-database row above independently asserts the database
+            # owner is the legacy role, which is exactly who pg_database_owner
+            # resolves to. Verified against production (avelren-Helsinki,
+            # timescaledb 2.17.2-pg16): public.owner=pg_database_owner,
+            # db.owner=avelren. The bootstrap-superuser topology never reassigns
+            # public onto the legacy role, so this is the real production shape.
+            schemas++; if ($4 != "public" || $5 != "public" || ($7 != legacy && $7 != "pg_database_owner") || $8 != "root") bad=1
         }
         $1=="object" && $2=="schema" && $13=="timescale" {
             if ($7 != legacy || $8 != "extension_member") bad=1
@@ -829,7 +895,15 @@ validate_owned_object_allowlist() {
         $1=="object" && $2=="type" && $13=="application" && $8 !~ /^(relation|type):/ { bad=1 }
         $1=="object" && $2=="default_acl" { bad=1 }
         $1=="object" && $2=="tablespace" {
-            if ($7 == legacy || ($7 != "avelren_admin" && $7 != "avelren_migrator")) bad=1
+            # pg_default and pg_global are pinned built-in cluster tablespaces
+            # owned by the bootstrap superuser; they cannot be reassigned, so in
+            # the production bootstrap topology the legacy role legitimately owns
+            # them (verified on avelren-Helsinki: both owned by avelren). Reject
+            # only if some unexpected role holds them. Any user-created
+            # tablespace still must have moved off legacy to admin/migrator.
+            if ($5 == "pg_default" || $5 == "pg_global") {
+                if ($7 != legacy && $7 != "avelren_admin" && $7 != "avelren_migrator") bad=1
+            } else if ($7 == legacy || ($7 != "avelren_admin" && $7 != "avelren_migrator")) bad=1
         }
         $1=="object" && $2=="ownership" {
             ownership_rows++
@@ -839,7 +913,12 @@ validate_owned_object_allowlist() {
             } else if ($7 != legacy) bad=1
         }
         $1=="acl" && $11 !~ /^(SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|USAGE|CREATE|CONNECT|TEMPORARY|EXECUTE)$/ { bad=1 }
-        END { exit !(databases==1 && schemas==1 && ownership_rows>0 && !bad) }
+        # No ownership_rows>0 requirement: pg_shdepend does not record ownership
+        # for the cluster bootstrap superuser, so in the production bootstrap
+        # topology the legacy `avelren` legitimately produces zero `object
+        # ownership` rows. databases==1 && schemas==1 already guard against an
+        # empty/failed capture.
+        END { exit !(databases==1 && schemas==1 && !bad) }
     ' "$manifest"; then
         rm -f "$expected" "$actual" "$extensions" "$allowed_roots"
         ownership_fail 'owner, shared-object, or ACL contract mismatch'
@@ -859,8 +938,20 @@ EOF
 
 build_forward_plan() {
     local manifest=$1 output=$2 migration=$3 temporary schema name kind keyword database_identity subject
-    validate_owned_object_allowlist "$manifest"
-    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" {print $14}' "$manifest")
+    # Check explicitly: `ownership_fail` only warns and returns 1, so an
+    # unchecked call leaves the refusal enforced by `set -e` alone — and errexit
+    # is suppressed whenever the caller sits in an `if`, `&&` or `||` context.
+    # A validation failure must stop plan generation on its own merits.
+    validate_owned_object_allowlist "$manifest" || return 1
+    # Scope the identity to the APPLICATION database. The manifest legitimately
+    # carries `shared` database rows (any other database a canonical role owns),
+    # so an unscoped extraction returns several lines and silently produces a
+    # multi-line, syntactically broken `... ON DATABASE <a>\n<b> FROM ...`.
+    # Observed on production 2026-08-14: a leftover disposable `restore_test`
+    # database owned by avelren_admin broke plan generation this way.
+    # validate_owned_object_allowlist above now refuses such a topology outright;
+    # this filter keeps the extraction correct by construction regardless.
+    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" && $13=="application" {print $14}' "$manifest")
     [ -n "$database_identity" ] || ownership_fail 'validated database identity missing from manifest'
     [ "$(basename "$migration")" = 010_postgresql_least_privilege.sql ] || ownership_fail 'unexpected ACL migration path'
     [ -f "$migration" ] || ownership_fail 'ACL migration not found'
@@ -870,7 +961,15 @@ build_forward_plan() {
     fi
     {
         _write_plan_header
-        printf 'REASSIGN OWNED BY "%s" TO "%s";\n' "$AVELREN_LEGACY_ROLE" "$AVELREN_ADMIN_ROLE"
+        # Bootstrap-superuser topology (Decision B): the legacy `avelren` is the
+        # cluster bootstrap superuser and owns the database, `public` schema, the
+        # timescaledb extension, the system catalogs, and all TimescaleDB
+        # internals. Those MUST stay owned by `avelren`. The old blanket
+        # `REASSIGN OWNED BY avelren TO avelren_admin` would sweep the whole
+        # cluster (or, for a bootstrap role, silently skip pinned objects and
+        # mis-model the surface), so it is removed. The only ownership change is
+        # the explicit per-object transfer of the canonical application
+        # relations to `avelren_migrator` below; everything else is preserved.
         printf 'REVOKE ALL PRIVILEGES ON DATABASE %s FROM PUBLIC, "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$database_identity"
         printf 'GRANT CONNECT ON DATABASE %s TO "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$database_identity"
         printf '%s\n' \
@@ -912,15 +1011,43 @@ _role_sql() {
 
 build_inverse_plan() {
     local manifest=$1 output=$2 temporary scope name kind owner subject grantor grantee privilege grantable source identity
-    local object_keyword grantee_sql grantor_sql option role database_identity
-    validate_owned_object_allowlist "$manifest"
-    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" {print $14}' "$manifest")
+    local object_keyword grantee_sql grantor_sql option role database_identity schema keyword
+    # Check explicitly: `ownership_fail` only warns and returns 1, so an
+    # unchecked call leaves the refusal enforced by `set -e` alone — and errexit
+    # is suppressed whenever the caller sits in an `if`, `&&` or `||` context.
+    # A validation failure must stop plan generation on its own merits.
+    validate_owned_object_allowlist "$manifest" || return 1
+    # Scope the identity to the APPLICATION database. The manifest legitimately
+    # carries `shared` database rows (any other database a canonical role owns),
+    # so an unscoped extraction returns several lines and silently produces a
+    # multi-line, syntactically broken `... ON DATABASE <a>\n<b> FROM ...`.
+    # Observed on production 2026-08-14: a leftover disposable `restore_test`
+    # database owned by avelren_admin broke plan generation this way.
+    # validate_owned_object_allowlist above now refuses such a topology outright;
+    # this filter keeps the extraction correct by construction regardless.
+    database_identity=$(awk -F '\t' '$1=="object" && $2=="database" && $13=="application" {print $14}' "$manifest")
     [ -n "$database_identity" ] || ownership_fail 'validated database identity missing from manifest'
     temporary=$(_evidence_temp "$output")
     {
         _write_plan_header
-        printf 'REASSIGN OWNED BY "%s" TO "%s";\n' "$AVELREN_MIGRATOR_ROLE" "$AVELREN_LEGACY_ROLE"
-        printf 'REASSIGN OWNED BY "%s" TO "%s";\n' "$AVELREN_ADMIN_ROLE" "$AVELREN_LEGACY_ROLE"
+        # Decision B inverse: the forward plan changed ownership of ONLY the
+        # canonical application relations (avelren -> avelren_migrator). Reverse
+        # exactly that, per object, back to the legacy `avelren`. No blanket
+        # `REASSIGN OWNED`: database/schema/extension/system-catalog/TimescaleDB
+        # ownership was never touched by the forward plan and must not be touched
+        # here either.
+        while IFS=$'\t' read -r schema name kind; do
+            case "$kind" in
+                S) keyword=SEQUENCE ;;
+                v)
+                    if [ "$name" = observations_hourly ]; then keyword='MATERIALIZED VIEW'; else keyword=VIEW; fi
+                    ;;
+                m) keyword='MATERIALIZED VIEW' ;;
+                r|p) keyword=TABLE ;;
+                *) rm -f "$temporary"; ownership_fail 'unsupported relation kind in inverse plan'; return 1 ;;
+            esac
+            printf 'ALTER %s "%s"."%s" OWNER TO "%s";\n' "$keyword" "$schema" "$name" "$AVELREN_LEGACY_ROLE"
+        done < <(_canonical_relations)
 
         printf 'REVOKE ALL PRIVILEGES ON DATABASE %s FROM PUBLIC, "avelren_admin", "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";\n' "$database_identity"
         printf '%s\n' 'REVOKE ALL PRIVILEGES ON SCHEMA "public" FROM PUBLIC, "avelren_admin", "avelren_migrator", "avelren_backup", "avelren_collector", "avelren_notifier", "avelren_watchdog", "avelren_api";'
@@ -986,12 +1113,15 @@ _emit_target_relation_acl() {
 
 _canonical_target_acl_rows() {
     local role name column
+    # Decision B: the database and the public schema stay owned by the legacy
+    # `avelren` (they are no longer reassigned to avelren_admin), so a superuser
+    # GRANT on them records `avelren` — the owner — as the grantor.
     for role in avelren_migrator avelren_backup avelren_collector avelren_notifier avelren_watchdog avelren_api; do
-        _emit_target_acl database - - database object avelren_admin "$role" CONNECT
+        _emit_target_acl database - - database object avelren "$role" CONNECT
     done
-    _emit_target_acl schema public public schema object avelren_admin avelren_migrator USAGE CREATE
+    _emit_target_acl schema public public schema object avelren avelren_migrator USAGE CREATE
     for role in avelren_backup avelren_collector avelren_notifier avelren_watchdog avelren_api; do
-        _emit_target_acl schema public public schema object avelren_admin "$role" USAGE
+        _emit_target_acl schema public public schema object avelren "$role" USAGE
     done
 
     for name in countries checkpoints observations observations_hourly collector_runs devices subscriptions subscription_state alerts eta_targets eta_alerts health_alerts notification_cancels schema_migrations \
@@ -1109,7 +1239,15 @@ BEGIN
         WHERE database.datname = current_database() AND acl.grantee <> database.datdba
         UNION ALL
         SELECT 'schema', namespace.nspname, namespace.nspname, 'schema', 'object',
-               pg_get_userbyid(acl.grantor),
+               -- When public is owned by pg_database_owner (the production
+               -- bootstrap topology), a GRANT by the database owner records the
+               -- owning role, pg_database_owner, as the grantor. That role is
+               -- avelren's proxy: the ownership check above already proved the
+               -- database (hence pg_database_owner) resolves to avelren, so we
+               -- normalise it to avelren for the exact-set comparison. Any other
+               -- grantor still mismatches.
+               CASE WHEN pg_get_userbyid(acl.grantor) = 'pg_database_owner'
+                    THEN 'avelren' ELSE pg_get_userbyid(acl.grantor) END,
                CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END,
                acl.privilege_type, acl.is_grantable::text
         FROM pg_namespace AS namespace
@@ -1219,155 +1357,221 @@ DROP TABLE avelren_expected_acl;
 SQL
 }
 
-_target_expected_ownership_rows() {
-    local manifest=$1
-    awk -F '\t' 'BEGIN { OFS="\t" }
-        $1=="object" && $2=="ownership" {
-            owner=$7
-            if ($8=="application_relation" || $8=="application_type") owner="avelren_migrator"
-            else if ($8=="target_admin" || $8=="timescale") owner="avelren_admin"
-            else if ($8!="preserve") next
-            print $3,$4,$5,$6,owner
-        }
-    ' "$manifest" | LC_ALL=C sort
-}
-
 _target_ownership_sql() {
     local manifest=${1:?ownership manifest is required}
-    _target_acl_sql
+    # Ownership verification runs BEFORE the ACL verification: an ownership drift
+    # (e.g. a canonical relation left off avelren_migrator) also perturbs ACL
+    # attribution, so the ownership check must fire first to report the precise
+    # cause; ACL-only tampers pass ownership and are caught by _target_acl_sql.
     cat <<'SQL'
-CREATE TEMP TABLE avelren_expected_ownership (
-    dbid oid NOT NULL,
-    classid oid NOT NULL,
-    objid oid NOT NULL,
-    objsubid integer NOT NULL,
-    owner_name text NOT NULL
-) ON COMMIT DROP;
-COPY avelren_expected_ownership FROM STDIN;
+CREATE TEMP TABLE avelren_canonical_app (schema_name text, object_name text, kind text) ON COMMIT DROP;
+COPY avelren_canonical_app (schema_name, object_name, kind) FROM STDIN;
 SQL
-    _target_expected_ownership_rows "$manifest"
+    _canonical_relations
     printf '%s\n' '\.'
     cat <<'SQL'
+-- Base application relations that end up owned by avelren_migrator: the
+-- canonical relations PLUS the TimescaleDB internals that `ALTER ... OWNER`
+-- cascades along with an adopted hypertable / continuous aggregate (its chunks,
+-- compressed + materialization hypertables, and cagg partial/direct views).
+-- pg_depend does NOT model this cascade, so it is resolved from the TimescaleDB
+-- catalog. This is the reality proven by the bootstrap-topology integration test.
+CREATE TEMP TABLE avelren_base_rel ON COMMIT DROP AS
+WITH RECURSIVE adopted_ht(id) AS (
+    SELECT h.id FROM _timescaledb_catalog.hypertable h
+    JOIN avelren_canonical_app a ON a.schema_name = h.schema_name AND a.object_name = h.table_name
+    UNION
+    SELECT ca.mat_hypertable_id FROM _timescaledb_catalog.continuous_agg ca
+    JOIN avelren_canonical_app a ON a.schema_name = ca.user_view_schema AND a.object_name = ca.user_view_name
+    UNION
+    SELECT h.compressed_hypertable_id FROM _timescaledb_catalog.hypertable h
+    JOIN adopted_ht ah ON ah.id = h.id WHERE h.compressed_hypertable_id IS NOT NULL
+), ts_relnames(s, t) AS (
+    SELECT h.schema_name, h.table_name
+    FROM _timescaledb_catalog.hypertable h JOIN adopted_ht ah ON ah.id = h.id
+    UNION
+    SELECT c.schema_name, c.table_name
+    FROM _timescaledb_catalog.chunk c JOIN adopted_ht ah ON ah.id = c.hypertable_id
+    UNION
+    SELECT ca.partial_view_schema, ca.partial_view_name
+    FROM _timescaledb_catalog.continuous_agg ca
+    JOIN avelren_canonical_app a ON a.schema_name = ca.user_view_schema AND a.object_name = ca.user_view_name
+    UNION
+    SELECT ca.direct_view_schema, ca.direct_view_name
+    FROM _timescaledb_catalog.continuous_agg ca
+    JOIN avelren_canonical_app a ON a.schema_name = ca.user_view_schema AND a.object_name = ca.user_view_name
+)
+SELECT c.oid
+FROM avelren_canonical_app a
+JOIN pg_namespace n ON n.nspname = a.schema_name
+JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = a.object_name
+UNION
+SELECT r.oid
+FROM ts_relnames x
+JOIN pg_class r ON r.oid = to_regclass(format('%I.%I', x.s, x.t));
+
+-- Full ownership closure: base relations + the objects PostgreSQL co-owns with
+-- them on ALTER ... OWNER — indexes, TOAST tables and their indexes, composite
+-- rowtypes and array types. Enumerated explicitly (pg_index / reltoastrelid /
+-- reltype / typarray) rather than via pg_depend deptype, so constraint-backed
+-- (primary-key / unique) indexes are captured too.
+CREATE TEMP TABLE avelren_app_closure ON COMMIT DROP AS
+SELECT 'pg_class'::regclass::oid AS classid, oid AS objid FROM avelren_base_rel
+UNION
+SELECT 'pg_class'::regclass::oid, i.indexrelid FROM pg_index i
+ WHERE i.indrelid IN (SELECT oid FROM avelren_base_rel)
+UNION
+SELECT 'pg_class'::regclass::oid, c.reltoastrelid FROM pg_class c
+ WHERE c.oid IN (SELECT oid FROM avelren_base_rel) AND c.reltoastrelid <> 0
+UNION
+SELECT 'pg_class'::regclass::oid, ti.indexrelid FROM pg_index ti
+ WHERE ti.indrelid IN (SELECT reltoastrelid FROM pg_class WHERE oid IN (SELECT oid FROM avelren_base_rel) AND reltoastrelid <> 0)
+UNION
+SELECT 'pg_type'::regclass::oid, c.reltype FROM pg_class c
+ WHERE c.oid IN (SELECT oid FROM avelren_base_rel) AND c.reltype <> 0
+UNION
+SELECT 'pg_type'::regclass::oid, t.typarray FROM pg_type t
+ WHERE t.oid IN (SELECT reltype FROM pg_class WHERE oid IN (SELECT oid FROM avelren_base_rel) AND reltype <> 0)
+   AND t.typarray <> 0;
+
+-- Protected TimescaleDB EXTENSION surface that must NOT move to migrator/admin:
+-- the extension's own catalog / config / function schemas and its extension
+-- members. `_timescaledb_internal` is DELIBERATELY excluded — it holds the
+-- adopted-hypertable data that TimescaleDB moves to the new owner along with the
+-- hypertable, and which is therefore part of the application closure above.
+CREATE TEMP TABLE avelren_protected_surface ON COMMIT DROP AS
+SELECT 'pg_class'::regclass::oid AS classid, c.oid AS objid
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname IN ('_timescaledb_catalog','_timescaledb_config','_timescaledb_functions',
+                    '_timescaledb_cache','_timescaledb_debug','timescaledb_information','timescaledb_experimental')
+UNION
+SELECT 'pg_type'::regclass::oid, t.oid
+FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+WHERE n.nspname IN ('_timescaledb_catalog','_timescaledb_config','_timescaledb_functions',
+                    '_timescaledb_cache','_timescaledb_debug','timescaledb_information','timescaledb_experimental')
+UNION
+SELECT dep.classid, dep.objid
+FROM pg_depend dep
+JOIN pg_extension e ON e.oid = dep.refobjid AND e.extname = 'timescaledb'
+WHERE dep.refclassid = 'pg_extension'::regclass AND dep.deptype = 'e'
+  AND dep.classid IN ('pg_class'::regclass, 'pg_type'::regclass);
+
 DO $avelren_verify$
 DECLARE
-    mismatch_count bigint;
-    mismatch_detail text;
+    detail text;
+    canonical_total bigint;
+    canonical_present bigint;
 BEGIN
-    IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()) <> 'avelren_admin' THEN
-        RAISE EXCEPTION 'target database owner mismatch';
+    -- Decision B (bootstrap-superuser topology): the legacy `avelren` is the
+    -- cluster owner. The ONLY ownership change adoption performs is moving the
+    -- canonical application relations to `avelren_migrator`. Positive allowlist:
+    --   * protected top-level objects (database, public schema, timescaledb
+    --     extension) stay owned by `avelren`;
+    --   * the application closure is disjoint from the protected surface;
+    --   * `avelren_migrator` owns EXACTLY the application closure — no more;
+    --   * `avelren_admin` owns nothing in either surface.
+
+    -- (1-3) Protected top-level ownership is preserved on the legacy `avelren`.
+    IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()) <> 'avelren' THEN
+        RAISE EXCEPTION 'target ownership: database is not owned by avelren';
     END IF;
-    IF (SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='public') <> 'avelren_admin' THEN
-        RAISE EXCEPTION 'public schema owner mismatch';
+    -- public may be owned by avelren directly or by the virtual
+    -- pg_database_owner role. The latter is safe because the check above already
+    -- proved the database is owned by avelren, which is exactly who
+    -- pg_database_owner resolves to (verified on avelren-Helsinki prod:
+    -- public.owner=pg_database_owner, db.owner=avelren).
+    IF (SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='public')
+           NOT IN ('avelren','pg_database_owner') THEN
+        RAISE EXCEPTION 'target ownership: public schema is not owned by avelren or pg_database_owner';
     END IF;
-    IF (SELECT pg_get_userbyid(extowner) FROM pg_extension WHERE extname='timescaledb') <> 'avelren_admin' THEN
-        RAISE EXCEPTION 'timescaledb extension owner mismatch';
+    IF (SELECT pg_get_userbyid(extowner) FROM pg_extension WHERE extname='timescaledb') <> 'avelren' THEN
+        RAISE EXCEPTION 'target ownership: timescaledb extension is not owned by avelren';
     END IF;
-    WITH actual_expected_objects AS (
-        SELECT dependency.dbid, dependency.classid, dependency.objid, dependency.objsubid,
-               owner_role.rolname AS owner_name
-        FROM avelren_expected_ownership AS expected
-        JOIN pg_shdepend AS dependency
-          ON dependency.dbid = expected.dbid
-         AND dependency.classid = expected.classid
-         AND dependency.objid = expected.objid
-         AND dependency.objsubid = expected.objsubid
-         AND dependency.refclassid = 'pg_authid'::regclass
-         AND dependency.deptype = 'o'
-        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
-    ), mismatch AS (
-        (SELECT 'missing'::text AS direction, expected.*
-         FROM avelren_expected_ownership AS expected
-         EXCEPT ALL
-         SELECT 'missing', actual.* FROM actual_expected_objects AS actual)
-        UNION ALL
-        (SELECT 'unexpected'::text AS direction, actual.*
-         FROM actual_expected_objects AS actual
-         EXCEPT ALL
-         SELECT 'unexpected', expected.* FROM avelren_expected_ownership AS expected)
-    )
-    SELECT count(*), string_agg(
-               format('%s:%s:%s', direction,
-                      pg_describe_object(classid, objid, objsubid), owner_name),
-               '; ' ORDER BY direction, classid, objid, objsubid, owner_name
-           )
-      INTO mismatch_count, mismatch_detail
-      FROM mismatch;
-    IF mismatch_count <> 0 THEN
-        RAISE EXCEPTION 'target ownership exact-set mismatch (% rows; first=%)', mismatch_count, mismatch_detail;
+    -- The canonical relations must all exist exactly once.
+    SELECT count(*) INTO canonical_total FROM avelren_canonical_app;
+    SELECT count(*) INTO canonical_present
+      FROM avelren_canonical_app a
+      JOIN pg_namespace n ON n.nspname = a.schema_name
+      JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = a.object_name;
+    IF canonical_present <> canonical_total THEN
+        RAISE EXCEPTION 'target ownership: expected % canonical relations, found %', canonical_total, canonical_present;
     END IF;
 
-    WITH canonical_owner_oids AS (
-        SELECT oid FROM pg_roles
-        WHERE rolname IN ('avelren','avelren_admin','avelren_migrator')
-    ), actual_canonical AS (
-        SELECT dependency.dbid, dependency.classid, dependency.objid, dependency.objsubid,
-               owner_role.rolname AS owner_name
-        FROM pg_shdepend AS dependency
-        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
-        WHERE dependency.refclassid = 'pg_authid'::regclass
-          AND dependency.deptype = 'o'
-          AND dependency.refobjid IN (SELECT oid FROM canonical_owner_oids)
-          AND (dependency.dbid = 0 OR dependency.dbid = (
-              SELECT oid FROM pg_database WHERE datname = current_database()
-          ))
-          AND dependency.classid <> 'pg_default_acl'::regclass
-          AND NOT (
-              dependency.classid = 'pg_class'::regclass
-              AND dependency.objid IN (
-                  SELECT relation.oid
-                  FROM pg_class AS relation
-                  WHERE relation.relnamespace = pg_my_temp_schema()
-              )
-          )
-    ), mismatch AS (
-        (SELECT 'missing'::text AS direction, expected.*
-         FROM avelren_expected_ownership AS expected
-         EXCEPT ALL
-         SELECT 'missing', actual.* FROM actual_canonical AS actual)
-        UNION ALL
-        (SELECT 'unexpected'::text AS direction, actual.*
-         FROM actual_canonical AS actual
-         EXCEPT ALL
-         SELECT 'unexpected', expected.* FROM avelren_expected_ownership AS expected)
-    )
-    SELECT count(*) INTO mismatch_count FROM mismatch;
-    IF mismatch_count <> 0 THEN
-        RAISE EXCEPTION 'target canonical ownership surface mismatch (% rows)', mismatch_count;
+    -- (invariant) the application closure and the protected TimescaleDB surface
+    -- are disjoint. A chunk/internal object pulled into the closure (e.g. via an
+    -- ALTER on the continuous-aggregate view) is caught here rather than silently
+    -- transferred.
+    SELECT string_agg(pg_describe_object(p.classid, p.objid, 0), '; ')
+      INTO detail
+      FROM avelren_app_closure ac
+      JOIN avelren_protected_surface p ON p.classid = ac.classid AND p.objid = ac.objid;
+    IF detail IS NOT NULL THEN
+        RAISE EXCEPTION 'target ownership: application closure intersects the protected TimescaleDB surface: %', detail;
     END IF;
 
-    IF EXISTS (
-        SELECT 1
-        FROM pg_shdepend AS dependency
-        JOIN pg_roles AS owner_role ON owner_role.oid = dependency.refobjid
-        WHERE dependency.refclassid = 'pg_authid'::regclass
-          AND dependency.deptype = 'o'
-          AND owner_role.rolname = 'avelren'
-          AND (
-              dependency.dbid = 0
-              OR dependency.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-          )
-          -- Exclude this session's own temporary relations. The canonical
-          -- surface check above already ignores pg_my_temp_schema() objects;
-          -- the residual check must do the same, otherwise a verify temp table
-          -- (avelren_expected_ownership / _acl) created under a legacy `avelren`
-          -- admin connection — exactly the production 3B.2 case — is misread as
-          -- residual legacy ownership. Disposable runs connect as avelren_admin
-          -- so their temp tables never triggered this.
-          AND NOT (
-              dependency.classid = 'pg_class'::regclass
-              AND dependency.objid IN (
-                  SELECT relation.oid
-                  FROM pg_class AS relation
-                  WHERE relation.relnamespace = pg_my_temp_schema()
-              )
-          )
-    ) THEN
-        RAISE EXCEPTION 'residual legacy ownership detected';
+    -- (4 & 7) Every object in the application closure is owned by avelren_migrator
+    -- (so none of the canonical relations remain owned by avelren).
+    SELECT string_agg(format('%s=%s', pg_describe_object(ac.classid, ac.objid, 0),
+                             pg_get_userbyid(o.owner_oid)), '; ')
+      INTO detail
+      FROM avelren_app_closure ac
+      CROSS JOIN LATERAL (
+          SELECT CASE ac.classid
+                   WHEN 'pg_class'::regclass THEN (SELECT relowner FROM pg_class WHERE oid = ac.objid)
+                   WHEN 'pg_type'::regclass THEN (SELECT typowner FROM pg_type WHERE oid = ac.objid)
+                 END AS owner_oid
+      ) o
+     WHERE pg_get_userbyid(o.owner_oid) IS DISTINCT FROM 'avelren_migrator';
+    IF detail IS NOT NULL THEN
+        RAISE EXCEPTION 'target ownership: application object not owned by avelren_migrator: %', detail;
+    END IF;
+
+    -- (5) avelren_migrator owns EXACTLY the closure: nothing outside it. A
+    -- TimescaleDB chunk or internal object mis-transferred to migrator is caught.
+    SELECT string_agg(pg_describe_object(x.classid, x.objid, 0), '; ')
+      INTO detail
+      FROM (
+          SELECT 'pg_class'::regclass::oid AS classid, c.oid AS objid
+          FROM pg_class c WHERE c.relowner = (SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')
+          UNION ALL
+          SELECT 'pg_type'::regclass::oid, t.oid
+          FROM pg_type t WHERE t.typowner = (SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')
+      ) x
+      LEFT JOIN avelren_app_closure ac ON ac.classid = x.classid AND ac.objid = x.objid
+     WHERE ac.objid IS NULL;
+    IF detail IS NOT NULL THEN
+        RAISE EXCEPTION 'target ownership: avelren_migrator owns objects outside the canonical closure (over-transfer): %', detail;
+    END IF;
+
+    -- (5b) avelren_migrator owns no routines (adoption never transfers functions).
+    IF EXISTS (SELECT 1 FROM pg_proc WHERE proowner = (SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')) THEN
+        RAISE EXCEPTION 'target ownership: avelren_migrator unexpectedly owns routines';
+    END IF;
+
+    -- (6) avelren_admin owns nothing in the application closure or protected surface.
+    SELECT string_agg(pg_describe_object(s.classid, s.objid, 0), '; ')
+      INTO detail
+      FROM (SELECT classid, objid FROM avelren_app_closure
+            UNION
+            SELECT classid, objid FROM avelren_protected_surface) s
+      CROSS JOIN LATERAL (
+          SELECT CASE s.classid
+                   WHEN 'pg_class'::regclass THEN (SELECT relowner FROM pg_class WHERE oid = s.objid)
+                   WHEN 'pg_type'::regclass THEN (SELECT typowner FROM pg_type WHERE oid = s.objid)
+                 END AS owner_oid
+      ) o
+     WHERE pg_get_userbyid(o.owner_oid) = 'avelren_admin';
+    IF detail IS NOT NULL THEN
+        RAISE EXCEPTION 'target ownership: avelren_admin owns application/timescale objects: %', detail;
     END IF;
 END
 $avelren_verify$;
-DROP TABLE avelren_expected_ownership;
+DROP TABLE avelren_app_closure;
+DROP TABLE avelren_protected_surface;
+DROP TABLE avelren_base_rel;
+DROP TABLE avelren_canonical_app;
 SQL
+    _target_acl_sql
 }
 
 validate_plan_round_trip() {
@@ -1426,19 +1630,25 @@ execute_before_commit_rollback() {
     output=$(_evidence_temp "$evidence_dir/before-commit.marker")
     {
         printf '%s\n' '\set ON_ERROR_STOP on' 'BEGIN;'
-        awk '{ print; if ($0 == "REASSIGN OWNED BY \"avelren\" TO \"avelren_admin\";") exit }' "$forward"
+        # Decision B: the forward plan no longer begins with a blanket REASSIGN;
+        # the first ownership mutation is the first per-object handoff of a
+        # canonical relation to avelren_migrator. Apply the plan up to and
+        # including that first `ALTER ... OWNER TO "avelren_migrator";`, then
+        # prove it ran and hit the failpoint so the whole transaction rolls back.
+        awk '{ print } /OWNER TO "avelren_migrator";/ { exit }' "$forward"
         cat <<'SQL'
 DO $avelren_first_mutation$
 BEGIN
-    IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()) <> 'avelren_admin' THEN
-        RAISE EXCEPTION 'first ownership mutation did not run';
-    END IF;
-    IF EXISTS (
+    IF NOT EXISTS (
         SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='public' AND c.relkind IN ('r','p','S','v','m')
-          AND pg_get_userbyid(c.relowner) = 'avelren'
+          AND pg_get_userbyid(c.relowner) = 'avelren_migrator'
     ) THEN
-        RAISE EXCEPTION 'first ownership mutation left legacy-owned application relations';
+        RAISE EXCEPTION 'first ownership mutation did not run';
+    END IF;
+    -- Decision B invariant: the database stays owned by the legacy avelren.
+    IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()) <> 'avelren' THEN
+        RAISE EXCEPTION 'database owner unexpectedly changed during first mutation';
     END IF;
 END
 $avelren_first_mutation$;

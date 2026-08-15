@@ -66,6 +66,8 @@ fun AvelRenScreen(
     permissionState: NotificationPermissionState = NotificationPermissionState.Granted,
     onRequestPermission: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    themeMode: ua.avelren.app.ui.theme.ThemeMode = ua.avelren.app.ui.theme.ThemeMode.SYSTEM,
+    onThemeChange: (ua.avelren.app.ui.theme.ThemeMode) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -168,6 +170,20 @@ fun AvelRenScreen(
         // тож показуємо явно і даємо шлях назад (запит або потрібні налаштування).
         if (permissionState !is NotificationPermissionState.Granted) {
             item { NotificationBanner(permissionState, onRequestPermission, onOpenSettings) }
+        }
+
+        // Вигляд · перемикач теми (Modernist сегментований контрол). Вибір
+        // застосовується миттєво й переживає перезапуск (DataStore).
+        item {
+            Column(modifier = Modifier.padding(top = 16.dp)) {
+                Text(
+                    "ВИГЛЯД · ТЕМА ЗАСТОСУНКУ",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                ThemeToggle(mode = themeMode, onChange = onThemeChange)
+            }
         }
 
         // Свіжість за server observation time обраного КПП (без вибору — макс.

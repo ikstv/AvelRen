@@ -442,6 +442,12 @@ cat >"$BIN/success-gate" <<'SH'
 set -euo pipefail
 
 gate=${1:?success gate is required}
+# Test-only: fail a named post-commit gate to drive the production inverse
+# rollback path (AVELREN_PRODUCTION_GATE_FAIL=privilege_contracts).
+if [ "${AVELREN_PRODUCTION_GATE_FAIL:-}" = "$gate" ]; then
+    echo "success gate $gate FAIL (injected for rollback test)" >&2
+    exit 1
+fi
 [ "$(cat "$ADOPTION_SERVICE_STATE")" = stopped ] || {
     echo "$gate ran after the new runtime started" >&2
     exit 1
@@ -905,66 +911,62 @@ ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
 SQL
 assert_target_check_accepts default-equivalent-regrant "$WORK/default-equivalent-regrant.sql"
 
-cat >"$WORK/residual-non-public-relation.sql" <<'SQL'
-CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
+# Decision B ownership negatives. The old "avelren owns nothing after adoption"
+# invariant is gone (avelren is the cluster owner). These tampers each violate a
+# NEW invariant: avelren_migrator owns something outside its TimescaleDB-aware
+# ownership closure; avelren_migrator owns a routine; a canonical relation is not
+# owned by avelren_migrator; or avelren_admin owns something in the protected
+# surface. `avelren` owning extra objects is NOT itself an error.
+
+# migrator owns a stray relation in a non-canonical schema -> over-transfer.
+cat >"$WORK/migrator-stray-relation.sql" <<'SQL'
+CREATE SCHEMA residual_test;
 CREATE TABLE residual_test.unexpected_relation(id integer);
-ALTER TABLE residual_test.unexpected_relation OWNER TO avelren;
+ALTER TABLE residual_test.unexpected_relation OWNER TO avelren_migrator;
 SQL
-assert_target_check_rejects residual-non-public-relation \
-    "$WORK/residual-non-public-relation.sql" 'target canonical ownership surface mismatch'
+assert_target_check_rejects migrator-stray-relation \
+    "$WORK/migrator-stray-relation.sql" 'avelren_migrator owns objects outside the canonical closure'
 
-cat >"$WORK/residual-routine.sql" <<'SQL'
-CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
-CREATE FUNCTION residual_test.unexpected_function() RETURNS integer
-    LANGUAGE sql AS 'SELECT 1';
-ALTER FUNCTION residual_test.unexpected_function() OWNER TO avelren;
+# migrator owns a routine (adoption never transfers functions).
+cat >"$WORK/migrator-owns-routine.sql" <<'SQL'
+CREATE FUNCTION public.unexpected_function() RETURNS integer LANGUAGE sql AS 'SELECT 1';
+ALTER FUNCTION public.unexpected_function() OWNER TO avelren_migrator;
 SQL
-assert_target_check_rejects residual-routine "$WORK/residual-routine.sql" \
-    'target canonical ownership surface mismatch'
+assert_target_check_rejects migrator-owns-routine "$WORK/migrator-owns-routine.sql" \
+    'avelren_migrator unexpectedly owns routines'
 
-cat >"$WORK/residual-type.sql" <<'SQL'
-CREATE SCHEMA residual_test AUTHORIZATION avelren_admin;
-CREATE TYPE residual_test.unexpected_type AS ENUM ('unexpected');
-ALTER TYPE residual_test.unexpected_type OWNER TO avelren;
+# migrator owns a stray standalone type -> over-transfer.
+cat >"$WORK/migrator-stray-type.sql" <<'SQL'
+CREATE TYPE public.unexpected_type AS ENUM ('unexpected');
+ALTER TYPE public.unexpected_type OWNER TO avelren_migrator;
 SQL
-assert_target_check_rejects residual-type "$WORK/residual-type.sql" \
-    'target canonical ownership surface mismatch'
+assert_target_check_rejects migrator-stray-type "$WORK/migrator-stray-type.sql" \
+    'avelren_migrator owns objects outside the canonical closure'
 
-cat >"$WORK/residual-timescale.sql" <<'SQL'
+# migrator owns a TimescaleDB-internal object that is NOT part of an adopted
+# hypertable -> over-transfer (adopted-hypertable internals ARE in the closure;
+# a stray one is not).
+cat >"$WORK/migrator-stray-timescale.sql" <<'SQL'
 CREATE TABLE _timescaledb_internal.unexpected_relation(id integer);
-ALTER TABLE _timescaledb_internal.unexpected_relation OWNER TO avelren;
+ALTER TABLE _timescaledb_internal.unexpected_relation OWNER TO avelren_migrator;
 SQL
-assert_target_check_rejects residual-timescale "$WORK/residual-timescale.sql" \
-    'target canonical ownership surface mismatch'
+assert_target_check_rejects migrator-stray-timescale "$WORK/migrator-stray-timescale.sql" \
+    'avelren_migrator owns objects outside the canonical closure'
 
-cat >"$WORK/timescale-unexpected-owner.sql" <<'SQL'
+# a canonical application relation left off avelren_migrator -> reject.
+cat >"$WORK/canonical-not-migrator.sql" <<'SQL'
 ALTER TABLE public.observations OWNER TO unexpected_acl_role;
-DO $avelren_tamper$
-DECLARE
-    mismatched_chunks integer;
-BEGIN
-    SELECT count(*)
-      INTO mismatched_chunks
-      FROM _timescaledb_catalog.chunk AS chunk
-      JOIN pg_namespace AS namespace ON namespace.nspname = chunk.schema_name
-      JOIN pg_class AS relation
-        ON relation.relnamespace = namespace.oid
-       AND relation.relname = chunk.table_name
-     WHERE pg_get_userbyid(relation.relowner) <> 'unexpected_acl_role';
-    IF mismatched_chunks <> 0 THEN
-        RAISE EXCEPTION 'hypertable owner drift did not reach every real TimescaleDB chunk';
-    END IF;
-END
-$avelren_tamper$;
 SQL
-assert_target_check_rejects timescale-unexpected-owner \
-    "$WORK/timescale-unexpected-owner.sql" 'target .*exact-set mismatch'
+assert_target_check_rejects canonical-not-migrator \
+    "$WORK/canonical-not-migrator.sql" 'application object not owned by avelren_migrator'
 
-cat >"$WORK/residual-shared.sql" <<'SQL'
-ALTER DATABASE avelren_residual_test OWNER TO avelren;
+# avelren_admin owns a protected TimescaleDB extension-catalog object -> reject
+# (the extension surface must stay owned by avelren).
+cat >"$WORK/admin-owns-extension-catalog.sql" <<'SQL'
+ALTER TABLE _timescaledb_catalog.hypertable OWNER TO avelren_admin;
 SQL
-assert_target_check_rejects residual-shared "$WORK/residual-shared.sql" \
-    'target canonical ownership surface mismatch'
+assert_target_check_rejects admin-owns-extension-catalog \
+    "$WORK/admin-owns-extension-catalog.sql" 'avelren_admin owns application/timescale objects'
 fi
 
 EVIDENCE="$WORK/evidence"
@@ -1036,6 +1038,7 @@ run_production_adoption() {
         AVELREN_ALLOW_DIRTY_TEST=1 \
         AVELREN_PRODUCTION_TARGET_OVERRIDE="$TARGET_DB" \
         AVELREN_PRODUCTION_DRIFT_INJECT="${AVELREN_PRODUCTION_DRIFT_INJECT:-}" \
+        AVELREN_PRODUCTION_GATE_FAIL="${AVELREN_PRODUCTION_GATE_FAIL:-}" \
         ADOPTION_PSQL_ROLE=avelren ADOPTION_PSQL_PASSWORD=legacy-ci-only \
         ADOPTION_FAULT_DIR="$WORK" \
         bash "$ROOT/deploy/postgres-adopt.sh" \
@@ -1971,10 +1974,16 @@ EOF
         exit 1
     }
 
+    # Decision B: the database, public schema and timescaledb extension stay owned
+    # by the legacy `avelren` (the cluster owner); it also still owns the 6th
+    # column's worth of system/extension/non-adopted objects (no longer the old
+    # residual-zero), and remains LOGIN until the separate retirement gate. What
+    # matters here is the protected top-level ownership and that no canonical
+    # application relation is left on `avelren`.
     owner_contract=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
         psql -U avelren_admin -d "$TARGET_DB" -At -F '|' -v ON_ERROR_STOP=1 -c \
-        "SELECT pg_get_userbyid(d.datdba), pg_get_userbyid(n.nspowner), pg_get_userbyid(e.extowner), (SELECT count(*) FROM pg_shdepend sd JOIN pg_roles r ON r.oid=sd.refobjid WHERE sd.refclassid='pg_authid'::regclass AND sd.deptype='o' AND r.rolname='avelren' AND (sd.dbid=0 OR sd.dbid=(SELECT oid FROM pg_database WHERE datname=current_database()))), (SELECT rolcanlogin FROM pg_roles WHERE rolname='avelren') FROM pg_database d CROSS JOIN pg_namespace n CROSS JOIN pg_extension e WHERE d.datname=current_database() AND n.nspname='public' AND e.extname='timescaledb';")
-    [ "$owner_contract" = 'avelren_admin|avelren_admin|avelren_admin|0|t' ] || {
+        "SELECT pg_get_userbyid(d.datdba), pg_get_userbyid(n.nspowner), pg_get_userbyid(e.extowner), (SELECT count(*) FROM pg_class c JOIN pg_namespace pn ON pn.oid=c.relnamespace WHERE pn.nspname='public' AND c.relkind IN ('r','S','v') AND pg_get_userbyid(c.relowner)='avelren'), (SELECT rolcanlogin FROM pg_roles WHERE rolname='avelren') FROM pg_database d CROSS JOIN pg_namespace n CROSS JOIN pg_extension e WHERE d.datname=current_database() AND n.nspname='public' AND e.extname='timescaledb';")
+    [ "$owner_contract" = 'avelren|avelren|avelren|0|t' ] || {
         echo "success owner or legacy-role contract mismatch: $owner_contract" >&2
         exit 1
     }
@@ -2304,11 +2313,80 @@ elif [ "${AVELREN_ADOPTION_SCENARIO}" = production ]; then
     }
     echo 'postgres adoption production drift-abort: PASS'
 
+    # Post-mutation failure -> inverse rollback -> exact original state.
+    # Inject a privilege_contracts gate failure AFTER the committed forward
+    # adoption; the production hold must route to inverse rollback and restore
+    # the exact original owner/ACL. This is the case that matters most after the
+    # "39 rows" history — it proves rollback on a real production-mode run, not
+    # just the disposable after_commit path.
+    if AVELREN_PRODUCTION_GATE_FAIL=privilege_contracts \
+        run_production_adoption >"$WORK/rollback.out" 2>&1; then
+        cat "$WORK/rollback.out" >&2
+        echo 'production adoption with injected post-commit failure did NOT fail' >&2
+        exit 1
+    fi
+    grep -q 'inverse rollback verified' "$WORK/rollback.out" || {
+        cat "$WORK/rollback.out" >&2
+        echo 'expected verified inverse rollback not observed' >&2
+        exit 1
+    }
+    # Exact original state restored (adopt.sh already verified the exact fingerprint
+    # internally; cross-check externally): ownership back on legacy avelren,
+    # migrator owns nothing, avelren still SUPERUSER+LOGIN, schema_migrations 009.
+    rb_legacy=$(prod_query "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','S','v','m','p') AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren')")
+    [ "${rb_legacy:-0}" -gt 0 ] || { echo "rollback incomplete: legacy avelren owns 0 public objects" >&2; exit 1; }
+    rb_migrator=$(prod_query "SELECT count(*) FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')")
+    [ "$rb_migrator" = 0 ] || { echo "rollback incomplete: avelren_migrator still owns $rb_migrator objects" >&2; exit 1; }
+    [ "$(prod_query "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren'")" = 'true,true' ] || { echo "rollback: legacy avelren no longer SUPERUSER+LOGIN" >&2; exit 1; }
+    [ "$(prod_query "SELECT max(version) FROM schema_migrations")" = 009_observability ] || { echo "rollback: schema_migrations changed" >&2; exit 1; }
+    echo 'postgres adoption production failure-rollback: PASS'
+
+    # Reset the observable side-channels so the happy-path run's evidence is not
+    # confused with the drift-abort/rollback sub-cases above. Clients are up
+    # before the maintenance window, as in production.
+    : >"$WORK/gates.log"
+    : >"$WORK/services.log"
+    printf '%s\n' running >"$WORK/services.state"
+
     if ! run_production_adoption >"$WORK/production.out" 2>&1; then
         cat "$WORK/production.out" >&2
         echo 'production adoption did not exit 0' >&2
         exit 1
     fi
+
+    # H. Stage 3B.2 boundary — the production hold must run ONLY the read-only
+    # privilege-contract acceptance and restart clients on the UNCHANGED legacy
+    # DSN: never migrate, never a DSN cutover, never a second (credential-
+    # switched) engine, never a restart onto a new DSN. adopt.sh guarantees this
+    # by construction (the production hold exits before the full cutover gate
+    # loop); assert the observable evidence so a regression in that control flow
+    # is caught here rather than only in review.
+    #
+    # H.1 Exactly one gate ran — privilege_contracts. Its presence proves the
+    # acceptance ran; its being the ONLY line proves migrate, compose_credential_
+    # switch, smoke, collector_freshness and environment_isolation did NOT.
+    printf '%s\n' privilege_contracts >"$WORK/expected-production-gates"
+    cmp -s "$WORK/expected-production-gates" "$WORK/gates.log" || \
+        prod_fail "production hold ran gates other than privilege_contracts: [$(tr '\n' ',' <"$WORK/gates.log")]"
+
+    # H.2 The published stage is a committed hold, not an accepted cutover.
+    grep -Fxq 'stage=committed' "$EVIDENCE/stage" || \
+        prod_fail 'production stage is not the committed hold'
+    if grep -Fxq 'stage=cutover_complete' "$EVIDENCE/stage" || \
+       grep -Fxq 'accepted_cutover=PASS' "$EVIDENCE/stage"; then
+        prod_fail 'production hold recorded a DSN cutover'
+    fi
+
+    # H.3 Clients were brought back with `up -d` on the legacy DSN (exactly once),
+    # after the maintenance stop — no second, credential-switched runtime.
+    [ "$(grep -c 'up -d caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || \
+        prod_fail 'production hold did not restart clients on the legacy DSN exactly once'
+    grep -q 'stop caddy api collector notifier watchdog' "$WORK/services.log" || \
+        prod_fail 'production hold did not enter a maintenance stop'
+
+    # H.4 Clients are running again after the committed hold.
+    [ "$(cat "$WORK/services.state")" = running ] || \
+        prod_fail 'clients were not restarted after the committed production hold'
 
     # 1. All seven least-privilege roles still exist.
     for prod_role in avelren_admin avelren_migrator avelren_backup avelren_collector \
