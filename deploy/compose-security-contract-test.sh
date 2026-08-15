@@ -57,11 +57,17 @@ ENV
         ECHERHA_CLIENT_VERSION=ECHERHA_CLIENT_VERSION_SENTINEL \
         ECHERHA_DEVICE_ID=ECHERHA_DEVICE_ID_SENTINEL \
         ECHERHA_DEVICE_NAME=ECHERHA_DEVICE_NAME_SENTINEL \
-        docker compose --env-file .env config --format json >"$RESOLVED" 2>"$COMPOSE_ERROR"
+        docker compose --env-file .env --profile migrate config --format json >"$RESOLVED" 2>"$COMPOSE_ERROR"
     ) || fail 'docker compose config failed'
 }
 
 run_compose_config
+
+# `--profile migrate` above is required, not optional: migrate sits behind that
+# profile so no implicit `compose up` can apply a migration, which means a plain
+# `config` no longer emits it at all and every assertion below about migrate's
+# credential wiring would silently pass on an absent service. The profile is a
+# runtime guard, not a licence to stop inspecting what migrate is handed.
 
 # M-1: no service may bind-mount the whole host /run (it carries docker.sock);
 # watchdog reads host facts (backup-stamp, reboot-required) from the /telemetry

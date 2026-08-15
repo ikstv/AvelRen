@@ -65,8 +65,40 @@ the **unchanged** legacy DSN. `schema_migrations` intentionally stays at `009`
 
 Exit codes: `0` = adoption committed and clients restarted; **`3` = adoption
 committed and correct, but clients did not restart** — do NOT roll back, restart
-them manually (`compose up -d`) and verify health; non-`0`/non-`3` = refused or
-rolled back, see the log.
+them manually and verify health; non-`0`/non-`3` = refused or rolled back, see
+the log.
+
+The manual restart names the five services **and** passes `--no-deps`:
+
+```bash
+docker compose up -d --no-deps caddy api collector notifier watchdog
+```
+
+> **Never restart the runtime with a bare `docker compose up -d`.** An explicit
+> service list alone does not help: Compose resolves `depends_on` and starts what
+> it finds there. `migrate` is behind the `migrate` profile precisely so this
+> cannot happen, and `--no-deps` is the second, independent guard at the call
+> site.
+>
+> Both failure modes are real, and which one you get depends only on whether the
+> 010 grants exist yet:
+>
+> * **Un-adopted database** (`avelren_migrator` still powerless): `migrate` exits
+>   1 with `permission denied for schema public`, so
+>   `service_completed_successfully` is never satisfied and caddy/api/collector/
+>   notifier/watchdog **do not start at all**. The site goes down. This is the
+>   state production is in today.
+> * **After the grants exist**: `migrate` succeeds, finds `009`, and applies and
+>   stamps `010` — outside the adoption sequence, contradicting the model above
+>   in which 3B.2 leaves `009` and 3D does the stamping. If the restart then
+>   fails, the inverse rollback restores the ACLs but cannot unstamp `010`, and
+>   no existing guard detects the resulting divergence.
+
+Migrations are applied deliberately and only on request:
+
+```bash
+docker compose --profile migrate up migrate
+```
 
 ### The drift check — read this before the 3 a.m. window
 
