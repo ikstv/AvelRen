@@ -160,6 +160,24 @@ build_inverse_plan "$EVIDENCE/original.tsv" "$EVIDENCE/inverse.sql"
 # canonical application relations to avelren_migrator is allowed.
 ! grep -q 'REASSIGN OWNED' "$EVIDENCE/forward.sql" || fail 'forward plan must not use blanket REASSIGN OWNED'
 grep -q '^ALTER TABLE "public"\."alerts" OWNER TO "avelren_migrator";' "$EVIDENCE/forward.sql" || fail 'forward plan lacks application handoff'
+# Ordering, asserted rather than eyeballed. The plan inlines migration 010
+# verbatim AFTER `SET ROLE avelren_migrator`, so every GRANT inside 010 runs as
+# the migrator — which works only while that role already owns the table being
+# granted on. schema_migrations is the case that matters: 010 grants SELECT on
+# it to collector/notifier/watchdog (issue #88's precondition), and if the
+# ownership handoff for it ever moved below the inlined migration, those grants
+# would fail with 42501 in the 3B.2 window rather than in CI. This pins the
+# order so a future reshuffle of build_forward_plan is caught here instead.
+_fp_owner_line=$(grep -n '^ALTER TABLE "public"\."schema_migrations" OWNER TO "avelren_migrator";' "$EVIDENCE/forward.sql" | head -n 1 | cut -d: -f1)
+_fp_setrole_line=$(grep -n '^SET ROLE "avelren_migrator";' "$EVIDENCE/forward.sql" | head -n 1 | cut -d: -f1)
+_fp_grant_line=$(grep -n 'GRANT SELECT ON TABLE schema_migrations' "$EVIDENCE/forward.sql" | head -n 1 | cut -d: -f1)
+[ -n "$_fp_owner_line" ] || fail 'forward plan lacks schema_migrations ownership handoff'
+[ -n "$_fp_setrole_line" ] || fail 'forward plan lacks SET ROLE before the inlined migration'
+[ -n "$_fp_grant_line" ] || fail 'forward plan lacks the schema_migrations read grants from migration 010'
+[ "$_fp_owner_line" -lt "$_fp_setrole_line" ] || \
+    fail 'forward plan hands off schema_migrations ownership after SET ROLE; the migrator cannot grant on a table it does not yet own'
+[ "$_fp_setrole_line" -lt "$_fp_grant_line" ] || \
+    fail 'forward plan applies migration 010 before SET ROLE; grants would run as the wrong role'
 # Inverse likewise reverses only the application relations, per object, with no
 # blanket REASSIGN OWNED.
 ! grep -q 'REASSIGN OWNED' "$EVIDENCE/inverse.sql" || fail 'inverse plan must not use blanket REASSIGN OWNED'

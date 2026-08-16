@@ -75,6 +75,9 @@ EXPECTED_TABLE_PRIVILEGES = {
         "eta_targets": {"SELECT", "INSERT", "UPDATE"},
         "eta_alerts": {"SELECT", "INSERT", "UPDATE"},
         "notification_cancels": {"INSERT"},
+        # Fail-closed startup schema check (#88) читає max(version) звідси;
+        # без цього SELECT перевірка впала б з 42501 після 3C cutover.
+        "schema_migrations": {"SELECT"},
     },
     "NOTIFIER_DATABASE_URL": {
         "alerts": {"SELECT"},
@@ -83,11 +86,17 @@ EXPECTED_TABLE_PRIVILEGES = {
         "eta_targets": {"SELECT"},
         "checkpoints": {"SELECT"},
         "notification_cancels": {"SELECT", "DELETE"},
+        # Fail-closed startup schema check (#88) читає max(version) звідси;
+        # без цього SELECT перевірка впала б з 42501 після 3C cutover.
+        "schema_migrations": {"SELECT"},
     },
     "WATCHDOG_DATABASE_URL": {
         "observations": {"SELECT"},
         "collector_runs": {"SELECT"},
         "health_alerts": {"SELECT", "INSERT", "UPDATE"},
+        # Fail-closed startup schema check (#88) читає max(version) звідси;
+        # без цього SELECT перевірка впала б з 42501 після 3C cutover.
+        "schema_migrations": {"SELECT"},
     },
     "API_DATABASE_URL": {
         "countries": {"SELECT"},
