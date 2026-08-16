@@ -38,27 +38,35 @@ services:
       timeout: 5s
       retries: 10
 
-  # Застосовує міграції і завершується. Запускається ТІЛЬКИ явно:
-  #   docker compose --profile migrate up migrate
+  # Виконується до кожного старту сервісів і завершується. Так схема БД не
+  # може розійтися з кодом через забуту міграцію.
   #
-  # `profiles:` тут — структурний запобіжник, а не зручність. migrate.py
-  # застосовує ВСІ *.sql, яких немає в schema_migrations, без піна максимальної
-  # версії. Поки migrate був у дефолтному наборі, будь-який `compose up` —
-  # оператора чи adopt.sh — тягнув його як залежність і застосовував 010 поза
-  # adoption, всупереч моделі «3B.2 лишає 009, штамп на 3D». Єдине, що це
-  # стримувало, — безправна роль avelren_migrator на неадоптованій БД, тобто
-  # саме та прогалина, яку adoption і закриває: запобіжник, який adoption
-  # власноруч виймає, і рівно в ту мить, коли 010 вже застосовна.
+  # ЧОМУ migrate НЕ за `profiles:`, хоча неявний старт — реальна небезпека.
+  # migrate.py застосовує ВСІ *.sql, яких немає в schema_migrations, без піна
+  # максимальної версії, тож будь-який `compose up`, що затягне migrate як
+  # залежність, застосує 010 поза adoption (модель: «3B.2 лишає 009, штамп на
+  # 3D»). Профіль прибрав би migrate з дефолтного набору й закрив це
+  # структурно — але зробити його робочим можна лише додавши `required: false`
+  # на чотири ребра depends_on нижче, інакше Compose визнає модель невалідною
+  # щоразу, коли профіль неактивний («depends on undefined service "migrate":
+  # invalid compose project», exit 1 — валить навіть `config`).
   #
-  # Профіль прибирає migrate з дефолтного набору, тож він не підіймається ані
-  # неявно як залежність, ані з `up -d` без сервісів. Перевірено емпірично:
-  # профіль переживає merge з overlay, який adopt.sh генерує і в якому migrate
-  # названий — у `config --services` його після цього просто немає.
+  # А `required: false` знімає fail-closed НЕ лише для «сервіс відсутній», а й
+  # для «сервіс присутній і ВПАВ». Перевірено прямим експериментом на
+  # compose v5.3.1: з `required: false` і активним профілем провалений migrate
+  # (exit 1) пропускає api до старту, і `up` повертає 0; без нього той самий
+  # провал зупиняє старт із exit 1. Тобто ціна профілю — та сама властивість
+  # fail-closed, яку migrate.py декларує дослівно (A-07), і яку більше нічим не
+  # підстрахувати: жоден сервіс не звіряє версію схеми при старті.
+  #
+  # Тому запобіжник тут один і на місці виклику — `--no-deps` в обох рестартах
+  # adopt.sh. Профіль повернеться, коли fail-closed переїде в застосунок
+  # (старт-перевірка max(version)), тобто туди, де його не обійти способом
+  # запуску.
   migrate:
     build: *avelren-build
     image: avelren-app:latest
     command: ["python", "-m", "avelren.migrate"]
-    profiles: ["migrate"]
     mem_limit: 256m
     cpus: 0.5
     environment:
@@ -97,19 +105,12 @@ services:
       CONTACT_EMAIL: ${CONTACT_EMAIL}
       LOG_LEVEL: ${LOG_LEVEL}
       REARM_FACTOR: ${REARM_FACTOR}
-    # `required: false` — не косметика, а умова, за якої профіль вище взагалі
-    # робочий. Без нього Compose вважає модель невалідною щоразу, коли профіль
-    # неактивний: «service "collector" depends on undefined service "migrate":
-    # invalid compose project», exit 1 — і це валить не тільки `up`, а й
-    # `config`, і навіть `up --no-deps`. Тобто стек стало б неможливо підняти
-    # взагалі. З `required: false` залежність ігнорується, коли migrate поза
-    # активним профілем, і повністю зберігається, коли профіль увімкнено:
-    # `--profile migrate up -d` і далі чекає завершення migrate перед стартом
-    # рантайму (перевірено: api стартує на 239 мс пізніше за вихід migrate).
+    # Ребро БЕЗ `required: false` — навмисно: воно і є fail-closed. Провалений
+    # migrate мусить зупинити старт (перевірено: `up` виходить з 1 і сервіс не
+    # піднімається). Деталі компромісу — у коментарі до migrate вище.
     depends_on:
       migrate:
         condition: service_completed_successfully
-        required: false
 
   # Окремо від збирача: історія має накопичуватись, навіть якщо FCM лежить.
   notifier:
@@ -130,7 +131,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-        required: false
 
   # Помічає, що система замовкла. Найнебезпечніший збій — тихий.
   watchdog:
@@ -155,7 +155,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-        required: false
 
   api:
     build: *avelren-build
@@ -179,7 +178,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-        required: false
 
   caddy:
     image: caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0

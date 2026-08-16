@@ -127,28 +127,7 @@ jobs:
 
       - name: Docker Compose config
         timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          # Validate BOTH resolutions: the default set the runtime actually
-          # starts, and the full model including the profiled migrate service
-          # (which a plain config does not emit at all).
-          docker compose --env-file .env.example config --quiet
-          docker compose --env-file .env.example --profile migrate config --quiet
-
-      - name: Compose never starts migrate implicitly
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          # migrate applies every *.sql it does not find in schema_migrations,
-          # with no maximum-version pin, so an implicit start is an unreviewed
-          # schema change. It must be absent from the default set and present
-          # only when its profile is asked for by name.
-          if docker compose --env-file .env.example config --services | grep -qx migrate; then
-            echo 'migrate is in the default service set; a bare `compose up` would apply migrations' >&2
-            exit 1
-          fi
-          docker compose --env-file .env.example --profile migrate config --services \
-            | grep -qx migrate
+        run: docker compose --env-file .env.example config --quiet
 
       - name: Security/setup contract smoke
         run: |

@@ -237,19 +237,18 @@ x-runtime: &runtime
       trap 'exit 0' TERM INT
       while :; do sleep 3600; done
   # The runtime services carry the SAME edge to migrate that production's
-  # compose does. Without it this harness could never observe the hazard it is
-  # meant to guard: in production \`up -d <five services>\` pulls migrate in as a
-  # resolved dependency, and that edge is the only reason it does. A harness
-  # whose runtime services depend on db alone would stay green no matter what
-  # adopt.sh passed, because there would be nothing for --no-deps to suppress.
-  # \`required: false\` mirrors production too, and is what keeps the model valid
-  # while the migrate profile is inactive.
+  # compose does — same condition, and deliberately WITHOUT \`required: false\`,
+  # because production does not have it either. Without this edge the harness
+  # could never observe the hazard it is meant to guard: in production
+  # \`up -d <five services>\` pulls migrate in as a resolved dependency, and this
+  # edge is the only reason it does. A harness whose runtime services depend on
+  # db alone would stay green no matter what adopt.sh passed, because there
+  # would be nothing for --no-deps to suppress.
   depends_on:
     db:
       condition: service_healthy
     migrate:
       condition: service_completed_successfully
-      required: false
 services:
   db:
     image: timescale/timescaledb:2.17.2-pg16
@@ -322,13 +321,13 @@ services:
   # It now runs the REAL migration applier out of the test image, against the
   # same DSN production gives it, so an unguarded restart advances
   # schema_migrations to 010 exactly as production would — and the existing
-  # assertion catches it. The \`migrate\` profile mirrors production so the
-  # structural guard is under test here too, not just adopt.sh's --no-deps.
+  # assertion catches it. Like production, it sits in the default service set
+  # with no profile: --no-deps at adopt.sh's call sites is the guard under test,
+  # and putting a profile here would hide whether that flag does its job.
   migrate:
     build:
       context: '$ROOT_FOR_COMPOSE'
       dockerfile: app/Dockerfile.test
-    profiles: ["migrate"]
     restart: "no"
     command: ["python", "-m", "avelren.migrate", "db/migrations"]
     depends_on:
@@ -715,7 +714,13 @@ PY
             test python -m pytest app/tests/test_db_privileges.py -q -p no:cacheprovider
         ;;
     compose_credential_switch)
-        compose create caddy api collector notifier watchdog >/dev/null
+        # `up --no-start` rather than `create`, purely so --no-deps is available:
+        # `docker compose create` has no such flag. Without it Compose resolves
+        # depends_on and drags migrate in, which the `migrate` profile used to
+        # mask — the profile is gone (it cost fail-closed; see the comment on
+        # migrate in docker-compose.yml). This gate only inspects the five
+        # runtime containers' credentials, so dependency resolution is noise here.
+        compose up --no-start --no-deps caddy api collector notifier watchdog >/dev/null
         ;;
     smoke)
         DATABASE_URL="$AVELREN_API_DSN" compose run --rm --no-deps -T \

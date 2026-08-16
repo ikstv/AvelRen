@@ -75,10 +75,10 @@ docker compose up -d --no-deps caddy api collector notifier watchdog
 ```
 
 > **Never restart the runtime with a bare `docker compose up -d`.** An explicit
-> service list alone does not help: Compose resolves `depends_on` and starts what
-> it finds there. `migrate` is behind the `migrate` profile precisely so this
-> cannot happen, and `--no-deps` is the second, independent guard at the call
-> site.
+> service list alone does not help either: Compose resolves `depends_on` and
+> starts what it finds there, and `migrate` is a dependency of all four runtime
+> services. `--no-deps` is the only thing that suppresses that, which is why it
+> is not optional here — it is the guard, not a refinement of one.
 >
 > Both failure modes are real, and which one you get depends only on whether the
 > 010 grants exist yet:
@@ -94,10 +94,11 @@ docker compose up -d --no-deps caddy api collector notifier watchdog
 >   fails, the inverse rollback restores the ACLs but cannot unstamp `010`, and
 >   no existing guard detects the resulting divergence.
 
-Migrations are applied deliberately and only on request:
+To apply migrations deliberately — at 3D, or any other sanctioned moment — name
+the service explicitly, which starts it and nothing else:
 
 ```bash
-docker compose --profile migrate up migrate
+docker compose up -d --no-deps migrate
 ```
 
 ### The drift check — read this before the 3 a.m. window

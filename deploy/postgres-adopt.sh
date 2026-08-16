@@ -230,10 +230,14 @@ restart_runtime_on_legacy_dsn() {
     # would see it (the sha256 still matches, verify_contract only checks
     # structure, and migrate skips versions already recorded).
     #
-    # The compose profile on migrate is the structural half of this fix and
-    # already keeps it out of the model. --no-deps is the second, independent
-    # half: it holds even if the profile is ever dropped, and it is the half
-    # that documents the intent at the call site.
+    # This flag is the ONLY guard against that, deliberately. A compose profile
+    # on migrate would close it structurally too, but making a profile valid
+    # requires `required: false` on the runtime services' depends_on, and that
+    # was measured to drop fail-closed for a migrate that is present and FAILS —
+    # not merely one that is absent. Since no service verifies the schema
+    # version at startup, that edge is the only thing keeping the runtime off an
+    # unknown schema, and trading it away here would be a worse bargain than the
+    # hazard it fixes. See the comment on migrate in docker-compose.yml.
     "${args[@]}" up -d --no-deps caddy api collector notifier watchdog
 }
 
