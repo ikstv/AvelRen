@@ -58,3 +58,7 @@ docker-compose.override.yml
 # Local build output (APKs, etc.) copied here by hand for distribution —
 # never a build artifact the repo should track.
 dist/
+
+# Design-system export staged for Claude Design (DesignSync) — not app code.
+design-system.zip
+design-system/
