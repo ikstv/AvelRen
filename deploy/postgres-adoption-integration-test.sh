@@ -32,6 +32,8 @@ COMPOSE_PROJECT_DIR_POSIX=$(mktemp -d)
 COMPOSE_ENV_FILE_POSIX="$COMPOSE_PROJECT_DIR_POSIX/compose.env"
 WORK=$(mktemp -d)
 readonly PROJECT COMPOSE_FILE_POSIX COMPOSE_PROJECT_DIR_POSIX COMPOSE_ENV_FILE_POSIX WORK
+# Per-gate stderr lands here; see the redirect in the success-gate runner.
+mkdir -p "$WORK/gate-err"
 
 printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=isolated' >"$COMPOSE_ENV_FILE_POSIX"
 # F2. adopt.sh's legacy-DSN overlay carries `${DATABASE_URL:?...}`, resolved from
@@ -236,9 +238,19 @@ x-runtime: &runtime
       echo "PROBE_RESULT=\$\$probe_verdict run_id=\$\${AVELREN_PROBE_RUN_ID:-none} service=\$\${AVELREN_PROBE_SERVICE:-unknown} actual_role=\$\$probe_role table=\$\${AVELREN_PROBE_TABLE:-none}"
       trap 'exit 0' TERM INT
       while :; do sleep 3600; done
+  # The runtime services carry the SAME edge to migrate that production's
+  # compose does — same condition, and deliberately WITHOUT \`required: false\`,
+  # because production does not have it either. Without this edge the harness
+  # could never observe the hazard it is meant to guard: in production
+  # \`up -d <five services>\` pulls migrate in as a resolved dependency, and this
+  # edge is the only reason it does. A harness whose runtime services depend on
+  # db alone would stay green no matter what adopt.sh passed, because there
+  # would be nothing for --no-deps to suppress.
   depends_on:
     db:
       condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
 services:
   db:
     image: timescale/timescaledb:2.17.2-pg16
@@ -300,10 +312,29 @@ services:
   # runtime services. Compose validates the whole merged model on every command,
   # so an overlay key for a service the base file never declares aborts the
   # restart with "no image or build context" — for the base file's OWN services
-  # too. This service exists so the overlay is loadable; it is never in the
-  # \`up\` list adopt.sh passes, so it is declared and never started.
+  # too. This service must therefore exist for the overlay to be loadable.
+  #
+  # It used to be an \`*idle\` sleeper, and that is the second half of why this
+  # suite could not see the hazard: even once a restart did pull migrate in, the
+  # thing that started was a \`sleep\`, which touches no schema and stamps
+  # nothing. The assertion that schema_migrations stays at 009 could not fail
+  # because nothing in the harness was ever capable of advancing it.
+  #
+  # It now runs the REAL migration applier out of the test image, against the
+  # same DSN production gives it, so an unguarded restart advances
+  # schema_migrations to 010 exactly as production would — and the existing
+  # assertion catches it. Like production, it sits in the default service set
+  # with no profile: --no-deps at adopt.sh's call sites is the guard under test,
+  # and putting a profile here would hide whether that flag does its job.
   migrate:
-    <<: *idle
+    build:
+      context: '$ROOT_FOR_COMPOSE'
+      dockerfile: app/Dockerfile.test
+    restart: "no"
+    command: ["python", "-m", "avelren.migrate", "db/migrations"]
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://avelren_migrator:migrator-ci-only@db:5432/avelren_adoption_test
   # caddy carries no DATABASE_URL in production either — it must stay a pure
@@ -499,15 +530,32 @@ _forward() {
             up|down|ps|stop|logs|inspect)
                 seen=1
                 post+=("$a")
-                if [ "$a" = up ]; then
-                    # --no-deps is load-bearing: `db` is a depends_on of every
-                    # runtime service and holds the disposable cluster in the
-                    # container itself (no volume). Recreating it would destroy
-                    # the database mid-adoption. --force-recreate makes the probe
-                    # re-run for this run id even when the resolved config is
-                    # byte-identical to the previous scenario's.
-                    post+=(--no-deps --force-recreate)
-                fi
+                # Nothing is injected here. The stub used to add
+                # `--no-deps --force-recreate` to every forwarded `up`, and
+                # --no-deps in particular made this harness structurally unable
+                # to observe the defect it exists to catch: it suppressed
+                # dependency resolution in the stub no matter what adopt.sh
+                # passed, so an adopt.sh that had NO --no-deps looked exactly
+                # like one that did. The test path diverged from the production
+                # path at precisely the point that decides the outcome.
+                #
+                # Both flags are now the caller's business, which is the point:
+                # adopt.sh passes --no-deps itself, and the suite is only
+                # meaningful if that is the flag actually under test.
+                #
+                # Dropping --no-deps does not endanger `db`. It holds the
+                # disposable cluster in the container itself (no volume), so
+                # recreating it would destroy the database mid-adoption — but
+                # Compose only recreates a service whose resolved config
+                # changed, and db's does not change between scenarios. Dropping
+                # --force-recreate is what makes that true: with it, every
+                # forwarded `up` recreated db unconditionally.
+                #
+                # The runtime probes still re-run per scenario without
+                # --force-recreate, because AVELREN_PROBE_RUN_ID is part of
+                # their resolved environment and changes on every _forward_up.
+                # db carries no such variable, which is exactly why it stays put
+                # while they are recreated.
                 continue
                 ;;
             -f|--file) has_f=1; want_path=1 ;;
@@ -609,6 +657,14 @@ cat >"$BIN/success-gate" <<'SH'
 set -euo pipefail
 
 gate=${1:?success gate is required}
+# Keep this gate's stderr. adopt.sh only sees the exit code, so a gate that
+# failed for its own reason — a compose flag that does not exist, an image that
+# would not build — used to disappear entirely, and all the suite could report
+# was "the gate list is one short". That cost two wrong diagnoses on 2026-08-16,
+# both of which produced an identical symptom to the real cause. A plain
+# redirect, not `tee` via process substitution: msys2 does not wait for the
+# substituted process at exit and BOTH the file and the console come out empty.
+[ -z "${ADOPTION_GATE_ERR_DIR:-}" ] || exec 2>>"$ADOPTION_GATE_ERR_DIR/gate-$gate.err"
 # Test-only: fail a named post-commit gate to drive the production inverse
 # rollback path (AVELREN_PRODUCTION_GATE_FAIL=privilege_contracts).
 if [ "${AVELREN_PRODUCTION_GATE_FAIL:-}" = "$gate" ]; then
@@ -668,7 +724,13 @@ PY
             test python -m pytest app/tests/test_db_privileges.py -q -p no:cacheprovider
         ;;
     compose_credential_switch)
-        compose create caddy api collector notifier watchdog >/dev/null
+        # `up --no-start` rather than `create`, purely so --no-deps is available:
+        # `docker compose create` has no such flag. Without it Compose resolves
+        # depends_on and drags migrate in, which the `migrate` profile used to
+        # mask — the profile is gone (it cost fail-closed; see the comment on
+        # migrate in docker-compose.yml). This gate only inspects the five
+        # runtime containers' credentials, so dependency resolution is noise here.
+        compose up --no-start --no-deps caddy api collector notifier watchdog >/dev/null
         ;;
     smoke)
         DATABASE_URL="$AVELREN_API_DSN" compose run --rm --no-deps -T \
@@ -1165,6 +1227,7 @@ run_adoption() {
         ADOPTION_SERVICE_STATE="$WORK/services.state" \
         ADOPTION_FORWARD_LOG="$WORK/forward.log" ADOPTION_GATE_LOG="$WORK/gates.log" \
         ADOPTION_PROBE_RUN_ID="$WORK/probe-run-id" \
+        ADOPTION_GATE_ERR_DIR="$WORK/gate-err" \
         AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
         AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
@@ -1204,6 +1267,7 @@ run_production_adoption() {
         ADOPTION_SERVICE_STATE="$WORK/services.state" \
         ADOPTION_FORWARD_LOG="$WORK/forward.log" ADOPTION_GATE_LOG="$WORK/gates.log" \
         ADOPTION_PROBE_RUN_ID="$WORK/probe-run-id" \
+        ADOPTION_GATE_ERR_DIR="$WORK/gate-err" \
         AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
         AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
@@ -1290,6 +1354,19 @@ wait_for_probe_result() {
         sleep 2
     done
     return 0
+}
+
+# A short gate list says WHICH gate never completed; this says WHY. Without it
+# the only signal is `cmp` reporting a byte count, which is consistent with any
+# number of unrelated causes — on 2026-08-16 it was consistent with two.
+dump_gate_errs() {
+    local f
+    for f in "$WORK"/gate-err/gate-*.err; do
+        [ -e "$f" ] || continue
+        [ -s "$f" ] || continue
+        echo "--- stderr of $(basename "$f" .err | sed 's/^gate-//') ---" >&2
+        tail -20 "$f" >&2
+    done
 }
 
 probe_diagnostics() {
@@ -1586,7 +1663,7 @@ reset_runtime_containers
             echo "$name rollback verification evidence is missing" >&2
             exit 1
         }
-        grep -q 'up -d caddy api collector notifier watchdog' "$WORK/services.log" || {
+        grep -q 'up -d --no-deps caddy api collector notifier watchdog' "$WORK/services.log" || {
             echo "$name did not restart only after exact verification" >&2
             exit 1
         }
@@ -1753,7 +1830,7 @@ reset_runtime_containers
             echo 'TERM did not restart the old runtime after exact inverse verification' >&2
             exit 1
         }
-        [ "$(grep -c 'up -d caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || {
+        [ "$(grep -c 'up -d --no-deps caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || {
             echo 'TERM violated one-restart ordering' >&2
             exit 1
         }
@@ -1831,6 +1908,8 @@ reset_runtime_containers
         done
         cmp "$WORK/expected-preceding-gates" "$WORK/gates.log" || {
             echo "$gate did not run exactly the preceding real gate callbacks" >&2
+            echo "ran: [$(tr '\n' ',' <"$WORK/gates.log")] expected: [$(tr '\n' ',' <"$WORK/expected-preceding-gates")]" >&2
+            dump_gate_errs
             exit 1
         }
         expected_privilege=NOT_RUN
@@ -2203,7 +2282,7 @@ reset_runtime_containers
             echo 'startup stop failure did not retain maintenance state' >&2
             exit 1
         }
-        [ "$(grep -c 'up -d caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || {
+        [ "$(grep -c 'up -d --no-deps caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || {
             echo 'startup stop failure attempted an old-runtime restart' >&2
             exit 1
         }
@@ -2268,8 +2347,8 @@ EOF
         echo 'success gates did not pass in the frozen order' >&2
         exit 1
     }
-    [ "$(grep -c 'up -d caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || {
-        echo 'new runtime was not started exactly once after success gates' >&2
+    [ "$(grep -c 'up -d --no-deps caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || {
+        echo 'new runtime was not started exactly once after success gates with --no-deps' >&2
         exit 1
     }
     # 3C is the one restart deliberately left on the per-role DSNs. Asserting
@@ -2682,7 +2761,12 @@ reset_runtime_containers
     rb_migrator=$(prod_query "SELECT count(*) FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname='avelren_migrator')")
     [ "$rb_migrator" = 0 ] || { echo "rollback incomplete: avelren_migrator still owns $rb_migrator objects" >&2; exit 1; }
     [ "$(prod_query "SELECT rolsuper::text||','||rolcanlogin::text FROM pg_roles WHERE rolname='avelren'")" = 'true,true' ] || { echo "rollback: legacy avelren no longer SUPERUSER+LOGIN" >&2; exit 1; }
-    [ "$(prod_query "SELECT max(version) FROM schema_migrations")" = 009_observability ] || { echo "rollback: schema_migrations changed" >&2; exit 1; }
+    # Report the observed version, not just that it moved. The way this fails is
+    # a restart that let `migrate` start and stamp 010, and naming the version
+    # makes that legible from the failure line alone instead of requiring a
+    # separate query against a database the harness tears down on exit.
+    rb_schema=$(prod_query "SELECT max(version) FROM schema_migrations")
+    [ "$rb_schema" = 009_observability ] || { echo "rollback: schema_migrations changed to '$rb_schema' (expected 009_observability; a restart applied a migration)" >&2; exit 1; }
     echo 'postgres adoption production failure-rollback: PASS'
 
     # Reset the observable side-channels so the happy-path run's evidence is not
@@ -2724,8 +2808,11 @@ reset_runtime_containers
 
     # H.3 Clients were brought back with `up -d` on the legacy DSN (exactly once),
     # after the maintenance stop — no second, credential-switched runtime.
-    [ "$(grep -c 'up -d caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || \
-        prod_fail 'production hold did not restart clients on the legacy DSN exactly once'
+    # --no-deps is part of the asserted text on purpose: naming the five services
+    # does not by itself keep migrate out, so a restart without it is a different
+    # and unsafe command even though the service list is identical.
+    [ "$(grep -c 'up -d --no-deps caddy api collector notifier watchdog' "$WORK/services.log")" -eq 1 ] || \
+        prod_fail 'production hold did not restart clients on the legacy DSN exactly once with --no-deps'
     grep -q 'stop caddy api collector notifier watchdog' "$WORK/services.log" || \
         prod_fail 'production hold did not enter a maintenance stop'
 
