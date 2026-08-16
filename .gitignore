@@ -54,3 +54,7 @@ _to_delete/
 # clean-worktree guard would otherwise refuse to run while the override that
 # keeps the site up is present. Removed at the 3C cutover.
 docker-compose.override.yml
+
+# Local build output (APKs, etc.) copied here by hand for distribution —
+# never a build artifact the repo should track.
+dist/
