@@ -1,6 +1,8 @@
 package ua.avelren.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -8,17 +10,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ua.avelren.app.BuildConfig
 import ua.avelren.app.data.Api
+import ua.avelren.app.ui.theme.avelren
 import java.time.Instant
 
 /**
@@ -65,10 +72,10 @@ fun TelemetryCard(t: Api.Telemetry?) {
             backupStatus, certStatus, watchdogStatus, upstreamStatus, inodesStatus)
     )
 
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Сервер", style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold)
+            Text("СЕРВЕР", style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.avelren.ink)
 
             SectionHeader("Загальний статус", overall)
             if (t.problems.isNotEmpty()) {
@@ -121,15 +128,34 @@ fun TelemetryCard(t: Api.Telemetry?) {
 
 @Composable
 private fun SectionHeader(title: String, status: SectionStatus) {
-    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+    HorizontalDivider(color = MaterialTheme.avelren.line, modifier = Modifier.padding(vertical = 8.dp))
     Row(
         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodyMedium)
-        Text(status.emoji, style = MaterialTheme.typography.bodyMedium)
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.avelren.ink)
+        StatusDot(status)
     }
+}
+
+/**
+ * Сигнальна крапка замість emoji-статусу (🟢/🟡/🔴/⚪) — та сама семантика
+ * ROAD SIGN, що й скрізь у застосунку: зелений/жовтий/червоний/нейтральний.
+ * `SectionStatus` лишається чистою логікою без Compose (юніт-тести без
+ * інструментації) — мапінг на колір живе тут, у точці рендеру.
+ */
+@Composable
+private fun StatusDot(status: SectionStatus) {
+    val avelren = MaterialTheme.avelren
+    val color = when (status) {
+        SectionStatus.OK -> avelren.go
+        SectionStatus.WARN -> avelren.warn
+        SectionStatus.ERROR -> avelren.closed
+        SectionStatus.UNKNOWN -> avelren.ink2
+    }
+    Box(Modifier.size(10.dp).clip(CircleShape).background(color))
 }
 
 @Composable

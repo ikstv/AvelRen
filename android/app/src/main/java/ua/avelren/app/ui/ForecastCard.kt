@@ -10,10 +10,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ua.avelren.app.data.Api
+import ua.avelren.app.ui.theme.avelren
+import ua.avelren.app.ui.theme.plateBorder
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -33,10 +36,10 @@ private val HOUR_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 fun ForecastCard(forecast: Api.Forecast?) {
     if (forecast == null) return
 
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("АІ Прогноз", style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold)
+            Text("АІ ПРОГНОЗ", style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.avelren.ink)
 
             when (forecast.status) {
                 "collecting" -> Collecting(forecast)
@@ -98,14 +101,21 @@ private fun Points(f: Api.Forecast) {
 
     // Показуємо кожну шосту точку: 24 рядки поспіль ніхто не читає.
     f.points.filterIndexed { i, _ -> i % 6 == 0 }.take(4).forEach { p ->
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
-            Text(formatHour(p.time), modifier = Modifier.padding(end = 12.dp),
-                style = MaterialTheme.typography.bodyMedium)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(formatHour(p.time), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.avelren.ink2)
             // Діапазон, а не одне число: «2-4 дні» чесніше за «3 дні 14 годин».
             Text(
                 "${humanize(p.wait_seconds_low)} – ${humanize(p.wait_seconds_high)}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.avelren.ink,
+                modifier = Modifier
+                    .plateBorder(MaterialTheme.avelren.line)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
     }
