@@ -14,8 +14,8 @@ android {
         applicationId = "ua.avelren.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 1
+        versionName = "0.1.0"
 
         // Домен винесено в конфіг: у застосунку немає жодної згадки про
         // echerha.gov.ua — клієнт ходить тільки до нас (AGENTS.md, правило 1).
