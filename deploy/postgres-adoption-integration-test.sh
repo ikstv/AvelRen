@@ -32,6 +32,8 @@ COMPOSE_PROJECT_DIR_POSIX=$(mktemp -d)
 COMPOSE_ENV_FILE_POSIX="$COMPOSE_PROJECT_DIR_POSIX/compose.env"
 WORK=$(mktemp -d)
 readonly PROJECT COMPOSE_FILE_POSIX COMPOSE_PROJECT_DIR_POSIX COMPOSE_ENV_FILE_POSIX WORK
+# Per-gate stderr lands here; see the redirect in the success-gate runner.
+mkdir -p "$WORK/gate-err"
 
 printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=isolated' >"$COMPOSE_ENV_FILE_POSIX"
 # F2. adopt.sh's legacy-DSN overlay carries `${DATABASE_URL:?...}`, resolved from
@@ -655,6 +657,14 @@ cat >"$BIN/success-gate" <<'SH'
 set -euo pipefail
 
 gate=${1:?success gate is required}
+# Keep this gate's stderr. adopt.sh only sees the exit code, so a gate that
+# failed for its own reason — a compose flag that does not exist, an image that
+# would not build — used to disappear entirely, and all the suite could report
+# was "the gate list is one short". That cost two wrong diagnoses on 2026-08-16,
+# both of which produced an identical symptom to the real cause. A plain
+# redirect, not `tee` via process substitution: msys2 does not wait for the
+# substituted process at exit and BOTH the file and the console come out empty.
+[ -z "${ADOPTION_GATE_ERR_DIR:-}" ] || exec 2>>"$ADOPTION_GATE_ERR_DIR/gate-$gate.err"
 # Test-only: fail a named post-commit gate to drive the production inverse
 # rollback path (AVELREN_PRODUCTION_GATE_FAIL=privilege_contracts).
 if [ "${AVELREN_PRODUCTION_GATE_FAIL:-}" = "$gate" ]; then
@@ -1217,6 +1227,7 @@ run_adoption() {
         ADOPTION_SERVICE_STATE="$WORK/services.state" \
         ADOPTION_FORWARD_LOG="$WORK/forward.log" ADOPTION_GATE_LOG="$WORK/gates.log" \
         ADOPTION_PROBE_RUN_ID="$WORK/probe-run-id" \
+        ADOPTION_GATE_ERR_DIR="$WORK/gate-err" \
         AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
         AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
@@ -1256,6 +1267,7 @@ run_production_adoption() {
         ADOPTION_SERVICE_STATE="$WORK/services.state" \
         ADOPTION_FORWARD_LOG="$WORK/forward.log" ADOPTION_GATE_LOG="$WORK/gates.log" \
         ADOPTION_PROBE_RUN_ID="$WORK/probe-run-id" \
+        ADOPTION_GATE_ERR_DIR="$WORK/gate-err" \
         AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
         AVELREN_STACK_DIR="$ROOT" AVELREN_TARGET_DB="$TARGET_DB" \
         AVELREN_ADMIN_DSN="$ADMIN_DSN" AVELREN_EXPECTED_COMMIT="$HEAD" \
@@ -1342,6 +1354,19 @@ wait_for_probe_result() {
         sleep 2
     done
     return 0
+}
+
+# A short gate list says WHICH gate never completed; this says WHY. Without it
+# the only signal is `cmp` reporting a byte count, which is consistent with any
+# number of unrelated causes — on 2026-08-16 it was consistent with two.
+dump_gate_errs() {
+    local f
+    for f in "$WORK"/gate-err/gate-*.err; do
+        [ -e "$f" ] || continue
+        [ -s "$f" ] || continue
+        echo "--- stderr of $(basename "$f" .err | sed 's/^gate-//') ---" >&2
+        tail -20 "$f" >&2
+    done
 }
 
 probe_diagnostics() {
@@ -1883,6 +1908,8 @@ reset_runtime_containers
         done
         cmp "$WORK/expected-preceding-gates" "$WORK/gates.log" || {
             echo "$gate did not run exactly the preceding real gate callbacks" >&2
+            echo "ran: [$(tr '\n' ',' <"$WORK/gates.log")] expected: [$(tr '\n' ',' <"$WORK/expected-preceding-gates")]" >&2
+            dump_gate_errs
             exit 1
         }
         expected_privilege=NOT_RUN
