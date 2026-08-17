@@ -132,6 +132,43 @@ cp .env.example .env
 curl -s localhost:8000/health
 ```
 
+## Android: збірка на новій машині
+
+Потрібні JDK 17 (у CI — Temurin 17) і Android SDK: `compileSdk 35`,
+`minSdk 26`. Gradle тягне себе сам через wrapper, ставити його окремо не треба.
+
+```bash
+git clone https://github.com/ikstv/AvelRen.git
+cd AvelRen/android
+```
+
+Один файл доведеться покласти руками — `app/google-services.json`. Його немає
+в git **навмисно**, і це не забудькуватість: репозиторій публічний, а файл
+несе Firebase `api_key` і `project_id`. Перевірка в `ci.yml` валить збірку,
+якщо він колись потрапить у git («У git знайдено секрети»); сам CI для збірки
+підставляє заглушку. Структуру видно в
+[`app/google-services.json.example`](android/app/google-services.json.example) —
+значення в шаблоні навмисно порожні, як і в `.env.example`. Реальний файл
+береться в Firebase-консолі проєкту: Project settings → Your apps → download
+`google-services.json`.
+
+Без цього файлу Gradle падає на плагіні `google-services` — помилка виглядає
+як проблема конфігурації, хоча причина рівно одна: файлу немає.
+
+```bash
+./gradlew assembleDebug
+```
+
+`local.properties` (шлях до SDK) створює Android Studio при першому відкритті
+`android/`; для збірки з терміналу достатньо `ANDROID_HOME` або `sdk.dir` у
+цьому файлі. Він машинний і в git не потрапляє.
+
+Дизайн-система, з якої написані екрани, лежить у
+[`design-system/ds/`](design-system/ds/) — HTML-файли відкриваються просто в
+браузері: `foundations/` (колір, тип), `components/`, `screens/`.
+`checkpoints.json` там — read-only знімок реальних КПП, щоб у мокапах не
+з'являлись вигадані назви й ID.
+
 ## API
 
 | Метод | Шлях | Опис |
