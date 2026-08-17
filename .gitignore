@@ -63,6 +63,7 @@ docker-compose.override.yml
 # never a build artifact the repo should track.
 dist/
 
-# Design-system export staged for Claude Design (DesignSync) — not app code.
+# Zipped export staged for Claude Design (DesignSync). Derived from
+# design-system/ — that directory IS tracked: it is the ROAD SIGN source of
+# truth the Compose code is written against, and it must survive this machine.
 design-system.zip
-design-system/
