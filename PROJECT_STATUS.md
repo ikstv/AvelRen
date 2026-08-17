@@ -13,17 +13,10 @@ is the short index over it.
 
 - Repository: `https://github.com/ikstv/AvelRen.git`
 - Main branch: `main`; recover the exact head with `git rev-parse origin/main`.
-- Merged this wave (all squash, CI-green on exact heads): #61 bootstrap-superuser
-  topology (Decision B), #62 unexpected-database refusal, #63 completeness
-  semantics, #64 Dependabot+CodeQL, #68 privilege-gate `--noconftest`, #69
-  Dependabot major/minor split, #70 collector eCherha identity in compose, #72
-  eCherha egress guard, #73 Android version bumps parked, #74 image digest
-  pinning, #75 gitignored compose override, #60 Android Modernist theme, #77
-  setup-gradle re-pin.
-- Open and deliberately held: **PR #80** (F1/F2 — legacy-DSN restart in
-  adopt.sh; CI green incl. all adoption scenarios; awaiting human diff review),
-  **PR #78** (this audit as a doc), user drafts #51–#55, Dependabot #65
-  (python 3.12→3.14 — needs an explicit decision, not an auto-merge).
+- Which PRs merged, which are still open, and which issues are outstanding:
+  see `STATE.md` — generated, never hand-maintained. Deliberate holds that are
+  policy rather than state (e.g. Dependabot #65 python 3.12→3.14 needs an
+  explicit decision, not an auto-merge) stay in this document.
 
 ## Incident record: 2026-08-14 Stage 3B.2 production attempt (RESOLVED)
 
@@ -40,8 +33,11 @@ PR #80). Full narrative and findings: `AUDIT-2026-08-15.md` §1.
 ## Production state (informational, changes only via explicit GO gates)
 
 - Prod repo, recovery evidence and gate-runner copy are all pinned to one
-  commit (`8b8eed2`) — intentionally behind main; the Gate 11 guard binds
-  evidence↔repo↔runner to a single commit, so re-prep is one atomic step.
+  commit — intentionally behind main; the Gate 11 guard binds
+  evidence↔repo↔runner to a single commit, so re-prep is one atomic step. The
+  pin itself lives in `deploy/PROD_PIN`; how far behind main it currently is,
+  and exactly which commits the next re-prep would carry into production, are
+  in `STATE.md`.
 - Runtime runs on the legacy DSN via a gitignored `docker-compose.override.yml`
   (matches adopt.sh's documented 3B.2 model); `schema_migrations = 009`
   (010's ACL is applied by adoption, stamped at 3D).
@@ -49,7 +45,10 @@ PR #80). Full narrative and findings: `AUDIT-2026-08-15.md` §1.
   Gate 11 re-prep (repo update, gate copy refresh, fresh isolated
   restore-verify evidence) → quiet window → explicit GO → 3B.2.
 
-## Open issues (6)
+## Open issues — why each is held
+
+The live list is in `STATE.md`; this section records the reasoning, which `gh`
+cannot tell you.
 
 - **#15** least-privilege — code/tooling complete and CI-proven; blocked only
   by PR #80 review + Gate 11 re-prep.

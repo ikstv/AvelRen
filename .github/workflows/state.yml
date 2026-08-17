@@ -1,0 +1,60 @@
+name: state
+
+# Тримає STATE.md правдивим без участі людини.
+#
+# PROJECT_STATUS.md двічі за тиждень вводив в оману читача, для якого його й
+# писали, — того, хто приходить без контексту й не може перевірити написане.
+# Обидва рази причина була не в недбалості, а в тому, що волатильні факти
+# підтримувалися руками. Тут вони не підтримуються взагалі: файл
+# перегенеровується і комітиться, лише якщо реально змінився.
+#
+# Розклад потрібен окремо від push: відкриті PR, issues і відставання гілок
+# змінюються без жодного коміту в main.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - STATE.md
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: state
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Скрипт рахує відстань від піна прода до main, тож потрібна повна
+          # історія — при fetch-depth 1 rev-list дав би нуль і збрехав би
+          # рівно про те, заради чого файл існує.
+          fetch-depth: 0
+
+      - name: Згенерувати STATE.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/generate-state.sh
+
+      - name: Закомітити, якщо змінився
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- STATE.md; then
+            echo "STATE.md без змін"
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add STATE.md
+          git commit -m 'chore(state): regenerate STATE.md'
+          git push
