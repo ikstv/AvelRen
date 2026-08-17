@@ -1422,6 +1422,11 @@ private val PickerRowBg = Color(0xFF1A1B1D)     // необрана картка
 private val PickerInk = Color(0xFF1C1E20)       // текст/рамка на жовтому
 private val PickerSubOnYellow = Color(0xB31C1E20) // підпис на обраній картці (.7)
 private val PickerYellowHalf = Color(0x80F5C400)  // рамка неактивної пігулки (.5)
+// Назви КПП і країн — білі, а не жовті: у списку з ~40 рядків жовтий текст на
+// темному читається гірше за білий, а сам жовтий лишається носієм сигналу
+// (табличка з чергою, обрана картка, активна пігулка) — там, де він щось
+// означає, а не просто фарбує назву.
+private val PickerNameInk = Color(0xFFFFFFFF)
 
 /**
  * Вибір пункту пропуску — повноекранний sheet за оновленим макетом: темне
@@ -1493,9 +1498,17 @@ private fun CheckpointPickerSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        PickerFilterChip("Всі", countryFilter == null) { onFilter(null) }
+                        PickerFilterChip(
+                            "Всі",
+                            countryFilter == null,
+                            inactiveColor = PickerNameInk,
+                        ) { onFilter(null) }
                         flags.forEach { flag ->
-                            PickerFilterChip(countryLabel(flag), countryFilter == flag) { onFilter(flag) }
+                            PickerFilterChip(
+                                countryLabel(flag),
+                                countryFilter == flag,
+                                inactiveColor = PickerNameInk,
+                            ) { onFilter(flag) }
                         }
                     }
                 }
@@ -1513,15 +1526,25 @@ private fun CheckpointPickerSheet(
 }
 
 /**
- * Пігулка фільтра (оновлений макет): жовтий текст на прозорому, активна —
- * жовта заливка з темним текстом. `padding:11px 16px; radius:99px; font:700 12.5px`.
+ * Пігулка фільтра (оновлений макет): текст на прозорому, активна — жовта
+ * заливка з темним текстом. `padding:11px 16px; radius:99px; font:700 12.5px`.
  * Без `fillMaxWidth` — переноситься по ширині вмісту у `FlowRow`.
+ *
+ * `inactiveColor` існує тому, що ця пігулка малює ЧОТИРИ різні набори: країни
+ * в аркуші вибору КПП, пороги, дні й години. Білими просили саме країни, тож
+ * колір неактивного стану задає місце виклику, а не сама пігулка — інакше
+ * побіліли б і пороги з годинами.
  */
 @Composable
-private fun PickerFilterChip(label: String, active: Boolean, onClick: () -> Unit) {
+private fun PickerFilterChip(
+    label: String,
+    active: Boolean,
+    inactiveColor: Color = HeroYellow,
+    onClick: () -> Unit,
+) {
     Text(
         label,
-        color = if (active) PickerInk else HeroYellow,
+        color = if (active) PickerInk else inactiveColor,
         style = MaterialTheme.typography.bodyMedium,
         fontSize = 12.5.sp,
         fontWeight = FontWeight.Bold,
@@ -1541,9 +1564,9 @@ private fun PickerFilterChip(label: String, active: Boolean, onClick: () -> Unit
 @Composable
 private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit) {
     // Кольори з `rowOf` макета: обрана — жовта заливка + темний текст/табличка;
-    // необрана — темна картка з жовтою назвою.
+    // необрана — темна картка з БІЛОЮ назвою (жовтий лишився табличці черги).
     val bg = if (selected) HeroYellow else PickerRowBg
-    val nameColor = if (selected) PickerInk else HeroYellow
+    val nameColor = if (selected) PickerInk else PickerNameInk
     val subColor = if (selected) PickerSubOnYellow else EmptyInk
     val borderColor = if (selected) PickerInk else Color.Transparent
     val plateColor = if (selected) PickerInk else HeroYellow
