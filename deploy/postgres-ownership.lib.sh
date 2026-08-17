@@ -1175,6 +1175,16 @@ _canonical_target_acl_rows() {
     _emit_target_relation_acl health_alerts object avelren_watchdog INSERT UPDATE
     _emit_target_relation_acl health_alerts_id_seq object avelren_watchdog USAGE
 
+    # Журнал міграцій читають і collector/notifier/watchdog — передумова
+    # fail-closed старт-перевірки схеми (#88): сервіс має відмовитись стартувати
+    # на схемі, старішій за ту, якої вимагає його код, а без цього SELECT така
+    # перевірка впала б з 42501 одразу після 3C cutover. Дзеркало
+    # `GRANT SELECT ON TABLE schema_migrations TO avelren_collector,
+    # avelren_notifier, avelren_watchdog` у migration 010.
+    for role in avelren_collector avelren_notifier avelren_watchdog; do
+        _emit_target_relation_acl schema_migrations object "$role" SELECT
+    done
+
     # schema_migrations: /admin/telemetry version-блок читає max(version) під роллю
     # avelren_api; дзеркало GRANT SELECT ON schema_migrations TO avelren_api у 010.
     for name in countries checkpoints observations observations_hourly collector_runs subscriptions alerts eta_targets eta_alerts health_alerts schema_migrations; do
