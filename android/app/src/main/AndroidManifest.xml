@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Потрібен для registerNetworkCallback: щойно зв'язок відновлюється,
+         екран оновлюється одразу, не чекаючи наступного 60-секундного циклу.
+         Normal-permission, runtime-запиту не потребує. У merged-маніфесті він
+         і так з'являвся транзитивно від WorkManager — оголошуємо явно, щоб не
+         залежати від чужої залежності. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- З Android 13 дозвіл на сповіщення треба просити явно. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
