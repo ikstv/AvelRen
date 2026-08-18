@@ -7,6 +7,13 @@
 >
 > **A merge does not activate the gate. This deploy does.** Before it, prod runs
 > the old code and none of the #88 checks work on the live system.
+>
+> **Version this text describes.** This runbook describes the image built from
+> `12ade41` and later. On `2e74ae7` (the currently deployed image, pre-i18n) the
+> gate line in the logs is the Ukrainian `схема узгоджена зі стартовою вимогою:
+> 009_observability` — grepping `schema meets startup requirement` there returns
+> nothing. If the acceptance grep in §6.2a finds no lines, first check which
+> commit prod actually runs (`AVELREN_GIT_SHA`, `PROD_PIN`).
 
 ---
 
