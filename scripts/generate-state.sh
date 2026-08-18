@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# Генерує STATE.md — машинну частину статусу проєкту.
+# Generates STATE.md — the machine part of the project status.
 #
-# Чому це існує. PROJECT_STATUS.md двічі за тиждень вводив в оману свого
-# цільового читача: людину, яка приходить без контексту й не має як перевірити
-# написане. Обидва рази причина була та сама — волатильні факти (які PR
-# змерджено, наскільки прод відстає, що поїде в наступний re-prep) підтримувалися
-# руками й протухали швидше, ніж їх оновлювали.
+# Why this exists. PROJECT_STATUS.md twice in one week misled its intended
+# reader: a person who arrives with no context and has no way to verify what is
+# written. Both times the cause was the same — volatile facts (which PRs are
+# merged, how far prod trails, what will ride in the next re-prep) were
+# maintained by hand and went stale faster than they were updated.
 #
-# Розподіл праці після цього скрипта:
-#   PROJECT_STATUS.md — тільки політика: межі авторизації, процедури, bring-up.
-#                       Змінюється рідко і свідомо, людиною.
-#   STATE.md          — тільки стан. Ніхто його не пише, тому він не може брехати.
-#   deploy/PROD_PIN   — ЄДИНИЙ волатильний факт, який git знати не може:
-#                       на якому коміті стоїть прод. Один рядок, оновлюється
-#                       оператором під час Gate 11 re-prep.
+# Division of labor after this script:
+#   PROJECT_STATUS.md — policy only: authorization boundaries, procedures,
+#                       bring-up. Changes rarely and deliberately, by a human.
+#   STATE.md          — state only. Nobody writes it, so it cannot lie.
+#   deploy/PROD_PIN   — the ONE volatile fact git cannot know: the commit prod
+#                       sits on. One line, updated by the operator during a
+#                       Gate 11 re-prep.
 #
-# Запуск:  bash scripts/generate-state.sh          # пише STATE.md
-#          bash scripts/generate-state.sh --check  # не пише; rc=1 якщо застарів
+# Run:  bash scripts/generate-state.sh          # writes STATE.md
+#       bash scripts/generate-state.sh --check  # does not write; rc=1 if stale
 #
-# `gh` необовʼязковий: без нього (або без автентифікації) розділи про PR та
-# issues деградують у примітку, а git-частина працює далі. Так скрипт однаково
-# придатний і в CI, і на машині розробника без мережі.
+# `gh` is optional: without it (or without authentication) the PR and issues
+# sections degrade to a note, and the git part keeps working. That keeps the
+# script usable both in CI and on a developer machine with no network.
 
 set -euo pipefail
 
@@ -37,44 +37,44 @@ PIN_FILE=deploy/PROD_PIN
 MAIN_REF=$(git rev-parse --verify --quiet origin/main || git rev-parse --verify main)
 MAIN_SHORT=$(git rev-parse --short "$MAIN_REF")
 
-# --- єдиний ручний факт, і він перевіряється -------------------------------
-# Пін, якого немає в історії main, гірший за відсутній: він виглядає
-# достовірним і мовчки дає неправильну відстань. Тому — fail closed.
+# --- the single manual fact, and it is verified ---------------------------
+# A pin that is not in main's history is worse than a missing one: it looks
+# credible and silently gives the wrong distance. So — fail closed.
 prod_pin=
 pin_state=
 if [ -f "$PIN_FILE" ]; then
     prod_pin=$(grep -vE '^\s*(#|$)' "$PIN_FILE" | head -n 1 | tr -d '[:space:]')
 fi
 if [ -z "$prod_pin" ]; then
-    pin_state="ВІДСУТНІЙ — $PIN_FILE порожній або не існує"
+    pin_state="MISSING — $PIN_FILE is empty or does not exist"
 elif ! git rev-parse --verify --quiet "$prod_pin^{commit}" >/dev/null; then
-    pin_state="НЕВІДОМИЙ КОМІТ — $prod_pin немає в цьому клоні"
+    pin_state="UNKNOWN COMMIT — $prod_pin is not in this clone"
 elif ! git merge-base --is-ancestor "$prod_pin" "$MAIN_REF"; then
-    pin_state="НЕ ПРЕДОК main — $prod_pin поза історією main"
+    pin_state="NOT AN ANCESTOR OF main — $prod_pin is outside main's history"
 else
     pin_state=ok
 fi
 
 emit() {
     cat <<EOF
-# AvelRen — стан (генерується автоматично)
+# AvelRen — state (generated automatically)
 
-<!-- НЕ РЕДАГУВАТИ РУКАМИ. Файл повністю перезаписується
-     scripts/generate-state.sh. Політика і межі авторизації живуть у
-     PROJECT_STATUS.md; сюди потрапляє тільки те, що виводиться з git та gh. -->
+<!-- DO NOT EDIT BY HAND. This file is fully overwritten by
+     scripts/generate-state.sh. Policy and authorization boundaries live in
+     PROJECT_STATUS.md; only what is derived from git and gh lands here. -->
 
-Згенеровано з \`main\` @ \`$MAIN_SHORT\`.
+Generated from \`main\` @ \`$MAIN_SHORT\`.
 
-## Прод проти main
+## Prod vs. main
 EOF
 
     if [ "$pin_state" != ok ]; then
         cat <<EOF
 
-> **Пін прода недостовірний: $pin_state**
+> **The prod pin is not trustworthy: $pin_state**
 >
-> Відстань і склад наступного Gate 11 re-prep порахувати неможливо. Впишіть
-> точний комміт прода в \`$PIN_FILE\` (один рядок, повний або короткий SHA).
+> The distance and the contents of the next Gate 11 re-prep cannot be computed.
+> Write prod's exact commit into \`$PIN_FILE\` (one line, full or short SHA).
 
 EOF
         return 0
@@ -86,83 +86,85 @@ EOF
 
 | | |
 |---|---|
-| Прод запінено на | \`$(git rev-parse --short "$prod_pin")\` |
-| \`main\` попереду на | **$ahead коміт(ів)** |
+| Prod pinned to | \`$(git rev-parse --short "$prod_pin")\` |
+| \`main\` ahead by | **$ahead commit(s)** |
 
 EOF
 
     if [ "$ahead" -eq 0 ]; then
-        printf '%s\n\n' 'Прод і `main` збігаються.'
+        printf '%s\n\n' 'Prod and `main` match.'
         return 0
     fi
 
     cat <<EOF
-### Що заїде в прод при наступному Gate 11 re-prep
+### What will ride into prod at the next Gate 11 re-prep
 
-Правило атомарності Gate 11 привʼязує evidence ↔ repo ↔ runner до одного
-коміта, тож re-prep везе в прод **усі** ці зміни разом. Що довше re-prep
-відкладається, то більше стороннього їде в прод у момент найризикованішої
-операції. Список нижче — саме той вантаж; якщо він великий, розгляньте
-розчеплення: спершу re-prep і деплой без adoption, потім окремий під 3B.2.
+The Gate 11 atomicity rule binds evidence ↔ repo ↔ runner to a single commit, so
+a re-prep carries **all** of these changes into prod together. The longer a
+re-prep is deferred, the more unrelated changes ride into prod at the moment of
+the riskiest operation. The list below is exactly that payload; if it is large,
+consider splitting: first a re-prep and deploy without adoption, then a separate
+one for 3B.2.
 
 EOF
     git log --no-merges --reverse --pretty='- `%h` %s' "$prod_pin..$MAIN_REF"
     printf '\n'
 
-    # Зміни, що зачіпають бойовий рантайм, окремо — саме вони визначають, чи
-    # можна вважати re-prep рутинним.
+    # Changes that touch the live runtime, listed separately — they are what
+    # decides whether the re-prep can be treated as routine.
     local runtime_paths='app/ db/ deploy/ docker-compose.yml Caddyfile'
     local runtime_count
     runtime_count=$(git log --oneline "$prod_pin..$MAIN_REF" -- $runtime_paths | wc -l | tr -d ' ')
     cat <<EOF
-З них зачіпають бойовий рантайм (\`app/\`, \`db/\`, \`deploy/\`, compose): **$runtime_count**.
+Of these, touching the live runtime (\`app/\`, \`db/\`, \`deploy/\`, compose): **$runtime_count**.
 
 EOF
     if [ -n "$(git diff --name-only "$prod_pin..$MAIN_REF" -- app/Dockerfile)" ]; then
         cat <<EOF
-> ⚠ Змінився \`app/Dockerfile\` — базовий образ рантайму. Зараз:
+> ⚠ \`app/Dockerfile\` changed — the runtime base image. Currently:
 > \`$(grep -m1 '^FROM' app/Dockerfile | sed 's/@sha256:[0-9a-f]*//')\`.
-> Стрибок версії мови на бойовому образі заслуговує окремого вікна, не
-> суміщеного з adoption.
+> A language-version bump of the live image deserves its own window, not one
+> combined with adoption.
 
 EOF
     fi
 }
 
 emit_remote() {
-    printf '## Відкриті PR та issues\n\n'
+    printf '## Open PRs and issues\n\n'
     if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
-        printf '%s\n\n' '_`gh` недоступний або без автентифікації — розділ пропущено._'
+        printf '%s\n\n' '_`gh` is unavailable or unauthenticated — section skipped._'
         return 0
     fi
-    printf '### PR\n\n'
+    printf '### PRs\n\n'
     gh pr list --state open --limit 50 \
         --json number,title,isDraft,headRefName \
         --template '{{range .}}- #{{.number}} {{.title}}{{if .isDraft}} _(draft)_{{end}} — `{{.headRefName}}`
-{{end}}' 2>/dev/null || printf '_не вдалося отримати_\n'
+{{end}}' 2>/dev/null || printf '_could not fetch_\n'
     printf '\n### Issues\n\n'
     gh issue list --state open --limit 50 \
         --json number,title,labels \
         --template '{{range .}}- #{{.number}} {{.title}}
-{{end}}' 2>/dev/null || printf '_не вдалося отримати_\n'
+{{end}}' 2>/dev/null || printf '_could not fetch_\n'
     printf '\n'
 }
 
-# Читаються рефи origin, а не refs/heads, і не лише тому, що раннер CI має одну
-# локальну гілку (там таблиця вийшла б порожня, і перший автопуш затер би
-# змістовну версію). Головне — детермінованість: якщо локальний прогін і прогін
-# у CI дають різний вивід, `--check` починає блимати, а бот воює з розробником
-# за той самий файл. Локальні непушені гілки свідомо не показуються: гілка, якої
-# немає на origin, однаково невидима ні CI, ні тому, хто робить рев'ю, і "гнити"
-# у сенсі розходження з main їй нема перед ким.
+# We read origin refs, not refs/heads, and not only because the CI runner has a
+# single local branch (there the table would come out empty, and the first
+# auto-push would wipe the meaningful version). The main point is determinism:
+# if a local run and a CI run produce different output, `--check` starts
+# flapping, and the bot fights the developer over the same file. Local unpushed
+# branches are deliberately not shown: a branch that is not on origin is invisible
+# to CI and to the reviewer alike, and there is no one for it to "rot" against in
+# the sense of diverging from main.
 emit_branches() {
     local rows='' ref br name counts behind ahead
-    # Ітеруємо по ПОВНОМУ refname. `%(refname:short)` скорочує
-    # refs/remotes/origin/HEAD просто до `origin`, у якому немає слеша, тож
-    # відрізати префікс `origin/` не вийде і символічний реф проліз би в
-    # таблицю окремим рядком `origin | 0 | 0`. Гірше за косметику: локальний
-    # клон має origin/HEAD, а checkout у раннері зазвичай ні — тобто саме та
-    # розбіжність локально↔CI, яку цей перехід на origin і мав прибрати.
+    # We iterate over the FULL refname. `%(refname:short)` shortens
+    # refs/remotes/origin/HEAD to just `origin`, which has no slash, so
+    # stripping the `origin/` prefix would fail and the symbolic ref would sneak
+    # into the table as its own row `origin | 0 | 0`. Worse than cosmetic: a
+    # local clone has origin/HEAD, a runner checkout usually does not — that is
+    # exactly the local↔CI discrepancy this move to origin was meant to remove.
     while read -r ref; do
         case "$ref" in refs/remotes/origin/HEAD) continue ;; esac
         br=${ref#refs/remotes/}
@@ -175,27 +177,27 @@ emit_branches() {
 "
     done < <(git for-each-ref --format='%(refname)' refs/remotes/origin)
 
-    printf '## Гілки на origin проти main\n\n'
+    printf '## Branches on origin vs. main\n\n'
     if [ -z "$rows" ]; then
-        # Порожньо тут означає не "все змерджено", а "рефи origin не завантажені"
-        # (напр. shallow clone або checkout без fetch-depth: 0). Мовчазна порожня
-        # таблиця читалась би як здоровий стан — тому кажемо прямо.
-        printf '%s\n\n' '_Рефи `origin` недоступні в цьому клоні — таблицю пропущено. У CI потрібен `fetch-depth: 0`._'
+        # Empty here means not "everything is merged" but "origin refs are not
+        # fetched" (e.g. a shallow clone or a checkout without fetch-depth: 0). A
+        # silent empty table would read as a healthy state — so we say it plainly.
+        printf '%s\n\n' '_`origin` refs are unavailable in this clone — table skipped. CI needs `fetch-depth: 0`._'
         return 0
     fi
-    printf '| Гілка | Попереду | Позаду |\n|---|---|---|\n%s\n' "$rows"
+    printf '| Branch | Ahead | Behind |\n|---|---|---|\n%s\n' "$rows"
 }
 
 generated=$( { emit; emit_remote; emit_branches; } )
 
 if [ "$MODE" = --check ]; then
     if [ -f "$OUT" ] && [ "$generated" = "$(cat "$OUT")" ]; then
-        echo "$OUT актуальний"
+        echo "$OUT is up to date"
         exit 0
     fi
-    echo "$OUT застарів — перегенеруйте: bash scripts/generate-state.sh" >&2
+    echo "$OUT is stale — regenerate: bash scripts/generate-state.sh" >&2
     exit 1
 fi
 
 printf '%s\n' "$generated" >"$OUT"
-echo "записано $OUT"
+echo "wrote $OUT"

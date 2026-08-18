@@ -10,48 +10,49 @@ import ua.avelren.app.data.InstallationRepository
 import ua.avelren.app.data.InstallationState
 
 /**
- * Другий шар A-02: приводить показані сповіщення до canonical server-стану.
+ * The second layer of A-02: brings shown notifications in line with the
+ * canonical server state.
  *
- * cancel-push — швидкий шлях, але він може загубитися (Doze, offline,
- * force-stop саме в момент expire). Тому при кожному поверненні застосунку у
- * foreground (і після успішної реєстрації) звіряємо показані ongoing-
- * сповіщення з `GET /active-alerts` і гасимо ті, яких сервер уже не вважає
- * активними.
+ * The cancel-push is the fast path, but it can be lost (Doze, offline, a
+ * force-stop right at the moment of expiry). So on every return of the app to the
+ * foreground (and after a successful registration) we reconcile the shown ongoing
+ * notifications against `GET /active-alerts` and dismiss those the server no
+ * longer considers active.
  *
- * FAIL-SAFE (обов'язковий інваріант): локальні сповіщення чіпаємо ЛИШЕ після
- * успішної 200-відповіді. Будь-яка помилка (offline, 5xx, 401 до завершення
- * recovery, відсутні credentials) — нічого не гасимо. Інакше мережевий збій
- * виглядав би як «сервер каже: активних нема» і застосунок сам погасив би всі
- * справжні тривоги.
+ * FAIL-SAFE (a mandatory invariant): we touch local notifications ONLY after a
+ * successful 200 response. Any error (offline, 5xx, 401 before recovery
+ * completes, missing credentials) — we dismiss nothing. Otherwise a network
+ * failure would look like "the server says: there are none active" and the app
+ * would dismiss all the real alarms itself.
  */
 object NotificationReconciler {
 
     private const val TAG = "AvelRen/Reconcile"
 
-    // Reconcile ідемпотентний, але foreground-подія і завершення реєстрації
-    // можуть настати майже одночасно — Mutex не дає їм бігти паралельно.
+    // Reconcile is idempotent, but the foreground event and the completion of
+    // registration can arrive almost simultaneously — the Mutex keeps them from running in parallel.
     private val mutex = Mutex()
 
     suspend fun reconcile(context: Context, installation: InstallationRepository) {
-        // Ще не готові (немає installation) — нема що звіряти. Не форсуємо
-        // реєстрацію заради reconciliation: це best-effort шар.
+        // Not ready yet (no installation) — nothing to reconcile. We do not force
+        // registration for the sake of reconciliation: this is a best-effort layer.
         if (installation.state.value !is InstallationState.Ready) return
 
         mutex.withLock {
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
 
-            // 1. Знімок локальних сповіщень ДО запиту до сервера. Це закриває
-            //    race (аудит A-02 / B2): якщо новий валідний alert прийде вже
-            //    ПІСЛЯ того, як сервер сформував відповідь, він не буде в
-            //    цьому знімку, тож reconciliation його не погасить. Гасимо
-            //    лише те, що показувалось на момент до запиту.
+            // 1. A snapshot of local notifications BEFORE the request to the server.
+            //    This closes a race (audit A-02 / B2): if a new valid alert arrives
+            //    AFTER the server built its response, it will not be in this
+            //    snapshot, so reconciliation will not dismiss it. We dismiss only
+            //    what was shown at the moment before the request.
             val snapshot = nm.activeNotifications.map { sbn ->
                 ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras))
             }
 
-            // 2. Лише тепер питаємо сервер — через repository, тож 401 (DB
-            //    restore) централізовано відновлюється й ретраїться. Будь-який
-            //    невдалий результат → serverKeys=null (fail-safe нижче).
+            // 2. Only now do we ask the server — through the repository, so a 401
+            //    (DB restore) is recovered and retried centrally. Any failed result
+            //    → serverKeys=null (fail-safe below).
             val serverKeys: Set<AlertKey>? = try {
                 val server = installation.authenticatedCall { creds -> Api.activeAlerts(creds) }
                 buildSet {
@@ -63,8 +64,8 @@ object NotificationReconciler {
                 null
             }
 
-            // 3. FAIL-SAFE: serverKeys==null (fetch/recovery впав) → не гасимо
-            //    нічого. Diff саме знімка (не свіжого читання) проти server-стану.
+            // 3. FAIL-SAFE: serverKeys==null (fetch/recovery failed) → we dismiss
+            //    nothing. Diff the snapshot (not a fresh read) against the server state.
             val stale = AlertReconciliation.staleNotificationIdsOrNothing(snapshot, serverKeys)
             for (id in stale) {
                 nm.cancel(id)
@@ -73,7 +74,7 @@ object NotificationReconciler {
         }
     }
 
-    /** Повний ключ з extras сповіщення або null (старе/чуже сповіщення). */
+    /** The full key from the notification's extras, or null (an old/foreign notification). */
     private fun keyFromExtras(extras: android.os.Bundle?): AlertKey? {
         if (extras == null) return null
         val kind = extras.getString(Notifications.EXTRA_KIND) ?: return null

@@ -1,12 +1,13 @@
-"""Перевірка функції №3 — АІ Прогноз.
+"""Verification of feature #3 — AI Forecast.
 
-Найнебезпечніша помилка тут тиха: прогноз візьме дані з чужого дня тижня,
-нічого не впаде, а числа виглядатимуть правдоподібно. Саме таку помилку я вже
-припустився при написанні — Python рахує понеділок як 0, PostgreSQL неділю як
-0. Тому перетворенню присвячено окремий тест.
+The most dangerous error here is silent: the forecast takes data from the wrong
+day of the week, nothing crashes, and the numbers look plausible. I already made
+exactly such an error while writing it — Python counts Monday as 0, PostgreSQL
+Sunday as 0. That is why the conversion has its own test.
 
-Друге, що тут захищаємо, — відмова показувати прогноз на недостатніх даних.
-Функція планується платною, і «впевнена вигадка» коштувала б довіри.
+The second thing we protect here is the refusal to show a forecast on
+insufficient data. The feature is planned to be paid, and "confident fabrication"
+would cost trust.
 """
 
 import asyncio
@@ -32,15 +33,15 @@ def _run(coro):
 
 
 def test_weekday_conversion_matches_postgres():
-    """Python: понеділок=0, неділя=6. PostgreSQL: неділя=0, субота=6.
+    """Python: Monday=0, Sunday=6. PostgreSQL: Sunday=0, Saturday=6.
 
-    Помилка тут не падає, а мовчки бере дані з іншого дня тижня.
+    An error here does not crash but silently takes data from a different day of the week.
     """
 
     async def check(conn):
         bad = []
         for offset in range(7):
-            at = datetime(2026, 8, 3, 12, tzinfo=UTC) + timedelta(days=offset)  # 3.08 — понеділок
+            at = datetime(2026, 8, 3, 12, tzinfo=UTC) + timedelta(days=offset)  # 2026-08-03 is a Monday
             ours = (at.weekday() + 1) % 7
             row = await (
                 await conn.execute("SELECT EXTRACT(dow FROM %s::timestamptz)::int AS dow", (at,))
@@ -63,7 +64,7 @@ def test_readiness_reports_progress(checkpoint):
 
 
 def test_no_points_while_collecting(checkpoint):
-    """Поки даних замало — жодної точки. Мовчання чесніше за вигадку."""
+    """While there is too little data — no points. Silence is more honest than fabrication."""
 
     async def check(conn):
         return await forecast.forecast(conn, checkpoint, hours_ahead=24)
@@ -72,12 +73,12 @@ def test_no_points_while_collecting(checkpoint):
     if result["status"] == "collecting":
         assert result["points"] == []
     else:
-        assert result["points"], "у стані preliminary/ready точки мають бути"
+        assert result["points"], "in the preliminary/ready state there must be points"
 
 
 def test_ready_at_is_in_the_future_or_none(checkpoint):
-    """Дата готовності — орієнтир для користувача, вона не має бути в минулому,
-    поки прогноз ще не готовий."""
+    """The readiness date is a guide for the user; it must not be in the past
+    while the forecast is not yet ready."""
 
     async def check(conn):
         return await forecast.readiness(conn, checkpoint)
@@ -97,15 +98,15 @@ def test_unknown_checkpoint_does_not_crash():
 
 
 def test_evaluate_returns_honest_note(checkpoint):
-    """Похибка, порахована на тих самих даних, завжди оптимістична — і це
-    має бути видно тому, хто читає число."""
+    """Error computed on the same data is always optimistic — and that must be
+    visible to whoever reads the number."""
 
     async def check(conn):
         return await forecast.evaluate(conn, checkpoint)
 
     result = _run(check)
     assert result["method"] == "seasonal_naive"
-    assert "оптимістична" in result["note"]
+    assert "optimistic" in result["note"]
 
 
 @pytest.mark.parametrize(
@@ -113,6 +114,6 @@ def test_evaluate_returns_honest_note(checkpoint):
     [("collecting", True), ("preliminary", False), ("ready", False)],
 )
 def test_status_thresholds(status, expected):
-    """Межі станів не мають зʼїхати непомітно при правках."""
+    """The state boundaries must not drift unnoticed during edits."""
     assert (forecast.MIN_SAMPLES_PRELIMINARY < forecast.MIN_SAMPLES_READY) is True
     assert forecast.MIN_SAMPLES_READY == 8

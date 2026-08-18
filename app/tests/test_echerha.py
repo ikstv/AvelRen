@@ -1,13 +1,13 @@
-"""Дротовий контракт запиту до єЧерги (гостьовий v5) і fail-closed валідація конфігу.
+"""The wire contract of the request to eCherha (guest v5) and fail-closed config validation.
 
-Production мігрував на public-source контракт v5; canonical main має збігатися
-рівно з тим, що довів canary. Кожен тест фіксує один аспект контракту або одну
-умову відмови. Жоден тест не робить реального запиту до єЧерги — транспорт
-замокано через httpx.MockTransport, як у test_fcm.
+Production migrated to the public-source v5 contract; canonical main must match
+exactly what the canary proved. Each test fixes one aspect of the contract or one
+failure condition. No test makes a real request to eCherha — the transport is
+mocked via httpx.MockTransport, as in test_fcm.
 
-Валідація device-id / device-name — **fail-closed**: при некоректному конфігу
-цикл не робить запиту взагалі, а повертає FetchResult з error (його побачить
-collector_runs і сторож), не відправивши нічого назовні.
+Validation of device-id / device-name is **fail-closed**: on an invalid config
+the cycle makes no request at all but returns a FetchResult with an error (seen
+by collector_runs and the watchdog), sending nothing outward.
 """
 
 import asyncio
@@ -19,7 +19,7 @@ import pytest
 from avelren import echerha
 from avelren.config import Settings
 
-# Довільний, але валідний persistent UUID оператора (не nil).
+# An arbitrary but valid persistent operator UUID (not nil).
 OPERATOR_UUID = "8cf3ce55-0759-4274-a632-65c7a1a42808"
 
 
@@ -30,7 +30,7 @@ def _settings(**overrides: object) -> Settings:
 
 
 class _Capture:
-    """Збирає реальні вихідні httpx.Request'и і віддає канонічну v5-відповідь."""
+    """Collects the actual outgoing httpx.Requests and returns a canonical v5 response."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
@@ -77,7 +77,7 @@ def _run_cycles(
     return cap, results
 
 
-# --- Дротовий контракт v5 --------------------------------------------------
+# --- Wire contract v5 ------------------------------------------------------
 
 
 def test_requests_v5_workload_url(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,7 +119,7 @@ def test_parses_workload_and_reports_status(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_source_non_200_is_reported_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Помилка джерела — не наша аварія: повертаємо як результат, не кидаємо."""
+    """A source error is not our outage: we return it as a result, do not raise."""
     monkeypatch.setattr(echerha, "settings", _settings())
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -135,7 +135,7 @@ def test_source_non_200_is_reported_not_raised(monkeypatch: pytest.MonkeyPatch) 
     assert res.response is None
 
 
-# --- Device ID: fail-closed, без запиту ------------------------------------
+# --- Device ID: fail-closed, no request ------------------------------------
 
 
 @pytest.mark.parametrize("bad", ["not-a-uuid", "", "12345", "8cf3ce55-0759-4274-a632"])
@@ -147,7 +147,7 @@ def test_rejects_unparseable_device_id(monkeypatch: pytest.MonkeyPatch, bad: str
 
 
 def test_rejects_nil_device_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Nil UUID граматично валідний, але не називає жодного пристрою."""
+    """A nil UUID is grammatically valid but names no device."""
     cap, (res,) = _run_cycles(
         monkeypatch, _settings(echerha_device_id="00000000-0000-0000-0000-000000000000")
     )
@@ -156,7 +156,7 @@ def test_rejects_nil_device_id(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_canonicalizes_device_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Форма з фігурними дужками й верхнім регістром приймається у canonical вигляді."""
+    """A form with braces and uppercase is accepted in canonical form."""
     cap, _ = _run_cycles(
         monkeypatch, _settings(echerha_device_id="{8CF3CE55-0759-4274-A632-65C7A1A42808}")
     )
@@ -164,7 +164,7 @@ def test_canonicalizes_device_id(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_accepts_non_v4_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Політика: без обмеження версії/варіанта — приймаємо будь-який не-nil UUID."""
+    """Policy: no version/variant restriction — we accept any non-nil UUID."""
     non_v4 = "8cf3ce55-0759-1274-a632-65c7a1a42808"  # version-nibble = 1
     cap, _ = _run_cycles(monkeypatch, _settings(echerha_device_id=non_v4))
     assert cap.last.headers["x-device-id"] == str(UUID(non_v4))
@@ -176,11 +176,11 @@ def test_accepts_non_v4_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     "bad_name",
     [
-        "",  # порожнє
-        "AvelRen колектор",  # Unicode
+        "",  # empty
+        "AvelRen collectör",  # Unicode (non-ASCII)
         "bad\nname",  # control char (newline)
         "tab\there",  # control char (tab)
-        "x" * 121,  # довше за 120
+        "x" * 121,  # longer than 120
         "\x7f",  # DEL
     ],
 )
@@ -197,7 +197,7 @@ def test_accepts_valid_device_name(monkeypatch: pytest.MonkeyPatch, ok_name: str
     assert cap.last.headers["x-device-name"] == ok_name
 
 
-# --- Security: жодного ambient auth / session state ------------------------
+# --- Security: no ambient auth / session state -----------------------------
 
 
 def test_never_inherits_authorization(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -213,7 +213,7 @@ def test_never_inherits_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_does_not_replay_set_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set-Cookie з попереднього циклу не сміє повернутися наступним запитом."""
+    """A Set-Cookie from the previous cycle must not come back on the next request."""
     cap, results = _run_cycles(monkeypatch, _settings(), n=2, set_cookie="sess=leaked; Path=/")
     assert len(cap.requests) == 2
     assert "cookie" not in cap.requests[1].headers

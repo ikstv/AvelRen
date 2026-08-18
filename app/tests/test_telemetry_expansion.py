@@ -1,11 +1,11 @@
-"""PR-B — розширення `/admin/telemetry`: services, docker, inodes, upstream,
+"""PR-B — expansion of `/admin/telemetry`: services, docker, inodes, upstream,
 last_collector_run/success, version.
 
-Основний інваріант — той самий, що в PR-A:
-**відсутнє поле = null, а не «здоровий сервер із нулями»**.
+The core invariant is the same as in PR-A:
+**a missing field = null, not "a healthy server with zeros"**.
 
-Плюс security-регресія: `services()` не сміє віддавати нічого поза whitelist
-навіть якщо host-скрипт випадково запише зайве поле.
+Plus a security regression: `services()` must not expose anything outside the
+whitelist, even if the host script accidentally writes an extra field.
 """
 
 import json
@@ -33,12 +33,12 @@ def snapshot(tmp_path, monkeypatch):
 
 
 # ============================================================================
-# services() — чиста функція на snapshot, security-критична
+# services() — a pure function on the snapshot, security-critical
 # ============================================================================
 
 def test_services_returns_empty_when_snapshot_missing(tmp_path, monkeypatch):
-    """Snapshot нема — не exception, не «здорові сервіси», а порожньо. Клієнт
-    відмалює як ⚪ Unknown, а не приховає провал моніторингу."""
+    """No snapshot — not an exception, not "healthy services", but empty. The
+    client renders it as ⚪ Unknown, rather than hiding a monitoring failure."""
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
     assert telemetry.services() == []
 
@@ -69,14 +69,14 @@ def test_services_returns_whitelisted_fields(snapshot):
 
 
 def test_services_strips_fields_outside_whitelist(snapshot):
-    """Security-регресія: якщо host-скрипт випадково додасть поле поза
-    whitelist (env, mounts, cmd, ports), telemetry МАЄ його викинути. Без
-    цього одна необережна правка в deploy/ відкриває канал утечки secrets.
+    """Security regression: if the host script accidentally adds a field outside
+    the whitelist (env, mounts, cmd, ports), telemetry MUST drop it. Without this,
+    one careless edit in deploy/ opens a channel for leaking secrets.
 
-    N2 (review PR #34): раніше тест перевіряв лише кілька відомих forbidden
-    keys. Тепер positive-allowlist: `entry.keys() ⊆ {"name"} ∪ ALLOWED`. Це
-    робить регресію mutation-safe — навіть якщо injected поле не збігається
-    з блеклістом (напр., майбутній `secrets_path`), тест впаде."""
+    N2 (review PR #34): previously the test checked only a few known forbidden
+    keys. Now a positive allowlist: `entry.keys() ⊆ {"name"} ∪ ALLOWED`. This makes
+    the regression mutation-safe — even if the injected field does not match the
+    blacklist (e.g. a future `secrets_path`), the test fails."""
     snapshot(
         {
             "services": [
@@ -84,14 +84,14 @@ def test_services_strips_fields_outside_whitelist(snapshot):
                     "name": "api",
                     "status": "running",
                     "health": "healthy",
-                    # Зайві поля, які теоретично могли б потрапити з docker inspect.
+                    # Extra fields that could theoretically come from docker inspect.
                     "env": ["DATABASE_URL=postgres://user:secret@db/avelren"],
                     "mounts": ["/secrets:/secrets:ro"],
                     "cmd": ["python", "-m", "avelren.api"],
                     "network_settings": {"IPAddress": "10.0.0.5"},
                     "labels": {"com.docker.compose.project": "avelren"},
-                    # Поле, якого немає в поточному blacklist — саме сценарій,
-                    # що позитивний allowlist ловить, а негативний пропускає.
+                    # A field not in the current blacklist — exactly the scenario
+                    # the positive allowlist catches and the negative one misses.
                     "secrets_path": "/run/secrets/firebase.json",
                 }
             ]
@@ -102,23 +102,23 @@ def test_services_strips_fields_outside_whitelist(snapshot):
     assert len(result) == 1
     entry = result[0]
 
-    # Positive-allowlist інваріант: жодного поля поза дозволеним набором.
+    # Positive-allowlist invariant: no field outside the allowed set.
     allowed = {"name"} | telemetry._SERVICE_ALLOWED_FIELDS
     extra = set(entry.keys()) - allowed
-    assert not extra, f"поля поза whitelist: {extra}"
+    assert not extra, f"fields outside the whitelist: {extra}"
 
-    # Явна перевірка типових ризикових ключів — залишаю для читабельності
-    # діагностики (перший рядок збою вкаже конкретно на утечку secrets).
+    # An explicit check of the typical risky keys — kept for diagnostic
+    # readability (the first failure line points specifically at a secrets leak).
     forbidden = {"env", "mounts", "cmd", "network_settings", "labels",
                  "config", "secrets_path"}
     leaked = forbidden & set(entry.keys())
-    assert not leaked, f"утечка полів поза whitelist: {leaked}"
+    assert not leaked, f"leak of fields outside the whitelist: {leaked}"
 
 
 def test_services_whitelist_blocks_unseen_future_field(snapshot):
-    """Mutation-регресія: тест доводить, що конкретний refactor «повертаємо
-    весь entry» (напр. `out.append(dict(entry))`) буде спійманий. Іменований
-    сценарій ловить клас багу, а не конкретне ім'я поля."""
+    """Mutation regression: the test proves that a specific refactor "return the
+    whole entry" (e.g. `out.append(dict(entry))`) would be caught. A named scenario
+    catches the class of bug, not a specific field name."""
     hypothetical_new_field = "future_docker_inspect_field_2027"
     snapshot(
         {
@@ -134,15 +134,15 @@ def test_services_whitelist_blocks_unseen_future_field(snapshot):
     )
     entry = telemetry.services()[0]
     assert hypothetical_new_field not in entry, (
-        f"whitelist пропустив невідоме поле {hypothetical_new_field!r} — "
-        "це саме той клас регресії, від якого захищає positive-allowlist"
+        f"the whitelist let through the unknown field {hypothetical_new_field!r} — "
+        "exactly the class of regression the positive allowlist protects against"
     )
 
 
 def test_services_ignores_unknown_container_names(snapshot):
-    """Whitelist імен: якщо в snapshot з'явиться контейнер, якого ми не знаємо
-    (напр. хтось додав `postgres-backup-1`), API його не покаже. Це захищає від
-    сценарію «випадково засвітили внутрішній сервіс на клієнті»."""
+    """Name whitelist: if a container we do not know appears in the snapshot
+    (e.g. someone added `postgres-backup-1`), the API will not show it. This
+    protects against the scenario "accidentally exposed an internal service on the client"."""
     snapshot(
         {
             "services": [
@@ -158,8 +158,8 @@ def test_services_ignores_unknown_container_names(snapshot):
 
 
 def test_services_stable_order(snapshot):
-    """UI має отримувати сервіси у стабільному порядку, інакше картки
-    «стрибають» між композиціями. Порядок — за призначенням (db → caddy)."""
+    """The UI must receive services in a stable order, otherwise the cards "jump"
+    between compositions. The order is by role (db → caddy)."""
     snapshot(
         {
             "services": [
@@ -176,7 +176,7 @@ def test_services_stable_order(snapshot):
 
 
 def test_services_handles_malformed_entry(snapshot):
-    """Якщо один рядок пошкоджений (не dict), сусідні мають вижити."""
+    """If one row is corrupt (not a dict), the neighbors must survive."""
     snapshot(
         {
             "services": [
@@ -191,14 +191,14 @@ def test_services_handles_malformed_entry(snapshot):
 
 
 def test_services_handles_non_list_services_block(snapshot):
-    """Якщо весь блок пошкоджений (не list) — теж [], а не exception."""
+    """If the whole block is corrupt (not a list) — also [], not an exception."""
     snapshot({"services": {"api": "running"}}, collected_at=datetime.now(UTC))
     assert telemetry.services() == []
 
 
 def test_services_stopped_container(snapshot):
-    """Зупинений контейнер має з'явитися саме як stopped, а не бути прихованим.
-    Зникнення сервісу з UI — гірший стан, ніж чесний 🔴 exited."""
+    """A stopped container must appear precisely as stopped, not be hidden. A
+    service disappearing from the UI is a worse state than an honest 🔴 exited."""
     snapshot(
         {
             "services": [
@@ -223,7 +223,7 @@ def test_services_stopped_container(snapshot):
 
 
 # ============================================================================
-# docker() / inodes() — прості чисті функції
+# docker() / inodes() — simple pure functions
 # ============================================================================
 
 def test_docker_reads_from_snapshot(snapshot):
@@ -256,12 +256,12 @@ def test_inodes_all_null_when_snapshot_missing(tmp_path, monkeypatch):
 
 
 # ============================================================================
-# upstream() — читає settings
+# upstream() — reads settings
 # ============================================================================
 
 def test_upstream_reads_from_settings():
-    """upstream() не залежить від snapshot — це чиста конфігурація. Клієнт
-    бачить, який саме URL ходить збирач, без здогадок."""
+    """upstream() does not depend on the snapshot — it is pure configuration. The
+    client sees which URL the collector fetches, without guessing."""
     result = telemetry.upstream()
     assert "workload_url" in result
     assert "poll_interval_seconds" in result
@@ -269,7 +269,7 @@ def test_upstream_reads_from_settings():
 
 
 # ============================================================================
-# End-to-end через /admin/telemetry (pipeline, last_collector_run, version)
+# End-to-end via /admin/telemetry (pipeline, last_collector_run, version)
 # ============================================================================
 
 def _make_admin(conn, device):
@@ -279,9 +279,9 @@ def _make_admin(conn, device):
 def test_admin_telemetry_new_blocks_present_and_backward_compatible(
     device, api_client, conn, snapshot
 ):
-    """Існуючі поля (system/network/pipeline/certificate/backups/problems) —
-    на місці; додані блоки — теж. Порушення = зламали клієнта PR-A або старий
-    APK, тому цей тест — контракт."""
+    """The existing fields (system/network/pipeline/certificate/backups/problems)
+    are in place; the added blocks too. A violation = broke the PR-A client or the
+    old APK, so this test is a contract."""
     _make_admin(conn, device)
     snapshot(
         {"system": {"cpu_count": 2}, "services": [], "docker": {}, "inodes": {}},
@@ -292,16 +292,16 @@ def test_admin_telemetry_new_blocks_present_and_backward_compatible(
     assert r.status_code == 200
     body = r.json()
 
-    # PR-A / раніший контракт — має залишатися.
+    # PR-A / the earlier contract — must remain.
     for old in ("system", "network", "pipeline", "certificate", "backups", "problems"):
-        assert old in body, f"втрачено існуюче поле {old}"
+        assert old in body, f"lost existing field {old}"
 
-    # Нові блоки PR-B.
+    # New PR-B blocks.
     for new in (
         "services", "docker", "inodes", "upstream",
         "last_collector_run", "last_collector_success", "version",
     ):
-        assert new in body, f"відсутній новий блок {new}"
+        assert new in body, f"missing new block {new}"
 
 
 def test_admin_telemetry_last_collector_run_null_when_empty(
@@ -338,13 +338,13 @@ def test_admin_telemetry_last_collector_run_returns_latest(
     last = body["last_collector_run"]
     assert last["http_status"] == 502
     assert last["error"] == "upstream 502"
-    # body_sha256 навмисно НЕ у відповіді — технічний артефакт, клієнту непотрібен.
+    # body_sha256 is deliberately NOT in the response — a technical artifact the client does not need.
     assert "body_sha256" not in last
 
     success = body["last_collector_success"]
     assert success["http_status"] == 200
     assert success["rows_written"] == 38
-    # success НЕ має error / derived — це чисто «останній успіх», спрощений набір.
+    # success has NO error / derived — it is purely "the last success", a simplified set.
     assert "error" not in success
 
 
@@ -357,18 +357,18 @@ def test_admin_telemetry_version_reads_env_and_migrations(
 
     body = api_client.get("/admin/telemetry", headers=device.headers()).json()
     v = body["version"]
-    assert v["app_version"]  # непорожній
+    assert v["app_version"]  # non-empty
     assert v["git_sha"] == "abc123def"
-    # migrations_version — max(version) з БД; в тестовій БД міграції накачані,
-    # тож рядок не буде порожнім (точне значення міняється з часом).
+    # migrations_version — max(version) from the DB; in the test DB the migrations
+    # are applied, so the string will not be empty (the exact value changes over time).
     assert v["migrations_version"] is not None
 
 
 def test_admin_telemetry_version_git_sha_null_when_env_missing(
     device, api_client, conn, snapshot, monkeypatch
 ):
-    """Без env AVELREN_GIT_SHA — git_sha=null, а не «unknown»/«dev». Клієнт
-    розрізняє «версія відома, це dev» і «версія просто не проставлена в build»."""
+    """Without the env AVELREN_GIT_SHA — git_sha=null, not "unknown"/"dev". The
+    client distinguishes "version known, this is dev" from "version simply not set in the build"."""
     _make_admin(conn, device)
     snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
     monkeypatch.delenv("AVELREN_GIT_SHA", raising=False)
@@ -380,8 +380,8 @@ def test_admin_telemetry_version_git_sha_null_when_env_missing(
 def test_admin_telemetry_upstream_shows_workload_url(
     device, api_client, conn, snapshot
 ):
-    """Дашборд має чесно показувати, куди зараз ходить збирач — це головна
-    цифра для «чи ЄЧерга v4 чи v5»."""
+    """The dashboard must honestly show where the collector currently fetches from
+    — the key figure for "is it eCherha v4 or v5"."""
     _make_admin(conn, device)
     snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
 
@@ -394,21 +394,21 @@ def test_admin_telemetry_upstream_shows_workload_url(
 def test_admin_telemetry_services_still_authenticated(
     device, api_client, conn, snapshot
 ):
-    """Гейт is_admin не має ослабнути після додавання нових блоків.
-    Пристрій без is_admin=true отримує 403 на весь endpoint (включно з новими
-    полями). Регресія на випадок, якщо хтось випадково винесе один із блоків
-    у public — зайві очі."""
+    """The is_admin gate must not weaken after adding the new blocks. A device
+    without is_admin=true gets a 403 on the whole endpoint (including the new
+    fields). A regression in case someone accidentally moves one of the blocks to
+    public — extra eyes."""
     snapshot(
         {"services": [{"name": "api", "status": "running"}]},
         collected_at=datetime.now(UTC),
     )
-    # is_admin навмисно НЕ виставляємо.
+    # We deliberately do NOT set is_admin.
     r = api_client.get("/admin/telemetry", headers=device.headers())
     assert r.status_code == 403
 
 
 # ============================================================================
-# completeness_percent — рахує УСПІШНІ цикли, а не спроби (issue #22)
+# completeness_percent — counts SUCCESSFUL cycles, not attempts (issue #22)
 # ============================================================================
 
 def _add_collector_run(conn, minutes_ago: int, *, error: str | None) -> None:
@@ -419,15 +419,15 @@ def _add_collector_run(conn, minutes_ago: int, *, error: str | None) -> None:
 
 
 def test_completeness_ignores_failed_cycles(device, api_client, conn, snapshot):
-    """Регресія issue #22: коли ЄЧерга щохвилини віддає помилку, collector_runs
-    усе одно поповнюється, але жодне спостереження не зібране. Completeness має
-    рахувати УСПІШНІ цикли (error IS NULL), інакше показує 100% повноти під час
-    повного збою збору даних."""
+    """Regression for issue #22: when eCherha returns an error every minute,
+    collector_runs still fills up, but no observation is collected. Completeness
+    must count SUCCESSFUL cycles (error IS NULL), otherwise it shows 100%
+    completeness during a total data-collection failure."""
     _make_admin(conn, device)
     snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
     conn.execute("DELETE FROM collector_runs")
 
-    # 60 циклів за годину, але ВСІ з помилкою — повнота має бути 0, не 100.
+    # 60 cycles per hour, but ALL with an error — completeness must be 0, not 100.
     for m in range(60):
         _add_collector_run(conn, m, error="502 Bad Gateway")
 
@@ -442,7 +442,7 @@ def test_completeness_ignores_failed_cycles(device, api_client, conn, snapshot):
 
 
 def test_completeness_counts_only_successful_cycles(device, api_client, conn, snapshot):
-    """Змішаний годину: 30 успішних + 30 з помилкою → повнота 50%, не 100%."""
+    """A mixed hour: 30 successful + 30 with an error → completeness 50%, not 100%."""
     _make_admin(conn, device)
     snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
     conn.execute("DELETE FROM collector_runs")
@@ -462,7 +462,7 @@ def test_completeness_counts_only_successful_cycles(device, api_client, conn, sn
 
 
 def test_completeness_full_when_all_cycles_succeed(device, api_client, conn, snapshot):
-    """60 успішних циклів → 100%. Кламп min(100, ...) утримує стелю."""
+    """60 successful cycles → 100%. The min(100, ...) clamp holds the ceiling."""
     _make_admin(conn, device)
     snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
     conn.execute("DELETE FROM collector_runs")

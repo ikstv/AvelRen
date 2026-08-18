@@ -1,13 +1,13 @@
-"""Перевірка логіки порогів на синтетичних даних.
+"""Verification of the threshold logic on synthetic data.
 
-Найдорожча помилка тут — спам: сповіщення, яке будить людину щохвилини,
-видаляють разом із застосунком. Тому дрібним коливанням на межі присвячено
-окремий тест.
+The costliest error here is spam: a notification that wakes a person every minute
+gets uninstalled along with the app. That is why small fluctuations at the
+boundary have their own test.
 
-Дані тест створює сам (див. `conftest.py`): ані готового довідника, ані
-попередніх запусків збирача не потрібно.
+The test creates the data itself (see `conftest.py`): no ready reference list and
+no prior collector runs are needed.
 
-Запуск (потрібна жива тестова БД):
+Run (a live test DB is required):
     AVELREN_TEST_DB=1 python -m pytest app/tests -q
 """
 
@@ -41,7 +41,7 @@ def _pending(conn, sub_id: int) -> int:
 
 
 def _feed(checkpoint_id: int, values: list[int]) -> None:
-    """Проганяє послідовність значень черги через ту саму логіку, що й збирач."""
+    """Runs a sequence of queue values through the same logic as the collector."""
 
     async def run() -> None:
         async with await psycopg.AsyncConnection.connect(DSN, autocommit=True) as ac:
@@ -65,14 +65,14 @@ def test_crossing_upward_creates_one_alert(conn, device, checkpoint):
 
 
 def test_flapping_does_not_spam(conn, device, checkpoint):
-    """49->51->49->51->49->51 має дати рівно один алерт, а не три."""
+    """49->51->49->51->49->51 must yield exactly one alert, not three."""
     sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 51, 49, 51, 49, 51])
     assert _pending(conn, sub) == 1
 
 
 def test_rearm_requires_margin(conn, device, checkpoint):
-    """Після підтвердження поріг 50 перезаряджається лише нижче 45."""
+    """After acknowledgement, the threshold 50 rearms only below 45."""
     sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 51])
     conn.execute(
@@ -81,10 +81,10 @@ def test_rearm_requires_margin(conn, device, checkpoint):
         (sub,),
     )
 
-    _feed(checkpoint, [46, 60])  # 46 > 45 — перезарядки не сталося
+    _feed(checkpoint, [46, 60])  # 46 > 45 — no rearm happened
     assert _pending(conn, sub) == 0
 
-    _feed(checkpoint, [44, 51])  # 44 < 45 — перезарядка й нове спрацювання
+    _feed(checkpoint, [44, 51])  # 44 < 45 — rearm and a new trigger
     assert _pending(conn, sub) == 1
 
 
@@ -95,14 +95,14 @@ def test_no_alert_below_threshold(conn, device, checkpoint):
 
 
 def test_exact_threshold_fires(conn, device, checkpoint):
-    """Рівно 50 — це спрацювання, а не «майже»."""
+    """Exactly 50 is a trigger, not "almost"."""
     sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 50])
     assert _pending(conn, sub) == 1
 
 
 def test_jump_over_threshold_fires(conn, device, checkpoint):
-    """Черга змінюється і на 2 авто за раз, тож 49->51 не сміє проскочити повз."""
+    """The queue changes by 2 vehicles at a time too, so 49->51 must not slip past."""
     sub = _subscription(conn, device.device_id, checkpoint)
     _feed(checkpoint, [49, 51])
     assert _pending(conn, sub) == 1

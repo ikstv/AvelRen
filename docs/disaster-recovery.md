@@ -67,8 +67,8 @@ No RTO or RPO is asserted here; neither has been approved.
 
 ## Backup selection and integrity
 
-> Репетиція відновлення на ізольованому стенді — `docs/restore-rehearsal.md`
-> (виконана на бойовому артефакті 2026-08-17).
+> Restore rehearsal on an isolated bench — `docs/restore-rehearsal.md`
+> (performed on a production artifact 2026-08-17).
 
 1. Select the intended daily, weekly, or monthly artifact.
 2. Retrieve it through the configured `gdrive-crypt` remote.

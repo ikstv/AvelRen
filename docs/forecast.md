@@ -1,95 +1,95 @@
-# Прогноз черг (майбутня функція)
+# Queue forecasting (future feature)
 
-Нотатка на майбутнє, не план на завтра. Записана 7 серпня 2026, коли збір
-даних щойно почався.
+A note for the future, not a plan for tomorrow. Written on 7 August 2026, when data
+collection had only just begun.
 
-## Ідея
+## The idea
 
-Прогнозувати завантаженість **окремого КПП** на основі накопиченої історії:
-не «зараз 3 дні очікування», а «зазвичай у вівторок зранку тут удвічі коротше,
-ніж у п'ятницю ввечері».
+Forecast the load of a **specific checkpoint** from accumulated history:
+not "3 days of waiting right now", but "usually on Tuesday morning the wait here is
+half of what it is on Friday evening".
 
-Це те, чого немає в єЧерзі принципово: вона показує лише поточний зріз і не
-зберігає минулого. Наша перевага не в кращому інтерфейсі, а в тому, що ми
-маємо історію, а першоджерело — ні.
+This is something eCherha fundamentally lacks: it shows only the current snapshot and
+does not store the past. Our advantage is not a better interface, but the fact that we
+have history and the original source does not.
 
-## Чому саме по кожному КПП окремо
+## Why per-checkpoint separately
 
-Черги поводяться несумісно. Ягодин – Дорогуськ тримає тиждень очікування при
-1400+ авто, а Порубне – Сірет стоїть порожнім тижнями. Спільна модель на всі
-38 черг вивчила б середнє по лікарні й не пасувала б жодному пункту.
+Queues behave incompatibly. Yahodyn – Dorohusk holds a week of waiting at
+1400+ vehicles, while Porubne – Siret stands empty for weeks. A single model over all
+38 queues would learn the hospital average and fit no checkpoint.
 
-Кожен КПП має власний режим: години роботи, святкові дні сусідньої країни,
-пропускну спроможність, сезонність вантажопотоку. Модель — на кожен КПП своя.
+Each checkpoint has its own regime: opening hours, the neighboring country's holidays,
+throughput capacity, seasonality of freight traffic. The model is per-checkpoint.
 
-## Що для цього вже збирається
+## What is already being collected for this
 
-`observations` наповнюється **щохвилини з 6 серпня 2026**:
+`observations` is being populated **every minute since 6 August 2026**:
 
-| поле | придатність для прогнозу |
+| field | usefulness for forecasting |
 |---|---|
-| `wait_time_seconds` | цільова змінна |
-| `vehicles_in_queue` | друга цільова, часто передує зміні очікування |
-| `is_paused` | пояснює провали, які інакше виглядають як аномалія |
-| `time` | година доби, день тижня, свята |
-| `checkpoint_id` | розріз моделі |
+| `wait_time_seconds` | target variable |
+| `vehicles_in_queue` | second target, often precedes a change in the wait |
+| `is_paused` | explains dips that otherwise look like an anomaly |
+| `time` | hour of day, day of week, holidays |
+| `checkpoint_id` | model cross-section |
 
-`collector_runs` фіксує прогалини. Це не побічна деталь: модель, навчена на
-ряді з дірками, вважатиме простій нашого збирача падінням черги. Прогалини
-треба явно виключати з навчання, а не інтерполювати мовчки.
+`collector_runs` records the gaps. This is not an incidental detail: a model trained on
+a series with holes would treat our collector's downtime as a drop in the queue. Gaps
+must be explicitly excluded from training, not silently interpolated.
 
-`observations_hourly` (безперервний агрегат) уже дає погодинні середні —
-на них і будуватиметься більшість ознак.
+`observations_hourly` (a continuous aggregate) already provides hourly averages —
+most of the features will be built on them.
 
-## Коли це можна починати
+## When this can be started
 
-**Не раніше, ніж накопичиться 8–12 тижнів.** Тижнева сезонність — головний
-сигнал у цій задачі, і щоб її оцінити, потрібно щонайменше 8 повторів кожного
-дня тижня. На двох тижнях даних будь-яка модель вивчить шум і показуватиме
-впевнені дурниці.
+**Not before 8–12 weeks have accumulated.** Weekly seasonality is the main
+signal in this task, and to estimate it you need at least 8 repetitions of each
+day of the week. On two weeks of data any model will learn the noise and produce
+confident nonsense.
 
-Орієнтовно: **жовтень–листопад 2026**.
+Roughly: **October–November 2026**.
 
-## Порядок, який має сенс
+## The order that makes sense
 
-1. **Спершу проста базова лінія.** «Прогноз = те саме значення, що було цього
-   дня тижня в цю годину тиждень тому». Це сезонний наївний прогноз, і він на
-   таких рядах несподівано сильний.
-2. **Виміряти її помилку** (MAE в годинах очікування) окремо по кожному КПП.
-3. **Будь-яка складніша модель має побити базову лінію** на тих самих даних.
-   Не побила — не впроваджуємо, хай яка модна.
+1. **A simple baseline first.** "Forecast = the same value it had on this
+   day of the week at this hour a week ago." This is the seasonal naive forecast, and on
+   such series it is surprisingly strong.
+2. **Measure its error** (MAE in hours of waiting) separately per checkpoint.
+3. **Any more complex model must beat the baseline** on the same data.
+   If it does not beat it, we do not ship it, however fashionable it is.
 
-Пропускати крок 1 не можна: без нього неможливо сказати, чи взагалі щось
-покращилось.
+Skipping step 1 is not allowed: without it, it is impossible to say whether anything
+improved at all.
 
-## Що врахувати в ознаках
+## What to account for in the features
 
-- година доби, день тижня — основа;
-- свята України **і сусідньої країни**: польський вихідний зупиняє чергу так
-  само, як український;
-- `is_paused` у минулому — черга після паузи поводиться інакше;
-- довгі вихідні й початок місяця (митні цикли);
-- погода — ймовірно ні: ефект малий, а зовнішнє джерело даних це ще одна
-  залежність і ще одна точка відмови.
+- hour of day, day of week — the foundation;
+- holidays of Ukraine **and the neighboring country**: a Polish day off stops the queue just
+  as a Ukrainian one does;
+- `is_paused` in the past — a queue behaves differently after a pause;
+- long weekends and the start of the month (customs cycles);
+- weather — probably not: the effect is small, and an external data source is one more
+  dependency and one more point of failure.
 
-## Обмеження, які треба назвати чесно
+## Limitations that must be named honestly
 
-**Черги залежать від подій, яких немає в даних.** Закриття пункту, страйк
-перевізників на польському боці, зміна митних правил, повітряна тривога.
-Модель їх не передбачить — і не має вдавати, що може.
+**Queues depend on events that are not in the data.** A checkpoint closure, a strike of
+carriers on the Polish side, a change in customs rules, an air-raid alert.
+The model will not predict them — and must not pretend that it can.
 
-**Прогноз мусить показувати невпевненість.** «Орієнтовно 2–4 дні» чесніше за
-«3 дні 14 годин». Друге створює хибну точність, а на цій точності люди
-плануватимуть рейси.
+**The forecast must show uncertainty.** "Roughly 2–4 days" is more honest than
+"3 days 14 hours". The latter creates false precision, and people will plan trips on
+that precision.
 
-**Функція №2 планується платною.** Якщо прогноз колись почне впливати на її
-спрацювання, до нього застосовуються ті самі вимоги, що й зараз до
-`eta_alerts`: зберігати знімок вхідних даних на момент рішення, щоб спірний
-випадок можна було розібрати.
+**Feature #2 is planned to be paid.** If the forecast ever begins to influence its
+firing, the same requirements apply to it as apply now to
+`eta_alerts`: store a snapshot of the input data at the moment of the decision, so that a
+disputed case can be examined.
 
-## Чого не робити
+## What not to do
 
-Не підмінювати прогнозом поточні дані. Зараз `entry_eta` — це факт від
-першоджерела (момент заміру + `wait_time`), і саме тому йому можна вірити.
-Прогноз має бути **окремим полем з окремою назвою**, щоб користувач завжди
-розумів, де вимір, а де здогад.
+Do not substitute the forecast for the current data. Right now `entry_eta` is a fact from
+the original source (the measurement moment + `wait_time`), and that is exactly why it can
+be trusted. The forecast must be a **separate field with a separate name**, so that the user
+always understands where the measurement is and where the guess is.

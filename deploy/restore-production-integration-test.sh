@@ -280,9 +280,9 @@ restored=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     -c 'SELECT title FROM checkpoints WHERE id=987654321;')
 [ "$restored" = "$MARKER" ]
 
-# M-13: знімок поточної бази справді зроблено ДО знищення (реальний pg_dump).
+# M-13: the snapshot of the current database is genuinely taken BEFORE destruction (a real pg_dump).
 pre_restore_snap=$(ls "$WORK/pre-restore-snapshots"/avelren-pre-restore-*.sql.gz 2>/dev/null | head -1)
-[ -n "$pre_restore_snap" ] || { echo 'pre-restore snapshot не створено' >&2; exit 1; }
+[ -n "$pre_restore_snap" ] || { echo 'pre-restore snapshot not created' >&2; exit 1; }
 gzip -t "$pre_restore_snap"
 grep -q 'stop caddy' "$WORK/services.log"
 grep -q 'up -d caddy' "$WORK/services.log"

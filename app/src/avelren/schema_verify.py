@@ -1,22 +1,24 @@
-"""Перевірка, що фактична схема БД узгоджена з історією міграцій (A-07).
+"""Verification that the actual DB schema agrees with the migration history (A-07).
 
-Використовується двічі, з одного джерела істини:
-  * `migrate.py` — ДО застосування нових міграцій (prefix-aware verify_contract),
-    щоб виявити битий restore ДО того, як нові файли будуть застосовані; і ПІСЛЯ
-    (повний verify), щоб зловити будь-яку розбіжність схеми з повною історією.
-  * `deploy/restore-verify.sh` (через `python -m avelren.schema_verify`) — щоб
-    restore_test доводив не counts, а реальний контракт.
+Used twice, from a single source of truth:
+  * `migrate.py` — BEFORE applying new migrations (prefix-aware verify_contract),
+    to detect a corrupt restore BEFORE the new files are applied; and AFTER
+    (full verify), to catch any schema divergence from the full history.
+  * `deploy/restore-verify.sh` (via `python -m avelren.schema_verify`) — so
+    restore_test proves not counts but the real contract.
 
-Принцип A-07: історія міграцій І фактична схема мусять погоджуватися. Будь-яка
-суперечність → помилка (exit 1). Ніякого fail-open, ніякого «мабуть, ок».
+A-07 principle: the migration history AND the actual schema must agree. Any
+contradiction → an error (exit 1). No fail-open, no "probably ok".
 
-Контракт свідомо перелічений явно, а не виводиться з тіл міграцій: мета —
-незалежна перевірка того, що ключові структури реально на місці, навіть якщо
-хтось відредагував міграцію або restore втратив частину схеми.
+The contract is deliberately listed explicitly rather than derived from the
+migration bodies: the goal is an independent check that the key structures are
+really in place, even if someone edited a migration or the restore lost part of
+the schema.
 
-Кожен запис анотований версією міграції, яка його створює. verify_contract()
-приймає recorded_versions; якщо None — перевіряє все (post-apply). Якщо множина
-— перевіряє лише об'єкти, введені тими версіями (pre-apply prefix gate).
+Each entry is annotated with the migration version that creates it.
+verify_contract() takes recorded_versions; if None — it checks everything
+(post-apply). If a set — it checks only the objects introduced by those versions
+(pre-apply prefix gate).
 """
 
 import hashlib
@@ -33,9 +35,9 @@ from .restore_identity import connection_identity_problems
 log = logging.getLogger("avelren.schema_verify")
 
 # --- Version-annotated physical contract ------------------------------------
-# Формат: (since_version | None, ...деталі об'єкта)
+# Format: (since_version | None, ...object details)
 # since=None → always required (schema_migrations).
-# Prefix gate в migrate.py фільтрує за recorded_versions.
+# The prefix gate in migrate.py filters by recorded_versions.
 
 _TABLES_V: list[tuple[str | None, str]] = [
     ("001_init", "checkpoints"),
@@ -75,9 +77,10 @@ _COLUMNS_V: list[tuple[str | None, str, str]] = [
     ("008_notification_cancels", "notification_cancels", "abandoned_at"),
 ]
 
-# Інваріант-захисні індекси: перевіряємо exact semantic definition —
-# table + columns + partial predicate. Той самий name з іншими columns або
-# іншим WHERE — вже не той інваріант (напр. "один pending" перестає гарантуватись).
+# Invariant-guarding indexes: we check the exact semantic definition —
+# table + columns + partial predicate. The same name with different columns or a
+# different WHERE is no longer the same invariant (e.g. "one pending" stops being
+# guaranteed).
 # (version, index_name, table, columns, predicate_expr_normalized)
 _UNIQUE_PARTIAL_INDEXES_V: list[tuple[str, str, str, tuple[str, ...], str]] = [
     ("004_alerts", "alerts_one_pending_per_subscription", "alerts",
@@ -88,13 +91,13 @@ _UNIQUE_PARTIAL_INDEXES_V: list[tuple[str, str, str, tuple[str, ...], str]] = [
      ("kind",), "(resolved_at IS NULL)"),
 ]
 
-# Звичайні (не-unique) індекси: лише перевірка існування.
+# Regular (non-unique) indexes: existence check only.
 _INDEXES_V: list[tuple[str, str]] = [
     ("008_notification_cancels", "notification_cancels_open_idx"),
 ]
 
-# Іменовані UNIQUE-обмеження. ON CONFLICT у API прямо покладається на них;
-# якщо constraint загубився при restore або має інші columns — POST впаде.
+# Named UNIQUE constraints. ON CONFLICT in the API relies on them directly;
+# if a constraint was lost in the restore or has different columns — a POST fails.
 # (version, constraint_name, table, columns)
 _CONSTRAINTS_V: list[tuple[str, str, str, tuple[str, ...]]] = [
     ("004_alerts", "subscriptions_device_id_checkpoint_id_threshold_key",
@@ -113,7 +116,7 @@ _CONTINUOUS_AGGREGATES_V: list[tuple[str, str]] = [
 
 
 def _want(since: str | None, recorded: set[str] | None) -> bool:
-    """Чи треба перевіряти цей об'єкт при заданому наборі recorded versions."""
+    """Whether this object should be checked for the given set of recorded versions."""
     if recorded is None:
         return True
     if since is None:
@@ -125,7 +128,7 @@ def _want(since: str | None, recorded: set[str] | None) -> bool:
 
 
 def expected_migrations(directory: Path) -> dict[str, str]:
-    """version → sha256 з файлів міграцій (джерело істини для історії)."""
+    """version → sha256 from the migration files (the source of truth for history)."""
     out: dict[str, str] = {}
     for path in sorted(directory.glob("*.sql")):
         body = path.read_text(encoding="utf-8")
@@ -134,8 +137,8 @@ def expected_migrations(directory: Path) -> dict[str, str]:
 
 
 def verify_history(conn: psycopg.Connection, directory: Path) -> list[str]:
-    """Точна відповідність історії міграцій файлам: ні пропущених, ні
-    невідомих/майбутніх версій, SHA кожної збігається."""
+    """Exact correspondence of the migration history to the files: none missing,
+    no unknown/future versions, each SHA matches."""
     problems: list[str] = []
     expected = expected_migrations(directory)
     recorded = {
@@ -144,12 +147,12 @@ def verify_history(conn: psycopg.Connection, directory: Path) -> list[str]:
     }
 
     for version in expected.keys() - recorded.keys():
-        problems.append(f"міграція {version} у файлах, але не записана як застосована")
+        problems.append(f"migration {version} is in the files but not recorded as applied")
     for version in recorded.keys() - expected.keys():
-        problems.append(f"міграція {version} записана, але файлу нема (чужа/майбутня версія)")
+        problems.append(f"migration {version} is recorded but the file is missing (foreign/future version)")
     for version in expected.keys() & recorded.keys():
         if expected[version] != recorded[version]:
-            problems.append(f"міграція {version}: SHA у БД не збігається з файлом")
+            problems.append(f"migration {version}: the SHA in the DB does not match the file")
     return problems
 
 
@@ -157,11 +160,11 @@ def verify_contract(
     conn: psycopg.Connection,
     recorded_versions: set[str] | None = None,
 ) -> list[str]:
-    """Фізична схема: таблиці/колонки/індекси/constraints/Timescale-об'єкти.
+    """Physical schema: tables/columns/indexes/constraints/Timescale objects.
 
-    recorded_versions=None → повна перевірка (post-apply, всі об'єкти).
-    recorded_versions=set  → лише об'єкти, введені тими версіями (pre-apply
-    prefix gate: виявити битий restore ДО застосування нових файлів).
+    recorded_versions=None → full check (post-apply, all objects).
+    recorded_versions=set  → only objects introduced by those versions (pre-apply
+    prefix gate: detect a corrupt restore BEFORE applying new files).
     """
     problems: list[str] = []
     def want(since: str | None) -> bool:
@@ -172,7 +175,7 @@ def verify_contract(
             continue
         row = conn.execute("SELECT to_regclass(%s)", (f"public.{table}",)).fetchone()
         if not row or row[0] is None:
-            problems.append(f"нема таблиці/relation {table}")
+            problems.append(f"missing table/relation {table}")
 
     for since, table, column in _COLUMNS_V:
         if not want(since):
@@ -185,11 +188,11 @@ def verify_contract(
             (table, column),
         ).fetchone()
         if not row:
-            problems.append(f"нема колонки {table}.{column}")
+            problems.append(f"missing column {table}.{column}")
 
-    # Інваріант-індекси: exact semantic definition — same name недостатньо.
-    # Хтось міг DROP+CREATE із тим же іменем, але іншими columns/predicate;
-    # інваріант зникає, а тільки uniqueness+partial це не ловить.
+    # Invariant indexes: exact semantic definition — the same name is not enough.
+    # Someone could DROP+CREATE with the same name but different columns/predicate;
+    # the invariant vanishes, and uniqueness+partial alone does not catch it.
     for since, index, want_table, want_cols, want_pred in _UNIQUE_PARTIAL_INDEXES_V:
         if not want(since):
             continue
@@ -214,25 +217,25 @@ def verify_contract(
             (index,),
         ).fetchone()
         if not row:
-            problems.append(f"нема індексу {index}")
+            problems.append(f"missing index {index}")
             continue
         table_name, is_unique, is_partial, predicate, columns = row
         if table_name != want_table:
             problems.append(
-                f"індекс {index} на таблиці {table_name}, очікували {want_table}"
+                f"index {index} is on table {table_name}, expected {want_table}"
             )
         if not is_unique:
-            problems.append(f"індекс {index} не є UNIQUE (інваріант порушено)")
+            problems.append(f"index {index} is not UNIQUE (invariant violated)")
         if not is_partial:
-            problems.append(f"індекс {index} не є partial — нема WHERE-умови")
+            problems.append(f"index {index} is not partial — no WHERE clause")
         actual_cols = tuple(columns or ())
         if actual_cols != want_cols:
             problems.append(
-                f"індекс {index}: columns {actual_cols}, очікували {want_cols}"
+                f"index {index}: columns {actual_cols}, expected {want_cols}"
             )
         if is_partial and predicate != want_pred:
             problems.append(
-                f"індекс {index}: predicate {predicate!r}, очікували {want_pred!r}"
+                f"index {index}: predicate {predicate!r}, expected {want_pred!r}"
             )
 
     for since, index in _INDEXES_V:
@@ -240,11 +243,11 @@ def verify_contract(
             continue
         row = conn.execute("SELECT to_regclass(%s)", (f"public.{index}",)).fetchone()
         if not row or row[0] is None:
-            problems.append(f"нема індексу {index}")
+            problems.append(f"missing index {index}")
 
-    # UNIQUE-constraints: exact table + contype='u' + columns. Тільки name
-    # недостатньо: rename+recreate з іншими columns дає той же conname, але
-    # ON CONFLICT (want_cols) впаде на проді.
+    # UNIQUE constraints: exact table + contype='u' + columns. The name alone is
+    # not enough: a rename+recreate with different columns gives the same conname,
+    # but ON CONFLICT (want_cols) would fail in prod.
     for since, constraint, want_table, want_cols in _CONSTRAINTS_V:
         if not want(since):
             continue
@@ -266,21 +269,21 @@ def verify_contract(
             (constraint,),
         ).fetchone()
         if not row:
-            problems.append(f"нема обмеження {constraint}")
+            problems.append(f"missing constraint {constraint}")
             continue
         contype, table_name, columns = row
         if contype != "u":
             problems.append(
-                f"обмеження {constraint}: contype={contype!r}, очікували 'u' (UNIQUE)"
+                f"constraint {constraint}: contype={contype!r}, expected 'u' (UNIQUE)"
             )
         if table_name != want_table:
             problems.append(
-                f"обмеження {constraint} на таблиці {table_name}, очікували {want_table}"
+                f"constraint {constraint} is on table {table_name}, expected {want_table}"
             )
         actual_cols = tuple(columns or ())
         if actual_cols != want_cols:
             problems.append(
-                f"обмеження {constraint}: columns {actual_cols}, очікували {want_cols}"
+                f"constraint {constraint}: columns {actual_cols}, expected {want_cols}"
             )
 
     for since, ht in _HYPERTABLES_V:
@@ -291,7 +294,7 @@ def verify_contract(
             (ht,),
         ).fetchone()
         if not row:
-            problems.append(f"{ht} не є гіпертаблицею")
+            problems.append(f"{ht} is not a hypertable")
 
     for since, cagg in _CONTINUOUS_AGGREGATES_V:
         if not want(since):
@@ -301,18 +304,18 @@ def verify_contract(
             (cagg,),
         ).fetchone()
         if not row:
-            problems.append(f"нема continuous aggregate {cagg}")
+            problems.append(f"missing continuous aggregate {cagg}")
 
     return problems
 
 
 def verify(conn: psycopg.Connection, directory: Path) -> list[str]:
-    """Повна перевірка: історія + фізичний контракт для фактично записаних версій.
+    """Full check: history + physical contract for the versions actually recorded.
 
-    Контракт фільтрується за recorded versions, а не жорстко по всіх _V записах:
-    коли `directory` містить lише prefix (партіальний набір міграцій, напр. у
-    тестах), verify не повинен вимагати об'єкти майбутніх міграцій. Розбіжність
-    між файлами й записаним ловить verify_history."""
+    The contract is filtered by recorded versions, not hard-coded over all _V
+    entries: when `directory` contains only a prefix (a partial set of migrations,
+    e.g. in tests), verify must not require objects of future migrations. A
+    divergence between the files and what is recorded is caught by verify_history."""
     history_problems = verify_history(conn, directory)
     recorded = {
         row[0]
@@ -337,11 +340,11 @@ def main(directory: Path) -> int:
         if not problems:
             problems = verify(conn, directory)
     if problems:
-        log.error("схема НЕ узгоджена з історією міграцій:")
+        log.error("the schema does NOT agree with the migration history:")
         for p in problems:
             log.error("  - %s", p)
         return 1
-    log.info("схема узгоджена: %s міграцій, контракт цілий", len(expected_migrations(directory)))
+    log.info("schema agrees: %s migrations, contract intact", len(expected_migrations(directory)))
     return 0
 
 

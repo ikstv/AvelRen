@@ -1,10 +1,10 @@
-"""Стартовий гейт схеми (issue #88).
+"""Startup schema gate (issue #88).
 
-Гейт, який ніколи не бачили червоним, — не гейт. Тому більшість тестів тут
-доводять ВІДМОВУ, а не прохід: підсовують занизьку версію, порожній журнал і
-некоректний формат, і вимагають винятку. Зелений прогін проти реальної
-тестової БД тут лише один — він доводить, що дріт справді підключений
-(і що грант із міграції 010 на місці).
+A gate never seen red is not a gate. So most tests here prove REFUSAL, not
+passing: they feed in a too-low version, an empty ledger, and an invalid format,
+and require an exception. There is only one green run against a real test DB here
+— it proves the wire is actually connected (and that the grant from migration 010
+is in place).
 """
 
 import asyncio
@@ -25,11 +25,12 @@ from avelren.schema_gate import (
 
 DSN = os.environ["DATABASE_URL"]
 
-# Пін поточної вимоги. Значення ПОХІДНЕ (виводиться з version-анотованого
-# контракту schema_verify), тож цей тест не дублює логіку — він робить її зміну
-# видимою в рев'ю. Міграція, яка вводить новий об'єкт у контракт, зобов'язана
-# змінити цей рядок разом із собою; міграція без нових об'єктів (як 010, самі
-# гранти) — не зобов'язана й не сміє.
+# A pin of the current requirement. The value is DERIVED (from the
+# version-annotated schema_verify contract), so this test does not duplicate the
+# logic — it makes a change to it visible in review. A migration that introduces a
+# new object into the contract is obligated to change this line along with itself;
+# a migration without new objects (like 010, grants only) is not obligated and
+# must not.
 EXPECTED_REQUIREMENT = "009_observability"
 
 
@@ -37,7 +38,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-# --- вимога виводиться, а не вигадується ------------------------------------
+# --- the requirement is derived, not invented -------------------------------
 
 
 def test_requirement_matches_pinned_value():
@@ -47,16 +48,16 @@ def test_requirement_matches_pinned_value():
 
 
 def test_requirement_ignores_grant_only_migrations():
-    """010 не вводить жодного об'єкта контракту, тож вимогу не піднімає.
+    """010 introduces no contract object, so it does not raise the requirement.
 
-    Інакше сервіс відмовлявся б стартувати через незастосований ACL-шар —
-    саме той стан, у якому прод перебуває між 3B.2 і 3D."""
+    Otherwise the service would refuse to start over an unapplied ACL layer —
+    exactly the state prod is in between 3B.2 and 3D."""
     from avelren.schema_gate import required_schema_version
 
     assert _version_ordinal(required_schema_version()) < _version_ordinal("010_x")
 
 
-# --- порядок версій: пастка 009 -> 010 --------------------------------------
+# --- version ordering: the 009 -> 010 trap ----------------------------------
 
 
 def test_ordinal_is_numeric_not_lexicographic():
@@ -69,16 +70,16 @@ def test_ordinal_rejects_malformed_version():
         _version_ordinal("draft_something")
 
 
-# --- найвища версія береться числово, а не текстово -------------------------
+# --- the highest version is taken numerically, not textually ----------------
 
 
 def test_highest_recorded_is_numeric_not_textual():
-    """Саме тут ховалася б тиха помилка, якби покладатись на SQL max(version)."""
+    """This is exactly where a silent bug would hide if relying on SQL max(version)."""
     assert highest_recorded(["009_observability", "010_least_privilege"]) == "010_least_privilege"
 
 
 def test_highest_recorded_survives_mixed_padding():
-    """Текстовий max повернув би тут `009_x` — тобто старішу за фактичну."""
+    """A textual max would return `009_x` here — i.e. older than the actual one."""
     assert highest_recorded(["009_x", "0010_y"]) == "0010_y"
 
 
@@ -86,7 +87,7 @@ def test_highest_recorded_on_empty_ledger_is_none():
     assert highest_recorded([]) is None
 
 
-# --- ФАЛЬСИФІКАЦІЯ: гейт мусить відмовляти ----------------------------------
+# --- FALSIFICATION: the gate must refuse ------------------------------------
 
 
 def test_older_schema_is_refused():
@@ -97,7 +98,7 @@ def test_older_schema_is_refused():
 
 
 def test_empty_ledger_is_refused_not_treated_as_fresh():
-    """Порожній журнал — це схема без жодної міграції, а не «нова база, ок»."""
+    """An empty ledger is a schema with no migration at all, not "new DB, ok"."""
     with pytest.raises(SchemaTooOldError):
         check_recorded_version(None)
 
@@ -110,14 +111,14 @@ def test_newer_schema_passes():
     check_recorded_version("010_postgresql_least_privilege")
 
 
-# --- дріт справді підключений ------------------------------------------------
+# --- the wire is actually connected -----------------------------------------
 
 
 def test_gate_passes_against_real_database():
-    """Наскрізно: справжній пул, справжній SELECT, справжній грант.
+    """End-to-end: a real pool, a real SELECT, a real grant.
 
-    Падіння з 42501 тут означало б, що роль не має SELECT на schema_migrations —
-    тобто що передумова з міграції 010 не застосована."""
+    A failure with 42501 here would mean the role has no SELECT on
+    schema_migrations — i.e. that the precondition from migration 010 is not applied."""
 
     async def run():
         pool = AsyncConnectionPool(
@@ -133,10 +134,10 @@ def test_gate_passes_against_real_database():
 
 
 def test_real_ledger_is_populated_and_older_pin_would_refuse():
-    """Дві речі поруч: тестова БД справді має застосовані міграції, і той самий
-    гейт на штучно заниженій версії відмовляє. Назва навмисно описує рівно те,
-    що перевіряється — тест, чия назва ширша за поведінку, зеленіє не з тієї
-    причини."""
+    """Two things side by side: the test DB really has applied migrations, and the
+    same gate on an artificially lowered version refuses. The name deliberately
+    describes exactly what is checked — a test whose name is broader than its
+    behavior goes green for the wrong reason."""
 
     async def run():
         async with await psycopg.AsyncConnection.connect(DSN, autocommit=True) as conn:
@@ -147,7 +148,7 @@ def test_real_ledger_is_populated_and_older_pin_would_refuse():
             return row["version"]
 
     recorded = _run(run())
-    assert recorded is not None, "тестова БД має мати застосовані міграції"
-    # А тепер та сама перевірка на штучно «зіпсованому» результаті.
+    assert recorded is not None, "the test DB must have applied migrations"
+    # And now the same check on an artificially "spoiled" result.
     with pytest.raises(SchemaTooOldError):
         check_recorded_version("001_init")

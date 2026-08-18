@@ -3,8 +3,9 @@
 Snapshot date: 2026-08-15 (post AUDIT-2026-08-15; post 3B.2 attempt + recovery;
 post supply-chain wave #62–#77). Purpose: single canonical document to resume
 work from another PC without replaying prior sessions. This document does not
-grant any production authorization. See README section "Межа операційної
-авторизації" and `docs/disaster-recovery.md` for the hard operational boundary.
+grant any production authorization. See the README section "Operational
+authorization boundary" and `docs/disaster-recovery.md` for the hard operational
+boundary.
 
 The full current-state analysis lives in `AUDIT-2026-08-15.md` — this snapshot
 is the short index over it.

@@ -1,11 +1,11 @@
-"""Розсилач сповіщень.
+"""Notification sender.
 
-Окремий сервіс, а не частина збирача: історія має накопичуватись, навіть якщо
-FCM лежить. Збирач ніколи не чекає на пуші.
+A separate service, not part of the collector: history must keep accumulating
+even if FCM is down. The collector never waits on pushes.
 
-Сповіщення повторюється кожні 5 хвилин, доки користувач не натисне «ОК».
-Саме сервер, а не застосунок, робить його «нескінченним» — тому воно переживає
-перезавантаження телефона й вбивство застосунку.
+A notification repeats every 5 minutes until the user taps "OK". It is the
+server, not the app, that makes it "endless" — so it survives a phone reboot
+and the app being killed.
 """
 
 import asyncio
@@ -29,11 +29,11 @@ _stop = asyncio.Event()
 
 
 def _request_stop(*_: object) -> None:
-    log.info("отримано сигнал зупинки")
+    log.info("stop signal received")
     _stop.set()
 
 
-# Обидва типи алертів однакові за поведінкою, різняться лише джерелом і текстом.
+# Both alert types behave the same, differing only in source and text.
 _QUERY = """
     SELECT a.id, a.send_count, d.id AS device_id, d.fcm_token,
            c.title, a.threshold, a.vehicles_at_trigger,
@@ -61,11 +61,11 @@ _QUERY = """
 
 async def _mark_sent(conn: AsyncConnection, kind: str, alert_id: int) -> None:
     table = "alerts" if kind == "threshold" else "eta_alerts"
-    # `AND status = 'pending'`: якщо між SELECT і цим UPDATE alert устиг
-    # expire-нутись (черга впала / ETA минув), ми НЕ фіксуємо відправку як
-    # успішну для вже неактивного алерта. Так lifecycle лишається чесним, а
-    # cancel того ж циклу (нижче) заміщує щойно надісланий normal push тим
-    # самим collapse_key (аудит A-02, race normal↔expire↔cancel).
+    # `AND status = 'pending'`: if between the SELECT and this UPDATE the alert
+    # managed to expire (queue dropped / ETA passed), we do NOT record the send
+    # as successful for an already-inactive alert. This keeps the lifecycle
+    # honest, and the cancel of the same cycle (below) supersedes the just-sent
+    # normal push with the same collapse_key (audit A-02, race normal↔expire↔cancel).
     await conn.execute(
         f"UPDATE {table} SET last_sent_at = now(), send_count = send_count + 1 "
         "WHERE id = %s AND status = 'pending'",
@@ -74,13 +74,13 @@ async def _mark_sent(conn: AsyncConnection, kind: str, alert_id: int) -> None:
 
 
 async def _disable_device(conn: AsyncConnection, device_id: str) -> None:
-    """Мертвий токен: далі слати марно.
+    """Dead token: sending further is pointless.
 
-    Без цього накопичилися б тисячі мертвих токенів, і ми довбили б FCM
-    щоп'ять хвилин за кожен видалений застосунок.
+    Without this, thousands of dead tokens would accumulate, and we would hammer
+    FCM every five minutes for each uninstalled app.
     """
     await conn.execute("UPDATE devices SET fcm_token = NULL WHERE id = %s", (device_id,))
-    log.info("пристрій %s відключено: токен мертвий", device_id)
+    log.info("device %s disabled: token is dead", device_id)
 
 
 async def run_cycle(client: httpx.AsyncClient) -> int:
@@ -100,8 +100,8 @@ async def run_cycle(client: httpx.AsyncClient) -> int:
                 payload = fcm.eta_payload(r["id"], r["title"], eta_local)
 
             try:
-                # collapse_key: повтори того самого алерта схлопуються у FCM,
-                # ttl трохи більший за інтервал повтору — протухле не доставляється.
+                # collapse_key: repeats of the same alert collapse in FCM,
+                # ttl a bit larger than the resend interval — stale ones are not delivered.
                 await fcm.send(
                     client,
                     r["fcm_token"],
@@ -113,23 +113,23 @@ async def run_cycle(client: httpx.AsyncClient) -> int:
                 if exc.dead_token:
                     await _disable_device(conn, r["device_id"])
                 else:
-                    # Тимчасова помилка: алерт лишається pending, повторимо.
-                    log.warning("не надіслано алерт %s: %s", r["id"], exc)
+                    # Temporary error: the alert stays pending, we will retry.
+                    log.warning("alert %s not sent: %s", r["id"], exc)
                 continue
             except Exception as exc:
-                log.error("збій відправки алерта %s: %s", r["id"], exc)
+                log.error("failed to send alert %s: %s", r["id"], exc)
                 continue
 
             await _mark_sent(conn, r["kind"], r["id"])
             sent += 1
             log.info(
-                "надіслано %s-алерт %s (спроба %s)", r["kind"], r["id"], r["send_count"] + 1
+                "sent %s alert %s (attempt %s)", r["kind"], r["id"], r["send_count"] + 1
             )
 
-        # Cancel'и — ПІСЛЯ normal pushes у тому ж циклі. Порядок важливий: якщо
-        # alert expire-нувся посеред normal-фази, cancel відправляється після
-        # свого ж normal push і з тим самим collapse_key заміщує його —
-        # останнім станом на телефоні лишається cancel (аудит A-02).
+        # Cancels — AFTER the normal pushes in the same cycle. Order matters: if
+        # an alert expired in the middle of the normal phase, the cancel is sent
+        # after its own normal push and with the same collapse_key supersedes it —
+        # the last state on the phone is the cancel (audit A-02).
         await _send_cancels(client, conn)
         await cancels.cleanup_closed(conn)
 
@@ -139,7 +139,7 @@ async def run_cycle(client: httpx.AsyncClient) -> int:
 async def _send_cancels(client: httpx.AsyncClient, conn: AsyncConnection) -> None:
     for c in await cancels.fetch_open(conn):
         if not c["fcm_token"]:
-            # Токен уже знято (мертвий/розлогінений) — показувати нема кому.
+            # The token is already cleared (dead/logged out) — no one to show it to.
             await cancels.mark_abandoned(conn, c["id"])
             continue
         try:
@@ -158,12 +158,12 @@ async def _send_cancels(client: httpx.AsyncClient, conn: AsyncConnection) -> Non
                 await cancels.record_attempt(conn, c["id"])
             continue
         except Exception as exc:
-            log.error("збій відправки cancel %s: %s", c["id"], exc)
+            log.error("failed to send cancel %s: %s", c["id"], exc)
             await cancels.record_attempt(conn, c["id"])
             continue
 
         await cancels.mark_accepted(conn, c["id"])
-        log.info("надіслано cancel %s:%s", c["kind"], c["alert_id"])
+        log.info("sent cancel %s:%s", c["kind"], c["alert_id"])
 
 
 async def main() -> None:
@@ -177,20 +177,20 @@ async def main() -> None:
 
     pool = get_pool()
     await pool.open(wait=True, timeout=30)
-    # Fail-closed перевірка схеми (issue #88): сервіс не стартує, якщо
-    # записана версія схеми НИЖЧА за вимогу коду. Стоїть одразу після
-    # відкриття пулу — до першої корисної роботи.
+    # Fail-closed schema check (issue #88): the service does not start if the
+    # recorded schema version is LOWER than the code's requirement. Placed right
+    # after the pool opens — before the first useful work.
     await assert_schema_at_least(pool)
-    log.info("розсилач стартував, повтор кожні %s с", settings.alert_resend_seconds)
+    log.info("sender started, resend every %s s", settings.alert_resend_seconds)
 
     async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
         while not _stop.is_set():
             try:
                 await run_cycle(client)
             except Exception as exc:
-                # Жодна помилка не сміє зупинити розсилач: інакше непідтверджені
-                # сповіщення замовкнуть назавжди.
-                log.error("цикл розсилки впав: %s", exc)
+                # No error may stop the sender: otherwise unacknowledged
+                # notifications would go silent forever.
+                log.error("send cycle failed: %s", exc)
 
             try:
                 await asyncio.wait_for(_stop.wait(), timeout=60)
@@ -198,7 +198,7 @@ async def main() -> None:
                 pass
 
     await pool.close()
-    log.info("розсилач зупинено")
+    log.info("sender stopped")
 
 
 if __name__ == "__main__":

@@ -54,12 +54,12 @@ private val KYIV: ZoneId = ZoneId.of("Europe/Kyiv")
 private val FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM 'о' HH:mm")
 
 /**
- * Головний екран.
+ * The main screen.
  *
- * Увесь вміст — один `LazyColumn`, а не `Column` із вкладеними списками.
- * Інакше картки, що не вмістились у висоту екрана, мовчки обрізаються: вони
- * намальовані, але їх не видно й не доскролиш. Саме так зникла телеметрія,
- * коли карток стало більше трьох.
+ * All content is a single `LazyColumn`, not a `Column` with nested lists.
+ * Otherwise cards that do not fit the screen height are silently clipped: they
+ * are drawn, but you cannot see them and cannot scroll to them. This is exactly
+ * how the telemetry disappeared once there were more than three cards.
  */
 @Composable
 fun AvelRenScreen(
@@ -82,9 +82,9 @@ fun AvelRenScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var refreshError by remember { mutableStateOf(false) }
     var forecastError by remember { mutableStateOf(false) }
-    // Оновлюється КОЖЕН poll (навіть якщо payload не змінився), щоб freshness
-    // рухалась і UI переходив у stale, коли collector завис, а API віддає той
-    // самий snapshot (B2).
+    // Updated on EVERY poll (even if the payload did not change), so that freshness
+    // advances and the UI transitions to stale when the collector hangs while the
+    // API returns the same snapshot (B2).
     var freshnessNow by remember { mutableStateOf(Instant.now()) }
     var showEtaDialog by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
@@ -94,12 +94,13 @@ fun AvelRenScreen(
     var targets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
 
-    // Живе оновлення (AND-4): refresh одразу при вході/поверненні, далі кожні
-    // 60 c — але ЛИШЕ у foreground (repeatOnLifecycle(RESUMED) паузить при
-    // згортанні й перезапускає при поверненні → миттєвий refresh). Ключ на
-    // `selected`, щоб зміна КПП одразу оновила forecast, не чекаючи циклу.
-    // Workload і forecast — незалежні: збій одного не блокує інший, і при
-    // помилці останні валідні дані НЕ стираються (keep-last).
+    // Live refresh (AND-4): refresh immediately on entry/return, then every
+    // 60 s — but ONLY in the foreground (repeatOnLifecycle(RESUMED) pauses on
+    // backgrounding and restarts on return → an immediate refresh). Keyed on
+    // `selected`, so a change of checkpoint refreshes the forecast at once,
+    // without waiting for the cycle. Workload and forecast are independent: a
+    // failure of one does not block the other, and on error the last valid data
+    // is NOT erased (keep-last).
     LaunchedEffect(lifecycleOwner, selected) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             LiveRefresh.poll {
@@ -111,26 +112,26 @@ fun AvelRenScreen(
 
                 if (selected > 0) {
                     val fcRes: Result<Api.Forecast?> = runCatching { Api.forecast(selected) }
-                    // keep-last лише для того самого КПП: forecast(A) не має
-                    // лишитися під карткою КПП B (B1).
+                    // keep-last only for the same checkpoint: forecast(A) must not
+                    // remain under the card of checkpoint B (B1).
                     forecast = LiveRefresh.scopedForecast(forecast, fcRes, selected)
                     forecastError = fcRes.isFailure
                 } else {
                     forecast = null
                     forecastError = false
                 }
-                // Годинник свіжості рухається щополл, незалежно від payload.
+                // The freshness clock advances on every poll, regardless of the payload.
                 freshnessNow = Instant.now()
                 loading = false
             }
         }
     }
 
-    // Protected-дані завантажуються тим самим seam, що покритий тестом
-    // (ProtectedLoad.observe): щойно installation стає Ready — вантажимо; новий
-    // Ready після recovery-перереєстрації ретригерить сам, без restart. `reload`
-    // перезапускає effect (StateFlow одразу реплеїть поточний Ready), тож
-    // локальна мутація теж оновлює дані.
+    // Protected data is loaded through the same seam covered by the test
+    // (ProtectedLoad.observe): as soon as the installation becomes Ready we load;
+    // a new Ready after a recovery re-registration retriggers by itself, without a
+    // restart. `reload` restarts the effect (the StateFlow immediately replays the
+    // current Ready), so a local mutation also refreshes the data.
     LaunchedEffect(reload) {
         ProtectedLoad.observe(installation.state) {
             subs = runCatching {
@@ -139,7 +140,7 @@ fun AvelRenScreen(
             targets = runCatching {
                 installation.authenticatedCall { Api.etaTargets(it) }
             }.getOrDefault(emptyList())
-            // 403 для звичайного пристрою — картка просто не зʼявиться.
+            // A 403 for an ordinary device — the card simply will not appear.
             telemetry = runCatching {
                 installation.authenticatedCall { Api.telemetry(it) }
             }.getOrNull()
@@ -166,14 +167,15 @@ fun AvelRenScreen(
             }
         }
 
-        // AND-2: сповіщення заблоковані — алерт не дійде. Це сенс застосунку,
-        // тож показуємо явно і даємо шлях назад (запит або потрібні налаштування).
+        // AND-2: notifications are blocked — the alert will not arrive. This is the
+        // whole point of the app, so we show it explicitly and give a way back (a
+        // request or the needed settings).
         if (permissionState !is NotificationPermissionState.Granted) {
             item { NotificationBanner(permissionState, onRequestPermission, onOpenSettings) }
         }
 
-        // Вигляд · перемикач теми (Modernist сегментований контрол). Вибір
-        // застосовується миттєво й переживає перезапуск (DataStore).
+        // Appearance · theme toggle (a Modernist segmented control). The choice
+        // applies instantly and survives a restart (DataStore).
         item {
             Column(modifier = Modifier.padding(top = 16.dp)) {
                 Text(
@@ -186,9 +188,10 @@ fun AvelRenScreen(
             }
         }
 
-        // Свіжість за server observation time обраного КПП (без вибору — макс.
-        // по списку). Якщо обраний зник зі snapshot — current==null → time==null
-        // → stale, чужим часом не підміняємо.
+        // Freshness by the server observation time of the selected checkpoint (with
+        // no selection — the max across the list). If the selected one disappeared
+        // from the snapshot — current==null → time==null → stale, we do not
+        // substitute someone else's time.
         if (workload.isNotEmpty()) {
             item {
                 val obsTime =
@@ -209,8 +212,9 @@ fun AvelRenScreen(
             }
         }
 
-        // Full-screen помилка лише коли даних ще нема взагалі. Якщо є старий
-        // валідний snapshot — не затираємо екран, статус показує рядок вище.
+        // A full-screen error only when there is no data at all yet. If an old
+        // valid snapshot exists — we do not overwrite the screen, the status is
+        // shown by the line above.
         if (workload.isEmpty()) {
             error?.let { msg ->
                 item {
@@ -282,8 +286,8 @@ fun AvelRenScreen(
                 )
             }
 
-            // Defense-in-depth (B1): навіть якщо в стан просочився прогноз
-            // іншого КПП — під карткою обраного його не показуємо.
+            // Defense-in-depth (B1): even if a forecast of another checkpoint leaked
+            // into the state — we do not show it under the selected one's card.
             item { ForecastCard(forecast?.takeIf { it.checkpoint_id == selected }) }
             item { TelemetryCard(telemetry) }
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp)) }
@@ -344,9 +348,9 @@ private fun NotificationBanner(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
             )
-            // NeedsRequest — системний діалог ще можливий; решта станів
-            // (permanent denial, revoke, вимкнений канал) лікуються лише в
-            // налаштуваннях, тож і кнопка веде саме туди.
+            // NeedsRequest — the system dialog is still possible; the other states
+            // (permanent denial, revoke, disabled channel) are cured only in the
+            // settings, so the button leads exactly there.
             val canAskInApp = state is NotificationPermissionState.NeedsRequest
             Button(
                 onClick = if (canAskInApp) onRequest else onOpenSettings,
@@ -394,8 +398,8 @@ private fun ThresholdRow(enabled: Boolean, onPick: (Int) -> Unit) {
     Column {
         Text("Сповістити, коли черга зросте до:",
             style = MaterialTheme.typography.bodyMedium)
-        // FlowRow сам переносить чипи на потрібну кількість рядів. Раніше тут
-        // був вкладений список — саме він і ламав прокручування всього екрана.
+        // FlowRow wraps the chips onto as many rows as needed by itself. There used
+        // to be a nested list here — that is what broke scrolling of the whole screen.
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             THRESHOLDS.forEach { t ->
                 AssistChip(

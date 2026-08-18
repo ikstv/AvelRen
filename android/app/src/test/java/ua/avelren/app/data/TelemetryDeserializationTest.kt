@@ -7,23 +7,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Контракт десеріалізації `/admin/telemetry`. Новий Server Dashboard додав
- * опціональні поля (last_observation, runs_last_hour, load_5m, stale,
+ * The `/admin/telemetry` deserialization contract. The new Server Dashboard added
+ * optional fields (last_observation, runs_last_hour, load_5m, stale,
  * certificate.error, backups.last_run, alerts_pending, collecting_since,
- * snapshot_age_seconds). Тест страхує від сценарію:
+ * snapshot_age_seconds). The test insures against the scenario:
  *
- * 1. Старий сервер (без нових полів) — новий APK має парситись без винятку.
- * 2. Новий сервер (з полями) — Android має їх прочитати правильно.
+ * 1. An old server (without the new fields) — the new APK must parse without an exception.
+ * 2. A new server (with the fields) — Android must read them correctly.
  *
- * Без цього тесту випадковий `required` (не-nullable) у data class зламав би
- * телеметрію на всіх пристроях до наступного deploy сервера.
+ * Without this test, an accidental `required` (non-nullable) in a data class would
+ * break telemetry on all devices until the next server deploy.
  */
 class TelemetryDeserializationTest {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test fun `парсинг мінімального payload зі старого сервера`() {
-        // Формат: рівно те, що віддавав сервер ДО PR-A (без нових полів).
+        // Format: exactly what the server returned BEFORE PR-A (without the new fields).
         val payload = """
             {
               "system": {
@@ -48,12 +48,12 @@ class TelemetryDeserializationTest {
 
         val t = json.decodeFromString(Api.Telemetry.serializer(), payload)
 
-        // Старі поля читаються нормально.
+        // The old fields read fine.
         assertEquals(100, t.system.uptime_seconds)
         assertEquals(100L, t.pipeline.observations)
         assertEquals(60, t.certificate.days_left)
 
-        // Нові поля відсутні → null / default.
+        // The new fields are absent → null / default.
         assertNull(t.system.load_5m)
         assertNull(t.system.snapshot_age_seconds)
         assertNull(t.system.stale)
@@ -107,7 +107,7 @@ class TelemetryDeserializationTest {
     }
 
     @Test fun `парсинг PR-B payload з усіма новими блоками`() {
-        // Payload сервера з PR-B: усі нові блоки заповнені.
+        // A server payload with PR-B: all the new blocks are filled in.
         val payload = """
             {
               "system": {
@@ -166,8 +166,8 @@ class TelemetryDeserializationTest {
     }
 
     @Test fun `парсинг PR-B — старий сервер без нових блоків парситься сумісно`() {
-        // Мінімальний старий payload (як у першому тесті) — після PR-B клієнт
-        // МАЄ і далі його парсити: усі нові поля nullable / default empty.
+        // A minimal old payload (as in the first test) — after PR-B the client
+        // MUST still parse it: all the new fields are nullable / default empty.
         val payload = """
             {
               "system": {"memory_total_mb": 0, "memory_used_mb": 0,

@@ -23,16 +23,16 @@ API_DATABASE_URL=${AVELREN_API_DSN:-}
 PRODUCTION_TARGET=avelren
 CONFIRMATION_TOKEN=AVELREN-PRODUCTION-RESTORE
 
-DUMP=${1:?вкажіть backup artifact}
+DUMP=${1:?specify the backup artifact}
 shift
 CONFIRMATION=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --confirm-production-restore)
-            [ "$#" -ge 2 ] || { echo "confirmation token відсутній" >&2; exit 2; }
+            [ "$#" -ge 2 ] || { echo "confirmation token is missing" >&2; exit 2; }
             CONFIRMATION=$2; shift 2
             ;;
-        *) echo "невідомий аргумент: $1" >&2; exit 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
@@ -48,7 +48,7 @@ db_psql() {
         psql -U "$ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
 }
 db_pg_dump() {
-    # Пароль лише через середовище (як db_psql), ніколи в argv.
+    # Password only via the environment (like db_psql), never in argv.
     PGPASSWORD="$ADMIN_DB_PASSWORD" compose exec -T -e PGPASSWORD "$DB_SERVICE" \
         pg_dump --no-owner -U "$ADMIN_DB_USER" -d "$1"
 }
@@ -69,11 +69,11 @@ admin_dsn_current_user() {
 }
 
 if [ "$CONFIRMATION" != "$CONFIRMATION_TOKEN" ]; then
-    log "ВІДМОВА: production orchestrator потребує exact confirmation token"
+    log "DENIED: production orchestrator requires the exact confirmation token"
     exit 2
 fi
-[ -f "$DUMP" ] || { log "ВІДМОВА: backup artifact не знайдено"; exit 1; }
-gzip -t "$DUMP" || { log "ВІДМОВА: backup artifact corrupt"; exit 1; }
+[ -f "$DUMP" ] || { log "DENIED: backup artifact not found"; exit 1; }
+gzip -t "$DUMP" || { log "DENIED: backup artifact corrupt"; exit 1; }
 
 [ "$ADMIN_DB_USER" = avelren_admin ] || {
     log "restore database role must be avelren_admin"; exit 2;
@@ -109,30 +109,30 @@ keep_maintenance_on_failure() {
     if [ "$SUCCESS" != true ]; then
         set +e
         if ! compose stop "$INGRESS_SERVICE"; then
-            log "ПОМИЛКА: cleanup stop failed: $INGRESS_SERVICE"
+            log "ERROR: cleanup stop failed: $INGRESS_SERVICE"
             cleanup_failed=true
         fi
         # shellcheck disable=SC2086
         if ! compose stop $KNOWN_CLIENTS; then
-            log "ПОМИЛКА: cleanup stop failed: $KNOWN_CLIENTS"
+            log "ERROR: cleanup stop failed: $KNOWN_CLIENTS"
             cleanup_failed=true
         fi
         if running=$(compose ps --status running --services); then
             for service in $INGRESS_SERVICE $KNOWN_CLIENTS; do
                 if printf '%s\n' "$running" | grep -Fxq "$service"; then
-                    log "ПОМИЛКА: cleanup left service running: $service"
+                    log "ERROR: cleanup left service running: $service"
                     cleanup_failed=true
                 fi
             done
         else
-            log "ПОМИЛКА: cleanup could not verify final service state"
+            log "ERROR: cleanup could not verify final service state"
             cleanup_failed=true
         fi
         set -e
         if [ "$cleanup_failed" = true ]; then
             log "RESTORE FAILED (exit=$status): maintenance cleanup incomplete; manual intervention required"
         else
-            log "RESTORE FAILED (exit=$status): ingress і DB clients залишені stopped"
+            log "RESTORE FAILED (exit=$status): ingress and DB clients left stopped"
         fi
     fi
     exit "$status"
@@ -152,7 +152,7 @@ compose stop $KNOWN_CLIENTS
 running=$(compose ps --status running --services)
 for service in $INGRESS_SERVICE $KNOWN_CLIENTS; do
     if printf '%s\n' "$running" | grep -Fxq "$service"; then
-        log "ВІДМОВА: service досі running: $service"
+        log "DENIED: service still running: $service"
         exit 1
     fi
 done
@@ -165,7 +165,7 @@ WHERE datname = :'target'
 SQL
 )
 if [ "$session_count" != 0 ]; then
-    log "ВІДМОВА: production target має active sessions: $session_count"
+    log "DENIED: production target has active sessions: $session_count"
     db_psql -d postgres -P pager=off -v target="$PRODUCTION_TARGET" >&2 <<'SQL' || true
 SELECT pid, usename, application_name, client_addr, state, backend_type
 FROM pg_stat_activity
@@ -177,23 +177,23 @@ SQL
     exit 1
 fi
 
-# M-13: best-effort знімок поточної бази ПЕРЕД знищенням. Restore тягне
-# вчорашній бекап і безповоротно викидає все, зібране з ночі, — навіть цілком
-# здорові дані (docs/disaster-recovery.md: автоматичного відкату немає). Момент
-# ідеальний: ingress і клієнти вже зупинені, активних сесій немає — дамп
-# консистентний. Best-effort: якщо база пошкоджена (сам привід для restore),
-# лише попереджаємо й продовжуємо — знімок НЕ має блокувати відновлення.
+# M-13: best-effort snapshot of the current database BEFORE destruction. Restore pulls
+# in yesterday's backup and irreversibly discards everything collected overnight — even
+# perfectly healthy data (docs/disaster-recovery.md: there is no automatic rollback). The
+# moment is ideal: ingress and clients are already stopped and there are no active sessions,
+# so the dump is consistent. Best-effort: if the database is corrupt (the very reason for the
+# restore), we only warn and continue — the snapshot must NOT block recovery.
 snapshot="$PRE_RESTORE_SNAPSHOT_DIR/avelren-pre-restore-$(date -u +%Y%m%d-%H%M%S).sql.gz"
-log "pre-restore safety snapshot: дамп поточної бази у $PRE_RESTORE_SNAPSHOT_DIR"
+log "pre-restore safety snapshot: dumping the current database into $PRE_RESTORE_SNAPSHOT_DIR"
 if mkdir -p -- "$PRE_RESTORE_SNAPSHOT_DIR" 2>/dev/null \
     && chmod 0700 -- "$PRE_RESTORE_SNAPSHOT_DIR" 2>/dev/null \
     && db_pg_dump "$PRODUCTION_TARGET" 2>/dev/null | gzip -9 >"$snapshot" 2>/dev/null \
     && gzip -t "$snapshot" 2>/dev/null; then
     chmod 0600 -- "$snapshot" 2>/dev/null || true
-    log "pre-restore snapshot збережено: $snapshot"
+    log "pre-restore snapshot saved: $snapshot"
 else
     rm -f -- "$snapshot" 2>/dev/null || true
-    log "УВАГА: pre-restore snapshot не вдався (ймовірно, база пошкоджена) — продовжую restore без нього"
+    log "WARNING: pre-restore snapshot failed (the database is probably corrupt) — continuing restore without it"
 fi
 
 log "session gate clean; invoking low-level restore engine"
@@ -208,7 +208,7 @@ log "session gate clean; invoking low-level restore engine"
         "$COMPOSE_FILE" "$COMPOSE_PROJECT" "$DB_SERVICE"
 )
 
-log "physical schema і read-only application verification"
+log "physical schema and read-only application verification"
 log "controlled restart: migrate gate"
 compose up -d migrate
 compose wait migrate
@@ -250,7 +250,7 @@ deadline=$((SECONDS + READINESS_TIMEOUT))
 until health=$(curl --fail --silent --show-error --max-time 10 "$READINESS_URL") \
     && validate_health_json "$health"; do
     [ "$SECONDS" -lt "$deadline" ] || {
-        log "ПОМИЛКА: canonical API readiness timeout: $READINESS_URL"; exit 1;
+        log "ERROR: canonical API readiness timeout: $READINESS_URL"; exit 1;
     }
     sleep 2
 done
@@ -260,7 +260,7 @@ until fresh=$(db_psql -d "$PRODUCTION_TARGET" -At -c \
     "SELECT EXISTS (SELECT 1 FROM collector_runs WHERE time > '$pre_restart_run' AND error IS NULL AND rows_written > 0);") \
     && [ "$fresh" = t ]; do
     [ "$SECONDS" -lt "$fresh_deadline" ] || {
-        log "ПОМИЛКА: collector freshness timeout after restore"; exit 1;
+        log "ERROR: collector freshness timeout after restore"; exit 1;
     }
     sleep 5
 done
@@ -268,7 +268,7 @@ done
 running=$(compose ps --status running --services)
 for service in $INGRESS_SERVICE $KNOWN_CLIENTS; do
     printf '%s\n' "$running" | grep -Fxq "$service" || {
-        log "ПОМИЛКА: service не running після restore: $service"; exit 1;
+        log "ERROR: service not running after restore: $service"; exit 1;
     }
 done
 

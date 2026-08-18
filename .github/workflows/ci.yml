@@ -1,6 +1,6 @@
-# CI зʼявився за підсумком аудиту: файли Android випали з git через .gitignore,
-# і без перевірки чистого клону цього не міг помітити ніхто. Кожна робота тут
-# відповідає на конкретний спосіб зламатися, який уже траплявся або майже.
+# CI came out of the audit: Android files fell out of git via .gitignore, and
+# without a clean-clone check nobody could notice it. Every job here answers a
+# concrete way to break that has already happened or nearly did.
 name: CI
 
 on:
@@ -9,13 +9,13 @@ on:
   pull_request:
 
 jobs:
-  # Спосіб зламатися №1 (уже траплявся): критичні файли не потрапили в git,
-  # локальна збірка працює, репозиторій — ні.
+  # Way to break #1 (already happened): critical files did not make it into git,
+  # the local build works but the repository does not.
   completeness:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Критичні файли присутні в дереві git
+      - name: Critical files present in the git tree
         run: |
           set -e
           for f in \
@@ -48,13 +48,13 @@ jobs:
             docker-compose.backend-test.yml \
             scripts/backend-test.sh
           do
-            git ls-files --error-unmatch "$f" >/dev/null || { echo "ВІДСУТНІЙ У GIT: $f"; exit 1; }
+            git ls-files --error-unmatch "$f" >/dev/null || { echo "MISSING FROM GIT: $f"; exit 1; }
           done
-      - name: Секрети не закомічені
+      - name: Secrets not committed
         run: |
           set -e
           if git ls-files | grep -qE '(^|/)(google-services\.json|.*service-account.*\.json|\.env)$'; then
-            echo "У git знайдено секрети:"; git ls-files | grep -E '(^|/)(google-services\.json|.*service-account.*\.json|\.env)$'
+            echo "Secrets found in git:"; git ls-files | grep -E '(^|/)(google-services\.json|.*service-account.*\.json|\.env)$'
             exit 1
           fi
 
@@ -67,12 +67,12 @@ jobs:
       # Api.kt — which names the host in prose to state the rule — does not trip
       # it; test sources are excluded because they legitimately deserialize the
       # server's telemetry, which reports the collector's upstream URL as data.
-      - name: Мобільний застосунок не ходить до єЧерги
+      - name: The mobile app does not reach eCherha
         run: |
           set -e
           if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main --include='*.kt'; then
-            echo "ПОРУШЕННЯ AGENTS.md правило 1: у застосунку знайдено пряме посилання на єЧергу/gov.ua."
-            echo "Клієнт має ходити ВИКЛЮЧНО на наш API (BuildConfig.API_BASE_URL). Розширюйте API, не пускайте телефон назовні."
+            echo "VIOLATION of AGENTS.md rule 1: a direct reference to eCherha/gov.ua found in the app."
+            echo "The client must talk EXCLUSIVELY to our API (BuildConfig.API_BASE_URL). Extend the API, do not let the phone reach out."
             exit 1
           fi
 
@@ -162,7 +162,7 @@ jobs:
           docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.9.1-alpine caddy validate --config /etc/caddy/Caddyfile
 
-      - name: DR restore-verify — синтаксис
+      - name: DR restore-verify — syntax
         run: |
           bash -n deploy/backup.sh
           bash -n deploy/backup-contract-test.sh
@@ -180,7 +180,7 @@ jobs:
           sudo install -m 0755 deploy/backup.sh /usr/local/sbin/avelren-backup
           systemd-analyze verify deploy/avelren-backup.service
 
-      - name: Backup permission, cleanup, verification і stamp contract
+      - name: Backup permission, cleanup, verification and stamp contract
         timeout-minutes: 5
         run: bash deploy/backup-contract-test.sh
 
@@ -240,19 +240,19 @@ jobs:
         timeout-minutes: 45
         run: bash deploy/postgres-adoption-bootstrap-topology-test.sh
 
-      - name: Snapshot script — синтаксис
+      - name: Snapshot script — syntax
         run: bash -n deploy/telemetry-snapshot.sh
 
-      - name: Snapshot script — реальний прогін на runner-хості
-        # Ubuntu-runner має /proc/loadavg, /proc/meminfo, df, openssl тощо —
-        # тобто script може виконатися в тому самому середовищі, що й на
-        # production. Це доводить, що telemetry-pipeline не деградує на нових
-        # версіях coreutils/openssl і що JSON парситься.
+      - name: Snapshot script — a real run on the runner host
+        # The Ubuntu runner has /proc/loadavg, /proc/meminfo, df, openssl, etc. —
+        # so the script can run in the same environment as production. This proves
+        # the telemetry pipeline does not degrade on newer versions of
+        # coreutils/openssl and that the JSON parses.
         run: |
           set -euo pipefail
           export AVELREN_FS_PROBE=/
-          # Каталог за замовчуванням /var/lib/avelren-telemetry потребує root;
-          # переспрямуємо в user-writable місце.
+          # The default directory /var/lib/avelren-telemetry needs root; redirect
+          # it to a user-writable location.
           sudo mkdir -p /var/lib/avelren-telemetry
           sudo chown "$USER" /var/lib/avelren-telemetry
           bash deploy/telemetry-snapshot.sh
@@ -262,22 +262,23 @@ jobs:
             assert 'network' in d and 'backups' in d and 'certificate' in d; \
             print('snapshot ok:', d['system']['cpu_count'], 'CPUs')"
 
-      - name: Snapshot script — фільтрація мережевих інтерфейсів
-        # Регресія на review PR #3: у /proc/net/dev назви вирівняні пробілами
-        # ("    lo:"), і bash-варіант ${name## } зрізав лише один пробіл, тож
-        # lo/docker*/br-*/veth* мовчки потрапляли в лічильник зовнішнього
-        # трафіку. CI-прогін вище цього не ловив — він перевіряв лише
-        # наявність ключа "network". Тут перевіряємо саме відбір.
+      - name: Snapshot script — network interface filtering
+        # Regression from review of PR #3: in /proc/net/dev the names are aligned
+        # with spaces ("    lo:"), and the bash form ${name## } trimmed only one
+        # space, so lo/docker*/br-*/veth* silently ended up in the external
+        # traffic counter. The CI run above did not catch it — it only checked for
+        # the presence of the "network" key. Here we check the selection itself.
         run: |
           set -euo pipefail
-          # Синтетичний /proc/net/dev. eth0 — рівно 1 ГБ rx / 2 ГБ tx;
-          # lo, docker0, veth9a, br-abc мають бути відкинуті (у них сотні ГБ,
-          # тож будь-яка домішка одразу зіб'є точні 1.00/2.00). Асершн виду
-          # "== 0" пройшов би й при зламаному відборі, який викидає геть усе,
-          # тому перевіряємо саме точні значення eth0.
+          # A synthetic /proc/net/dev. eth0 — exactly 1 GB rx / 2 GB tx;
+          # lo, docker0, veth9a, br-abc must be discarded (they have hundreds of
+          # GB, so any leak-through immediately breaks the exact 1.00/2.00). An
+          # assertion like "== 0" would pass even with a broken selection that
+          # throws out everything, so we check eth0's exact values.
           #
-          # Провідні пробіли навмисні — у справжньому /proc/net/dev назви
-          # вирівняні саме так, і це та деталь, на якій фільтр і зламався.
+          # The leading spaces are intentional — in a real /proc/net/dev the names
+          # are aligned exactly like this, and that is the detail the filter broke
+          # on.
           cat > /tmp/fake_net_dev <<'NETDEV'
           Inter-|   Receive                                                |  Transmit
            face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
@@ -287,42 +288,42 @@ jobs:
            br-abc: 200000000000  200    0    0    0     0          0         0 200000000000   200    0    0    0     0       0          0
             eth0: 1073741824  300    0    0    0     0          0         0 2147483648   300    0    0    0     0       0          0
           NETDEV
-          # Прогін САМОГО script (через AVELREN_NET_DEV), а не його копії:
-          # інакше правка script не ламала б цей тест.
+          # Run the script ITSELF (via AVELREN_NET_DEV), not a copy of it:
+          # otherwise editing the script would not break this test.
           export AVELREN_FS_PROBE=/ AVELREN_NET_DEV=/tmp/fake_net_dev
           bash deploy/telemetry-snapshot.sh
           python -c "import json; \
             net = json.load(open('/var/lib/avelren-telemetry/host.json'))['network']; \
-            assert net['rx_total_gb'] == 1.0, 'rx має бути 1.00 ГБ (лише eth0): %r' % net; \
-            assert net['tx_total_gb'] == 2.0, 'tx має бути 2.00 ГБ (лише eth0): %r' % net; \
+            assert net['rx_total_gb'] == 1.0, 'rx should be 1.00 GB (eth0 only): %r' % net; \
+            assert net['tx_total_gb'] == 2.0, 'tx should be 2.00 GB (eth0 only): %r' % net; \
             print('interface filtering ok:', net)"
 
-      - name: Snapshot script — семантика updates (null / 0 / fail-safe)
-        # Регресія: 0 і null — різні стани. probe відсутній або зламаний має
-        # давати null («невідомо»), а не 0 («немає»), інакше збій apt-check
-        # виглядає як здоровий хост. І ненульовий вихід probe не сміє класти
-        # ввесь snapshot під set -euo pipefail.
+      - name: Snapshot script — updates semantics (null / 0 / fail-safe)
+        # Regression: 0 and null are different states. A missing or broken probe
+        # must give null ("unknown"), not 0 ("none"), otherwise an apt-check
+        # failure looks like a healthy host. And a non-zero probe exit must not
+        # take down the whole snapshot under set -euo pipefail.
         run: |
           set -euo pipefail
           export AVELREN_FS_PROBE=/
           rd() { python -c "import json,sys; print(json.load(open('/var/lib/avelren-telemetry/host.json'))['system'][sys.argv[1]])" "$1"; }
 
-          # 1. Валідний вивід "5;2" → числа.
+          # 1. Valid output "5;2" → numbers.
           printf '#!/bin/sh\necho "5;2" >&2\n' > /tmp/apt_ok; chmod +x /tmp/apt_ok
           AVELREN_APT_CHECK=/tmp/apt_ok bash deploy/telemetry-snapshot.sh
           [ "$(rd updates_pending)" = 5 ] && [ "$(rd updates_security)" = 2 ] \
-            || { echo "валідний probe має дати 5/2"; exit 1; }
+            || { echo "a valid probe should give 5/2"; exit 1; }
 
-          # 2. probe відсутній → null (не 0).
+          # 2. probe missing → null (not 0).
           AVELREN_APT_CHECK=/tmp/does_not_exist bash deploy/telemetry-snapshot.sh
           [ "$(rd updates_pending)" = None ] && [ "$(rd updates_security)" = None ] \
-            || { echo "відсутній probe має дати null, а не 0"; exit 1; }
+            || { echo "a missing probe should give null, not 0"; exit 1; }
 
-          # 3. probe завершується ненульово → snapshot виживає, поля null.
+          # 3. probe exits non-zero → snapshot survives, fields null.
           printf '#!/bin/sh\nexit 1\n' > /tmp/apt_fail; chmod +x /tmp/apt_fail
           AVELREN_APT_CHECK=/tmp/apt_fail bash deploy/telemetry-snapshot.sh
           [ "$(rd updates_pending)" = None ] \
-            || { echo "ненульовий probe не має валити snapshot; поле лишається null"; exit 1; }
+            || { echo "a non-zero probe must not fail the snapshot; the field stays null"; exit 1; }
           echo "updates semantics ok"
 
   android-build:
@@ -333,32 +334,33 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      # Кешуємо wrapper distribution і Gradle caches. Без цього кожен run
-      # тягне gradle-8.13-bin.zip (~150 MB) з services.gradle.org, і при
-      # обриві TCP-з'єднання весь job валиться на `main` треді wrapper'а.
-      # За добу перед merge #33 таке падіння сталося тричі (PR #34 rerun 1,
-      # PR #34 rerun 2, PR #35 rerun 1) — не випадковий flake, а патерн
-      # rate-limit/network path. `gradle/actions/setup-gradle@v4` — офіційна
-      # рекомендація Gradle: одна дія покриває і wrapper cache, і залежності;
-      # після першого успішного run на main усі PR тягнуть wrapper з кешу.
-      # Semantic build/test — БЕЗ змін.
+      # Cache the wrapper distribution and the Gradle caches. Without this every
+      # run pulls gradle-8.13-bin.zip (~150 MB) from services.gradle.org, and on a
+      # dropped TCP connection the whole job fails on the wrapper's `main` thread.
+      # In the day before merging #33 this failure happened three times (PR #34
+      # rerun 1, PR #34 rerun 2, PR #35 rerun 1) — not a random flake but a
+      # rate-limit/network-path pattern. `gradle/actions/setup-gradle@v4` is
+      # Gradle's official recommendation: one action covers both the wrapper cache
+      # and dependencies; after the first successful run on main, every PR pulls
+      # the wrapper from cache. The semantic build/test is UNCHANGED.
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-      - name: Заглушка google-services.json
-        # Справжній файл — секрет і в git не живе. Для перевірки компіляції
-        # достатньо синтаксично валідної заглушки з правильним package.
+      - name: google-services.json stub
+        # The real file is a secret and does not live in git. A syntactically
+        # valid stub with the correct package is enough for a compile check.
         #
-        # Пишемо заглушку ЛИШЕ якщо файлу ще немає. На CI checkout завжди
-        # чистий (секрет у git не потрапляє), тож умова істинна й заглушка
-        # створюється як і раніше. Але якщо цей самий крок виконати на машині
-        # розробника (відтворення CI-збірки, `act`, ручний запуск блоку), то
-        # безумовний `cat >` мовчки затирав справжній google-services.json
-        # стабом `ci-stub` — і застосунок втрачав FCM (валідний ключ →
-        # IllegalArgumentException "valid API key", немає токена, installation
-        # лишається Unavailable). Саме це поклало клієнт 2026-08-14. Guard
-        # робить крок безпечним для локального запуску.
+        # We write the stub ONLY if the file does not already exist. On CI the
+        # checkout is always clean (the secret never lands in git), so the
+        # condition is true and the stub is created as before. But if this same
+        # step is run on a developer machine (reproducing the CI build, `act`, a
+        # manual run of the block), an unconditional `cat >` would silently
+        # overwrite the real google-services.json with the `ci-stub` — and the app
+        # would lose FCM (a valid key → IllegalArgumentException "valid API key",
+        # no token, the installation stays Unavailable). That is exactly what took
+        # the client down on 2026-08-14. The guard makes the step safe for a local
+        # run.
         run: |
           if [ -f android/app/google-services.json ]; then
-            echo "google-services.json уже присутній — залишаю як є (не перезаписую стабом)."
+            echo "google-services.json already present — leaving it as is (not overwriting with the stub)."
             exit 0
           fi
           cat > android/app/google-services.json <<'EOF'
@@ -380,14 +382,14 @@ jobs:
             "configuration_version": "1"
           }
           EOF
-      - name: Збірка
+      - name: Build
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon -q
 
-      - name: JVM unit-тести
-        # Досі Android перевірявся лише компіляцією й lint — поведінка не
-        # тестувалась. Reconciliation-логіка A-02 крихка (розбір ключів,
-        # set-diff, no-truncation), тож її прогін тут обов'язковий.
+      - name: JVM unit tests
+        # Until now Android was checked only by compilation and lint — behavior
+        # was not tested. The A-02 reconciliation logic is fragile (key parsing,
+        # set-diff, no-truncation), so running it here is mandatory.
         run: cd android && ./gradlew testDebugUnitTest --no-daemon -q
 
-      - name: Лінтер Android
+      - name: Android linter
         run: cd android && ./gradlew lintDebug --no-daemon -q

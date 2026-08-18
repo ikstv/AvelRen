@@ -53,8 +53,8 @@ expected LOGIN/attributes, then **HARD STOP**.
 
 ## 3B.2 — ownership/ACL adoption (separate GO)
 
-> Точний контракт запуску, замикання оточення і стоп-правила —
-> `deploy/postgres-adoption-3b2-window.md` (за цією редакцією вікно пройшло
+> The exact launch contract, environment lockdown, and stop rules —
+> `deploy/postgres-adoption-3b2-window.md` (under this revision the window ran
 > 2026-08-17, `exit 0`).
 
 `postgres-adopt.sh --production-adopt --production-token-file <0400/0600 file>`

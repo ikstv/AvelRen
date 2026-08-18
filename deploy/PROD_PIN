@@ -1,11 +1,11 @@
-# Комміт, на якому зараз стоїть прод. Єдиний волатильний факт, який git знати
-# не може. Оновлюється оператором одразу після того, як прод справді оновлено —
-# файл описує стан рантайму, і застарілий пін гірший за відсутній.
+# The commit prod is currently on. The single volatile fact git cannot know.
+# Updated by the operator right after prod is actually updated — the file
+# describes the runtime state, and a stale pin is worse than a missing one.
 #
-# Це НЕ частина трійки атомарності adoption. Ту трійку (recovery evidence,
-# копія gate-runner, очікуваний комміт) перевіряє сам postgres-adopt.sh через
-# AVELREN_EXPECTED_COMMIT, і вона може легітимно відставати від цього піна:
-# після фази 1 re-prep прод стоїть на новому комміті, тоді як evidence і
-# gate-runner ще прив'язані до попереднього — adopt.sh на цьому fail-closed
-# відмовиться стартувати, доки фаза 2 не оновить їх атомарно.
+# This is NOT part of the adoption atomicity triple. That triple (recovery
+# evidence, a copy of the gate-runner, the expected commit) is checked by
+# postgres-adopt.sh itself via AVELREN_EXPECTED_COMMIT, and it may legitimately
+# lag behind this pin: after phase 1 of re-prep prod is on the new commit, while
+# evidence and the gate-runner are still bound to the previous one — adopt.sh
+# fail-closes on this and refuses to start until phase 2 updates them atomically.
 2e74ae774c58af0ff1f798a0501e656a1d2aaa06

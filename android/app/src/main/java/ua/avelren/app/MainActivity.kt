@@ -38,11 +38,11 @@ class MainActivity : ComponentActivity() {
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            // Порожній callback раніше означав, що відмову ніхто не бачив.
-            // `shouldShowRequestPermissionRationale` читаємо саме ПІСЛЯ
-            // результату: він відрізняє явний «Don't allow» (стає true) від
-            // змаху діалогу (стан не змінився — false), інакше перший же змах
-            // виглядав би як permanent denial.
+            // An empty callback previously meant no one saw the denial.
+            // We read `shouldShowRequestPermissionRationale` specifically AFTER
+            // the result: it distinguishes an explicit "Don't allow" (becomes true)
+            // from a dialog dismissal (state unchanged — false); otherwise the very
+            // first dismissal would look like a permanent denial.
             val rationaleNow = rationaleForNotifications()
             DeviceStore.saveNotificationHistory(
                 this,
@@ -56,16 +56,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Мусить відпрацювати ДО refreshPermissionState/автозапиту: для upgrade з
-        // версії до AND-2 фіксує факт відмови, інакше onCreate знову смикав би
-        // launcher із мертвим (уже не показуваним) діалогом.
+        // Must run BEFORE refreshPermissionState/auto-request: for an upgrade from
+        // a pre-AND-2 version it records the fact of the denial, otherwise onCreate
+        // would again poke the launcher with a dead (no longer shown) dialog.
         migrateLegacyNotificationHistory()
 
         refreshPermissionState()
 
-        // Первинний запит рівно один раз. Раніше launch() викликався на кожному
-        // створенні Activity: після двох відмов система вже не показує діалог,
-        // тож це був тихий no-op без жодного шляху назад.
+        // The initial request exactly once. Previously launch() was called on every
+        // Activity creation: after two denials the system no longer shows the dialog,
+        // so it was a silent no-op with no way back.
         if (permissionState is NotificationPermissionState.NeedsRequest &&
             !DeviceStore.notificationHistory(this).asked
         ) {
@@ -102,16 +102,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Дозвіл могли увімкнути в системних налаштуваннях або відкликати —
-        // банер має зникнути/з'явитися без перезапуску застосунку.
+        // The permission may have been enabled in system settings or revoked —
+        // the banner must disappear/appear without restarting the app.
         refreshPermissionState()
     }
 
     /**
-     * Одноразова міграція історії для установок, оновлених з версії до AND-2
-     * (B2). Fresh install і upgrade розрізняємо через PackageManager: на чистій
-     * установці firstInstallTime == lastUpdateTime. Виконується рівно раз —
-     * persisted marker переживає і 401-перереєстрацію.
+     * One-time history migration for installations upgraded from a pre-AND-2
+     * version (B2). We distinguish a fresh install from an upgrade via
+     * PackageManager: on a clean install firstInstallTime == lastUpdateTime. Runs
+     * exactly once — the persisted marker survives even a 401 re-registration.
      */
     private fun migrateLegacyNotificationHistory() {
         if (DeviceStore.notificationLegacyMigrated(this)) return
@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
         DeviceStore.markNotificationLegacyMigrated(this)
     }
 
-    /** true, якщо APK хоч раз оновлювали поверх установки (не fresh install). */
+    /** true if the APK was updated over the installation at least once (not a fresh install). */
     private fun appWasUpgraded(): Boolean = runCatching {
         val info = packageManager.getPackageInfo(packageName, 0)
         info.lastUpdateTime > info.firstInstallTime
@@ -134,10 +134,10 @@ class MainActivity : ComponentActivity() {
     private fun refreshPermissionState() {
         val runtimeGranted = Notifications.runtimePermissionGranted(this)
 
-        // Фіксуємо вже виданий дозвіл: після оновлення APK поверх установки, де
-        // все було дозволено, callback запиту не спрацює ніколи, і пізніший
-        // revoke виглядав би як «ще не питали». Пишемо лише коли реально
-        // змінилось — щоб не смикати сховище на кожному onResume.
+        // Record an already-granted permission: after an APK update over an
+        // installation where everything was allowed, the request callback never
+        // fires, and a later revoke would look like "not asked yet". We write only
+        // when something actually changed — to avoid poking storage on every onResume.
         val stored = DeviceStore.notificationHistory(this)
         val history = NotificationPermission.observeCurrentGrant(
             Build.VERSION.SDK_INT, runtimeGranted, stored
@@ -167,12 +167,12 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Ведемо саме туди, де проблема: заблокований канал алертів — у налаштування
-     * каналу, все інше — у налаштування сповіщень застосунку. Загальний екран
-     * застосунку при вимкненому каналі змусив би шукати його вручну.
+     * We lead exactly to where the problem is: a blocked alert channel — to the
+     * channel settings, everything else — to the app's notification settings. The
+     * general app screen with the channel disabled would force the user to find it manually.
      */
     private fun openNotificationSettings() {
-        // minSdk 26 — канали існують завжди, окрема перевірка версії не потрібна.
+        // minSdk 26 — channels always exist, a separate version check is not needed.
         val intent = if (permissionState is NotificationPermissionState.NeedsAlertChannelSettings) {
             Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
                 .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
                 .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
         }
         runCatching { startActivity(intent) }.onFailure {
-            // Рідкісні прошивки без цього екрана — відкриваємо картку застосунку.
+            // Rare firmware without this screen — open the app details page.
             runCatching {
                 startActivity(
                     Intent(

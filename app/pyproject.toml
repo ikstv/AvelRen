@@ -1,7 +1,7 @@
 [project]
 name = "avelren"
 version = "0.1.0"
-description = "Історія завантаженості пунктів пропуску (єЧерга, вантажівки)"
+description = "Border checkpoint workload history (eCherha, trucks)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -10,8 +10,8 @@ dependencies = [
     "psycopg[binary,pool]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-    # google-auth не тягне requests сам, але його транспорт для оновлення
-    # токена без нього не працює.
+    # google-auth does not pull requests itself, but its transport for token
+    # refresh does not work without it.
     "google-auth>=2.35",
     "requests>=2.32",
 ]
@@ -29,12 +29,12 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# Каталог складання — не вихідний код; лінтер на ньому лише шумить.
+# The build directory is not source code; the linter only makes noise on it.
 extend-exclude = ["build"]
 
-# Набір правил заданий явно: інакше версія ruff у CI і на машині розробника
-# перевіряли б різні речі, а перевірка, яка залежить від того, де її запустили,
-# нічого не гарантує. Широкий `except Exception` тут свідомий (збирач і сторож
-# не сміють падати), тому BLE не вмикаємо.
+# The rule set is listed explicitly: otherwise the ruff version in CI and on a
+# developer's machine would check different things, and a check that depends on
+# where it was run guarantees nothing. The broad `except Exception` here is
+# deliberate (the collector and watchdog must not crash), so we do not enable BLE.
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

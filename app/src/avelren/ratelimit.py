@@ -1,12 +1,12 @@
-"""Обмеження частоти запитів.
+"""Request rate limiting.
 
-Захищає не від зловмисника з ботнетом — від найімовірнішого: зациклений
-клієнт, кривий скрипт, чи хтось, хто вирішить наробити мільйон пристроїв.
+Protects not against an attacker with a botnet — against the most likely case:
+a looping client, a broken script, or someone who decides to spin up a million
+devices.
 
-Лічильник у пам'яті процесу, без Redis. Свідомий вибір: зайвий сервіс заради
-захисту, який поки нікому не потрібен, — це більше ризику, ніж користі. Коли
-екземплярів API стане більше одного, тоді й з'явиться привід для спільного
-сховища.
+The counter lives in process memory, without Redis. A deliberate choice: an
+extra service for protection nobody needs yet is more risk than benefit. When
+there is more than one API instance, that will be the reason for a shared store.
 """
 
 import time
@@ -14,9 +14,9 @@ from collections import defaultdict, deque
 
 from fastapi import HTTPException, Request
 
-# Створення сутностей дороге й рідкісне; читання дешеве й часте.
+# Creating entities is expensive and rare; reads are cheap and frequent.
 LIMITS: dict[str, tuple[int, int]] = {
-    "write": (30, 60),    # 30 запитів за 60 секунд
+    "write": (30, 60),    # 30 requests per 60 seconds
     "read": (300, 60),
 }
 
@@ -25,7 +25,7 @@ TRUSTED_CLIENT_IP_HEADER = "x-avelren-client-ip"
 
 
 def _client_key(request: Request) -> str:
-    # Caddy передає справжню адресу; без нього всі клієнти виглядали б одним.
+    # Caddy passes the real address; without it every client would look like one.
     forwarded = request.headers.get(TRUSTED_CLIENT_IP_HEADER, "").strip()
     if forwarded:
         try:
@@ -49,20 +49,20 @@ def check(request: Request, bucket: str = "read") -> None:
         retry = int(window - (now - hits[0])) + 1
         raise HTTPException(
             status_code=429,
-            detail="Забагато запитів, спробуйте пізніше",
+            detail="Too many requests, please try again later",
             headers={"Retry-After": str(retry)},
         )
 
     hits.append(now)
 
-    # Прибираємо мертві черги, інакше словник ростиме на кожну нову адресу.
-    # Раніше видалялися лише ПОРОЖНІ черги, але черга порожніє тільки коли той
-    # самий ключ приходить знову після вікна. Клієнт, що зробив один запит і
-    # зник, лишав запис назавжди — після 10k унікальних адрес (сканери інтернету,
-    # ротація IPv6) чистка не знаходила що видаляти, і словник ріс необмежено
-    # (аудит M-4). Тепер додатково виселяємо черги, чий найновіший запис старший
-    # за вікно її бакета: всі його записи однаково були б викинуті при
-    # наступному доступі, тож тримати їх немає сенсу.
+    # Remove dead queues, otherwise the dict would grow for every new address.
+    # Previously only EMPTY queues were deleted, but a queue empties only when the
+    # same key comes back after the window. A client that made one request and
+    # vanished left its entry forever — after 10k unique addresses (internet
+    # scanners, IPv6 rotation) the cleanup found nothing to remove, and the dict
+    # grew unbounded (audit M-4). Now we additionally evict queues whose newest
+    # entry is older than its bucket's window: all of its entries would be
+    # discarded on the next access anyway, so there is no point keeping them.
     if len(_hits) > 10_000:
         stale = [
             k

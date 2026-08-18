@@ -1,10 +1,10 @@
-"""Durable-видимість вторинного конвеєра і чесний recovery (OBS-1/OBS-2).
+"""Durable visibility of the secondary pipeline and honest recovery (OBS-1/OBS-2).
 
-Захищаємо два інваріанти:
-  * збій alerts/ETA стає видимим watchdog (а не лише рядком у лозі);
-  * resolved_at ставиться одразу, коли проблема зникла, але recovery
-    вважається доставленим лише по факту — інакше втрачений push мовчки
-    ховав би відновлення.
+We protect two invariants:
+  * an alerts/ETA failure becomes visible to the watchdog (not just a log line);
+  * resolved_at is set immediately when the problem is gone, but recovery is
+    considered delivered only on the fact — otherwise a lost push would silently
+    hide the recovery.
 """
 
 import asyncio
@@ -36,7 +36,7 @@ def _add_run(conn, at: datetime, *, error=None, derived_error=None) -> None:
     )
 
 
-# --- OBS-1: derived-статус --------------------------------------------------
+# --- OBS-1: derived status --------------------------------------------------
 
 
 def test_record_derived_success_and_failure(conn):
@@ -50,19 +50,19 @@ def test_record_derived_success_and_failure(conn):
     assert r["derived_processed_at"] is not None
     assert r["derived_error"] is None
 
-    _run(lambda ac: db.record_derived(ac, at, error="ETA впала"))
+    _run(lambda ac: db.record_derived(ac, at, error="ETA failed"))
     r = conn.execute(
         "SELECT derived_error FROM collector_runs WHERE time=%s", (at,)
     ).fetchone()
-    assert r["derived_error"] == "ETA впала"
+    assert r["derived_error"] == "ETA failed"
 
     conn.execute("DELETE FROM collector_runs WHERE time=%s", (at,))
 
 
 def test_watchdog_sees_derived_errors(conn):
-    """10+ derived-помилок за півгодини → watchdog піднімає проблему, навіть
-    якщо fetch і observations у нормі (саме той сценарій, який раніше був
-    невидимий)."""
+    """10+ derived errors in a half hour → the watchdog raises a problem, even if
+    fetch and observations are fine (exactly the scenario that was previously
+    invisible)."""
     base = datetime.now(UTC).replace(microsecond=0)
     times = [base - timedelta(minutes=i) for i in range(12)]
     for t in times:
@@ -89,13 +89,13 @@ def test_watchdog_ignores_few_derived_errors(conn):
 
 
 def test_watchdog_sees_stuck_derived_after_grace(conn):
-    """B3 hard-crash: рядки з derived_processed_at=NULL і derived_error=NULL,
-    старші за grace, — сигнал, що secondary впала без винятку (SIGKILL/OOM).
-    Раніше watchdog це не ловив."""
+    """B3 hard-crash: rows with derived_processed_at=NULL and derived_error=NULL,
+    older than grace, are a signal that secondary crashed without an exception
+    (SIGKILL/OOM). Previously the watchdog did not catch this."""
     base = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=5)
     times = [base - timedelta(minutes=i) for i in range(watchdog.DERIVED_STUCK_THRESHOLD + 1)]
     for t in times:
-        # Явно NULL/NULL — imітуємо цикл, що не дописав derived-статус.
+        # Explicitly NULL/NULL — we simulate a cycle that did not write the derived status.
         conn.execute("INSERT INTO collector_runs (time) VALUES (%s)", (t,))
 
     problems = _run(watchdog._checks)
@@ -106,7 +106,7 @@ def test_watchdog_sees_stuck_derived_after_grace(conn):
 
 
 def test_watchdog_ignores_stuck_within_grace(conn):
-    """Свіжий цикл (молодший за grace) ще міг не дописати статус — не тривога."""
+    """A fresh cycle (younger than grace) might not have written the status yet — not an alarm."""
     now = datetime.now(UTC).replace(microsecond=0)
     times = [now - timedelta(seconds=10 * i) for i in range(watchdog.DERIVED_STUCK_THRESHOLD + 2)]
     for t in times:
@@ -119,7 +119,7 @@ def test_watchdog_ignores_stuck_within_grace(conn):
         conn.execute("DELETE FROM collector_runs WHERE time=%s", (t,))
 
 
-# --- OBS-2: розділення resolved / recovery ---------------------------------
+# --- OBS-2: separation of resolved / recovery ------------------------------
 
 
 def _health_alert(conn, kind: str, *, resolved_ago_days=None) -> int:
@@ -134,7 +134,7 @@ def _health_alert(conn, kind: str, *, resolved_ago_days=None) -> int:
 
 
 def test_recovery_delivered_sets_notified(conn, device, monkeypatch):
-    """Успішна доставка → recovery_notified_at виставлено."""
+    """Successful delivery → recovery_notified_at is set."""
     conn.execute(
         "UPDATE devices SET is_admin=true, fcm_token='tok-admin' WHERE id=%s",
         (device.device_id,),
@@ -154,9 +154,9 @@ def test_recovery_delivered_sets_notified(conn, device, monkeypatch):
 
 
 def test_recovery_stays_pending_when_delivery_fails(conn):
-    """Немає адмін-пристрою → _notify повертає False → recovery лишається
-    неповідомленим (молодий), ретраїмо далі. Без OBS-2 resolved_at брехав би,
-    що все закрито."""
+    """No admin device → _notify returns False → recovery stays unnotified
+    (young), we keep retrying. Without OBS-2, resolved_at would lie that
+    everything is closed."""
     hid = _health_alert(conn, "db_size", resolved_ago_days=0)
 
     _run(lambda ac: watchdog._deliver_recoveries(ac, client=None))
@@ -168,8 +168,8 @@ def test_recovery_stays_pending_when_delivery_fails(conn):
 
 
 def test_recovery_given_up_sets_abandoned_not_notified(conn):
-    """B2: give-up пише recovery_abandoned_at, а НЕ recovery_notified_at —
-    по БД треба відрізняти «доставлено» від «здалися»."""
+    """B2: give-up writes recovery_abandoned_at, NOT recovery_notified_at —
+    the DB must distinguish "delivered" from "gave up"."""
     hid = _health_alert(conn, "reboot_required", resolved_ago_days=2)
 
     _run(lambda ac: watchdog._deliver_recoveries(ac, client=None))
@@ -184,8 +184,8 @@ def test_recovery_given_up_sets_abandoned_not_notified(conn):
 
 
 def test_recovery_not_resent_when_already_notified(conn, device, monkeypatch):
-    """B1: рядок із уже виставленим recovery_notified_at (напр. backfill
-    міграції для legacy resolved) не переслати повторно."""
+    """B1: a row with recovery_notified_at already set (e.g. a migration backfill
+    for legacy resolved) is not resent."""
     conn.execute(
         "UPDATE devices SET is_admin=true, fcm_token='tok-admin' WHERE id=%s",
         (device.device_id,),
@@ -204,11 +204,11 @@ def test_recovery_not_resent_when_already_notified(conn, device, monkeypatch):
     monkeypatch.setattr("avelren.fcm.send", spy_send)
     _run(lambda ac: watchdog._deliver_recoveries(ac, client=None))
 
-    assert calls == []  # жодної відправки за історичну resolved-тривогу
+    assert calls == []  # no send for a historical resolved alert
     conn.execute("DELETE FROM health_alerts WHERE id=%s", (hid,))
 
 
-# --- M-12: тривога на протухлий бекап --------------------------------------
+# --- M-12: alert on a stale backup ------------------------------------------
 
 
 def _write_snapshot(monkeypatch, tmp_path, data):
@@ -218,31 +218,31 @@ def _write_snapshot(monkeypatch, tmp_path, data):
 
 
 def test_backup_age_hours(monkeypatch, tmp_path):
-    """Чистий хелпер: None без snapshot/поля, вік із snapshot, поріг протухання."""
+    """A pure helper: None without snapshot/field, age from snapshot, stale threshold."""
     monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", tmp_path / "absent.json")
 
-    # Немає snapshot — свіжий деплой або щойно ребутнутий хост: тривоги НЕ має.
+    # No snapshot — a fresh deploy or a just-rebooted host: there must be NO alarm.
     assert watchdog._backup_age_hours() is None
 
-    # Поле є, але null (штамп ще не створювався) — теж None, не хибна тривога.
+    # The field is there but null (the stamp was not created yet) — also None, not a false alarm.
     _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": None}})
     assert watchdog._backup_age_hours() is None
 
-    # Свіжий бекап — майже нуль годин, не проблема.
+    # A fresh backup — almost zero hours, not a problem.
     _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 0.5}})
     assert watchdog._backup_age_hours() < 1
 
-    # 40 год без бекапу — це ≥2 добові прогони поспіль, реальна проблема.
+    # 40 h without a backup — that is ≥2 daily runs in a row, a real problem.
     _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 40.0}})
     assert watchdog._backup_age_hours() > watchdog.BACKUP_STALE_HOURS
 
-    # 30 год — один пропущений добовий прогін ще терпимо, не будимо адміна.
+    # 30 h — one missed daily run is still tolerable, we do not wake the admin.
     _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 30.0}})
     assert watchdog._backup_age_hours() < watchdog.BACKUP_STALE_HOURS
 
 
 def test_backup_stale_surfaces_in_checks(conn, monkeypatch, tmp_path):
-    """Протухлий вік піднімає problem 'backup_stale'; свіжий — прибирає."""
+    """A stale age raises the 'backup_stale' problem; a fresh one removes it."""
     _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 40.0}})
     assert "backup_stale" in _run(watchdog._checks)
 

@@ -2,7 +2,7 @@ import re
 
 from pydantic import BaseModel, Field, computed_field
 
-# Іконки прапорів у джерелі названі кодпоінтами emoji: 1f1f5-1f1f1.png -> 🇵🇱
+# Flag icons in the source are named by emoji codepoints: 1f1f5-1f1f1.png -> 🇵🇱
 _FLAG_CODEPOINTS = re.compile(r"([0-9a-f]{4,5})-([0-9a-f]{4,5})\.png")
 
 
@@ -14,8 +14,8 @@ class Country(BaseModel):
     @computed_field
     @property
     def flag_emoji(self) -> str | None:
-        """Виводимо emoji з назви файлу, щоб клієнт не тягнув картинку з
-        чужого сервера — див. AGENTS.md, правило 1."""
+        """Derive the emoji from the file name so the client does not pull an
+        image from a third-party server — see AGENTS.md, rule 1."""
         if not self.icon:
             return None
         m = _FLAG_CODEPOINTS.search(self.icon)
@@ -29,9 +29,10 @@ class Filters(BaseModel):
 
 
 class WorkloadItem(BaseModel):
-    """Одна черга у відповіді єЧерги.
+    """One queue in the eCherha response.
 
-    Невідомі поля ігноруємо: джерело може додати свої, і це не привід падати.
+    Unknown fields are ignored: the source may add its own, and that is no
+    reason to fail.
     """
 
     id: int

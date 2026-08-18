@@ -42,7 +42,7 @@ cmd=$1; shift
 path() { printf '%s/%s' "$FAKE_REMOTE" "${1#*:}"; }
 case "$cmd" in
 config)
-    # `rclone config show <name>` — preflight перевірки типу remote (M-11).
+    # `rclone config show <name>` — preflight check of the remote type (M-11).
     if [ "${FAKE_REMOTE_NOT_CRYPT:-0}" = 1 ]; then
         printf 'type = drive\n'
     else
@@ -165,7 +165,7 @@ do
     fi
 done
 
-# M-11: remote не типу crypt → бекап падає на preflight, ДО дампа й штампа.
+# M-11: remote not of type crypt → backup fails at preflight, BEFORE the dump and stamp.
 if run_case not-crypt FAKE_REMOTE_NOT_CRYPT=1; then
     echo "expected non-crypt remote gate failure" >&2; exit 1
 fi

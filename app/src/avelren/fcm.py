@@ -1,9 +1,9 @@
-"""Надсилання пушів через FCM HTTP v1.
+"""Sending pushes via FCM HTTP v1.
 
-Шлемо **data**-повідомлення, а не `notification`. Різниця принципова: якщо
-віддати `notification`, сповіщення малює сама система, і застосунок не може
-зробити його незникаючим. Нам потрібне своє — з `setOngoing`, звуком і
-єдиною кнопкою «ОК».
+We send **data** messages, not `notification`. The difference is fundamental: if
+you send `notification`, the system itself draws the notification, and the app
+cannot make it non-dismissable. We need our own — with `setOngoing`, sound, and
+a single "OK" button.
 """
 
 import asyncio
@@ -22,10 +22,10 @@ SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 
 FCM_ERROR_DETAIL_TYPE = "type.googleapis.com/google.firebase.fcm.v1.FcmError"
 
-# Лише FCM-specific UNREGISTERED однозначно доводить, що token більше не
-# існує. Top-level INVALID_ARGUMENT може описувати помилку payload, а
-# SENDER_ID_MISMATCH — конфігурацію/ownership; обидва сигнали destructive бути
-# не можуть.
+# Only the FCM-specific UNREGISTERED unambiguously proves the token no longer
+# exists. A top-level INVALID_ARGUMENT may describe a payload error, and
+# SENDER_ID_MISMATCH — configuration/ownership; neither signal can be
+# destructive.
 CONFIRMED_DEAD_TOKEN_ERRORS = {"UNREGISTERED"}
 RETRYABLE_FCM_ERRORS = {"QUOTA_EXCEEDED", "UNAVAILABLE", "INTERNAL"}
 RETRYABLE_CANONICAL_STATUSES = {"RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"}
@@ -112,7 +112,7 @@ def _creds() -> tuple[service_account.Credentials, str]:
     global _credentials, _project_id
     if _credentials is None:
         if not settings.fcm_credentials_path:
-            raise RuntimeError("FCM_CREDENTIALS_PATH не задано")
+            raise RuntimeError("FCM_CREDENTIALS_PATH is not set")
         _credentials = service_account.Credentials.from_service_account_file(
             settings.fcm_credentials_path, scopes=[SCOPE]
         )
@@ -129,12 +129,13 @@ async def send(
     collapse_key: str | None = None,
     ttl_seconds: int = 600,
 ) -> None:
-    """Надсилає одне повідомлення. Кидає FcmError, якщо не вийшло.
+    """Sends a single message. Raises FcmError if it did not work.
 
-    `ttl` і `collapse_key` — не опції, а вимога до часових алертів (аудит R-04):
-    без них FCM тримає повідомлення до чотирьох тижнів, і телефон, що
-    повернувся з офлайну, отримав би пачку протухлих повторів про чергу, якої
-    вже немає. З collapse_key офлайн-пристрій отримує ОДНЕ, останнє.
+    `ttl` and `collapse_key` are not options but a requirement for time-based
+    alerts (audit R-04): without them FCM holds a message for up to four weeks,
+    and a phone returning from offline would get a batch of stale repeats about
+    a queue that no longer exists. With collapse_key an offline device gets ONE,
+    the latest.
     """
     # _creds() may do a synchronous OAuth token refresh (network round-trip to
     # Google) when the cached token expires. Run it in a worker thread so it
@@ -143,8 +144,8 @@ async def send(
     creds, project_id = await asyncio.to_thread(_creds)
 
     android: dict[str, Any] = {
-        # Високий пріоритет будить пристрій у режимі сну — без цього
-        # сповіщення про чергу прийшло б із запізненням на годину.
+        # High priority wakes a sleeping device — without it a queue
+        # notification would arrive an hour late.
         "priority": "high",
         "ttl": f"{ttl_seconds}s",
     }
@@ -172,7 +173,7 @@ async def send(
 
 
 def threshold_payload(alert_id: int, title: str, threshold: int, vehicles: int) -> dict[str, str]:
-    # Усі значення рядками: FCM приймає в data лише рядки.
+    # All values as strings: FCM accepts only strings in data.
     return {
         "type": "threshold",
         "alert_id": str(alert_id),
@@ -196,19 +197,19 @@ def eta_payload(alert_id: int, title: str, eta_local: str) -> dict[str, str]:
 
 
 def cancel_payload(kind: str, alert_id: int) -> dict[str, str]:
-    """Скасування вже показаної нотифікації (A-02).
+    """Cancelling an already-shown notification (A-02).
 
-    `kind` тут — тип алерта (threshold|eta), а не тип повідомлення: телефон
-    рахує з нього той самий notification id, що й для оригіналу, і гасить його.
-    Той самий collapse_key, що й у оригінального push, тож cancel заміщує
-    будь-який недоставлений повтор.
+    `kind` here is the alert type (threshold|eta), not the message type: the
+    phone derives from it the same notification id as for the original, and
+    dismisses it. The same collapse_key as the original push, so the cancel
+    supersedes any undelivered repeat.
 
-    ВАЖЛИВО: id лежить у `cancel_alert_id`, а НЕ у legacy-полі `alert_id`.
-    Старий клієнт (baseline c7d2e1f) не знає type=cancel і трактував би
-    будь-який non-health push із `alert_id` як звичайну тривогу — показав би
-    нову ongoing-нотифікацію замість гасіння. Без `alert_id` він доходить до
-    `data["alert_id"] ?: return` і мовчки ігнорує cancel. Collapse_key усе одно
-    витісняє queued normal push. (аудит A-02 / B1)
+    IMPORTANT: the id lives in `cancel_alert_id`, NOT in the legacy field
+    `alert_id`. The old client (baseline c7d2e1f) does not know type=cancel and
+    would treat any non-health push with `alert_id` as a regular alert — it would
+    show a new ongoing notification instead of dismissing. Without `alert_id` it
+    reaches `data["alert_id"] ?: return` and silently ignores the cancel.
+    Collapse_key still evicts the queued normal push. (audit A-02 / B1)
     """
     return {
         "type": "cancel",

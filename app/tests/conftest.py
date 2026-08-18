@@ -1,17 +1,17 @@
-"""Спільне підґрунтя для тестів БД.
+"""Shared groundwork for the DB tests.
 
-Дві вимоги, порушення яких коштувало б дорожче за самі тести.
+Two requirements whose violation would cost more than the tests themselves.
 
-1. **Тест не сміє торкнутися робочої БД.** Раніше `test_alerts.py` починався з
-   `DELETE FROM alerts WHERE threshold = 50` — на проді це видалило б живі
-   алерти реальних людей. Тому запуск тепер fail-closed: без явного
-   `AVELREN_TEST_DB=1` і без тестової назви БД pytest завершується ДО першого
-   запиту, а не «майже безпечно» щось видаляє.
+1. **A test must not touch the live DB.** Previously `test_alerts.py` began with
+   `DELETE FROM alerts WHERE threshold = 50` — in prod that would delete live
+   alerts of real people. So the run is now fail-closed: without an explicit
+   `AVELREN_TEST_DB=1` and without a test DB name, pytest exits BEFORE the first
+   query, rather than "almost safely" deleting something.
 
-2. **Чиста БД — нормальне середовище тесту.** Довідник пунктів наповнює
-   збирач, тож на свіжих міграціях жодного checkpoint не існує. Тести більше
-   не спираються на id 1 чи 5: кожен створює власний синтетичний пункт і
-   прибирає лише свої записи.
+2. **A clean DB is the normal test environment.** The point reference list is
+   filled by the collector, so on fresh migrations no checkpoint exists. Tests no
+   longer rely on id 1 or 5: each creates its own synthetic point and removes
+   only its own records.
 """
 
 import asyncio
@@ -30,7 +30,7 @@ from psycopg.rows import dict_row
 
 @dataclass(frozen=True)
 class Installation:
-    """Тестова installation: пара, з якою клієнт заходить у захищені ендпоінти."""
+    """Test installation: the pair a client uses to enter protected endpoints."""
 
     device_id: str
     device_secret: str
@@ -40,53 +40,53 @@ class Installation:
 
 DSN = os.environ.get("DATABASE_URL", "")
 
-# Синтетичні id живуть заздалегідь у діапазоні, якого джерело не використовує:
-# єЧерга видає невеликі числа, тож перетин із реальним довідником неможливий.
+# Synthetic ids live in advance in a range the source does not use: eCherha
+# issues small numbers, so an overlap with the real reference list is impossible.
 SYNTHETIC_ID_BASE = 900_000_000
 
-# Windows за замовчуванням дає ProactorEventLoop, з яким psycopg в async-режимі
-# не працює взагалі. Прод крутиться на Linux, але тести мають запускатися й на
-# машині розробника — інакше єдиним способом їх прогнати лишається CI.
+# Windows gives a ProactorEventLoop by default, with which psycopg does not work
+# at all in async mode. Prod runs on Linux, but the tests must run on a
+# developer's machine too — otherwise the only way to run them is CI.
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Запобіжник спрацьовує до збору тестів — тобто до будь-якого DELETE."""
+    """The safeguard fires before test collection — that is, before any DELETE."""
     if not DSN:
-        pytest.exit("DATABASE_URL не задано", returncode=3)
+        pytest.exit("DATABASE_URL is not set", returncode=3)
 
     if os.environ.get("AVELREN_TEST_DB") != "1":
         pytest.exit(
-            "Тести змінюють БД. Потрібен явний AVELREN_TEST_DB=1 — "
-            "щоб випадковий запуск не влучив у робочу базу.",
+            "The tests modify the DB. An explicit AVELREN_TEST_DB=1 is required — "
+            "so that an accidental run does not hit the live database.",
             returncode=3,
         )
 
     dbname = (conninfo_to_dict(DSN).get("dbname") or "").lower()
     if "test" not in dbname and "ci" not in dbname:
         pytest.exit(
-            f"БД '{dbname}' не позначена як тестова. Назва має містити "
-            "'test' або 'ci' — двох незалежних ознак достатньо, щоб "
-            "потрапити в прод потрібно було саме намагатися.",
+            f"DB '{dbname}' is not marked as a test one. The name must contain "
+            "'test' or 'ci' — two independent signals are enough that hitting prod "
+            "would take actually trying.",
             returncode=3,
         )
 
 
 @pytest.fixture()
 def conn():
-    """З'єднання без спільного стану між тестами."""
+    """A connection without shared state between tests."""
     with psycopg.connect(DSN, autocommit=True, row_factory=dict_row) as c:
         yield c
 
 
 @pytest.fixture()
 def checkpoint(conn) -> int:
-    """Синтетичний пункт пропуску, який існує лише в межах одного тесту.
+    """A synthetic checkpoint that exists only within a single test.
 
-    Прибирання йде в порядку залежностей: пристрої каскадом знімають підписки,
-    алерти й цілі, далі зникають спостереження й сам пункт. Нічого чужого
-    тести не чіпають.
+    Cleanup goes in dependency order: devices cascade-remove subscriptions,
+    alerts, and targets, then observations and the point itself disappear. The
+    tests touch nothing that is not theirs.
     """
     cid = SYNTHETIC_ID_BASE + random.randrange(1, 1_000_000)
     conn.execute(
@@ -113,13 +113,13 @@ def checkpoint(conn) -> int:
 
 @pytest.fixture()
 def api_client():
-    """FastAPI TestClient з чистим пулом на кожен тест.
+    """FastAPI TestClient with a fresh pool per test.
 
-    `avelren.db._pool` — модульний singleton, і lifespan при закритті одного
-    TestClient робить `pool.close()`. Наступний TestClient у тій самій сесії
-    впав би на PoolClosed. Скидання _pool = None перед відкриттям гарантує
-    новий пул на кожен тест — це саме те, чого ми хочемо і в проді, коли
-    процес запускається з нуля.
+    `avelren.db._pool` is a module-level singleton, and the lifespan does
+    `pool.close()` when one TestClient closes. The next TestClient in the same
+    session would fail on PoolClosed. Resetting _pool = None before opening
+    guarantees a new pool per test — exactly what we want in prod too, when the
+    process starts from scratch.
     """
     from fastapi.testclient import TestClient
 
@@ -133,8 +133,8 @@ def api_client():
 
 @pytest.fixture()
 def device(conn) -> Installation:
-    """Пристрій зі своєю парою (id, secret): без secret захищені ендпоінти
-    відповідатимуть 401, тож тести без облікових даних просто б не працювали."""
+    """A device with its own (id, secret) pair: without the secret, protected
+    endpoints would respond 401, so tests without credentials simply would not work."""
     token = f"test-{random.randrange(10**12):012d}"
     secret = secrets.token_urlsafe(32)
     secret_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()

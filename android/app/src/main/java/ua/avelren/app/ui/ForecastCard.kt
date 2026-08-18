@@ -23,11 +23,11 @@ private val DAY_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM")
 private val HOUR_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
- * Функція №3: АІ Прогноз.
+ * Feature #3: AI Forecast.
  *
- * Поки історії замало, картка показує саме це, а не вигадані числа: прогноз
- * на добі даних виглядав би переконливо й був би брехнею, а на ньому люди
- * планують рейси.
+ * While there is too little history, the card shows exactly this, not invented
+ * numbers: a forecast on a day's worth of data would look convincing and would be
+ * a lie, and people plan their trips by it.
  */
 @Composable
 fun ForecastCard(forecast: Api.Forecast?) {
@@ -96,12 +96,12 @@ private fun Points(f: Api.Forecast) {
         return
     }
 
-    // Показуємо кожну шосту точку: 24 рядки поспіль ніхто не читає.
+    // We show every sixth point: nobody reads 24 rows in a row.
     f.points.filterIndexed { i, _ -> i % 6 == 0 }.take(4).forEach { p ->
         Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
             Text(formatHour(p.time), modifier = Modifier.padding(end = 12.dp),
                 style = MaterialTheme.typography.bodyMedium)
-            // Діапазон, а не одне число: «2-4 дні» чесніше за «3 дні 14 годин».
+            // A range, not a single number: "2-4 days" is more honest than "3 days 14 hours".
             Text(
                 "${humanize(p.wait_seconds_low)} – ${humanize(p.wait_seconds_high)}",
                 style = MaterialTheme.typography.bodyMedium,

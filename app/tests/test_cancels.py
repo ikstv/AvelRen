@@ -1,14 +1,15 @@
-"""Скасування показаних сповіщень і reconciliation (A-02).
+"""Cancelling shown notifications and reconciliation (A-02).
 
-Ключові інваріанти, які тут захищаємо:
-  * перехід pending → expired/deleted завжди enqueue-ить cancel, НЕЗАЛЕЖНО від
-    send_count (бо notifier робить fcm.send() до _mark_sent(), і є crash-window);
-  * ACK не enqueue-ить cancel (телефон гасить локально);
-  * /active-alerts віддає canonical pending-стан, окремо за kind;
-  * threshold:N і eta:N — незалежні;
-  * notifier шле cancel'и ПІСЛЯ normal pushes у тому ж циклі;
-  * race normal↔expire↔cancel: протухлий normal не фіксується як успішний,
-    cancel обробляється в тому ж циклі.
+The key invariants we protect here:
+  * the pending → expired/deleted transition always enqueues a cancel,
+    REGARDLESS of send_count (because the notifier does fcm.send() before
+    _mark_sent(), and there is a crash window);
+  * ACK does not enqueue a cancel (the phone dismisses locally);
+  * /active-alerts returns the canonical pending state, separately by kind;
+  * threshold:N and eta:N are independent;
+  * the notifier sends cancels AFTER the normal pushes in the same cycle;
+  * race normal↔expire↔cancel: a stale normal is not recorded as successful, the
+    cancel is processed in the same cycle.
 """
 
 import asyncio
@@ -34,8 +35,8 @@ def _run(coro_factory):
 
 
 def _run_notifier_cycle() -> None:
-    """Прогін повного notifier.run_cycle через справжній пул (він бере
-    з'єднання сам). Свіжий пул на виклик — без спільного стану між тестами."""
+    """Runs the full notifier.run_cycle through a real pool (it takes the
+    connection itself). A fresh pool per call — no shared state between tests."""
     from avelren import db
 
     async def run():
@@ -72,7 +73,7 @@ def _fire_threshold(checkpoint_id: int, values: list[int]) -> None:
 
 
 def _observe_low(conn, checkpoint_id: int, vehicles: int) -> None:
-    """Свіже спостереження нижче порога — щоб expire_stale мав що читати."""
+    """A fresh observation below the threshold — so expire_stale has something to read."""
     conn.execute(
         "INSERT INTO observations (time, checkpoint_id, wait_time_seconds, "
         "vehicles_in_queue, is_paused) VALUES (now(), %s, 0, %s, false)",
@@ -94,7 +95,7 @@ def _alert_id(conn, sub_id: int) -> int:
     ).fetchone()["id"]
 
 
-# --- enqueue при expire ----------------------------------------------------
+# --- enqueue on expire -----------------------------------------------------
 
 
 def test_threshold_expire_enqueues_cancel(conn, device, checkpoint):
@@ -109,7 +110,7 @@ def test_threshold_expire_enqueues_cancel(conn, device, checkpoint):
         "SELECT status FROM alerts WHERE id = %s", (aid,)
     ).fetchone()["status"] == "expired"
     assert _cancels(conn, "threshold", aid) == 1
-    # device_id прив'язаний правильно (БД віддає uuid.UUID — звіряємо як str).
+    # device_id is bound correctly (the DB returns uuid.UUID — we compare as str).
     assert str(conn.execute(
         "SELECT device_id FROM notification_cancels WHERE kind='threshold' AND alert_id=%s",
         (aid,),
@@ -117,8 +118,8 @@ def test_threshold_expire_enqueues_cancel(conn, device, checkpoint):
 
 
 def test_expire_enqueues_cancel_even_when_send_count_zero(conn, device, checkpoint):
-    """Найважливіший інваріант: send_count=0 (notifier упав до _mark_sent), а
-    телефон міг показати нотифікацію — cancel усе одно потрібен."""
+    """The most important invariant: send_count=0 (the notifier failed before
+    _mark_sent), yet the phone might have shown a notification — a cancel is still needed."""
     sub = _subscription(conn, device.device_id, checkpoint)
     _fire_threshold(checkpoint, [49, 51])
     aid = _alert_id(conn, sub)
@@ -151,7 +152,7 @@ def test_eta_expire_enqueues_cancel(conn, device, checkpoint):
         "SELECT id FROM eta_alerts WHERE target_id = %s", (tid,)
     ).fetchone()["id"]
 
-    # Зсуваємо ціль у минуле, щоб expire_passed її закрив.
+    # We shift the target into the past so expire_passed closes it.
     conn.execute("UPDATE eta_targets SET target_at = %s WHERE id = %s",
                  (now - timedelta(minutes=1), tid))
     _run(eta.expire_passed)
@@ -160,7 +161,7 @@ def test_eta_expire_enqueues_cancel(conn, device, checkpoint):
 
 
 def test_ack_does_not_enqueue_cancel(conn, device, checkpoint):
-    """ACK гасить локально — cancel не потрібен, тож і не enqueue-иться."""
+    """ACK dismisses locally — a cancel is not needed, so it is not enqueued."""
     sub = _subscription(conn, device.device_id, checkpoint)
     _fire_threshold(checkpoint, [49, 51])
     aid = _alert_id(conn, sub)
@@ -168,13 +169,13 @@ def test_ack_does_not_enqueue_cancel(conn, device, checkpoint):
     conn.execute(
         "UPDATE alerts SET status='acknowledged', acknowledged_at=now() WHERE id=%s", (aid,)
     )
-    # Навіть якщо потім прийде низьке спостереження — expire чіпає лише pending.
+    # Even if a low observation arrives later — expire touches only pending.
     _observe_low(conn, checkpoint, 10)
     _run(alerts.expire_stale)
     assert _cancels(conn, "threshold", aid) == 0
 
 
-# --- enqueue при delete (через API) ----------------------------------------
+# --- enqueue on delete (via the API) ---------------------------------------
 
 
 def test_delete_subscription_enqueues_cancel(conn, device, checkpoint, api_client):
@@ -188,8 +189,8 @@ def test_delete_subscription_enqueues_cancel(conn, device, checkpoint, api_clien
 
 
 def test_delete_foreign_subscription_enqueues_nothing(conn, device, checkpoint, api_client):
-    """Чужий subscription_id не має enqueue-ити cancel від імені зловмисника."""
-    # Підписка іншого пристрою.
+    """A foreign subscription_id must not enqueue a cancel on behalf of an attacker."""
+    # Another device's subscription.
     other = conn.execute(
         "INSERT INTO devices (fcm_token, secret_hash) VALUES ('other-tok', 'x') RETURNING id"
     ).fetchone()["id"]
@@ -197,7 +198,7 @@ def test_delete_foreign_subscription_enqueues_nothing(conn, device, checkpoint, 
     _fire_threshold(checkpoint, [49, 51])
     aid = _alert_id(conn, sub)
 
-    # device (не власник) намагається видалити.
+    # device (not the owner) tries to delete.
     r = api_client.delete(f"/subscriptions/{sub}", headers=device.headers())
     assert r.status_code == 404
     assert _cancels(conn, "threshold", aid) == 0
@@ -218,7 +219,7 @@ def test_active_alerts_returns_pending_by_kind(conn, device, checkpoint, api_cli
     assert body["threshold"] == [aid]
     assert body["eta"] == []
 
-    # Після ACK — зникає з canonical-стану.
+    # After ACK — it disappears from the canonical state.
     conn.execute(
         "UPDATE alerts SET status='acknowledged', acknowledged_at=now() WHERE id=%s", (aid,)
     )
@@ -227,7 +228,7 @@ def test_active_alerts_returns_pending_by_kind(conn, device, checkpoint, api_cli
 
 
 def test_active_alerts_ignores_send_count(conn, device, checkpoint, api_client):
-    """Істина — статус, не send_count: pending із send_count=0 має бути в списку."""
+    """The truth is the status, not send_count: a pending with send_count=0 must be in the list."""
     sub = _subscription(conn, device.device_id, checkpoint)
     _fire_threshold(checkpoint, [49, 51])
     aid = _alert_id(conn, sub)
@@ -242,8 +243,8 @@ def test_active_alerts_ignores_send_count(conn, device, checkpoint, api_client):
 
 
 def test_threshold_and_eta_same_alert_id_are_distinct(conn, device):
-    """UNIQUE(kind, alert_id): однаковий числовий id для threshold і eta —
-    два різні cancel-рядки, не конфлікт."""
+    """UNIQUE(kind, alert_id): the same numeric id for threshold and eta —
+    two different cancel rows, not a conflict."""
     conn.execute(
         "INSERT INTO notification_cancels (kind, alert_id, device_id) VALUES "
         "('threshold', 777, %s), ('eta', 777, %s)",
@@ -253,7 +254,7 @@ def test_threshold_and_eta_same_alert_id_are_distinct(conn, device):
     assert _cancels(conn, "eta", 777) == 1
 
 
-# --- notifier відправка cancel'ів ------------------------------------------
+# --- notifier sending of cancels -------------------------------------------
 
 
 def test_notifier_sends_cancel_and_marks_accepted(conn, device, checkpoint, monkeypatch):
@@ -405,7 +406,7 @@ def test_cancel_confirmed_unregistered_disables_and_abandons(conn, device, monke
 
 
 def test_cancel_not_abandoned_while_young(conn, device):
-    """Свіжий cancel після невдалої спроби НЕ здається — ретраїмо далі (B3)."""
+    """A fresh cancel after a failed attempt does NOT give up — we keep retrying (B3)."""
     row = conn.execute(
         "INSERT INTO notification_cancels (kind, alert_id, device_id) "
         "VALUES ('threshold', 55, %s) RETURNING id",
@@ -423,8 +424,8 @@ def test_cancel_not_abandoned_while_young(conn, device):
 
 
 def test_cancel_abandoned_after_age_window(conn, device):
-    """Cancel, старший за ABANDON_AFTER, здається — далі підстрахує
-    reconciliation (B3). Час старіння емулюємо зсувом created_at."""
+    """A cancel older than ABANDON_AFTER gives up — reconciliation is the backstop
+    afterwards (B3). We emulate aging by shifting created_at."""
     row = conn.execute(
         "INSERT INTO notification_cancels (kind, alert_id, device_id, created_at) "
         "VALUES ('threshold', 56, %s, now() - INTERVAL '61 minutes') RETURNING id",
@@ -440,8 +441,8 @@ def test_cancel_abandoned_after_age_window(conn, device):
 
 
 def test_cancel_payload_uses_cancel_alert_id_not_legacy():
-    """B1: cancel НЕ містить legacy-поля alert_id — старий APK (baseline
-    c7d2e1f) на такому повідомленні нічого не показує, бо доходить до
+    """B1: a cancel does NOT contain the legacy field alert_id — the old APK
+    (baseline c7d2e1f) shows nothing for such a message, because it reaches
     `data["alert_id"] ?: return`."""
     from avelren import fcm
 
@@ -454,14 +455,14 @@ def test_cancel_payload_uses_cancel_alert_id_not_legacy():
 
 
 def test_race_expire_during_normal_push_still_cancels(conn, device, checkpoint, monkeypatch):
-    """Найцінніший тест: alert expire-иться ПОСЕРЕД normal-фази циклу.
+    """The most valuable test: an alert expires IN THE MIDDLE of the cycle's normal phase.
 
-    Сервер уже вибрав його як pending для normal push. Під час fcm.send()
-    (тут — у фейку) черга падає і expire_stale закриває alert + enqueue-ить
-    cancel. Той самий run_cycle має:
-      * НЕ зафіксувати normal push як успішний (send_count лишається 0,
-        бо _mark_sent conditional на status='pending');
-      * відправити cancel після normal push у тому ж циклі.
+    The server already selected it as pending for the normal push. During
+    fcm.send() (here — in the fake) the queue drops and expire_stale closes the
+    alert + enqueues a cancel. The same run_cycle must:
+      * NOT record the normal push as successful (send_count stays 0, because
+        _mark_sent is conditional on status='pending');
+      * send the cancel after the normal push in the same cycle.
     """
     conn.execute("UPDATE devices SET fcm_token='tok-race' WHERE id=%s", (device.device_id,))
     sub = _subscription(conn, device.device_id, checkpoint)
@@ -473,7 +474,7 @@ def test_race_expire_during_normal_push_still_cancels(conn, device, checkpoint, 
     async def fake_send(client, token, data, collapse_key=None, ttl_seconds=600):
         sent.append(data["type"])
         if data["type"] == "threshold":
-            # Симулюємо expire саме під час normal push, окремим з'єднанням.
+            # We simulate expire right during the normal push, on a separate connection.
             async with await psycopg.AsyncConnection.connect(DSN, autocommit=True) as ac2:
                 ac2.row_factory = dict_row
                 await ac2.execute(
@@ -487,11 +488,11 @@ def test_race_expire_during_normal_push_still_cancels(conn, device, checkpoint, 
 
     _run_notifier_cycle()
 
-    # normal push НЕ зафіксований як успішний (alert уже expired).
+    # the normal push is NOT recorded as successful (the alert is already expired).
     assert conn.execute(
         "SELECT send_count FROM alerts WHERE id=%s", (aid,)
     ).fetchone()["send_count"] == 0
-    # cancel відправлено після normal push у тому ж циклі.
+    # the cancel is sent after the normal push in the same cycle.
     assert sent == ["threshold", "cancel"]
     assert conn.execute(
         "SELECT accepted_at IS NOT NULL AS ok FROM notification_cancels "

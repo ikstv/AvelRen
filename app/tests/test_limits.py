@@ -1,7 +1,7 @@
-"""Bounded-resource примітиви: обмеження розміру тіла і concurrency-gate.
+"""Bounded-resource primitives: body-size limit and concurrency gate.
 
-Обидва — чисті unit-тести без БД: middleware перевіряється на мінімальному
-Starlette-застосунку, gate — на asyncio-задачах. Поведінка, не реалізація.
+Both are pure unit tests without a DB: the middleware is checked on a minimal
+Starlette app, the gate on asyncio tasks. Behavior, not implementation.
 """
 
 import asyncio
@@ -21,8 +21,8 @@ LIMIT = 1024
 
 
 def test_expensive_gate_reserves_pool_headroom() -> None:
-    """Дорогий gate мусить бути МЕНШИЙ за розмір пулу, інакше дорогі читання
-    вичерпають усі конекшени й заморять дешеві health/workload (#16)."""
+    """The expensive gate must be SMALLER than the pool size, otherwise expensive
+    reads would exhaust all connections and starve cheap health/workload (#16)."""
     assert settings.api_max_concurrent_expensive < db.POOL_MAX_SIZE
 
 
@@ -56,18 +56,18 @@ def test_body_over_limit_rejected_via_content_length() -> None:
 
 
 def test_oversized_chunked_body_without_content_length_rejected() -> None:
-    """Немає Content-Length (chunked) — байти рахуються на льоту, fail-closed."""
+    """No Content-Length (chunked) — bytes are counted on the fly, fail-closed."""
 
     async def gen():
         for _ in range(4):
-            yield b"x" * 512  # 2048 разом, більше за ліміт
+            yield b"x" * 512  # 2048 together, over the limit
 
     r = asyncio.run(_post(_echo_app(), content=gen()))
     assert r.status_code == 413
 
 
 def test_non_http_scope_is_passed_through() -> None:
-    """Middleware не має ламати не-HTTP (lifespan/websocket) scope."""
+    """The middleware must not break non-HTTP (lifespan/websocket) scope."""
     seen = {}
 
     async def app(scope, receive, send):  # noqa: ANN001
@@ -95,7 +95,7 @@ def test_gate_allows_up_to_limit() -> None:
 
         t = asyncio.create_task(hold())
         await started.wait()
-        async with gate.guard():  # другий одночасний — у межах ліміту 2
+        async with gate.guard():  # second concurrent — within the limit of 2
             pass
         release.set()
         await t
@@ -133,7 +133,7 @@ def test_gate_releases_capacity_after_use() -> None:
     async def run() -> None:
         async with gate.guard():
             pass
-        async with gate.guard():  # ємність повернулась
+        async with gate.guard():  # capacity returned
             pass
 
     asyncio.run(run())
@@ -146,7 +146,7 @@ def test_gate_releases_capacity_even_on_error() -> None:
         with pytest.raises(ValueError):
             async with gate.guard():
                 raise ValueError("boom")
-        async with gate.guard():  # не «протекло» після винятку
+        async with gate.guard():  # did not "leak" after the exception
             pass
 
     asyncio.run(run())

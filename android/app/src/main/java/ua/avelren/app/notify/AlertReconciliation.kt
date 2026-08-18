@@ -1,54 +1,56 @@
 package ua.avelren.app.notify
 
 /**
- * Чиста логіка звірки показаних сповіщень із canonical server-станом (A-02).
+ * Pure logic for reconciling shown notifications against the canonical server
+ * state (A-02).
  *
- * Винесена окремо від Android-фреймворку саме щоб бути тестованою на JVM без
- * інструментації: тут немає жодного залежного від пристрою виклику.
+ * Extracted separately from the Android framework precisely to be testable on the
+ * JVM without instrumentation: there is not a single device-dependent call here.
  *
- * Ключове рішення: сповіщення НЕ ідентифікуються через display-id
- * `notificationId()`. Той id — `kindCode * 10^7 + alertId % 10^7` — необоротний
- * (alertId у bigserial легко перевищує 10^7), тож відновити з нього alertId
- * неможливо. Тому нові сповіщення несуть повний `kind + Long alertId` у
- * extras, а reconciliation працює з цим повним ключем. Для сповіщень, показаних
- * ще старою версією (без extras), лишається вузький legacy-шлях за display-id.
+ * Key decision: notifications are NOT identified by the display-id
+ * `notificationId()`. That id — `kindCode * 10^7 + alertId % 10^7` — is
+ * irreversible (an alertId in a bigserial easily exceeds 10^7), so the alertId
+ * cannot be recovered from it. Therefore new notifications carry the full
+ * `kind + Long alertId` in extras, and reconciliation works with this full key.
+ * For notifications shown by an older version (without extras), a narrow legacy
+ * path by display-id remains.
  */
 data class AlertKey(val kind: String, val alertId: Long)
 
 /**
- * Показане сповіщення в термінах reconciliation.
+ * A shown notification in reconciliation terms.
  *
- * @param notificationId Android display-id (для фактичного cancel).
- * @param key Повний ключ з extras або null, якщо сповіщення старе/чуже.
+ * @param notificationId Android display-id (for the actual cancel).
+ * @param key The full key from extras, or null if the notification is old/foreign.
  */
 data class ActiveNotification(val notificationId: Int, val key: AlertKey?)
 
 object AlertReconciliation {
 
-    // Мусить збігатися з Notifications.notificationId(): kindCode * SPAN.
+    // Must match Notifications.notificationId(): kindCode * SPAN.
     const val SPAN = 10_000_000
     private const val KIND_THRESHOLD = 1
     private const val KIND_ETA = 2
 
     /**
-     * Повертає display-id сповіщень, які треба погасити: тих, чий alert більше
-     * не входить у server pending-набір.
+     * Returns the display-ids of notifications that must be dismissed: those whose
+     * alert is no longer in the server pending set.
      *
-     * Health та невідомі сповіщення (без extras і не з нашого namespace)
-     * НІКОЛИ не чіпаються — reconciliation стосується лише alert-backed
-     * сповіщень (threshold/eta).
+     * Health and unknown notifications (without extras and not from our namespace)
+     * are NEVER touched — reconciliation concerns only alert-backed notifications
+     * (threshold/eta).
      *
-     * Виклик має відбуватися ЛИШЕ після успішного отримання server-стану:
-     * порожній `serverPending` тут означає «сервер сказав: активних немає»,
-     * а не «не вдалося спитати». За fail-safe відповідає викликач.
+     * The call must happen ONLY after the server state was successfully fetched:
+     * an empty `serverPending` here means "the server said: there are no active
+     * ones", not "the query failed". Fail-safety is the caller's responsibility.
      */
     fun staleNotificationIds(
         active: List<ActiveNotification>,
         serverPending: Set<AlertKey>,
     ): List<Int> {
-        // Для legacy-сповіщень (без extras) порівнюємо за усіченим id, бо
-        // повного alertId в них немає. Колізія можлива лише в межах 10^7 і лише
-        // для старих сповіщень — свідомо прийнятний компроміс.
+        // For legacy notifications (without extras) we compare by the truncated id,
+        // because they have no full alertId. A collision is possible only within 10^7
+        // and only for old notifications — a deliberately acceptable compromise.
         val serverLegacy = serverPending.mapTo(HashSet()) { AlertKey(it.kind, it.alertId % SPAN) }
 
         return active.mapNotNull { n ->
@@ -58,7 +60,7 @@ object AlertReconciliation {
             } else {
                 val legacy = legacyKeyFromNotificationId(n.notificationId)
                 when {
-                    legacy == null -> null // health/невідоме — не чіпаємо
+                    legacy == null -> null // health/unknown — do not touch
                     legacy !in serverLegacy -> n.notificationId
                     else -> null
                 }
@@ -67,11 +69,11 @@ object AlertReconciliation {
     }
 
     /**
-     * Fail-safe обгортка (A-02): `serverPending == null` означає, що canonical
-     * стан отримати НЕ вдалося (offline / 5xx / 401 до завершення recovery) —
-     * тоді не гасимо нічого. Порожній набір (не null) — це підтверджене «сервер
-     * каже: активних немає», і воно таки гасить. Викликач передає null саме на
-     * будь-якому винятку fetch-у.
+     * Fail-safe wrapper (A-02): `serverPending == null` means the canonical state
+     * could NOT be fetched (offline / 5xx / 401 before recovery completed) — then
+     * we dismiss nothing. An empty set (not null) is a confirmed "the server says:
+     * there are no active ones", and it does dismiss. The caller passes null
+     * precisely on any fetch exception.
      */
     fun staleNotificationIdsOrNothing(
         active: List<ActiveNotification>,
@@ -81,8 +83,8 @@ object AlertReconciliation {
         else staleNotificationIds(active, serverPending)
 
     /**
-     * Відновлює усічений ключ зі старого display-id (сповіщення без extras).
-     * Повертає null для health (kindCode=3) і будь-чого невідомого.
+     * Recovers the truncated key from an old display-id (a notification without
+     * extras). Returns null for health (kindCode=3) and anything unknown.
      */
     fun legacyKeyFromNotificationId(notificationId: Int): AlertKey? {
         val kind = when (notificationId / SPAN) {

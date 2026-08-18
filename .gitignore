@@ -19,7 +19,7 @@ Thumbs.db
 *.log
 /data/
 
-# Службові ключі Firebase — ніколи в git
+# Firebase service keys — never in git
 secrets/
 *service-account*.json
 google-services.json
@@ -32,7 +32,7 @@ android/local.properties
 android/.idea/
 *.apk
 
-# Артефакти складання пакета (створюються pip install ./app)
+# Package build artifacts (created by pip install ./app)
 app/build/
 *.egg-info/
 

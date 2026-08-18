@@ -3,7 +3,7 @@
 # production orchestration lives in restore-production.sh.
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    echo "ВІДМОВА: restore engine is source-only" >&2
+    echo "DENIED: restore engine is source-only" >&2
     exit 2
 fi
 
@@ -21,7 +21,7 @@ avelren_restore_engine() {
 
     case "$target" in
         restore_test|avelren) ;;
-        *) echo "ВІДМОВА: unsupported restore target: $target" >&2; return 2 ;;
+        *) echo "DENIED: unsupported restore target: $target" >&2; return 2 ;;
     esac
 
     [ "$admin_db_user" = avelren_admin ] || {
@@ -47,10 +47,10 @@ avelren_restore_engine() {
     restore_psql() {
         restore_db_tool psql -U "$AVELREN_RESTORE_ADMIN_DB_USER" -v ON_ERROR_STOP=1 "$@"
     }
-    # УВАГА: обидва блоки `expected(...)` нижче хардкодять перелік прикладних
-    # відношень. Додав таблицю/послідовність у міграції — онови ОБИДВА блоки,
-    # інакше production-restore впаде вже після dropdb. Дрейф ловить на CI
-    # deploy/restore-allowlist-contract-test.py (звіряє з schema_verify._TABLES_V).
+    # NOTE: both `expected(...)` blocks below hardcode the list of application
+    # relations. If you add a table/sequence in a migration, update BOTH blocks,
+    # otherwise production-restore will fail right after dropdb. Drift is caught in CI by
+    # deploy/restore-allowlist-contract-test.py (which checks against schema_verify._TABLES_V).
     restore_application_owners() {
         restore_psql -d "$AVELREN_RESTORE_TARGET" -q <<'SQL'
 DO $$
@@ -244,14 +244,14 @@ SQL
             if [ "$cleanup_status" -eq 0 ]; then
                 restore_log "timescaledb_post_restore cleanup succeeded after primary failure"
             else
-                restore_log "ПОМИЛКА: primary restore failed (exit=$primary_status) and timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
+                restore_log "ERROR: primary restore failed (exit=$primary_status) and timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
             fi
         fi
         exit "$primary_status"
     }
     trap restore_finalize EXIT
 
-    restore_log "готую базу $target"
+    restore_log "preparing database $target"
     restore_db_tool dropdb --if-exists --maintenance-db=postgres \
         -U "$AVELREN_RESTORE_ADMIN_DB_USER" "$target"
     restore_db_tool createdb --maintenance-db=postgres \
@@ -262,7 +262,7 @@ SQL
     restore_psql -d "$target" -q -c "SELECT timescaledb_pre_restore();"
     AVELREN_RESTORE_POST_PENDING=true
 
-    restore_log "відновлення даних"
+    restore_log "restoring data"
     gunzip -c "$dump" | restore_psql -d "$target" -q -v ON_ERROR_STOP=1
 
     restore_log "timescaledb_post_restore"
@@ -272,18 +272,18 @@ SQL
     set -e
     AVELREN_RESTORE_POST_PENDING=false
     if [ "$post_status" -ne 0 ]; then
-        restore_log "ПОМИЛКА: timescaledb_post_restore failed (exit=$post_status)"
+        restore_log "ERROR: timescaledb_post_restore failed (exit=$post_status)"
         exit "$post_status"
     fi
 
     restore_log "application ownership finalization"
     restore_application_owners
 
-    restore_log "перевірка"
+    restore_log "verification"
     restore_psql -d "$target" -c "
 SELECT (SELECT count(*) FROM observations) AS observations,
        (SELECT count(*) FROM checkpoints) AS checkpoints,
        (SELECT count(*) FROM timescaledb_information.hypertables) AS hypertables,
        (SELECT count(*) FROM timescaledb_information.continuous_aggregates) AS aggregates;"
-    restore_log "готово: база $target"
+    restore_log "done: database $target"
 }

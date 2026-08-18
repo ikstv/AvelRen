@@ -14,14 +14,14 @@ COPY pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
-# Git SHA деплою — виставляється CI/build.sh через `--build-arg SOURCE_COMMIT=$(git
-# rev-parse HEAD)`. У runtime доступний як env AVELREN_GIT_SHA і потрапляє в
-# /admin/telemetry.version. Значення за замовчуванням — порожній рядок: краще
-# null на клієнті, ніж підроблене «unknown».
+# The deploy's git SHA — set by CI/build.sh via `--build-arg SOURCE_COMMIT=$(git
+# rev-parse HEAD)`. Available at runtime as env AVELREN_GIT_SHA and surfaced in
+# /admin/telemetry.version. Default value is an empty string: better a null on
+# the client than a fake "unknown".
 ARG SOURCE_COMMIT=""
 ENV AVELREN_GIT_SHA=${SOURCE_COMMIT}
 
-# Не працюємо від root у контейнері.
+# We do not run as root in the container.
 RUN useradd --create-home --uid 10001 avelren
 USER avelren
 

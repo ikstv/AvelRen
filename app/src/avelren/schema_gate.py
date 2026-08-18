@@ -1,31 +1,33 @@
-"""Fail-closed перевірка версії схеми при старті сервісу (issue #88).
+"""Fail-closed schema-version check at service startup (issue #88).
 
-ЧОМУ ЦЕ ІСНУЄ. Досі узгодженість схеми з кодом гарантував лише сервіс
-`migrate`, який виконується перед кожним стартом. Це працює, але тримається на
-СПОСОБІ ЗАПУСКУ: досить підняти сервіс іншою командою — і жоден процес більше
-не звіряє, на якій схемі він працює. Після Gate 11 3B.2 ця крихкість стала
-відчутною: `avelren_migrator` отримав повні права, тож випадковий
-`docker compose up -d` тепер не падає гучно, а тихо застосовує й штампує
-наступну міграцію поза послідовністю.
+WHY THIS EXISTS. Until now, agreement between the schema and the code was
+guaranteed only by the `migrate` service, which runs before every start. That
+works, but it rests on HOW THE SERVICE IS LAUNCHED: bring a service up with a
+different command and no process checks which schema it runs against anymore.
+After Gate 11 3B.2 this fragility became tangible: `avelren_migrator` gained
+full privileges, so a stray `docker compose up -d` no longer fails loudly but
+silently applies and stamps the next migration out of order.
 
-Перевірка тут переносить fail-closed УСЕРЕДИНУ застосунку — туди, де його не
-обійти способом запуску. Саме це відкриває шлях повернути `migrate` за
-профіль (див. коментар до migrate у docker-compose.yml).
+The check here moves fail-closed INSIDE the application — where it cannot be
+bypassed by the way the service is launched. That is exactly what opens the way
+to put `migrate` back behind a profile (see the migrate comment in
+docker-compose.yml).
 
-ЩО САМЕ ПОРІВНЮЄТЬСЯ. Не «остання міграція в каталозі» — рантайм-контейнери
-каталогу міграцій не бачать. Порівнюється найвища версія, ЗАПИСАНА в
-`schema_migrations`, з найвищою версією, яку вимагає фізичний контракт коду.
+WHAT IS COMPARED. Not "the last migration in the directory" — runtime containers
+do not see the migrations directory. What is compared is the highest version
+RECORDED in `schema_migrations` against the highest version the physical code
+contract requires.
 
-ЧОМУ ВИМОГА ПОХІДНА, А НЕ КОНСТАНТА. Константа, виставлена руками, протухає
-мовчки: хтось додає міграцію, забуває підняти число, і гейт пропускає схему,
-якої коду бракує. Тому вимога виводиться з version-анотованого контракту
-`schema_verify`, який і так мусить оновлюватися разом зі схемою. Забути можна
-одне місце замість двох.
+WHY THE REQUIREMENT IS DERIVED, NOT A CONSTANT. A hand-set constant goes stale
+silently: someone adds a migration, forgets to bump the number, and the gate
+lets through a schema the code is missing. So the requirement is derived from
+the version-annotated `schema_verify` contract, which has to be updated together
+with the schema anyway. One place to forget instead of two.
 
-Наслідок, важливий для розуміння: міграції, що НЕ вводять нових об'єктів
-(наприклад `010_postgresql_least_privilege` — самі лише гранти), вимогу не
-піднімають. Це навмисно: код на них структурно не спирається, і сервіс не має
-відмовлятися стартувати через незастосований ACL-шар.
+A consequence worth understanding: migrations that do NOT introduce new objects
+(for example `010_postgresql_least_privilege` — grants only) do not raise the
+requirement. This is deliberate: the code does not structurally rely on them,
+and a service must not refuse to start over an unapplied ACL layer.
 """
 
 import logging
@@ -39,20 +41,20 @@ log = logging.getLogger("avelren.schema_gate")
 
 
 class SchemaTooOldError(RuntimeError):
-    """Схема БД старша за ту, якої вимагає код цього сервісу."""
+    """The DB schema is older than the one this service's code requires."""
 
 
 def _version_ordinal(version: str) -> int:
-    """`009_observability` -> 9. Лексикографічне порівняння тут не годиться:
-    воно розсиплеться на переході 009 -> 010 -> 100, а прикидатиметься робочим."""
+    """`009_observability` -> 9. Lexicographic comparison will not do here:
+    it falls apart on the 009 -> 010 -> 100 transition while pretending to work."""
     prefix = version.split("_", 1)[0]
     if not prefix.isdigit():
-        raise ValueError(f"версія міграції без числового префікса: {version!r}")
+        raise ValueError(f"migration version without a numeric prefix: {version!r}")
     return int(prefix)
 
 
 def required_schema_version() -> str:
-    """Найвища версія, яка вводить об'єкт, потрібний фізичному контракту коду."""
+    """The highest version that introduces an object the physical code contract needs."""
     versions = {
         since
         for group in (
@@ -68,51 +70,54 @@ def required_schema_version() -> str:
         if since is not None
     }
     if not versions:
-        raise RuntimeError("контракт схеми порожній — вимогу неможливо вивести")
+        raise RuntimeError("schema contract is empty — the requirement cannot be derived")
     return max(versions, key=_version_ordinal)
 
 
 def highest_recorded(versions: list[str]) -> str | None:
-    """Найвища версія за ЧИСЛОВИМ порядком, не за текстовим.
+    """The highest version by NUMERIC order, not textual.
 
-    SQL `max(version)` тут не годиться: він текстовий. Для акуратно
-    нуль-доповнених 001…010 він випадково збігається з числовим — і саме тому
-    небезпечний: виглядає робочим і зламається тихо. Достатньо однієї версії з
-    іншим падінгом (`0010_x` поруч із `009_x`), щоб текстовий max повернув
-    старішу, а гейт відмовив на цілком свіжій схемі."""
+    SQL `max(version)` will not do here: it is textual. For neatly zero-padded
+    001…010 it happens to coincide with the numeric order — and that is exactly
+    why it is dangerous: it looks like it works and breaks silently. A single
+    version with different padding (`0010_x` next to `009_x`) is enough for the
+    textual max to return the older one, so the gate would refuse a perfectly
+    fresh schema."""
     if not versions:
         return None
     return max(versions, key=_version_ordinal)
 
 
 def check_recorded_version(recorded: str | None) -> None:
-    """Чиста частина гейта: підняти виняток, якщо записана версія замала.
+    """The pure part of the gate: raise if the recorded version is too low.
 
-    `recorded is None` означає порожній журнал міграцій — це НЕ «нова база, все
-    гаразд», а схема без жодної застосованої міграції. Fail-closed."""
+    `recorded is None` means an empty migration journal — this is NOT "a new
+    database, all good", but a schema with no migration applied at all.
+    Fail-closed."""
     required = required_schema_version()
     if recorded is None:
         raise SchemaTooOldError(
-            f"журнал міграцій порожній; код вимагає щонайменше {required}"
+            f"migration journal is empty; the code requires at least {required}"
         )
     if _version_ordinal(recorded) < _version_ordinal(required):
         raise SchemaTooOldError(
-            f"схема БД на {recorded}; код вимагає щонайменше {required}"
+            f"DB schema at {recorded}; the code requires at least {required}"
         )
 
 
 async def assert_schema_at_least(pool: AsyncConnectionPool) -> None:
-    """Викликається одразу після відкриття пулу, до будь-якої корисної роботи.
+    """Called right after the pool opens, before any useful work.
 
-    Будь-яка помилка запиту (немає таблиці, 42501 через відсутній грант) — теж
-    відмова: ми не можемо довести узгодженість, отже не працюємо. Мовчазний
-    прохід тут був би гіршим за падіння."""
-    # tuple_row задається явно: інакше форма рядка залежала б від row_factory
-    # пулу, і гейт мовчки зламався б у процесі, налаштованому інакше.
+    Any query error (no table, 42501 from a missing grant) is a refusal too: we
+    cannot prove agreement, so we do not run. A silent pass here would be worse
+    than crashing."""
+    # tuple_row is set explicitly: otherwise the row shape would depend on the
+    # pool's row_factory, and the gate would silently break in a process
+    # configured differently.
     async with pool.connection() as conn:
         cursor = conn.cursor(row_factory=tuple_row)
         await cursor.execute("SELECT version FROM schema_migrations")
         rows = await cursor.fetchall()
     recorded = highest_recorded([row[0] for row in rows])
     check_recorded_version(recorded)
-    log.info("схема узгоджена зі стартовою вимогою: %s", recorded)
+    log.info("schema meets startup requirement: %s", recorded)

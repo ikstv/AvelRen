@@ -1169,24 +1169,24 @@ _canonical_target_acl_rows() {
     for column in id is_admin fcm_token; do
         _emit_target_relation_acl devices "$column" avelren_watchdog SELECT
     done
-    # watchdog гасить мертвий адмін-FCM-токен (UPDATE devices SET fcm_token=NULL);
-    # дзеркало GRANT UPDATE (fcm_token) ON devices TO avelren_watchdog у migration 010.
+    # watchdog clears a dead admin FCM token (UPDATE devices SET fcm_token=NULL);
+    # mirrors GRANT UPDATE (fcm_token) ON devices TO avelren_watchdog in migration 010.
     _emit_target_relation_acl devices fcm_token avelren_watchdog UPDATE
     _emit_target_relation_acl health_alerts object avelren_watchdog INSERT UPDATE
     _emit_target_relation_acl health_alerts_id_seq object avelren_watchdog USAGE
 
-    # Журнал міграцій читають і collector/notifier/watchdog — передумова
-    # fail-closed старт-перевірки схеми (#88): сервіс має відмовитись стартувати
-    # на схемі, старішій за ту, якої вимагає його код, а без цього SELECT така
-    # перевірка впала б з 42501 одразу після 3C cutover. Дзеркало
+    # The migration journal is also read by collector/notifier/watchdog — a precondition
+    # for the fail-closed schema start check (#88): a service must refuse to start
+    # on a schema older than the one its code requires, and without this SELECT such
+    # a check would fail with 42501 right after the 3C cutover. Mirrors
     # `GRANT SELECT ON TABLE schema_migrations TO avelren_collector,
-    # avelren_notifier, avelren_watchdog` у migration 010.
+    # avelren_notifier, avelren_watchdog` in migration 010.
     for role in avelren_collector avelren_notifier avelren_watchdog; do
         _emit_target_relation_acl schema_migrations object "$role" SELECT
     done
 
-    # schema_migrations: /admin/telemetry version-блок читає max(version) під роллю
-    # avelren_api; дзеркало GRANT SELECT ON schema_migrations TO avelren_api у 010.
+    # schema_migrations: the /admin/telemetry version block reads max(version) under the
+    # avelren_api role; mirrors GRANT SELECT ON schema_migrations TO avelren_api in 010.
     for name in countries checkpoints observations observations_hourly collector_runs subscriptions alerts eta_targets eta_alerts health_alerts schema_migrations; do
         _emit_target_relation_acl "$name" object avelren_api SELECT
     done

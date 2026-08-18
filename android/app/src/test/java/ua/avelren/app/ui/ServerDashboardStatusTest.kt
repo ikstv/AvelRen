@@ -6,10 +6,10 @@ import org.junit.Test
 import ua.avelren.app.data.Api
 
 /**
- * Юніт-тести чистої status-логіки Server Dashboard.
+ * Unit tests of the pure Server Dashboard status logic.
  *
- * Фокус — на «⚪ Unknown замість вигаданого 🟢 OK» при відсутніх полях:
- * саме така плутанина перетворила б тихий провал моніторингу на «все гаразд».
+ * The focus is "⚪ Unknown instead of an invented 🟢 OK" when fields are missing:
+ * exactly this kind of confusion would turn a silent monitoring failure into "all is well".
  */
 class ServerDashboardStatusTest {
 
@@ -227,9 +227,9 @@ class ServerDashboardStatusTest {
     // --- billing ------------------------------------------------------------
 
     @Test fun `billing — завжди UNKNOWN до PR-C`() {
-        // Це не описка: PR-A свідомо не має жодного джерела білінгу.
-        // Тест страхує від випадкового «покажу нулі» — тихий провал моніторингу
-        // витрат гірший за чесний ⚪ Unknown.
+        // This is not a typo: PR-A deliberately has no billing source at all.
+        // The test insures against an accidental "I'll show zeros" — a silent
+        // failure of cost monitoring is worse than an honest ⚪ Unknown.
         assertEquals(SectionStatus.UNKNOWN, ServerDashboardStatus.billing())
     }
 
@@ -297,7 +297,7 @@ class ServerDashboardStatusTest {
         assertEquals(SectionStatus.UNKNOWN, ServerDashboardStatus.service(svc))
     }
 
-    // ---- PR-B: upstream з реальними полями --------------------------------
+    // ---- PR-B: upstream with real fields --------------------------------
 
     @Test fun `upstream PR-B — HTTP 200 і свіжий успіх = OK`() {
         val run = Api.TelemetryLastRun(http_status = 200, error = null)
@@ -315,7 +315,7 @@ class ServerDashboardStatusTest {
 
     @Test fun `upstream PR-B — HTTP 429 = WARN`() {
         val run = Api.TelemetryLastRun(http_status = 429, error = "rate")
-        assertEquals(SectionStatus.ERROR,  // 429 з error != null => ERROR
+        assertEquals(SectionStatus.ERROR,  // 429 with error != null => ERROR
             ServerDashboardStatus.upstream(run, null, emptyList(), 1000L))
     }
 
@@ -326,10 +326,10 @@ class ServerDashboardStatusTest {
     }
 
     @Test fun `upstream PR-B — HTTP 200 з error != null = ERROR (N1 регресія)`() {
-        // Реальний сценарій: `fetch_workload` дістав body, але json-parse
-        // впав → collector записує http_status=200 і error="parse failed".
-        // Раніше умова `error != null && http != 200` пропускала цей стан як
-        // OK. Тепер будь-яка помилка = ERROR.
+        // A real scenario: `fetch_workload` got the body, but the json-parse
+        // failed → the collector writes http_status=200 and error="parse failed".
+        // The condition `error != null && http != 200` used to let this state
+        // through as OK. Now any error = ERROR.
         val run = Api.TelemetryLastRun(http_status = 200, error = "parse failed")
         val success = Api.TelemetryLastSuccess(
             time = "2099-01-01T00:00:00Z", http_status = 200)
