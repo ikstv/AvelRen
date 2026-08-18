@@ -16,6 +16,7 @@ from .db import (
     upsert_countries,
 )
 from .echerha import fetch_workload
+from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.collector")
 
@@ -101,6 +102,10 @@ async def main() -> None:
 
     pool = get_pool()
     await pool.open(wait=True, timeout=30)
+    # Fail-closed перевірка схеми (issue #88): сервіс не стартує, якщо
+    # записана версія схеми НИЖЧА за вимогу коду. Стоїть одразу після
+    # відкриття пулу — до першої корисної роботи.
+    await assert_schema_at_least(pool)
     log.info(
         "збирач стартував: %s, інтервал %s с",
         settings.workload_url,

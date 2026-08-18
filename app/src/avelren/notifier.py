@@ -19,6 +19,7 @@ from psycopg import AsyncConnection
 from . import cancels, fcm
 from .config import settings
 from .db import get_pool
+from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.notifier")
 
@@ -176,6 +177,10 @@ async def main() -> None:
 
     pool = get_pool()
     await pool.open(wait=True, timeout=30)
+    # Fail-closed перевірка схеми (issue #88): сервіс не стартує, якщо
+    # записана версія схеми НИЖЧА за вимогу коду. Стоїть одразу після
+    # відкриття пулу — до першої корисної роботи.
+    await assert_schema_at_least(pool)
     log.info("розсилач стартував, повтор кожні %s с", settings.alert_resend_seconds)
 
     async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
