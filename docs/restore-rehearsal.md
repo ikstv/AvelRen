@@ -240,7 +240,7 @@ The production database is at **009** deliberately (`010` is stamped only at 3D 
 the check is guaranteed to fail with:
 
 ```
-migration 010_postgresql_least_privilege in the files, but not recorded as applied
+is in the files but not recorded as applied
 ```
 
 This is not bypassing the check: `verify()` is designed for a partial set — the contract
@@ -801,7 +801,7 @@ Minor: the Python 3.14 image emits a `StarletteDeprecationWarning` (httpx in
 | `… mismatch: missing public.X` | the dump is incomplete, or the dump role did not have `SELECT` on X | **The worst possible result**: the backup is silently incomplete. Stop everything, sort out the `avelren_backup` rights |
 | `restored application relations must be owned by avelren_admin before handoff` | the dump was not taken with `--no-owner`, or the restorer is not `avelren_admin` | cross-check step 2a and `AVELREN_ADMIN_PASSWORD` |
 | `timescaledb extension owner must remain avelren_admin` | the extension was installed not by `avelren_admin` | step 6 was not performed fully (`provision_extension`) |
-| `migration 010… in the files, but not recorded as applied` | step 3 was skipped or the directory is wrong | rebuild `migrations-009` |
+| `is in the files but not recorded as applied` | step 3 was skipped or the directory is wrong | rebuild `migrations-009` |
 | `migration NNN: SHA in the DB does not match the file` | the migration file was edited **after** it was applied | a separate incident; stop the rehearsal |
 | `permission denied for table devices` in the smoke test | step 8 was skipped | apply 010 and repeat step 9 |
 | `REFUSED: disposable restore verification requires an explicit non-production Compose project` | `AVELREN_COMPOSE_PROJECT` not set | this is intended; set the bench project |
@@ -809,7 +809,7 @@ Minor: the Python 3.14 image emits a `StarletteDeprecationWarning` (httpx in
 | `DENIED: direct production restore is forbidden` | `--target` is not `restore_test` | this is intended |
 | `/health returns last_observation=null` | the schema is intact, there is no data | the dump is empty or only structures were restored |
 | `primary restore failure … timescaledb_post_restore cleanup succeeded` | the dump did not load, but Timescale was cleaned up correctly | look at the root cause higher up in the log; the cleanup itself worked correctly |
-| `migration 00X recorded, but the file is missing (foreign/future version)` ×9 | `/migrations` in the container is **empty**: the `$WORK` directory is inaccessible to uid 10001 | not the dump. Fix the modes (`$WORK` → `0701`, `migrations-009` → `0755`, files `0644`) and repeat **step 9 only** — there is no need to redo the restore |
+| `is recorded but the file is missing (foreign/future version)` ×9 | `/migrations` in the container is **empty**: the `$WORK` directory is inaccessible to uid 10001 | not the dump. Fix the modes (`$WORK` → `0701`, `migrations-009` → `0755`, files `0644`) and repeat **step 9 only** — there is no need to redo the restore |
 | `CONTEXT: COPY bgw_job, line N, column owner: "<role>"`, then `exit=3` | the bench has no role that owns Timescale background jobs | step 6a was skipped. Create the role, repeat step 7 from the start |
 | the script "breaks off" after the very first `compose exec -T` | `-T` passes stdin through, and `exec` eats the rest of the script that bash reads from the same stdin | add `</dev/null` to every `compose exec -T` that should not receive input (all except loading the dump). Found on prod 2026-08-17 |
 
