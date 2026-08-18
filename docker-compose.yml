@@ -3,7 +3,7 @@
 # `/admin/telemetry.version.git_sha` віддає Server Dashboard. Дефолт — пустий
 # рядок: краще null на клієнті, ніж підроблене «unknown» (див. N5 review #34).
 #
-# Deploy runbook експортує змінну перед build:
+# Deploy runbook (`deploy/schema-gate-deploy.md`) експортує змінну перед build:
 #   export SOURCE_COMMIT=$(git rev-parse HEAD)
 #   sudo -E docker compose build migrate
 # Без `sudo -E` env-змінна не долітає до docker compose під sudo.
