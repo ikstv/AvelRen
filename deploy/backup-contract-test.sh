@@ -86,7 +86,31 @@ lsf)
     find "$dir" -maxdepth 1 -type f -name 'avelren-*.sql.gz' -printf '%f\n' 2>/dev/null || true
     ;;
 deletefile)
-    rm -f -- "$(path "$1")"
+    # Real rclone deletefile fails with exit 3 when the target does not exist.
+    # The `-f` in `rm -f` used to hide that, so a bug where the caller passed a
+    # non-existent path (like a `.sha256` sidecar the deployed script never
+    # wrote) would slip through this contract test. Mirror the real semantics.
+    target=$(path "$1")
+    if [ ! -e "$target" ]; then
+        echo "rclone-stub: file not found: $target" >&2
+        exit 3
+    fi
+    rm -f -- "$target"
+    ;;
+delete)
+    # `rclone delete <dir> --include <pattern>` — semantic used for the
+    # sidecar cleanup: an empty match returns 0, a real access failure does
+    # not. The stub mirrors that: `find -exec rm -f` is silent on missing.
+    dir=$(path "$1"); shift
+    pattern=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --include) pattern=$2; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    [ -n "$pattern" ] || exit 12
+    find "$dir" -maxdepth 1 -type f -name "$pattern" -exec rm -f {} + 2>/dev/null
     ;;
 *) exit 12 ;;
 esac
@@ -201,4 +225,29 @@ mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-not
 run_case unrelated
 [ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
 
-echo "backup contract tests: 18 passed"
+# Retention with missing sidecars: the actual production state before this fix.
+# The deployed script never wrote `.sha256` sidecars, so on the first
+# repository-script run every rotated dump has a missing companion. The
+# rotation must NOT fail on that (fixed by using `rclone delete --include`
+# instead of `rclone deletefile` for the sidecar). If it does, the successful
+# backup is reported as failed AND the stamp is never touched.
+mismatched_dir="$WORK/mismatched"
+mkdir -p "$mismatched_dir/stack" "$mismatched_dir/remote/daily"
+make_tools "$mismatched_dir/bin" "$mismatched_dir/remote"
+for i in 1 2 3 4 5 6 7 8; do
+    printf 'legacy' >"$mismatched_dir/remote/daily/avelren-2025010${i}-000000.sql.gz"
+done
+env PATH="$mismatched_dir/bin:$PATH" FAKE_REMOTE="$mismatched_dir/remote" \
+    AVELREN_STACK_DIR="$mismatched_dir/stack" \
+    AVELREN_BACKUP_WORK_DIR="$mismatched_dir/work" \
+    AVELREN_BACKUP_REMOTE="fake:$mismatched_dir/remote" \
+    AVELREN_RCLONE_CONFIG="$mismatched_dir/rclone.conf" \
+    AVELREN_BACKUP_STAMP="$mismatched_dir/stamp" \
+    AVELREN_BACKUP_PASSWORD=backup-contract-secret \
+    EXPECTED_BACKUP_PASSWORD=backup-contract-secret \
+    FAKE_CALL_LOG="$mismatched_dir/calls.log" bash "$ROOT/deploy/backup.sh"
+[ -e "$mismatched_dir/stamp" ]
+kept=$(find "$mismatched_dir/remote/daily" -maxdepth 1 -type f -name '*.sql.gz' | wc -l)
+[ "$kept" = 7 ]  # 8 legacy + 1 new − 2 rotated = 7
+
+echo "backup contract tests: 19 passed"
