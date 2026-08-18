@@ -247,7 +247,9 @@ env PATH="$mismatched_dir/bin:$PATH" FAKE_REMOTE="$mismatched_dir/remote" \
     EXPECTED_BACKUP_PASSWORD=backup-contract-secret \
     FAKE_CALL_LOG="$mismatched_dir/calls.log" bash "$ROOT/deploy/backup.sh"
 [ -e "$mismatched_dir/stamp" ]
+# 8 legacy + 1 new = 9 listed; KEEP_DAILY=7 → the two oldest are rotated out.
+# Numeric comparison: `wc -l` output can carry leading whitespace.
 kept=$(find "$mismatched_dir/remote/daily" -maxdepth 1 -type f -name '*.sql.gz' | wc -l)
-[ "$kept" = 7 ]  # 8 legacy + 1 new − 2 rotated = 7
+[ "$kept" -eq 7 ] || { echo "expected 7 dumps kept, got $kept" >&2; exit 1; }
 
 echo "backup contract tests: 19 passed"
