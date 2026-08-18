@@ -80,7 +80,10 @@ sudo docker compose exec -T db psql -U avelren -d avelren -At \
 поверне пін, а відсутність `-f` не поверне легасі-DSN, якщо повертати нема чого.
 
 ```bash
-sudo docker compose config   | grep -E 'avelren-migrate-pin-009|DATABASE_URL'   || echo "STOP: override не активний"
+( set -o pipefail
+  sudo docker compose config | grep -E 'avelren-migrate-pin-009|DATABASE_URL' \
+    | sed -E 's#(postgresql://[^:]+):[^@]*@#\1:***@#g'
+) || echo "STOP: override не активний або compose-модель невалідна"
 ```
 
 Порожньо → **стоп до збірки**. Це ловить зниклий override у найдешевшій точці —
