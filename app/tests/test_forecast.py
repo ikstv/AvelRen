@@ -41,7 +41,8 @@ def test_weekday_conversion_matches_postgres():
     async def check(conn):
         bad = []
         for offset in range(7):
-            at = datetime(2026, 8, 3, 12, tzinfo=UTC) + timedelta(days=offset)  # 2026-08-03 is a Monday
+            # 2026-08-03 is a Monday
+            at = datetime(2026, 8, 3, 12, tzinfo=UTC) + timedelta(days=offset)
             ours = (at.weekday() + 1) % 7
             row = await (
                 await conn.execute("SELECT EXTRACT(dow FROM %s::timestamptz)::int AS dow", (at,))

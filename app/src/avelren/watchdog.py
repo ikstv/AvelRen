@@ -313,7 +313,9 @@ async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) 
                 (r["id"],),
             )
             log.warning(
-                "giving up on recovery %s: not delivered within %d days", r["kind"], RECOVERY_GIVE_UP_DAYS
+                "giving up on recovery %s: not delivered within %d days",
+                r["kind"],
+                RECOVERY_GIVE_UP_DAYS,
             )
 
 

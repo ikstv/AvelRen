@@ -78,7 +78,7 @@ class BodySizeLimitMiddleware:
         await self.app(scope, replaying_receive, send)
 
     async def _reject(self, send) -> None:  # noqa: ANN001
-        body = '{"detail":"Request body too large"}'.encode()
+        body = b'{"detail":"Request body too large"}'
         await send(
             {
                 "type": "http.response.start",

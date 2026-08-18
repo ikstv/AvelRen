@@ -93,7 +93,9 @@ def main() -> int:
 
         unauth = client.get("/active-alerts")
         if unauth.status_code != 401:
-            log.error("/active-alerts without auth should have been 401, but is %s", unauth.status_code)
+            log.error(
+                "/active-alerts without auth should have been 401, but is %s", unauth.status_code
+            )
             return 1
 
         reg = client.post("/devices", json={})
@@ -110,7 +112,9 @@ def main() -> int:
             },
         )
         if authed.status_code != 200:
-            log.error("/active-alerts with auth should have been 200, but is %s", authed.status_code)
+            log.error(
+                "/active-alerts with auth should have been 200, but is %s", authed.status_code
+            )
             return 1
 
     log.info(

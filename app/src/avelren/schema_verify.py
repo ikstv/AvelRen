@@ -149,7 +149,9 @@ def verify_history(conn: psycopg.Connection, directory: Path) -> list[str]:
     for version in expected.keys() - recorded.keys():
         problems.append(f"migration {version} is in the files but not recorded as applied")
     for version in recorded.keys() - expected.keys():
-        problems.append(f"migration {version} is recorded but the file is missing (foreign/future version)")
+        problems.append(
+            f"migration {version} is recorded but the file is missing (foreign/future version)"
+        )
     for version in expected.keys() & recorded.keys():
         if expected[version] != recorded[version]:
             problems.append(f"migration {version}: the SHA in the DB does not match the file")

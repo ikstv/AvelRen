@@ -338,7 +338,8 @@ def test_admin_telemetry_last_collector_run_returns_latest(
     last = body["last_collector_run"]
     assert last["http_status"] == 502
     assert last["error"] == "upstream 502"
-    # body_sha256 is deliberately NOT in the response — a technical artifact the client does not need.
+    # body_sha256 is deliberately NOT in the response — a technical artifact the
+    # client does not need.
     assert "body_sha256" not in last
 
     success = body["last_collector_success"]
