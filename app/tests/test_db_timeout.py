@@ -1,8 +1,9 @@
-"""#16: API-конекшени мусять мати обмежений час виконання запиту.
+"""#16: API connections must have a bounded query execution time.
 
-Без statement_timeout один дорогий/патологічний запит тримав би конекшен із
-пулу нескінченно й вичерпав би пул. Перевіряємо саме поведінку — повільний
-запит скасовується, — а не наявність рядка в конфізі. Потрібна реальна БД.
+Without statement_timeout, one expensive/pathological query would hold a pool
+connection indefinitely and exhaust the pool. We check the behavior itself — a
+slow query is cancelled — not the presence of a line in the config. A real DB is
+required.
 """
 
 import asyncio
@@ -33,8 +34,8 @@ def test_api_pool_aborts_slow_query() -> None:
 
 
 def test_default_pool_has_no_statement_timeout_option() -> None:
-    """Спільний код db.py лишається нейтральним: тільки API вмикає timeout,
-    тож collector/notifier/watchdog не отримують його випадково."""
+    """The shared db.py code stays neutral: only the API enables the timeout,
+    so collector/notifier/watchdog do not get it by accident."""
     db._pool = None
     pool = db.get_pool()
     try:

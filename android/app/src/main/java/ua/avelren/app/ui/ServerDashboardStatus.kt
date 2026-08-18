@@ -3,14 +3,14 @@ package ua.avelren.app.ui
 import ua.avelren.app.data.Api
 
 /**
- * Чиста логіка обчислення статусів секцій Server Dashboard.
+ * Pure logic for computing the statuses of the Server Dashboard sections.
  *
- * Винесено з `ServerDashboard.kt` окремо, щоб покрити юніт-тестами без Compose:
- * основна ризикова частина — коли поле відсутнє (⚪ Unknown vs 🟢 OK vs 🔴).
- * Плутанина тут перетворює «сервер не відповів» на «все гаразд», що і є
- * найгірший клас багу для моніторингу.
+ * Extracted separately from `ServerDashboard.kt` to cover it with unit tests
+ * without Compose: the main risky part is when a field is missing
+ * (⚪ Unknown vs 🟢 OK vs 🔴). Confusion here turns "the server did not respond"
+ * into "all is well", which is the worst class of bug for monitoring.
  *
- * Жоден метод не вигадує значення. Якщо даних немає — статус UNKNOWN, а не OK.
+ * No method invents a value. If there is no data — the status is UNKNOWN, not OK.
  */
 
 enum class SectionStatus(val emoji: String) {
@@ -22,13 +22,13 @@ enum class SectionStatus(val emoji: String) {
 
 object ServerDashboardStatus {
 
-    /** poll_interval сервера — 60 сек (див. app/src/avelren/config.py). Три
-     *  пропущені цикли = «collector_silent» на сервері; використовуємо той
-     *  самий поріг, щоб клієнт і watchdog не розходились. */
+    /** The server's poll_interval is 60 s (see app/src/avelren/config.py). Three
+     *  missed cycles = "collector_silent" on the server; we use the same threshold
+     *  so the client and the watchdog do not diverge. */
     const val POLL_INTERVAL_SECONDS = 60L
     const val COLLECTOR_STALE_THRESHOLD_SECONDS = POLL_INTERVAL_SECONDS * 3
 
-    /** Свіжість host-snapshot: сервер вважає протухлим після 5 хв. */
+    /** Host-snapshot freshness: the server considers it stale after 5 min. */
     const val SNAPSHOT_STALE_SECONDS = 300
 
     fun overall(sections: List<SectionStatus>): SectionStatus {
@@ -43,8 +43,8 @@ object ServerDashboardStatus {
     }
 
     fun host(system: Api.TelemetrySystem): SectionStatus {
-        // stale=true — host-snapshot не оновлюється, host-метрики застарілі.
-        // Не показуємо OK по протухлих числах: це головний ризик моніторингу.
+        // stale=true — the host snapshot is not updating, the host metrics are stale.
+        // We do not show OK on stale numbers: this is the main monitoring risk.
         if (system.stale == true) return SectionStatus.ERROR
 
         val disk = system.disk_used_percent
@@ -56,7 +56,7 @@ object ServerDashboardStatus {
             disk != null && disk >= 75 -> SectionStatus.WARN
             memPercent != null && memPercent >= 80 -> SectionStatus.WARN
             system.reboot_required && (system.reboot_pending_days ?: 0) >= 3 -> SectionStatus.WARN
-            // Без snapshot взагалі (жоден показник не заповнений) — UNKNOWN.
+            // With no snapshot at all (not a single metric filled in) — UNKNOWN.
             disk == null && memPercent == null && system.uptime_seconds == null ->
                 SectionStatus.UNKNOWN
             else -> SectionStatus.OK
@@ -69,14 +69,14 @@ object ServerDashboardStatus {
         return (system.memory_used_mb * 100 / total).coerceIn(0, 100)
     }
 
-    /** Вік останнього спостереження в секундах. null — сервер не віддав поле
-     *  (старий backend) або observations порожній. Обчислюється відносно `now`,
-     *  який передається зовні — це робить функцію чистою (тест не залежить від
-     *  системного годинника). */
+    /** The age of the last observation in seconds. null — the server did not return
+     *  the field (old backend) or observations is empty. Computed relative to `now`,
+     *  which is passed from outside — this makes the function pure (the test does not
+     *  depend on the system clock). */
     fun observationAgeSeconds(lastObservationIso: String?, nowEpochSeconds: Long): Long? {
         if (lastObservationIso.isNullOrBlank()) return null
-        // Приймаємо ISO-8601 з "Z" або без — сервер віддає у форматі psycopg,
-        // який може мати обидва варіанти. Помилка парсингу = null (не OK).
+        // We accept ISO-8601 with or without "Z" — the server returns it in psycopg
+        // format, which can have either variant. A parse error = null (not OK).
         return try {
             val instant = java.time.Instant.parse(
                 if (lastObservationIso.endsWith("Z") || lastObservationIso.contains("+")) {
@@ -96,7 +96,7 @@ object ServerDashboardStatus {
         problems: List<Api.HealthProblem>,
         nowEpochSeconds: Long,
     ): SectionStatus {
-        // Watchdog уже вирішив, що збирач мовчить — приймаємо його вердикт як істину.
+        // The watchdog already decided the collector is silent — we take its verdict as truth.
         if (problems.any { it.kind == "collector_silent" || it.kind == "no_data" }) {
             return SectionStatus.ERROR
         }
@@ -119,7 +119,7 @@ object ServerDashboardStatus {
     }
 
     fun database(pipeline: Api.TelemetryPipeline): SectionStatus {
-        // Watchdog алертить при >20 GB — тримаємо той самий поріг у клієнті.
+        // The watchdog alerts at >20 GB — we keep the same threshold in the client.
         val sizeMb = pipeline.db_size_mb
         return when {
             sizeMb <= 0.0 && pipeline.observations == 0L -> SectionStatus.UNKNOWN
@@ -151,19 +151,19 @@ object ServerDashboardStatus {
 
     fun watchdog(problems: List<Api.HealthProblem>): SectionStatus {
         if (problems.isEmpty()) return SectionStatus.OK
-        // telemetry_snapshot_stale — жовтий тільки в блоці watchdog: сама
-        // помилка вже піднімає Host в ERROR, тут не повторюємо суворість.
+        // telemetry_snapshot_stale — yellow only in the watchdog block: the error
+        // itself already raises Host to ERROR, we do not repeat the severity here.
         val onlyStale = problems.all { it.kind == "telemetry_snapshot_stale" }
         return if (onlyStale) SectionStatus.WARN else SectionStatus.ERROR
     }
 
-    /** Джерело білінгу з'явиться в PR-C (Hetzner read-only token). До того
-     *  чесніше показувати UNKNOWN, ніж вигадувати нулі чи «немає витрат». */
+    /** The billing source will appear in PR-C (a Hetzner read-only token). Until
+     *  then it is more honest to show UNKNOWN than to invent zeros or "no spending". */
     fun billing(): SectionStatus = SectionStatus.UNKNOWN
 
-    /** ЄЧерга-специфічної телеметрії ще немає в /admin/telemetry (додається у
-     *  PR-B). Єдиний непрямий сигнал — collector_silent, який уже підіймає
-     *  Collector в ERROR. */
+    /** eCherha-specific telemetry is not yet in /admin/telemetry (added in PR-B).
+     *  The only indirect signal is collector_silent, which already raises the
+     *  Collector to ERROR. */
     fun upstream(problems: List<Api.HealthProblem>): SectionStatus {
         if (problems.any { it.kind == "collector_silent" || it.kind == "no_data" }) {
             return SectionStatus.ERROR
@@ -171,21 +171,21 @@ object ServerDashboardStatus {
         return SectionStatus.UNKNOWN
     }
 
-    /** Per-service статус приходить у PR-B. Поки виводимо з непрямих сигналів:
-     *  api — 🟢 (сам факт, що telemetry прийшла), db — 🟢 (запит до pipeline
-     *  повернувся), інші — ⚪ Unknown. */
+    /** Per-service status arrives in PR-B. For now we derive it from indirect
+     *  signals: api — 🟢 (the very fact that telemetry arrived), db — 🟢 (the
+     *  pipeline request returned), the rest — ⚪ Unknown. */
     fun apiService(): SectionStatus = SectionStatus.OK
 
     fun dbService(pipeline: Api.TelemetryPipeline): SectionStatus =
         if (pipeline.observations > 0 || pipeline.db_size_mb > 0.0) SectionStatus.OK
         else SectionStatus.UNKNOWN
 
-    // ---- PR-B: реальні per-container статуси і upstream з бекенду ----
+    // ---- PR-B: real per-container statuses and upstream from the backend ----
 
-    /** Статус одного контейнера з `docker inspect` (whitelist полів).
-     *  Пороги свідомо строгі: `unhealthy` — одразу ERROR, `restarting` — WARN
-     *  (перезапуск нормальний під навантаженням, але часто = проблема).
-     *  Відсутність поля → UNKNOWN, а не OK. */
+    /** The status of a single container from `docker inspect` (a whitelist of fields).
+     *  The thresholds are deliberately strict: `unhealthy` — immediately ERROR,
+     *  `restarting` — WARN (a restart is normal under load, but is often = a problem).
+     *  A missing field → UNKNOWN, not OK. */
     fun service(svc: Api.TelemetryService): SectionStatus {
         val status = svc.status ?: return SectionStatus.UNKNOWN
         val health = svc.health
@@ -200,14 +200,14 @@ object ServerDashboardStatus {
         }
     }
 
-    /** ЄЧерга з реальним HTTP-статусом (PR-B заміняє попередній UNKNOWN). */
+    /** eCherha with the real HTTP status (PR-B replaces the previous UNKNOWN). */
     fun upstream(
         lastRun: Api.TelemetryLastRun?,
         lastSuccess: Api.TelemetryLastSuccess?,
         problems: List<Api.HealthProblem>,
         nowEpochSeconds: Long,
     ): SectionStatus {
-        // Watchdog уже підняв тривогу — вірити йому в першу чергу.
+        // The watchdog already raised the alarm — trust it first.
         if (problems.any { it.kind == "collector_silent" || it.kind == "no_data" }) {
             return SectionStatus.ERROR
         }
@@ -217,11 +217,11 @@ object ServerDashboardStatus {
         val successAge = observationAgeSeconds(lastSuccess?.time, nowEpochSeconds)
 
         return when {
-            // Будь-яка помилка в останньому циклі — ERROR, незалежно від HTTP.
-            // Раніше умова була `error != null && http != 200`, і сценарій
-            // «HTTP 200 з body-parse-помилкою» (collector записує
-            // http_status=200, error="parse failed") виглядав як 🟢 OK. Це
-            // саме той клас багу, від якого нас страхує інваріант «⚪ ≠ 🟢».
+            // Any error in the last cycle — ERROR, regardless of HTTP.
+            // The condition used to be `error != null && http != 200`, and the
+            // scenario "HTTP 200 with a body-parse error" (the collector writes
+            // http_status=200, error="parse failed") looked like 🟢 OK. This is
+            // exactly the class of bug the invariant "⚪ ≠ 🟢" insures us against.
             // N1 review PR #34.
             lastRun.error != null -> SectionStatus.ERROR
             http != null && http >= 500 -> SectionStatus.ERROR
@@ -233,8 +233,8 @@ object ServerDashboardStatus {
         }
     }
 
-    /** Inode usage. Заповнена filesystem за inode виглядає як «диску купа»,
-     *  а create() починає повертати ENOSPC — тому окремий сигнал. */
+    /** Inode usage. A filesystem full on inodes looks like "plenty of disk",
+     *  yet create() starts returning ENOSPC — hence a separate signal. */
     fun inodes(inodes: Api.TelemetryInodes?): SectionStatus {
         val pct = inodes?.used_percent ?: return SectionStatus.UNKNOWN
         return when {

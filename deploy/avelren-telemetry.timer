@@ -1,10 +1,10 @@
 [Unit]
-Description=Регулярний знімок host-телеметрії для AvelRen API
+Description=Periodic host telemetry snapshot for the AvelRen API
 Documentation=file:///opt/avelren/deploy/telemetry-snapshot.sh
 
 [Timer]
-# Кожну хвилину: цикл збирача теж хвилинний, тож freshness snapshot ≤ freshness
-# спостережень. API вважає snapshot протухлим після 5 хв — чотирикратний запас.
+# Every minute: the collector's cycle is also per-minute, so snapshot freshness ≤ freshness
+# of observations. The API treats a snapshot as stale after 5 min — a fourfold margin.
 OnBootSec=30s
 OnUnitActiveSec=1min
 AccuracySec=5s

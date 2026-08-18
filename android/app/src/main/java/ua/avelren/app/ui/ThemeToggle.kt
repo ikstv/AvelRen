@@ -14,7 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ua.avelren.app.ui.theme.ThemeMode
 
-/** Modernist segmented control: Світла | Темна. 0dp, 2dp rule, uppercase. */
+/** Modernist segmented control: Light | Dark. 0dp, 2dp rule, uppercase. */
 @Composable
 fun ThemeToggle(mode: ThemeMode, onChange: (ThemeMode) -> Unit) {
     Row(

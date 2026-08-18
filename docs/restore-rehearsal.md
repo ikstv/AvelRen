@@ -1,338 +1,337 @@
-# Репетиція відновлення на ізольованому стенді (Gate 11, крок B2)
+# Restore rehearsal on an isolated bench (Gate 11, step B2)
 
-> **Цей документ не є авторизацією.** Він описує процедуру, яку виконують на
-> **одноразовому стенді**, а потім — на бойовому хості. Жодна команда нижче не
-> торкається бази `avelren`, не зупиняє жодного бойового сервісу і не змінює
-> нічого в `/opt/avelren`. Якщо якийсь крок здається таким, що торкається —
-> зупинись і перечитай: значить, я помилився в тексті, а не ти в розумінні.
+> **This document is not an authorization.** It describes a procedure performed on a
+> **disposable bench**, and then on the production host. No command below
+> touches the `avelren` database, stops any production service, or changes
+> anything in `/opt/avelren`. If some step seems to touch it —
+> stop and reread: it means I made a mistake in the text, not you in your understanding.
 
-Процедуру прогнано на одноразових стендах тричі (розділ 12c), останній раз —
-на артефакті бойового класу. Виправлення після кожного прогону в тексті вже є.
-Порядок лишається: **стенд перед хостом**.
+The procedure has been run on disposable benches three times (section 12c), the last time
+on a production-class artifact. The fixes after each run are already in the text.
+The order stands: **bench before host**.
 
 ---
 
-## 0. Що це доводить і чого не доводить
+## 0. What this proves and what it does not
 
-Репетиція відповідає рівно на одне питання: **чи можна з нашого нічного
-зашифрованого артефакта підняти працездатну копію бази — не «файл
-розпакувався», а «застосунок на ній працює»**.
+The rehearsal answers exactly one question: **can we bring up a working copy of the
+database from our nightly encrypted artifact — not "the file unpacked", but
+"the application works on it"**.
 
-Доводить:
+Proves:
 
 | | |
 |---|---|
-| артефакт із ремоуту завантажується цілим і проходить `gzip -t` | крок 2 |
-| дамп фізично завантажується в TimescaleDB з коректними pre/post-restore | крок 7 |
-| набір прикладних відношень у дампі **точно** збігається з allowlist рушія | крок 7 |
-| історія міграцій і фізичний контракт схеми цілі | крок 9 |
-| справжній застосунок читає й пише відновлену базу (health, auth, devices) | крок 9 |
+| the artifact downloads from the remote intact and passes `gzip -t` | step 2 |
+| the dump physically loads into TimescaleDB with correct pre/post-restore | step 7 |
+| the set of application relations in the dump **exactly** matches the engine's allowlist | step 7 |
+| the migration history and the physical schema contract are intact | step 9 |
+| a real application reads and writes the restored database (health, auth, devices) | step 9 |
 
-**Не** доводить:
+Does **not** prove:
 
-- що ключ від crypt-ремоуту існує **поза** цим сервером (це `docs/backup-key-escrow.md`, окрема процедура);
-- що бойове відновлення вкладеться у якийсь час (RTO/RPO не затверджені — `docs/disaster-recovery.md`);
-- що `deploy/restore-production.sh` спрацює на бойовій базі (він іде іншим шляхом: зупиняє ingress, робить pre-restore snapshot, працює по продовому compose). Репетиція перевіряє **рушій і артефакт**, а не оркестратор.
+- that the key for the crypt remote exists **outside** this server (that's `docs/backup-key-escrow.md`, a separate procedure);
+- that a production restore fits within any time budget (RTO/RPO are not approved — `docs/disaster-recovery.md`);
+- that `deploy/restore-production.sh` will work on the production database (it goes a different route: stops ingress, takes a pre-restore snapshot, works over the production compose). The rehearsal checks the **engine and the artifact**, not the orchestrator.
 
-### Виправлення попереднього твердження
+### Correction to a previous statement
 
-Я раніше сказав, що «в проєкті взагалі немає операторської процедури
-відновлення». **Це було неточно.** Є:
+I earlier said that "the project has no operator restore procedure at all".
+**That was inaccurate.** There is:
 
-- `deploy/restore-production.sh` — повний оркестратор бойового відновлення (maintenance-вікно, session-gate, pre-restore snapshot, verify, контрольований рестарт, freshness);
-- `docs/disaster-recovery.md` §«Pre-adoption recovery» — ручний timescale-aware шлях під легасі `avelren`, доки adoption не завершено.
+- `deploy/restore-production.sh` — the full production-restore orchestrator (maintenance window, session gate, pre-restore snapshot, verify, controlled restart, freshness);
+- `docs/disaster-recovery.md` §"Pre-adoption recovery" — a manual timescale-aware path under the legacy `avelren`, until adoption is complete.
 
-Чого справді немає — **репетиції**: послідовності «як підняти ізольований
-кластер, звідки в ньому беруться ролі, як зібрати DSN, чим саме довести
-результат». Вона існувала тільки всередині CI-харнеса
-`deploy/restore-integration-test.sh`, який генерує собі compose і не призначений
-для бойового хоста. Цей документ закриває саме цю дірку.
+What is genuinely missing is the **rehearsal**: the sequence of "how to bring up an isolated
+cluster, where the roles in it come from, how to assemble the DSN, and with what exactly to
+prove the result". It existed only inside the CI harness
+`deploy/restore-integration-test.sh`, which generates its own compose and is not meant
+for a production host. This document closes exactly that gap.
 
 ---
 
-## 1. Передумови — доступ (premise, не крок)
+## 1. Prerequisites — access (a premise, not a step)
 
-Виконавець мусить **уже мати**, до початку:
+The performer must **already have**, before starting:
 
-- `root` або `docker`-група на хості (обовʼязково `docker compose`, `psql` — усередині контейнера);
-- читання `/opt/avelren` (компоуз, `deploy/`, `db/`);
-- доступ до `rclone` конфіга ремоуту (`/root/.config/rclone/rclone.conf`) — **на читання**;
-- `sudo` для `docker` і для читання `/opt/avelren/.env` (перевірено на цьому хості). **Процедура не припускає, що оператор — root**: усі звернення до `$WORK` роби через `sudo`, інакше `cd` туди мовчки не спрацює і перевірки пропустяться;
-- право створити `/var/lib/avelren-restore-rehearsal`;
-- **сім стендових паролів**, які виконавець генерує сам і які **не збігаються з бойовими**. Бойові паролі в цій процедурі не потрібні жодного разу.
+- `root` or the `docker` group on the host (`docker compose` mandatory, `psql` — inside the container);
+- read access to `/opt/avelren` (compose, `deploy/`, `db/`);
+- access to the remote's `rclone` config (`/root/.config/rclone/rclone.conf`) — **read-only**;
+- `sudo` for `docker` and to read `/opt/avelren/.env` (verified on this host). **The procedure does not assume the operator is root**: run every reference to `$WORK` through `sudo`, otherwise `cd` there silently fails and the checks are skipped;
+- the right to create `/var/lib/avelren-restore-rehearsal`;
+- **seven bench passwords**, which the performer generates themselves and which **do not match production**. Production passwords are not needed even once in this procedure.
 
-Якщо чогось із цього немає — **стоп**, це не «розберемось по ходу».
+If any of these is missing — **stop**, this is not a "we'll sort it out as we go".
 
-## 1a. Передумови — стан хоста
+## 1a. Prerequisites — host state
 
-Перевірити (read-only), і **не продовжувати**, якщо не сходиться:
+Check (read-only), and **do not continue** if it does not match:
 
 ```bash
-git -C /opt/avelren rev-parse HEAD                 # має бути пін прода (deploy/PROD_PIN)
-git -C /opt/avelren status --porcelain             # має бути ПОРОЖНЬО
-df -h /var/lib                                     # вільного місця ≥ 3× розміру дампа
+git -C /opt/avelren rev-parse HEAD                 # must be the prod pin (deploy/PROD_PIN)
+git -C /opt/avelren status --porcelain             # must be EMPTY
+df -h /var/lib                                     # free space ≥ 3× the dump size
 docker image inspect avelren-app:latest \
   --format '{{range .Config.Env}}{{println .}}{{end}}' | grep AVELREN_GIT_SHA
 ```
 
-Останній рядок має показати той самий комміт. Якщо `AVELREN_GIT_SHA` порожній
-або інший — образ зібрано не з піна; стенд тоді перевіряє **не той** застосунок.
-Це не привід зупинятись, але це треба записати у звіт явно.
+The last line must show the same commit. If `AVELREN_GIT_SHA` is empty
+or different — the image was not built from the pin; the bench then verifies **the wrong** application.
+This is not a reason to stop, but it must be recorded explicitly in the report.
 
-> Чому `git status` має бути порожнім: не тому, що це блокує репетицію (не
-> блокує), а тому що брудне дерево все одно заблокує `postgres-adopt.sh` пізніше
-> — краще виявити зараз. Див. «Clean-worktree invariant» у
+> Why `git status` must be empty: not because it blocks the rehearsal (it does not
+> block it), but because a dirty tree will block `postgres-adopt.sh` later anyway
+> — better to find out now. See "Clean-worktree invariant" in
 > `deploy/postgres-adoption-runbook.md`.
 
 ---
 
-## 2. Крок 1 — робочий каталог поза checkout
+## 2. Step 1 — a working directory outside the checkout
 
-Усе, що ми створюємо, живе **поза** `/opt/avelren`. Це не стиль, це вимога:
-будь-який файл усередині checkout робить дерево брудним і потім відмовляє
+Everything we create lives **outside** `/opt/avelren`. This is not style, it is a requirement:
+any file inside the checkout makes the tree dirty and then refuses
 adoption.
 
-Два шляхи винесені у змінні — не для краси, а тому що без цього процедура
-непереносна, і перший прогін на одноразовій машині падає не через свою хибу
-(розділ 12):
+Two paths are pulled into variables — not for looks, but because without this the procedure
+is non-portable, and the first run on a disposable machine fails not through its own fault
+(section 12):
 
-| змінна | бойовий хост | одноразова машина |
+| variable | production host | disposable machine |
 |---|---|---|
-| `STACK` | `/opt/avelren` | шлях до клону репозиторію |
-| `WORK` | `/var/lib/avelren-restore-rehearsal` | будь-який каталог поза клоном |
+| `STACK` | `/opt/avelren` | path to the repository clone |
+| `WORK` | `/var/lib/avelren-restore-rehearsal` | any directory outside the clone |
 
 ```bash
 umask 077
 export STACK=/opt/avelren
 export WORK=/var/lib/avelren-restore-rehearsal
 
-# 0701 — лише біт проходу: контейнер мусить ПРОЙТИ крізь $WORK до
-# migrations-009, але не має права переліку вмісту.
+# 0701 — only the traverse bit: the container must PASS THROUGH $WORK to
+# migrations-009, but has no right to list the contents.
 install -d -m 0701 "$WORK"
-# 0700 — сюди контейнер не заходить: розшифрований дамп і паролі стенду.
+# 0700 — the container does not enter here: the decrypted dump and the bench passwords.
 install -d -m 0700 "$WORK/stand" "$WORK/artifact"
 ```
 
-> **Чому не `0700` на `$WORK`.** Образ `avelren-app` працює під непривілейованим
-> uid 10001 (`USER avelren` у `app/Dockerfile`), а процедуру виконує root або
-> оператор із sudo. Каталог `0700 root:root` контейнер відкрити не може, і
-> `/migrations` усередині виглядає **порожнім** — не помилкою доступу, а
-> порожнім каталогом. Крок 9 тоді падає з `міграція 00X записана, але файлу
-> нема` ×9, що читається як пошкоджений дамп, хоча дамп цілий.
->
-> Знайдено лише на бойовому хості (2026-08-17). Три стенди були зелені, бо
-> Windows-ФС мовчки не застосувала `chmod`, і попередження
-> `install: cannot change permissions` списали як несуттєве. Урок ширший за цей
-> крок: попередження, яке ви пояснили собі, — не те саме, що попередження, яке
-> ви перевірили.
+> **Why not `0700` on `$WORK`.** The `avelren-app` image runs under an unprivileged
+> uid 10001 (`USER avelren` in `app/Dockerfile`), and the procedure is performed by root or
+> an operator with sudo. The container cannot open a `0700 root:root` directory, and
+> `/migrations` inside looks **empty** — not an access error, but an
+> empty directory. Step 9 then fails with `migration 00X recorded, but the file is
+> missing` ×9, which reads as a corrupt dump, even though the dump is intact.
+
+> Found only on the production host (2026-08-17). Three benches were green, because
+> the Windows filesystem silently did not apply `chmod`, and the warning
+> `install: cannot change permissions` was written off as insignificant. The lesson is broader than this
+> step: a warning you have explained to yourself is not the same as a warning you
+> have verified.
 
 ---
 
-## 3. Крок 2 — артефакт: забрати, звірити, **прочитати**
+## 3. Step 2 — the artifact: fetch, cross-check, **read**
 
 ```bash
 cd "$WORK/artifact"
 rclone lsf gdrive-crypt:avelren/daily/ --files-only | sort | tail -5
 ```
 
-Обрати артефакт (зазвичай останній `avelren-YYYYmmdd-HHMMSS.sql.gz`), забрати
-його разом із sidecar:
+Choose an artifact (usually the latest `avelren-YYYYmmdd-HHMMSS.sql.gz`), fetch
+it together with its sidecar:
 
 ```bash
 NAME=avelren-<stamp>.sql.gz
 rclone copyto "gdrive-crypt:avelren/daily/$NAME" "./$NAME"
 chmod 0600 "./$NAME"
 
-gzip -t "./$NAME"                 # має мовчати
-sha256sum "./$NAME" | tee "./$NAME.local-digest"   # ФІКСУЄМО, не звіряємо
+gzip -t "./$NAME"                 # must be silent
+sha256sum "./$NAME" | tee "./$NAME.local-digest"   # WE RECORD, we don't cross-check
 ls -l "./$NAME"
 ```
 
-> **Sidecar `.sha256` не існує — і це не помилка виконавця.** Розгорнутий на
-> проді `/usr/local/sbin/avelren-backup` їх не створює; версія `deploy/backup.sh`
-> у репозиторії, яка створює і звіряє sidecar, **не розгорнута** (див. розділ 14).
-> Перевірено 2026-08-17: у `daily/`, `weekly/` і `monthly/` — нуль sidecar-файлів.
+> **The `.sha256` sidecar does not exist — and this is not the performer's error.** The
+> `/usr/local/sbin/avelren-backup` deployed on prod does not create them; the `deploy/backup.sh`
+> version in the repository, which creates and cross-checks the sidecar, is **not deployed** (see section 14).
+> Verified 2026-08-17: in `daily/`, `weekly/` and `monthly/` — zero sidecar files.
 >
-> Тому крок 2 **фіксує** digest завантаженої копії замість того, щоб звіряти її
-> з неіснуючим еталоном. Це слабше за sidecar (не ловить пошкодження на боці
-> ремоуту), але не вдає доказу, якого немає. Реальний доказ цілісності тут дає
-> не хеш, а крок 7: дамп, який завантажився в PostgreSQL із `ON_ERROR_STOP=1` і
-> зійшовся з allowlist рушія, пошкодженим бути не може.
+> So step 2 **records** the digest of the downloaded copy instead of cross-checking it
+> against a nonexistent reference. This is weaker than a sidecar (it does not catch corruption on
+> the remote's side), but it does not fake a proof that does not exist. The real integrity proof here comes
+> not from the hash but from step 7: a dump that loaded into PostgreSQL with `ON_ERROR_STOP=1` and
+> matched the engine's allowlist cannot be corrupt.
 >
-> Зафіксований digest усе одно потрібен: у звіті він привʼязує всі подальші
-> числа до конкретного байтового вмісту.
+> The recorded digest is still needed: in the report it binds all subsequent
+> numbers to a specific byte content.
 
-### 2a. Розвідка дампа — **не пропускати**
+### 2a. Dump reconnaissance — **do not skip**
 
-Це єдиний крок, який перетворює припущення на вимір. Ми **не знаємо** наперед,
-під якою роллю знято бойовий дамп і які ACL він у собі несе; від цього залежать
-кроки 8 і 9.
+This is the one step that turns an assumption into a measurement. We **do not know** in advance
+under which role the production dump was taken and what ACLs it carries; steps 8 and 9 depend on it.
 
 ```bash
 zcat "./$NAME" | head -30
 zcat "./$NAME" | grep -c '^GRANT '
 zcat "./$NAME" | grep -oE '\bavelren[a-z_]*\b' | sort -u
-# де саме згадана роль — це важливіше за сам факт згадки:
+# where exactly the role is mentioned — this matters more than the mere fact of the mention:
 zcat "./$NAME" | grep -n 'bgw_job' | head
 ```
 
-Записати у звіт:
+Record in the report:
 
-- версію `pg_dump` і сервера з шапки;
-- кількість `GRANT` (нуль — очікувано для схеми 009 до adoption);
-- **повний перелік імен ролей**, що зустрічаються в дампі, і **де** саме.
+- the `pg_dump` and server version from the header;
+- the number of `GRANT`s (zero — expected for schema 009 before adoption);
+- the **full list of role names** that appear in the dump, and **where** exactly.
 
-> Навіщо це критично. `restore.sh` виконує дамп із `ON_ERROR_STOP=1`, тож будь-яке
-> імʼя ролі в дампі, якого немає в стенді, валить відновлення посеред
-> завантаження. І імена ховаються **у двох різних місцях**: у DDL-грантах
-> (`GRANT ... TO <роль>`) і **в даних** — колонка `owner` таблиці
-> `_timescaledb_config.bgw_job`, де записані власники фонових джобів Timescale
+> Why this is critical. `restore.sh` runs the dump with `ON_ERROR_STOP=1`, so any
+> role name in the dump that is not present in the bench brings down the restore in the middle of
+> loading. And the names hide **in two different places**: in DDL grants
+> (`GRANT ... TO <role>`) and **in the data** — the `owner` column of the
+> `_timescaledb_config.bgw_job` table, which records the owners of Timescale background jobs
 > (compression policy, refresh continuous aggregate).
 >
-> Друге небезпечніше, бо `grep -c '^GRANT '` його не бачить. Саме так і буде на
-> проді: грантів нуль, а імʼя `avelren` присутнє — у даних. Тому перелік ролей
-> для кроку 6a береться з **другої** команди, а не з першої.
+> The second is more dangerous, because `grep -c '^GRANT '` does not see it. That is exactly how it will be on
+> prod: zero grants, but the name `avelren` is present — in the data. So the list of roles
+> for step 6a is taken from the **second** command, not the first.
 
-> **УВАГА: наведене нижче виміряно ДО Gate 11 3B.2 (2026-08-17 14:08 UTC).**
-> Adoption змінила рівно те, що тут описано. Артефакти, зняті **після** цієї
-> дати, нестимуть ACL з міграції `010`, а прикладні відношення в проді належать
-> `avelren_migrator`, не легасі `avelren`.
+> **NOTE: what follows was measured BEFORE Gate 11 3B.2 (2026-08-17 14:08 UTC).**
+> Adoption changed exactly what is described here. Artifacts taken **after** this
+> date will carry ACLs from migration `010`, and the application relations on prod belong to
+> `avelren_migrator`, not the legacy `avelren`.
 >
-> Що з цього випливає для кроків нижче:
+> What this implies for the steps below:
 >
-> - **крок 2a:** очікувати вже **не нуль** `GRANT`, а повний набір із `010`, і імена всіх шести ролей у ACL — крім згадки легасі `avelren` у `bgw_job`, яка лишається;
-> - **крок 6a** — так само обовʼязковий: власник фонових джобів Timescale не змінився;
-> - **крок 8** — стає **зайвим**: гранти прийдуть із самого дампа. Виконання його вдруге ідемпотентне й нешкідливе, але вже не потрібне; замість цього перевір, що `avelren_api` читає `checkpoints` **до** нього;
-> - **крок 3** (фільтр 001–009) — **без змін**: `schema_migrations` навмисно лишилась на `009`;
-> - ownership-передача — без змін: дамп `--no-owner`, відновлення під `avelren_admin`.
+> - **step 2a:** expect **no longer zero** `GRANT`, but the full set from `010`, and the names of all six roles in the ACL — apart from the mention of the legacy `avelren` in `bgw_job`, which remains;
+> - **step 6a** — still mandatory: the owner of Timescale background jobs did not change;
+> - **step 8** — becomes **redundant**: the grants will come from the dump itself. Running it a second time is idempotent and harmless, but no longer needed; instead, verify that `avelren_api` reads `checkpoints` **before** it;
+> - **step 3** (filter 001–009) — **unchanged**: `schema_migrations` was deliberately left at `009`;
+> - the ownership handoff — unchanged: the dump is `--no-owner`, restored under `avelren_admin`.
 >
-> Оновити цей блок після 3D, коли `010` буде заштамповано.
+> Update this block after 3D, once `010` is stamped.
 
-**Що саме очікувати в бойовому артефакті — виміряно на проді 2026-08-17
-(read-only), стан ДО adoption:**
+**What exactly to expect in the production artifact — measured on prod 2026-08-17
+(read-only), state BEFORE adoption:**
 
-- дамп знімає **легасі `avelren`** (суперюзер) з `--no-owner`, а не `avelren_backup`;
-- на проді **нуль** `table_privileges`, `column_privileges` і default ACL для `avelren_%`-ролей;
-- усі 20 прикладних відношень належать легасі `avelren`; слідів 3B.2 немає.
+- the dump is taken by the **legacy `avelren`** (superuser) with `--no-owner`, not `avelren_backup`;
+- on prod there are **zero** `table_privileges`, `column_privileges` and default ACLs for `avelren_%` roles;
+- all 20 application relations belong to the legacy `avelren`; there are no traces of 3B.2.
 
-Практичні наслідки, кожен перевіряється командами вище:
+Practical consequences, each verified by the commands above:
 
-1. `GRANT`-ів у дампі має бути **нуль** — і це **не** означає, що крок 6a не потрібен. Імʼя `avelren` майже напевно зʼявиться в даних `bgw_job`; **крок 6a обовʼязковий** (доведено на стенді #3: без нього `exit=3`).
-2. `--no-owner` + відновлення під `avelren_admin` ⇒ усе стане admin-owned ⇒ перевірка володіння до handoff пройде.
-3. Крок 8 (шар грантів 010) на бойовому артефакті **обовʼязковий, не опційний**: без нього `avelren_api` не має взагалі нічого і smoke падає з `permission denied` (фальсифіковано на стенді #3).
+1. There must be **zero** `GRANT`s in the dump — and this does **not** mean step 6a is unnecessary. The name `avelren` will almost certainly appear in the `bgw_job` data; **step 6a is mandatory** (proven on bench #3: without it `exit=3`).
+2. `--no-owner` + restore under `avelren_admin` ⇒ everything becomes admin-owned ⇒ the ownership check before handoff passes.
+3. Step 8 (the 010 grant layer) on the production artifact is **mandatory, not optional**: without it `avelren_api` has nothing at all and the smoke test fails with `permission denied` (falsified on bench #3).
 
-> Для повноти: `deploy/backup.sh` із репозиторію жорстко вимагає роль
-> `avelren_backup`, і на схемі 009 `pg_dump -U avelren_backup` падає з
-> `permission denied for table schema_migrations`, даючи нуль байтів
-> (виміряно на стенді #1). Тобто **той** шлях fail-closed і часткового дампа
-> не дає. Але на проді працює не він — див. розділ 14.
+> For completeness: the `deploy/backup.sh` from the repository strictly requires the
+> `avelren_backup` role, and on schema 009 `pg_dump -U avelren_backup` fails with
+> `permission denied for table schema_migrations`, producing zero bytes
+> (measured on bench #1). That is, **that** path is fail-closed and does not produce a partial dump.
+> But it is not the one running on prod — see section 14.
 
 ---
 
-## 4. Крок 3 — відфільтрований набір міграцій (001–009)
+## 4. Step 3 — the filtered set of migrations (001–009)
 
 `python -m avelren.schema_verify` (`app/src/avelren/schema_verify.py`,
-`verify_history`) звіряє каталог міграцій із таблицею `schema_migrations`
-**в обидва боки**: файл без запису — помилка, запис без файлу — помилка, різний
-SHA — помилка.
+`verify_history`) cross-checks the migrations directory against the `schema_migrations` table
+**in both directions**: a file without a record is an error, a record without a file is an error, a differing
+SHA is an error.
 
-Бойова база стоїть на **009** навмисно (`010` штампується аж на 3D —
-`deploy/postgres-adoption-runbook.md`). Якщо змонтувати в стенд повний
-`db/migrations`, перевірка гарантовано впаде на:
+The production database is at **009** deliberately (`010` is stamped only at 3D —
+`deploy/postgres-adoption-runbook.md`). If you mount the full `db/migrations` into the bench,
+the check is guaranteed to fail with:
 
 ```
-міграція 010_postgresql_least_privilege у файлах, але не записана як застосована
+migration 010_postgresql_least_privilege in the files, but not recorded as applied
 ```
 
-Це не обхід перевірки: `verify()` спроєктовано під частковий набір — контракт
-фільтрується за фактично записаними версіями (докстрінг `verify()` це прямо
-описує). Ми даємо йому каталог, який відповідає стану бази.
+This is not bypassing the check: `verify()` is designed for a partial set — the contract
+is filtered by the actually-recorded versions (the `verify()` docstring describes this directly).
+We give it a directory that matches the state of the database.
 
 ```bash
 SRC="$STACK/db/migrations"
 DST="$WORK/migrations-009"
 
-# 0755/0644 — каталог читає контейнер під uid 10001. Секретів тут немає:
-# це ті самі файли, що лежать у git.
+# 0755/0644 — the directory is read by the container under uid 10001. There are no secrets here:
+# these are the same files that live in git.
 install -d -m 0755 "$DST"
-cp -p "$SRC"/00*.sql "$DST/"      # 00* бере 001–009 і НЕ бере 010
+cp -p "$SRC"/00*.sql "$DST/"      # 00* takes 001–009 and does NOT take 010
 chmod 0644 "$DST"/*.sql
 
-# байт-у-байт: контрольні суми рахуються по тексту файлу
+# byte-for-byte: checksums are computed over the file text
 ( cd "$SRC" && sha256sum 00[1-9]_*.sql ) > /tmp/src.sums
-( cd "$DST" && sha256sum -c /tmp/src.sums )   # усе має бути OK
-ls "$DST"                                     # рівно 9 файлів, без 010
+( cd "$DST" && sha256sum -c /tmp/src.sums )   # everything must be OK
+ls "$DST"                                     # exactly 9 files, no 010
 rm -f /tmp/src.sums
 ```
 
-Одразу довести, що контейнер їх бачить, — інакше помилка спливе аж на кроці 9
-й виглядатиме як пошкоджений дамп:
+Immediately prove that the container sees them — otherwise the error surfaces only at step 9
+and looks like a corrupt dump:
 
 ```bash
 docker compose -f "$WORK/stand/compose.yml" -p avelren-rv3-86d3534 \
-  run --rm --no-deps -T migrate ls /migrations </dev/null    # 9 файлів
+  run --rm --no-deps -T migrate ls /migrations </dev/null    # 9 files
 ```
 
-І перевірити, що закрите лишилось закритим:
+And verify that what was closed stayed closed:
 
 ```bash
 docker compose -f "$WORK/stand/compose.yml" -p avelren-rv3-86d3534 \
   run --rm --no-deps -T -v "$WORK:/w:ro" migrate ls /w/artifact </dev/null
-# має бути Permission denied
+# must be Permission denied
 ```
 
-**Якщо після кроку 9 виявиться, що бойова база вже на 010** — тоді копіювати
-треба всі десять, а крок 8 пропустити. Перевірити фактичну версію можна вже
-після відновлення (крок 7 виводить лічильники; версію дає
+**If, after step 9, it turns out that the production database is already at 010** — then you must copy
+all ten and skip step 8. You can check the actual version already
+after the restore (step 7 outputs the counters; the version comes from
 `SELECT max(version) FROM schema_migrations`).
 
 ---
 
-## 5. Крок 4 — compose стенду
+## 5. Step 4 — the bench compose
 
-Записати як `$WORK/stand/compose.yml`:
+Write as `$WORK/stand/compose.yml`:
 
 ```yaml
-# Стенд репетиції відновлення. НЕ бойовий compose.
-# Каталог проєкту для Compose = каталог цього файлу, тому тут НЕ МОЖЕ
-# випадково підхопитись /opt/avelren/.env з бойовими DSN.
+# Restore-rehearsal bench. NOT the production compose.
+# The project directory for Compose = the directory of this file, so /opt/avelren/.env
+# with production DSNs CANNOT be picked up here by accident.
 name: avelren-rv3-86d3534
 
 services:
   db:
-    # Той самий digest, що й у бойовому docker-compose.yml — інакше
-    # репетиція перевіряє інший PostgreSQL.
+    # The same digest as in the production docker-compose.yml — otherwise
+    # the rehearsal verifies a different PostgreSQL.
     image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
-    # Стеля нижча за бойову: стенд не має права підʼїсти памʼять у прода.
+    # The ceiling is below production: the bench has no right to eat into prod's memory.
     mem_limit: 768m
     cpus: 1.0
     environment:
       POSTGRES_USER: avelren_admin
       POSTGRES_PASSWORD: ${STAND_ADMIN_PASSWORD:?stand admin password missing}
       POSTGRES_DB: postgres
-      # Маркер існує ЛИШЕ у стендовому .env. Крок 5 доводить ним, що
-      # контейнер читає стендове оточення, а не бойове.
+      # This marker exists ONLY in the bench .env. Step 5 uses it to prove that
+      # the container reads the bench environment, not the production one.
       AVELREN_STAND_GUARD: ${AVELREN_STAND_GUARD:?stand env-file not loaded}
     volumes:
       - stand_db:/var/lib/postgresql/data
-      # checkout лише на читання: bootstrap-скрипту потрібні db/security/*.sql
+      # checkout read-only: the bootstrap script needs db/security/*.sql
       - ${STACK:?STACK not exported}:/workspace:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U avelren_admin -d postgres"]
       interval: 2s
       timeout: 3s
       retries: 30
-    # Портів назовні НЕМАЄ навмисно: стенд недосяжний ні з мережі, ні з
-    # бойового проєкту (інший Compose-проєкт → інша мережа).
+    # There are deliberately NO ports exposed: the bench is unreachable from the network or from
+    # the production project (a different Compose project → a different network).
 
-  # Обидва сервіси існують тільки заради `restore-verify.sh`, який запускає їх
-  # як `run --rm --no-deps` з підміненою командою (перевірено: команда
-  # підставляється на місці виклику, тому `command:` тут — лише заглушка,
-  # але сервіси мусять бути описані обидва).
+  # Both services exist only for `restore-verify.sh`, which runs them
+  # as `run --rm --no-deps` with a substituted command (verified: the command
+  # is substituted at the call site, so `command:` here is only a stub,
+  # but both services must be described).
   #
-  # На бойовому хості беремо ГОТОВИЙ образ і НЕ збираємо: `build:` перезаписав
-  # би тег avelren-app:latest, з якого прод підніметься наступного разу.
-  # На одноразовій машині такого тега немає — див. розділ 12.
+  # On the production host we take the READY image and do NOT build: `build:` would overwrite
+  # the avelren-app:latest tag that prod will come up from next time.
+  # On a disposable machine there is no such tag — see section 12.
   migrate:
     image: ${STAND_APP_IMAGE:?STAND_APP_IMAGE not exported}
     command: ["python", "-m", "avelren.migrate"]
@@ -351,98 +350,98 @@ volumes:
   stand_db:
 ```
 
-### Змінні стенду — через оточення, а не через `.env`
+### Bench variables — via the environment, not via `.env`
 
-Записати `$WORK/stand/stand.env`, режим `0600`:
+Write `$WORK/stand/stand.env`, mode `0600`:
 
 ```
 STACK=/opt/avelren
 WORK=/var/lib/avelren-restore-rehearsal
 STAND_APP_IMAGE=avelren-app:latest
 AVELREN_STAND_GUARD=stand
-STAND_ADMIN_PASSWORD=<стендовий, згенерований щойно>
-STAND_MIGRATOR_PASSWORD=<стендовий>
-STAND_BACKUP_PASSWORD=<стендовий>
-STAND_COLLECTOR_PASSWORD=<стендовий>
-STAND_NOTIFIER_PASSWORD=<стендовий>
-STAND_WATCHDOG_PASSWORD=<стендовий>
-STAND_API_PASSWORD=<стендовий>
+STAND_ADMIN_PASSWORD=<bench, just generated>
+STAND_MIGRATOR_PASSWORD=<bench>
+STAND_BACKUP_PASSWORD=<bench>
+STAND_COLLECTOR_PASSWORD=<bench>
+STAND_NOTIFIER_PASSWORD=<bench>
+STAND_WATCHDOG_PASSWORD=<bench>
+STAND_API_PASSWORD=<bench>
 ```
 
 ```bash
 chmod 0600 "$WORK/stand/stand.env"
 ```
 
-І **в кожній сесії, перед кожною командою з наступних кроків**:
+And **in every session, before every command from the following steps**:
 
 ```bash
 set -a; . "$WORK/stand/stand.env"; set +a
 ```
 
-Паролі генерувати лише з `[A-Za-z0-9]` (`openssl rand -hex 24`): вони йдуть
-у DSN без екранування, і спецсимвол мовчки зіпсує URI.
+Generate passwords only from `[A-Za-z0-9]` (`openssl rand -hex 24`): they go
+into the DSN without escaping, and a special character will silently corrupt the URI.
 
-> **Чому саме через оточення, а не через `.env` у каталозі стенду.**
-> `deploy/restore.sh` і `deploy/restore-verify.sh` мають власну обгортку
-> `compose()`, яка передає лише `-f` і `-p` — **без** `--project-directory`
-> і **без** `--env-file`. При цьому рушій (`restore-engine.lib.sh`) перед
-> викликом робить `cd "$AVELREN_STACK_DIR"`, тобто в `/opt/avelren`. Куди саме
-> Compose піде по `.env` у такій конфігурації — у каталог compose-файлу чи в
-> поточний, — залежить від версії; покладатись на це не можна, бо в поточному
-> лежить **бойовий** `.env`.
+> **Why via the environment, and not via a `.env` in the bench directory.**
+> `deploy/restore.sh` and `deploy/restore-verify.sh` have their own `compose()`
+> wrapper, which passes only `-f` and `-p` — **without** `--project-directory`
+> and **without** `--env-file`. Meanwhile the engine (`restore-engine.lib.sh`), before the
+> call, does `cd "$AVELREN_STACK_DIR"`, i.e. into `/opt/avelren`. Where exactly
+> Compose will look for `.env` in such a configuration — the directory of the compose file or the
+> current one — depends on the version; you cannot rely on it, because the current one holds
+> the **production** `.env`.
 >
-> Значення з оточення шелу мають вищий пріоритет за будь-який `.env` у будь-якій
-> версії Compose. Тому ми не вгадуємо — ми експортуємо. А `:?` у compose-файлі
-> робить помилку гучною: якщо змінні не експортовані, Compose зупиниться з
-> явним повідомленням замість того, щоб мовчки підставити щось із бойового
-> `.env`. У `/opt/avelren/.env` ключів `AVELREN_STAND_GUARD` і
-> `STAND_ADMIN_PASSWORD` немає — отже, підставити нема чого, і сценарій
-> «стенд тихо взяв бойові значення» структурно неможливий.
+> Values from the shell environment take priority over any `.env` in any
+> version of Compose. So we do not guess — we export. And the `:?` in the compose file
+> makes the error loud: if the variables are not exported, Compose stops with
+> an explicit message instead of silently substituting something from the production
+> `.env`. The `/opt/avelren/.env` has no `AVELREN_STAND_GUARD` or
+> `STAND_ADMIN_PASSWORD` keys — so there is nothing to substitute, and the scenario
+> "the bench quietly took production values" is structurally impossible.
 
-Перевірити модель до будь-якого запуску:
+Verify the model before any run:
 
 ```bash
 cd "$WORK/stand"
 docker compose -f compose.yml -p avelren-rv3-86d3534 config >/dev/null
 ```
 
-Має пройти без попереджень про порожні змінні.
+Must pass without warnings about empty variables.
 
 ---
 
-## 6. Крок 5 — підняти db і **довести ізоляцію**
+## 6. Step 5 — bring up db and **prove isolation**
 
 ```bash
 cd "$WORK/stand"
 docker compose -f compose.yml -p avelren-rv3-86d3534 up --detach --wait db
 ```
 
-Три докази поспіль (усі мають пройти):
+Three proofs in a row (all must pass):
 
 ```bash
 C="docker compose -f compose.yml -p avelren-rv3-86d3534"
 
-# 1. контейнер читає стендове оточення
+# 1. the container reads the bench environment
 $C exec -T db sh -c '[ "$AVELREN_STAND_GUARD" = stand ]' && echo GUARD-OK
 
-# 2. бойових змінних у ньому немає
+# 2. no production variables in it
 $C exec -T db sh -c '[ -z "$ECHERHA_DEVICE_ID" ] && [ -z "$AVELREN_API_DSN" ]' && echo NO-PROD-ENV
 
-# 3. бойові контейнери не зачеплені (жоден не перестворено)
+# 3. the production containers are untouched (none recreated)
 docker ps --filter label=com.docker.compose.project=avelren \
           --format '{{.Names}}\t{{.Status}}'
 ```
 
-Третій вивід має показати ті самі uptime, що й до початку. Якщо якийсь
-бойовий контейнер має вік у секунди — **негайно стоп**: це рецидив інциденту
-2026-08-14.
+The third output must show the same uptime as before the start. If any
+production container is seconds old — **stop immediately**: this is a recurrence of the
+2026-08-14 incident.
 
 ---
 
-## 7. Крок 6 — ролі у стенді
+## 7. Step 6 — roles in the bench
 
-`postgres-bootstrap.sh` виконуємо **всередині** контейнера db: там є `psql`, і
-там же змонтований checkout.
+We run `postgres-bootstrap.sh` **inside** the db container: `psql` is there, and
+the checkout is mounted there too.
 
 ```bash
 cd "$WORK/stand"
@@ -465,31 +464,31 @@ docker compose -f compose.yml -p avelren-rv3-86d3534 exec -T \
   db bash /workspace/deploy/postgres-bootstrap.sh fresh
 ```
 
-Очікуваний хвіст виводу: `migrate_handoff`, далі
+Expected tail of the output: `migrate_handoff`, then
 `postgres bootstrap complete: fresh`.
 
-Що саме тут відбувається і чому це та сама **топологія володіння**, про яку
-йдеться в `restore-engine.lib.sh`:
+What exactly happens here and why it is the same **ownership topology** that
+`restore-engine.lib.sh` talks about:
 
-- `db/security/bootstrap.sql` створює 7 ролей; `avelren_admin` — `LOGIN SUPERUSER`, решта — `NOINHERIT NOBYPASSRLS`, **без жодного membership** між собою (скрипт це ще й перевіряє й падає, якщо membership зʼявився);
-- `create_database` створює `restore_test` з `OWNER avelren_admin`;
-- `provision_extension` ставить `timescaledb` **від імені `avelren_admin`** → власник розширення `avelren_admin`;
-- `apply_acl` робить власником бази і схеми `public` `avelren_admin`, знімає права з `PUBLIC` і видає `CONNECT`/`USAGE` семи ролям;
-- `verify_owners` падає, якщо власник бази, схеми або розширення — не `avelren_admin`.
+- `db/security/bootstrap.sql` creates 7 roles; `avelren_admin` — `LOGIN SUPERUSER`, the rest — `NOINHERIT NOBYPASSRLS`, **without any membership** between them (the script also checks this and fails if a membership appeared);
+- `create_database` creates `restore_test` with `OWNER avelren_admin`;
+- `provision_extension` installs `timescaledb` **as `avelren_admin`** → the extension owner is `avelren_admin`;
+- `apply_acl` makes `avelren_admin` the owner of the database and the `public` schema, removes rights from `PUBLIC` and grants `CONNECT`/`USAGE` to the seven roles;
+- `verify_owners` fails if the owner of the database, schema or extension is not `avelren_admin`.
 
-Саме ці три власники — база, `public`, `timescaledb` — і є та передумова, без
-якої `restore_application_owners` кидає виняток. Стенд не «має сім ролей»;
-стенд **відтворює топологію**.
+These three owners — the database, `public`, `timescaledb` — are exactly the precondition without
+which `restore_application_owners` throws an exception. The bench does not "have seven roles";
+the bench **reproduces the topology**.
 
-> Крок 7 зараз видалить і створить `restore_test` заново. Це не марна робота:
-> `createdb`/`CREATE EXTENSION` рушій робить теж від `avelren_admin`, тож
-> топологія зберігається, а ролі й їхні паролі — те, заради чого цей крок
-> існує, — переживають перестворення бази.
+> Step 7 will now drop and recreate `restore_test` from scratch. This is not wasted work:
+> the engine does `createdb`/`CREATE EXTENSION` as `avelren_admin` too, so the
+> topology is preserved, and the roles and their passwords — the thing this step
+> exists for — survive the recreation of the database.
 
-### 6a. Легасі роль — на бойовому артефакті обовʼязково
+### 6a. The legacy role — mandatory on the production artifact
 
-Якщо крок 2a показав у дампі імʼя `avelren` (без суфікса) — а на бойовому
-артефакті він його покаже — створити роль у стенді **до** відновлення:
+If step 2a showed the name `avelren` in the dump (without a suffix) — and on the production
+artifact it will show it — create the role in the bench **before** the restore:
 
 ```bash
 PGPASSWORD="$STAND_ADMIN_PASSWORD" \
@@ -499,11 +498,11 @@ docker compose -f compose.yml -p avelren-rv3-86d3534 exec -T -e PGPASSWORD db \
    THEN CREATE ROLE avelren NOLOGIN; END IF; END \$\$;"
 ```
 
-> **Причина — не гранти.** Тут раніше було написано «інакше
-> `GRANT ... TO avelren` завалить завантаження». Це хибно: грантів у бойовому
-> дампі нуль. Справжня причина — **дані**: у `COPY _timescaledb_config.bgw_job`
-> колонка `owner` містить імʼя ролі-власника фонових джобів Timescale. Без цієї
-> ролі завантаження падає:
+> **The reason is not the grants.** It used to say here "otherwise
+> `GRANT ... TO avelren` will break the load". That is wrong: there are zero grants in the production
+> dump. The real reason is the **data**: in `COPY _timescaledb_config.bgw_job` the
+> `owner` column contains the name of the role that owns Timescale background jobs. Without this
+> role the load fails:
 >
 > ```
 > CONTEXT:  COPY bgw_job, line 1, column owner: "avelren"
@@ -511,19 +510,19 @@ docker compose -f compose.yml -p avelren-rv3-86d3534 exec -T -e PGPASSWORD db \
 > timescaledb_post_restore cleanup succeeded after primary failure
 > ```
 >
-> Різниця не академічна: оператор, який прочитав би стару причину і побачив
-> нуль грантів у кроці 2a, обґрунтовано вирішив би, що крок непотрібен — і
-> зловив би `exit=3` посеред бойового вікна. Доведено обома боками на
-> стенді #3: без ролі падає, з роллю проходить 7→9 повністю.
+> The difference is not academic: an operator who read the old reason and saw
+> zero grants in step 2a would reasonably decide the step is unnecessary — and
+> would catch `exit=3` in the middle of a production window. Proven both ways on
+> bench #3: without the role it fails, with the role 7→9 passes completely.
 
-`NOLOGIN` навмисно: роль потрібна лише як носій імені власника, підключатись
-під нею ніхто не має. Наслідок — фонові джоби Timescale у стенді не
-запускатимуться (власник без LOGIN). Для перевірки це байдуже; шукати причину
-не треба.
+`NOLOGIN` is deliberate: the role is needed only as a bearer of the owner name; no one is supposed
+to connect under it. The consequence is that Timescale background jobs in the bench will not
+start (an owner without LOGIN). This is irrelevant to the verification; there is no need to
+hunt for the cause.
 
 ---
 
-## 8. Крок 7 — власне відновлення
+## 8. Step 7 — the restore itself
 
 ```bash
 cd "$WORK/stand"
@@ -536,26 +535,26 @@ bash "$STACK/deploy/restore.sh" \
   "$WORK/artifact/$NAME" --target restore_test
 ```
 
-`restore.sh` — публічний CLI, який **структурно** вміє тільки `restore_test`:
-будь-яка інша ціль отримує «direct production restore заборонений». Тобто ця
-команда не може зачепити `avelren` навіть через одруківку.
+`restore.sh` is the public CLI that **structurally** can only do `restore_test`:
+any other target gets "direct production restore is forbidden". That is, this
+command cannot touch `avelren` even through a typo.
 
-Послідовність рушія (`deploy/restore-engine.lib.sh`): `dropdb --if-exists` →
+The engine sequence (`deploy/restore-engine.lib.sh`): `dropdb --if-exists` →
 `createdb` → `CREATE EXTENSION timescaledb` → `timescaledb_pre_restore()` →
 `gunzip -c … | psql` → `timescaledb_post_restore()` → **ownership handoff** →
-лічильники.
+counters.
 
-Очікуваний хвіст — таблиця з чотирма числами:
+The expected tail is a table with four numbers:
 
 ```
  observations | checkpoints | hypertables | aggregates
 ```
 
-Записати їх у звіт. `observations` і `checkpoints` мають бути близькі до
-бойових; `hypertables` = 1, `aggregates` = 1.
+Record them in the report. `observations` and `checkpoints` must be close to
+production; `hypertables` = 1, `aggregates` = 1.
 
-Одразу після цього зафіксувати версію схеми — вона визначає, чи правильно ми
-відфільтрували міграції на кроці 3:
+Immediately after this, record the schema version — it determines whether we
+filtered the migrations correctly at step 3:
 
 ```bash
 PGPASSWORD="$STAND_ADMIN_PASSWORD" \
@@ -564,19 +563,19 @@ docker compose -f compose.yml -p avelren-rv3-86d3534 exec -T -e PGPASSWORD db \
   'SELECT max(version) FROM schema_migrations;'
 ```
 
-Очікується `009_observability`. Якщо `010_postgresql_least_privilege` —
-повернутись до кроку 3, покласти в `migrations-009` усі десять файлів
-(перейменувавши каталог), і **пропустити крок 8**.
+Expected `009_observability`. If `010_postgresql_least_privilege` —
+go back to step 3, put all ten files into `migrations-009`
+(renaming the directory), and **skip step 8**.
 
 ---
 
-## 9. Крок 8 — шар грантів 010 (**лише на стенді**)
+## 9. Step 8 — the 010 grant layer (**bench only**)
 
-Причина, чому цей крок існує, — конкретна й перевірена по коду:
+The reason this step exists is concrete and verified against the code:
 
-- рушій передає володіння прикладними обʼєктами ролі `avelren_migrator`, тому `schema_verify` під `avelren_migrator` працює як власник;
-- а `avelren_api` після відновлення дампа схеми **009 не має жодного права** на прикладні таблиці — усі гранти для рантайм-ролей живуть у міграції `010`;
-- `restore_smoke` робить `POST /devices`, тобто `INSERT` у `devices`. Без 010 він падає з `permission denied`, і це буде **хибний червоний**: артефакт цілий, бракує шару прав, якого в бойовій базі поки й немає.
+- the engine hands over ownership of application objects to the `avelren_migrator` role, so `schema_verify` under `avelren_migrator` works as the owner;
+- but `avelren_api`, after restoring a schema-**009** dump, **has no rights at all** on the application tables — all grants for the runtime roles live in migration `010`;
+- `restore_smoke` does `POST /devices`, i.e. an `INSERT` into `devices`. Without 010 it fails with `permission denied`, and this would be a **false red**: the artifact is intact, what is missing is the rights layer, which the production database does not yet have either.
 
 ```bash
 PGPASSWORD="$STAND_ADMIN_PASSWORD" \
@@ -585,23 +584,23 @@ docker compose -f compose.yml -p avelren-rv3-86d3534 exec -T -e PGPASSWORD db \
   -f /workspace/db/migrations/010_postgresql_least_privilege.sql
 ```
 
-Виконує `avelren_admin`, він `SUPERUSER` — тому має право видавати гранти на
-обʼєкти, які вже належать `avelren_migrator`.
+`avelren_admin` runs it; it is `SUPERUSER` — so it has the right to issue grants on
+objects that already belong to `avelren_migrator`.
 
-**Це `psql -f`, а не `python -m avelren.migrate`.** Різниця принципова:
-`migrate` записав би `010` у `schema_migrations`, і тоді історія розійшлася б
-із каталогом `migrations-009`. Ми навмисно накладаємо гранти **без штампа** —
-рівно та комбінація, яка робить стенд придатним для перевірки, не спотворивши
-історію.
+**This is `psql -f`, not `python -m avelren.migrate`.** The difference is fundamental:
+`migrate` would record `010` into `schema_migrations`, and then the history would diverge
+from the `migrations-009` directory. We deliberately apply the grants **without a stamp** —
+exactly the combination that makes the bench suitable for verification without distorting
+the history.
 
-Що це означає для інтерпретації результату: крок 9 доводить, що
-**дані й схема цілі, а застосунок на них працює під набором прав, який
-принесе 3B.2**. Він **не** доводить, що поточна бойова база вже має ці права —
-вона їх і не має, за проєктом.
+What this means for interpreting the result: step 9 proves that
+**the data and the schema are intact, and the application works on them under the rights set that
+3B.2 will bring**. It does **not** prove that the current production database already has these rights —
+it does not have them, by design.
 
 ---
 
-## 10. Крок 9 — верифікація інструментами проєкту
+## 10. Step 9 — verification with the project's own tools
 
 ```bash
 cd "$WORK/stand"
@@ -616,14 +615,14 @@ AVELREN_VERIFY_API_DSN="postgresql://avelren_api:$STAND_API_PASSWORD@db:5432/res
 bash "$STACK/deploy/restore-verify.sh" restore_test
 ```
 
-Хост у DSN — `db`, імʼя сервісу: контейнери `run --rm` живуть у мережі того ж
-Compose-проєкту.
+The host in the DSN is `db`, the service name: `run --rm` containers live in the network of the same
+Compose project.
 
-> Паролі стенду підставляються в URI без екранування, тож генерувати їх треба
-> лише з `[A-Za-z0-9]` (наприклад `openssl rand -hex 24`). Пароль зі
-> спецсимволом мовчки зіпсує DSN, і помилка виглядатиме як «роль не існує».
+> The bench passwords are substituted into the URI without escaping, so they must be generated
+> only from `[A-Za-z0-9]` (for example `openssl rand -hex 24`). A password with a
+> special character will silently corrupt the DSN, and the error will look like "role does not exist".
 
-Очікуваний вивід:
+Expected output:
 
 ```
 >>> schema verification against restore_test
@@ -631,240 +630,240 @@ Compose-проєкту.
 restore-verify OK: restore_test
 ```
 
-Що при цьому реально сталося:
+What actually happened here:
 
-- `restore-verify.sh` відмовився б працювати, якби `AVELREN_COMPOSE_PROJECT` був порожній або дорівнював `avelren` — це структурний запобіжник після 2026-08-14, і він тут спрацьовує на нашу користь;
-- обидва запуски йдуть із `--no-deps`, тому `db` не переузгоджується;
-- `schema_verify` звіряє історію міграцій (перелік + SHA кожного файлу) і фізичний контракт: таблиці, колонки, часткові унікальні індекси разом із їхніми предикатами, іменовані constraints, гіпертаблиці, continuous aggregates;
-- `restore_smoke` піднімає справжній FastAPI-застосунок і проходить `GET /health` (з явною вимогою `last_observation != null`), `401` без авторизації, `POST /devices` → **201**, і аж тоді `GET /active-alerts`
-з отриманою парою → `200`. Перед усім цим `restore_identity` звіряє `current_database`, `current_user`, `session_user` і `system_user` — підмінити ціль параметрами URI не вийде.
+- `restore-verify.sh` would refuse to work if `AVELREN_COMPOSE_PROJECT` were empty or equal to `avelren` — this is a structural safeguard after 2026-08-14, and here it works in our favor;
+- both runs go with `--no-deps`, so `db` is not re-reconciled;
+- `schema_verify` cross-checks the migration history (the list + SHA of each file) and the physical contract: tables, columns, partial unique indexes together with their predicates, named constraints, hypertables, continuous aggregates;
+- `restore_smoke` brings up a real FastAPI application and passes `GET /health` (with an explicit requirement `last_observation != null`), `401` without authorization, `POST /devices` → **201**, and only then `GET /active-alerts`
+with the obtained pair → `200`. Before all this, `restore_identity` cross-checks `current_database`, `current_user`, `session_user` and `system_user` — you cannot swap the target via URI parameters.
 
 ---
 
-## 11. Крок 10 — прибирання
+## 11. Step 10 — cleanup
 
 ```bash
 cd "$WORK/stand"
 docker compose -f compose.yml -p avelren-rv3-86d3534 down --volumes --remove-orphans
 
-# розшифрований дамп містить fcm_token і secret_hash усіх пристроїв
+# the decrypted dump contains the fcm_token and secret_hash of all devices
 rm -f "$WORK/artifact/$NAME" "$WORK/artifact/$NAME.sha256"
 
-docker volume ls | grep avelren-rv3     # має бути порожньо
-docker ps -a   | grep avelren-rv3       # має бути порожньо
-git -C "$STACK" status --porcelain      # має бути порожньо
+docker volume ls | grep avelren-rv3     # must be empty
+docker ps -a   | grep avelren-rv3       # must be empty
+git -C "$STACK" status --porcelain      # must be empty
 ```
 
-`--volumes` тут не косметика: без нього том `stand_db` лишається на диску з
-повною копією бойових даних.
+`--volumes` here is not cosmetic: without it the `stand_db` volume stays on disk with
+a full copy of the production data.
 
-Далі — те, що лишається на диску після «прибирання», якщо про нього не сказати
-прямо:
+Next — what stays on disk after "cleanup", if it is not stated
+explicitly:
 
 ```bash
-shred -u "$WORK/stand/stand.env"   # СІМ стендових паролів
-rm -rf "$WORK/migrations-009"      # інакше каталог переживе стенд і всіх забуде
-ls -la "$WORK" "$WORK/stand"       # має лишитись тільки compose.yml
+shred -u "$WORK/stand/stand.env"   # the SEVEN bench passwords
+rm -rf "$WORK/migrations-009"      # otherwise the directory outlives the bench and everyone forgets it
+ls -la "$WORK" "$WORK/stand"       # only compose.yml must remain
 ```
 
-> **Це `stand.env`, а не `.env`.** Файл `.env` у каталозі стенду навмисно
-> **не створюється** — саме щоб Compose не мав що звідти підхопити (крок 4).
-> `shred -u` на неіснуючому файлі лише поскаржиться в stderr і поверне
-> ненульовий код, а сім паролів тихо лишаться лежати. Знайдено прогоном
-> стенду #1.
+> **This is `stand.env`, not `.env`.** A `.env` file in the bench directory is deliberately
+> **not created** — precisely so that Compose has nothing to pick up from there (step 4).
+> `shred -u` on a nonexistent file only complains to stderr and returns a
+> nonzero code, while the seven passwords quietly stay put. Found by the run of
+> bench #1.
 
 ---
 
-## 12. Порядок: одноразовий стенд → бойовий хост
+## 12. Order: disposable bench → production host
 
-1. **Спершу** — на одноразовій машині (де `docker compose` є, а бойових контейнерів немає за визначенням). Там дозволено помилятись.
-2. Артефакт узяти **малий і синтетичний**: підняти джерельну БД тими самими скриптами і зняти з неї дамп. Мета першого прогону — виловити помилки в тексті, а не перевірити бойові дані.
-3. Записати кожне розходження між текстом і реальністю. Виправити документ.
-4. **Тільки потім** — на бойовому хості з бойовим артефактом.
+1. **First** — on a disposable machine (where `docker compose` exists and there are no production containers by definition). Mistakes are allowed there.
+2. Take the artifact **small and synthetic**: bring up a source DB with the same scripts and take a dump from it. The goal of the first run is to catch errors in the text, not to verify production data.
+3. Record every divergence between the text and reality. Fix the document.
+4. **Only then** — on the production host with the production artifact.
 
-### 12a. Що змінюється на одноразовій машині
+### 12a. What changes on a disposable machine
 
-Три відмінності, і всі три — у `stand.env`, не в тексті процедури:
+Three differences, and all three are in `stand.env`, not in the procedure text:
 
 ```
-STACK=<шлях до клону репозиторію>
-WORK=<каталог поза клоном>
+STACK=<path to the repository clone>
+WORK=<directory outside the clone>
 STAND_APP_IMAGE=avelren-app:stand
 ```
 
-Образу `avelren-app:latest` на такій машині не існує — його треба зібрати
-**під окремим тегом**, щоб не плутати з бойовим:
+The `avelren-app:latest` image does not exist on such a machine — it must be built
+**under a separate tag**, to avoid confusing it with the production one:
 
 ```bash
 docker build -t avelren-app:stand "$STACK/app"
 ```
 
-Крок 1a (`docker image inspect avelren-app:latest`) там пропускається: він
-перевіряє відповідність бойового образу піну прода, а локально це безпредметно.
+Step 1a (`docker image inspect avelren-app:latest`) is skipped there: it
+verifies that the production image matches the prod pin, and locally that is pointless.
 
-### 12b. Джерельна БД для синтетичного артефакта
+### 12b. The source DB for the synthetic artifact
 
-`postgres-bootstrap.sh fresh` створює ролі, базу, розширення й ACL — але
-**міграцій не застосовує**. `migrate_handoff` у його виводі — це буквально
-`printf`, а не дія. Щоб мати з чого зняти дамп, міграції треба застосувати
-окремо:
+`postgres-bootstrap.sh fresh` creates the roles, database, extension and ACLs — but
+**does not apply the migrations**. The `migrate_handoff` in its output is literally
+a `printf`, not an action. To have something to take a dump from, the migrations must be applied
+separately:
 
 ```bash
-docker compose -f compose.yml -p <проєкт-стенду> run --rm --no-deps -T \
-  -e DATABASE_URL="postgresql://avelren_migrator:$STAND_MIGRATOR_PASSWORD@db:5432/<джерельна_БД>" \
+docker compose -f compose.yml -p <bench-project> run --rm --no-deps -T \
+  -e DATABASE_URL="postgresql://avelren_migrator:$STAND_MIGRATOR_PASSWORD@db:5432/<source_DB>" \
   migrate python -m avelren.migrate /migrations
 ```
 
-На бойовому прогоні цього кроку **немає** — там схема приходить із дампа.
+On the production run this step is **absent** — there the schema comes from the dump.
 
-### 12c. Прогони — що кожен доводив (2026-08-17)
+### 12c. The runs — what each proved (2026-08-17)
 
-| стенд | питання | результат |
+| bench | question | result |
 |---|---|---|
-| **прод** | чи відновлюється **бойовий** артефакт | **зелений**; знайдено дефект прав доступу, який три стенди пропустили |
-| #1 | чи процедура взагалі виконувана | зелений; знайдено 3 дефекти тексту (паролі не прибирались, непереносність, `201` замість `200`) |
-| #2 | чи виправлена редакція працює | зелений; `:?`-запобіжники фальсифіковано по одній змінній — усі пʼять відмовляють з точною локацією |
-| #3 | чи достатньо кроку 8 на артефакті **бойового класу** (0 `GRANT`) | зелений; **знайдено `bgw_job`** — крок 6a обовʼязковий, причина в документі була хибна |
+| **prod** | does the **production** artifact restore | **green**; found an access-rights defect that three benches missed |
+| #1 | is the procedure executable at all | green; found 3 text defects (passwords not cleaned up, non-portability, `201` instead of `200`) |
+| #2 | does the corrected revision work | green; the `:?` safeguards were falsified one variable at a time — all five refuse with an exact location |
+| #3 | is step 8 enough on a **production-class** artifact (0 `GRANT`) | green; **`bgw_job` found** — step 6a is mandatory, the reason in the document was wrong |
 
-Стенд #3 відповів на два питання, задля яких і затримувався бойовий GO:
+Bench #3 answered the two questions that the production GO was being held up for:
 
-- **крок 8 наодинці достатній.** На артефакті з нулем `GRANT`/`REVOKE` крок 7 завантажився (242/2/1/1), 010 наклався `rc=0`, після нього `avelren_api` читає `checkpoints`.
-- **`USAGE` на `public` є, і це вимір, а не теорія.** `has_schema_privilege('avelren_api','public','USAGE')` = `t`; джерело — успадкування від `PUBLIC` у базі, яку рушій створює наново після `dropdb`. Доповнювати 010 не треба.
+- **step 8 alone is enough.** On an artifact with zero `GRANT`/`REVOKE`, step 7 loaded (242/2/1/1), 010 applied `rc=0`, and after it `avelren_api` reads `checkpoints`.
+- **`USAGE` on `public` is present, and this is a measurement, not a theory.** `has_schema_privilege('avelren_api','public','USAGE')` = `t`; the source is inheritance from `PUBLIC` in the database the engine creates anew after `dropdb`. There is no need to extend 010.
 
-Крок 8 фальсифіковано червоним навмисно: між 7 і 8 `avelren_api` дає
-`ERROR: permission denied for table checkpoints`. Крок не декоративний.
+Step 8 was falsified red on purpose: between 7 and 8 `avelren_api` gives
+`ERROR: permission denied for table checkpoints`. The step is not decorative.
 
-### 12d. Бойовий прогін 2026-08-17 ~11:10–11:30 UTC
+### 12d. Production run 2026-08-17 ~11:10–11:30 UTC
 
-Артефакт `avelren-20260817-032103.sql.gz`, 2 391 593 байти, `gzip -t OK`,
+Artifact `avelren-20260817-032103.sql.gz`, 2,391,593 bytes, `gzip -t OK`,
 digest `84af8c5df6fb9fb8e424b5a553cc21bdf47d6b35e43cdedaf5383e0fb692b8e2`,
-sidecar відсутній (issue #93).
+sidecar missing (issue #93).
 
-**Відповідь, заради якої репетиція існувала:** `allowlist mismatch` **не
-сталося**. Відновлення дало 522 082 observations, 38 checkpoints,
-1 hypertable, 1 aggregate. Бойове відновлення сьогодні спрацювало б.
+**The answer the rehearsal existed for:** `allowlist mismatch` did **not**
+happen. The restore produced 522,082 observations, 38 checkpoints,
+1 hypertable, 1 aggregate. A production restore today would have worked.
 
-Незалежна перевірка повноти дампа проти живої бази в той самий момент:
-540 246 observations, 38 checkpoints, останнє о 11:20:03Z. Різниця 18 164 при
-479 хв × 38 КПП = 18 202 — розбіжність рівно 38, тобто один цикл опитування на
-межі інтервалу. Дамп повний, збирач без пропусків.
+An independent check of the dump's completeness against the live database at the same moment:
+540,246 observations, 38 checkpoints, the last at 11:20:03Z. The difference of 18,164 at
+479 min × 38 checkpoints = 18,202 — a discrepancy of exactly 38, i.e. one polling cycle at
+the edge of the interval. The dump is complete, the collector has no gaps.
 
-Крок 2a: 0 `GRANT`, 0 `REVOKE`, рівно дві згадки `avelren` — обидві в даних
-`bgw_job`. Крок 6a знадобився, саме з цієї причини.
+Step 2a: 0 `GRANT`, 0 `REVOKE`, exactly two mentions of `avelren` — both in the `bgw_job`
+data. Step 6a was needed, for exactly this reason.
 
-Крок 8 фальсифіковано на реальних даних: до нього `avelren_api` →
-`permission denied for table checkpoints`, після — читає. Історія лишилась
-`009_observability` / 9 записів. Крок 9: `схема узгоджена: 9 міграцій,
-контракт цілий`, `restore-verify OK: restore_test`.
+Step 8 was falsified on real data: before it `avelren_api` →
+`permission denied for table checkpoints`, after it — reads. The history stayed
+`009_observability` / 9 records. Step 9: `schema is consistent: 9 migrations,
+contract intact`, `restore-verify OK: restore_test`.
 
-Прод не зачеплено: 6/6 контейнерів із незмінними `CreatedAt` і uptime,
+Prod was not touched: 6/6 containers with unchanged `CreatedAt` and uptime,
 `avelren-db-1` id + `StartedAt` (`3428ddde…` / `2026-08-14T06:23:59.222Z`)
-побітово ті самі до підйому стенду, після нього й після відновлення;
-`git status` порожній тричі; health ok. Жодне стоп-правило не спрацювало.
-Розшифрований дамп і `stand.env` знищено `shred` на кроці 10.
+bit-for-bit the same before the bench came up, after it, and after the restore;
+`git status` empty three times; health ok. No stop rule fired.
+The decrypted dump and `stand.env` were destroyed with `shred` at step 10.
 
-Зафіксовані відхилення в передумовах: `deploy/PROD_PIN` = `c84f531` при HEAD
-`86d3534` (PR #92 відкритий); `AVELREN_GIT_SHA` в образі порожній — тобто
-відповідність бойового образу піну **недоказувана**.
+Recorded deviations in the prerequisites: `deploy/PROD_PIN` = `c84f531` while HEAD is
+`86d3534` (PR #92 open); `AVELREN_GIT_SHA` in the image is empty — i.e. the
+match of the production image to the pin is **unprovable**.
 
-### 12e. Деталі прогону #1
+### 12e. Details of run #1
 
-Фінал зелений:
+The finish was green:
 
 ```
-schema_verify: схема узгоджена: 9 міграцій, контракт цілий
-restore_smoke: prod-guard, health+observations, auth-контур, devices/secret, protected-запит
+schema_verify: schema is consistent: 9 migrations, contract intact
+restore_smoke: prod-guard, health+observations, auth loop, devices/secret, protected request
 restore-verify OK: restore_test
 ```
 
-Відновлення дало 242 спостереження, 2 КПП, 1 гіпертаблицю, 1 агрегат — точно
-як у джерелі; allowlist рушія зійшовся, передача володіння відпрацювала.
-Крок 8 наклав 010 без штампа: історія лишилась `009_observability`, 9 записів.
-Прибирання чисте.
+The restore produced 242 observations, 2 checkpoints, 1 hypertable, 1 aggregate — exactly
+as in the source; the engine's allowlist matched, the ownership handoff worked.
+Step 8 applied 010 without a stamp: the history stayed `009_observability`, 9 records.
+The cleanup was clean.
 
-Додатково — **фальсифікація запобіжників** (процедура цього не вимагала, але
-перед бойовим прогоном це головне): порожній `AVELREN_COMPOSE_PROJECT` →
-`REFUSED`, `rc=2`; проєкт `avelren` → `REFUSED`, `rc=2`;
-`restore.sh --target avelren` → `ВІДМОВА: direct production restore
-заборонений`. Усі три відмовляють правильно.
+Additionally — **falsification of the safeguards** (the procedure did not require this, but
+before a production run it is the main thing): empty `AVELREN_COMPOSE_PROJECT` →
+`REFUSED`, `rc=2`; project `avelren` → `REFUSED`, `rc=2`;
+`restore.sh --target avelren` → `DENIED: direct production restore is forbidden`.
+All three refuse correctly.
 
-Дрібне: образ на Python 3.14 видає `StarletteDeprecationWarning` (httpx у
-`starlette.testclient`) на шляху `restore_smoke`. У проді не проявляється —
-`restore_smoke` там не запускається.
+Minor: the Python 3.14 image emits a `StarletteDeprecationWarning` (httpx in
+`starlette.testclient`) on the `restore_smoke` path. It does not appear on prod —
+`restore_smoke` does not run there.
 
 ---
 
-## 13. Коли червоне — що це означає
+## 13. When it's red — what it means
 
-| Повідомлення | Причина | Що робити |
+| Message | Cause | What to do |
 |---|---|---|
-| `restore application relation allowlist mismatch: unexpected public.X` | у бойовій базі є обʼєкт, якого нема в allowlist рушія | **Справжня знахідка.** Те саме завалило б і бойове відновлення. Треба узгодити обидва блоки `expected(...)` у `restore-engine.lib.sh` і `_TABLES_V` у `schema_verify.py`; дрейф ловить `deploy/restore-allowlist-contract-test.py` |
-| `… mismatch: missing public.X` | дамп неповний, або в ролі дампу не було `SELECT` на X | **Найгірший результат із можливих**: бекап мовчки неповний. Зупинити все, розібратись із правами `avelren_backup` |
-| `restored application relations must be owned by avelren_admin before handoff` | дамп знято не з `--no-owner`, або відновлює не `avelren_admin` | звірити крок 2a і `AVELREN_ADMIN_PASSWORD` |
-| `timescaledb extension owner must remain avelren_admin` | розширення поставили не від `avelren_admin` | крок 6 виконано не повністю (`provision_extension`) |
-| `міграція 010… у файлах, але не записана як застосована` | крок 3 пропущено або каталог не той | перезібрати `migrations-009` |
-| `міграція NNN: SHA у БД не збігається з файлом` | файл міграції редагували **після** застосування | окремий інцидент; репетицію зупинити |
-| `permission denied for table devices` у smoke | крок 8 пропущено | накласти 010 і повторити крок 9 |
-| `REFUSED: disposable restore verification requires an explicit non-production Compose project` | не задано `AVELREN_COMPOSE_PROJECT` | так і має бути; задати проєкт стенду |
-| `REFUSED: restore verification must not run in the production Compose project` | проєкт назвали `avelren` | перейменувати; це запобіжник 2026-08-14 |
-| `ВІДМОВА: direct production restore заборонений` | `--target` не `restore_test` | так і має бути |
-| `/health повертає last_observation=null` | схема ціла, даних нема | дамп порожній або відновились лише структури |
-| `primary restore failure … timescaledb_post_restore cleanup succeeded` | дамп не завантажився, але Timescale прибрано коректно | дивитись першопричину вище в логу; сам cleanup спрацював правильно |
-| `міграція 00X записана, але файлу нема (чужа/майбутня версія)` ×9 | `/migrations` у контейнері **порожній**: каталог `$WORK` недоступний для uid 10001 | не дамп. Виправити режими (`$WORK` → `0701`, `migrations-009` → `0755`, файли `0644`) і повторити **лише крок 9** — відновлення переробляти не треба |
-| `CONTEXT: COPY bgw_job, line N, column owner: "<роль>"`, далі `exit=3` | у стенді немає ролі-власника фонових джобів Timescale | крок 6a пропущено. Створити роль, повторити крок 7 з початку |
-| скрипт «обривається» після першого ж `compose exec -T` | `-T` пробрасує stdin, і `exec` зʼїдає решту скрипта, який bash читає з того самого stdin | додати `</dev/null` до кожного `compose exec -T`, який не має отримувати вхід (усі, крім завантаження дампа). Знайдено на проді 2026-08-17 |
+| `restore application relation allowlist mismatch: unexpected public.X` | there is an object in the production database that is not in the engine's allowlist | **A real finding.** The same would break a production restore too. Both `expected(...)` blocks in `restore-engine.lib.sh` and `_TABLES_V` in `schema_verify.py` must be reconciled; drift is caught by `deploy/restore-allowlist-contract-test.py` |
+| `… mismatch: missing public.X` | the dump is incomplete, or the dump role did not have `SELECT` on X | **The worst possible result**: the backup is silently incomplete. Stop everything, sort out the `avelren_backup` rights |
+| `restored application relations must be owned by avelren_admin before handoff` | the dump was not taken with `--no-owner`, or the restorer is not `avelren_admin` | cross-check step 2a and `AVELREN_ADMIN_PASSWORD` |
+| `timescaledb extension owner must remain avelren_admin` | the extension was installed not by `avelren_admin` | step 6 was not performed fully (`provision_extension`) |
+| `migration 010… in the files, but not recorded as applied` | step 3 was skipped or the directory is wrong | rebuild `migrations-009` |
+| `migration NNN: SHA in the DB does not match the file` | the migration file was edited **after** it was applied | a separate incident; stop the rehearsal |
+| `permission denied for table devices` in the smoke test | step 8 was skipped | apply 010 and repeat step 9 |
+| `REFUSED: disposable restore verification requires an explicit non-production Compose project` | `AVELREN_COMPOSE_PROJECT` not set | this is intended; set the bench project |
+| `REFUSED: restore verification must not run in the production Compose project` | the project was named `avelren` | rename it; this is the 2026-08-14 safeguard |
+| `DENIED: direct production restore is forbidden` | `--target` is not `restore_test` | this is intended |
+| `/health returns last_observation=null` | the schema is intact, there is no data | the dump is empty or only structures were restored |
+| `primary restore failure … timescaledb_post_restore cleanup succeeded` | the dump did not load, but Timescale was cleaned up correctly | look at the root cause higher up in the log; the cleanup itself worked correctly |
+| `migration 00X recorded, but the file is missing (foreign/future version)` ×9 | `/migrations` in the container is **empty**: the `$WORK` directory is inaccessible to uid 10001 | not the dump. Fix the modes (`$WORK` → `0701`, `migrations-009` → `0755`, files `0644`) and repeat **step 9 only** — there is no need to redo the restore |
+| `CONTEXT: COPY bgw_job, line N, column owner: "<role>"`, then `exit=3` | the bench has no role that owns Timescale background jobs | step 6a was skipped. Create the role, repeat step 7 from the start |
+| the script "breaks off" after the very first `compose exec -T` | `-T` passes stdin through, and `exec` eats the rest of the script that bash reads from the same stdin | add `</dev/null` to every `compose exec -T` that should not receive input (all except loading the dump). Found on prod 2026-08-17 |
 
 ---
 
-## 14. Дрейф бекап-скрипта — виміряно 2026-08-17
+## 14. Backup-script drift — measured 2026-08-17
 
-Питання, з якого це почалось: `backup.sh:36` вимагає роль `avelren_backup`,
-гранти для неї вводить лише `010`, прод стоїть на `009` — а нічний прогін
-03:21Z успішний і дав 2 391 593 байти. Було три гіпотези: ручна видача прав,
-атрибут ролі, залишок форварду 14 серпня.
+The question this started from: `backup.sh:36` requires the `avelren_backup` role,
+the grants for it are introduced only by `010`, prod is at `009` — yet the nightly run at
+03:21Z is successful and produced 2,391,593 bytes. There were three hypotheses: a manual grant of rights,
+a role attribute, a leftover of the 14 August forward.
 
-**Спростовані всі три.** Прод read-only показав: `avelren_backup` не
-`SUPERUSER` і не `BYPASSRLS`; членств між `avelren%`-ролями нуль; грантів
-нема взагалі. Зокрема це означає, що **inverse-rollback 14 серпня знявся
-повністю** — канонічний граф цілий.
+**All three refuted.** A read-only look at prod showed: `avelren_backup` is not
+`SUPERUSER` and not `BYPASSRLS`; there are zero memberships between the `avelren%` roles; there are
+no grants at all. In particular this means that the **14 August inverse rollback came off
+completely** — the canonical graph is intact.
 
-Справжня причина в іншому шарі. Systemd-юніт запускає не `deploy/backup.sh` із
-репозиторію, а окремий `/usr/local/sbin/avelren-backup` (root:root 750, від
-7 серпня), який знімає дамп під легасі `avelren`. Роль `avelren_backup` у
-бойовому шляху бекапу **не задіяна взагалі**.
+The real cause is in a different layer. The systemd unit runs not the repository's
+`deploy/backup.sh`, but a separate `/usr/local/sbin/avelren-backup` (root:root 750, from
+7 August), which takes the dump under the legacy `avelren`. The `avelren_backup` role is
+**not involved at all** in the production backup path.
 
-Чого немає в розгорнутій версії проти репозиторної:
+What is missing in the deployed version compared to the repository one:
 
-| | репо `deploy/backup.sh` | розгорнутий `/usr/local/sbin/avelren-backup` |
+| | repo `deploy/backup.sh` | deployed `/usr/local/sbin/avelren-backup` |
 |---|---|---|
-| роль | `avelren_backup` (fail, якщо інша) | легасі `avelren` |
-| sidecar `.sha256` | створює і звіряє через `rclone cat` | **не створює** |
-| `gzip -t` після дампа | так | ні (лише «≥ 10240 байт») |
-| звірка digest/розміру після відправки | так | ні |
-| гарантія, що ремоут типу `crypt` | preflight, fail-closed | **не перевіряє** |
+| role | `avelren_backup` (fails if another) | legacy `avelren` |
+| `.sha256` sidecar | creates and cross-checks via `rclone cat` | **does not create** |
+| `gzip -t` after the dump | yes | no (only "≥ 10240 bytes") |
+| digest/size cross-check after upload | yes | no |
+| guarantee that the remote is of type `crypt` | preflight, fail-closed | **does not check** |
 
-Чому це важливо саме тут: `AVELREN_RECOVERY_PREFLIGHT_FILE` містить рядок
-`backup_recovery=PASS`, і поки не ясно, що саме він засвідчує — репозиторний
-скрипт чи розгорнутий, — це підпис під припущенням. Цей розділ прибирає
-припущення: підписувати треба знаючи, що працює **розгорнута** версія з
-переліченими послабленнями.
+Why this matters here specifically: `AVELREN_RECOVERY_PREFLIGHT_FILE` contains the line
+`backup_recovery=PASS`, and until it is clear what exactly it attests — the repository
+script or the deployed one — this is a signature under an assumption. This section removes the
+assumption: it must be signed knowing that the **deployed** version, with the
+listed relaxations, is what works.
 
-Що це **не** ставить під сумнів: бекапи здорові й ідуть. 16.08 — неділя
-(`DOW=7`), тож артефакт пішов у `weekly/`, пропуску немає. Розміри ростуть
-правдоподібно (1.65 МБ 14.08 → 2.39 МБ 17.08). Відсутність `monthly/`
-пояснюється календарем, а не дефектом: скрипт встановлено 7 серпня, першого
-числа з того часу ще не було — перша можливість буде 1 вересня.
+What this does **not** call into question: the backups are healthy and running. 16.08 is Sunday
+(`DOW=7`), so the artifact went to `weekly/`, there is no gap. The sizes grow
+plausibly (1.65 MB 14.08 → 2.39 MB 17.08). The absence of `monthly/`
+is explained by the calendar, not by a defect: the script was installed on 7 August, and the first
+of the month has not occurred since then — the first opportunity will be 1 September.
 
-Виправлення дрейфу — окреме завдання, не частина цієї процедури.
+Fixing the drift is a separate task, not part of this procedure.
 
 ---
 
-## 15. Що з цим документом далі
+## 15. What next for this document
 
-Після успішного прогону **на бойовому хості** — скласти його в
-`docs/disaster-recovery.md` окремим розділом «Restore rehearsal», з фактичними
-числами прогону. Доти документ живе окремо: складати в канонічний runbook
-процедуру, яку ще ніхто не виконав, — це рівно та помилка, через яку B2
-провалився минулого разу.
+After a successful run **on the production host** — fold it into
+`docs/disaster-recovery.md` as a separate "Restore rehearsal" section, with the actual
+numbers of the run. Until then the document lives separately: folding into the canonical runbook
+a procedure that no one has performed yet is exactly the mistake through which B2
+failed last time.
 
-Далі за планом — B3 (evidence), і лише потім 3B.2.
+Next on the plan is B3 (evidence), and only then 3B.2.

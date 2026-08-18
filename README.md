@@ -1,74 +1,78 @@
 # AvelRen
 
-Історія завантаженості пунктів пропуску на кордоні України — для вантажівок.
+History of border-checkpoint load at Ukraine's border — for trucks.
 
-Державний сервіс [єЧерга](https://echerha.gov.ua/workload/1/1) показує лише
-поточний зріз і не зберігає історію. Водій бачить «3 дні 11 годин» і не може
-зрозуміти, чи це норма для цього пункту, чи аномалія, і коли їхати вигідніше.
+The government service [eCherha](https://echerha.gov.ua/workload/1/1) shows only
+the current snapshot and keeps no history. A driver sees "3 days 11 hours" and
+cannot tell whether that is normal for this checkpoint or an anomaly, or when it
+is better to set off.
 
-AvelRen накопичує спостереження щохвилини й дає те, чого немає в першоджерелі:
-динаміку, порівняння пунктів і ґрунт для прогнозу.
+AvelRen accumulates observations every minute and provides what the primary
+source lacks: the trend, comparison between checkpoints, and a basis for
+forecasting.
 
-## Залізне правило
+## The iron rule
 
-> **До `echerha.gov.ua` звертається лише наш сервер. Клієнти — ніколи.**
+> **Only our server talks to `echerha.gov.ua`. Clients — never.**
 
-Жоден клієнт — веб, Android, iOS, сторонній скрипт — не ходить у єЧергу напряму.
-Усі читають наш API.
+No client — web, Android, iOS, third-party script — reaches eCherha directly.
+They all read our API.
 
-Це не стильова вподоба. Державний API віддає `x-ratelimit-limit: 60`, тож тисяча
-клієнтів із власними запитами миттєво впирається в ліміт, ловить бани по IP і
-кладе сервіс — і чужий, і наш. Один збирач, один запит на 60 секунд.
+This is not a stylistic preference. The government API returns
+`x-ratelimit-limit: 60`, so a thousand clients with their own requests hit the
+limit instantly, get IP-banned, and take the service down — theirs and ours. One
+collector, one request every 60 seconds.
 
-Порушення цього правила — архітектурна помилка, а не оптимізація. Якщо клієнту бракує
-даних, розширюємо наш API, а не пускаємо його назовні.
+Breaking this rule is an architectural mistake, not an optimization. If a client
+is missing data, we extend our API rather than let it reach out.
 
-## Як це працює
+## How it works
 
 ```
-echerha API ──(1 запит / 60 с)──> collector ──> PostgreSQL + TimescaleDB
-                                                      │
-                                     Caddy ──> api ───┘ ──> клієнти
+echerha API ──(1 request / 60 s)──> collector ──> PostgreSQL + TimescaleDB
+                                                       │
+                                      Caddy ──> api ───┘ ──> clients
 ```
 
-- **collector** — опитує єЧергу рівно раз на 60 секунд, пише спостереження;
-- **api** — FastAPI, віддає дані **тільки з нашої БД**, ніколи не проксює запит;
-- **db** — PostgreSQL 16 + TimescaleDB, часовий ряд зі стисненням;
-- **caddy** — HTTPS і реверс-проксі.
+- **collector** — polls eCherha exactly once every 60 seconds, records
+  observations;
+- **api** — FastAPI, serves data **only from our DB**, never proxies a request;
+- **db** — PostgreSQL 16 + TimescaleDB, a time series with compression;
+- **caddy** — HTTPS and reverse proxy.
 
-`collector` та `api` — один Docker-образ, дві різні команди запуску.
+`collector` and `api` are one Docker image with two different startup commands.
 
-## Межа операційної авторизації
+## Operational authorization boundary
 
-> **УВАГА: злиття PR #29 НЕ АВТОРИЗУЄ жодну production-операцію.**
+> **WARNING: merging PR #29 does NOT AUTHORIZE any production operation.**
 
-Зокрема, merge PR #29 не дозволяє `production adoption`, `production restore`,
-`deployment`, `credential generation`, `credential rotation`, `legacy NOLOGIN`,
-`legacy REVOKE CONNECT` або закриття issue #15. Production adoption потребує
-окремої явної авторизації (`separate explicit authorization`). Issue #15
-залишається **OPEN навіть після merge**, доки production rollout і retirement
-legacy-ролі не будуть окремо виконані та доведені безпечними.
+Specifically, merging PR #29 does not permit `production adoption`,
+`production restore`, `deployment`, `credential generation`,
+`credential rotation`, `legacy NOLOGIN`, `legacy REVOKE CONNECT`, or closing
+issue #15. Production adoption requires a separate explicit authorization. Issue
+#15 stays **OPEN even after merge**, until the production rollout and retirement
+of the legacy role are separately carried out and proven safe.
 
-## Де що написано: політика проти стану
+## Where things are written: policy vs. state
 
-`PROJECT_STATUS.md` — **тільки політика**: межі авторизації, процедури,
-bring-up, CI parity. Змінюється рідко, свідомо і людиною.
+`PROJECT_STATUS.md` is **policy only**: authorization boundaries, procedures,
+bring-up, CI parity. It changes rarely, deliberately, and by a human.
 
-`STATE.md` — **тільки стан**: наскільки прод відстає від `main`, що заїде в
-наступний Gate 11 re-prep, відкриті PR та issues, відставання гілок.
-Генерується `scripts/generate-state.sh`; **руками не редагується** — будь-яка
-правка зникне при наступній регенерації.
+`STATE.md` is **state only**: how far prod trails `main`, what will land in the
+next Gate 11 re-prep, open PRs and issues, branch drift. It is generated by
+`scripts/generate-state.sh`; **it is not hand-edited** — any edit will vanish on
+the next regeneration.
 
-Розділення існує тому, що волатильні факти, які підтримувалися руками,
-протухали швидше, ніж їх оновлювали, і двічі ввели в оману читача, який
-приходить без контексту й не має як перевірити написане. Єдиний волатильний
-факт, якого git знати не може, — комміт, на якому стоїть прод; він живе одним
-рядком у `deploy/PROD_PIN` і оновлюється оператором під час re-prep, у тому ж
-атомарному кроці, що й evidence та копія gate-runner. Пін, якого немає в
-історії `main`, генератор відхиляє і відмовляється рахувати відстань, замість
-того щоб видати правдоподібне, але неправильне число.
+The split exists because volatile facts maintained by hand went stale faster
+than they were updated, and twice misled the reader who arrives without context
+and has no way to verify what is written. The one volatile fact git cannot know
+— the commit prod sits on — lives on a single line in `deploy/PROD_PIN` and is
+updated by the operator during re-prep, in the same atomic step as the evidence
+and the gate-runner copy. A pin that is not in `main`'s history is rejected by
+the generator, which refuses to compute the distance rather than emit a
+plausible but wrong number.
 
-## Джерело даних
+## Data source
 
 ```http
 GET https://back.echerha.gov.ua/api/v5/workload/1
@@ -80,72 +84,74 @@ X-Device-Id: <persistent-uuid>
 X-Device-Name: AvelRen collector
 ```
 
-`/1` — вантажівки, `/2` — автобуси. Зараз у скоупі лише вантажівки.
-Гостьовий контракт v5: без цих заголовків сервіс віддає `403`. `X-Device-Id` —
-persistent UUID гостя (див. `ECHERHA_DEVICE_ID`), не секрет. Авторизації немає;
-reCAPTCHA стоїть на бронюванні, не на статистиці.
+`/1` — trucks, `/2` — buses. Only trucks are in scope right now. The v5 guest
+contract: without these headers the service returns `403`. `X-Device-Id` is the
+guest's persistent UUID (see `ECHERHA_DEVICE_ID`), not a secret. There is no
+authorization; reCAPTCHA guards booking, not statistics.
 
-Поле `wait_time` — у секундах. `vehicle_in_active_queues_counts` — авто в черзі.
+The `wait_time` field is in seconds. `vehicle_in_active_queues_counts` is the
+number of vehicles in the queue.
 
-## Ролі PostgreSQL
+## PostgreSQL roles
 
-Канонічна модель має сім окремих LOGIN-ролей. Кожен application/runtime-сервіс
-отримує лише свій `DATABASE_URL`; runtime-контейнери не отримують admin,
-migrator, backup або DSN сусідніх сервісів. Контейнер `db` отримує лише
-`POSTGRES_USER`, `POSTGRES_PASSWORD` і `POSTGRES_DB` як bootstrap configuration,
-а не application DSN.
+The canonical model has seven separate LOGIN roles. Each application/runtime
+service gets only its own `DATABASE_URL`; runtime containers do not get admin,
+migrator, backup, or a neighboring service's DSN. The `db` container gets only
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` as bootstrap
+configuration, not an application DSN.
 
-| Роль | Єдина відповідальність |
+| Role | Sole responsibility |
 |---|---|
-| `avelren_admin` | Лише `bootstrap`, `adoption` і `restore`; не використовується застосунками у runtime. |
-| `avelren_migrator` | Лише `migration`, DDL, володіння application-об'єктами та `schema`/`catalog verification`. |
-| `avelren_backup` | Лише `pg_dump`; без запису, DDL або restore. |
-| `avelren_collector` | Runtime SQL для `countries`, `checkpoints`, `observations`, `collector_runs` і поточного threshold/ETA lifecycle; без доступу до devices та health lifecycle. |
-| `avelren_notifier` | Runtime SQL для `pending notification`, `delivery` state і очищення невалідних `FCM` токенів; без запису спостережень чи health state. |
-| `avelren_watchdog` | Runtime SQL читання `observations` і `collector_runs`, запису лише `health_alerts` та SELECT лише `devices.id`, `devices.is_admin`, `devices.fcm_token` для health notifications; `devices.secret_hash`, усі інші непов'язані device fields і будь-які device writes заборонені. |
-| `avelren_api` | Лише endpoint-authorized `registration`, `authentication`, `subscription`, `ETA`, `history` і `telemetry` SQL; не DDL і не collector writes. |
+| `avelren_admin` | Only `bootstrap`, `adoption`, and `restore`; not used by applications at runtime. |
+| `avelren_migrator` | Only `migration`, DDL, ownership of application objects, and `schema`/`catalog verification`. |
+| `avelren_backup` | Only `pg_dump`; no writes, DDL, or restore. |
+| `avelren_collector` | Runtime SQL for `countries`, `checkpoints`, `observations`, `collector_runs`, and the current threshold/ETA lifecycle; no access to devices and the health lifecycle. |
+| `avelren_notifier` | Runtime SQL for `pending notification`, `delivery` state, and clearing invalid `FCM` tokens; no writing of observations or health state. |
+| `avelren_watchdog` | Runtime SQL to read `observations` and `collector_runs`, write only `health_alerts`, and SELECT only `devices.id`, `devices.is_admin`, `devices.fcm_token` for health notifications; `devices.secret_hash`, all other unrelated device fields, and any device writes are forbidden. |
+| `avelren_api` | Only endpoint-authorized `registration`, `authentication`, `subscription`, `ETA`, `history`, and `telemetry` SQL; no DDL and no collector writes. |
 
-Порожні змінні `AVELREN_*_PASSWORD` і `AVELREN_*_DSN` перелічені в
-`.env.example`. Реальні значення належать лише авторизованому secret store та
-host configuration і не потрапляють у Git, документацію, логи чи evidence.
+The empty `AVELREN_*_PASSWORD` and `AVELREN_*_DSN` variables are listed in
+`.env.example`. Real values belong only in the authorized secret store and host
+configuration and never land in Git, documentation, logs, or evidence.
 
 ## Fresh install
 
-Fresh install є ідемпотентною послідовністю, а не однією транзакцією:
+A fresh install is an idempotent sequence, not a single transaction:
 
-1. `create roles` через `bash deploy/postgres-bootstrap.sh fresh`.
-2. `create database` з owner `avelren_admin`.
-3. Provision `TimescaleDB` від імені admin.
-4. Закрити `database/schema ACL` від `PUBLIC`.
-5. `migrate` від імені `avelren_migrator`.
-6. Виконати privilege та isolation `contracts`.
-7. Лише після GREEN перевірок `start runtime`.
+1. `create roles` via `bash deploy/postgres-bootstrap.sh fresh`.
+2. `create database` with owner `avelren_admin`.
+3. Provision `TimescaleDB` as admin.
+4. Close the `database/schema ACL` against `PUBLIC`.
+5. `migrate` as `avelren_migrator`.
+6. Run the privilege and isolation `contracts`.
+7. Only after GREEN checks, `start runtime`.
 
-`postgres-bootstrap.sh fresh` потребує `AVELREN_ADMIN_DSN` і всіх семи
-`AVELREN_*_PASSWORD` у середовищі процесу. Значення не передаються аргументами
-командного рядка. Вивід `migrate_handoff` означає тільки перехід до окремого
-migration gate; він не дозволяє пропустити migrations або contracts. Якщо етап
-падає, runtime не запускають. Опція `--disposable-empty-test` дозволена лише для
-доведено нової порожньої тестової БД і не є production cleanup.
+`postgres-bootstrap.sh fresh` requires `AVELREN_ADMIN_DSN` and all seven
+`AVELREN_*_PASSWORD` in the process environment. The values are not passed as
+command-line arguments. The `migrate_handoff` output means only the handover to a
+separate migration gate; it does not allow skipping migrations or contracts. If a
+stage fails, the runtime is not started. The `--disposable-empty-test` option is
+allowed only for a provably new, empty test DB and is not a production cleanup.
 
-Режим `postgres-bootstrap.sh roles-acl` — **disposable-only**. Він переписує
-ownership і ACL уже наявної БД, тобто виконує ту саму за класом мутацію, що й
-adoption, і тому вимагає `AVELREN_TEST_DB=1` та імені цілі з `test` або `ci`.
-Застосування ролей і ACL до production-БД виконується виключно через
-`deploy/postgres-adopt.sh`, який спершу доводить preflight-evidence,
-forward/inverse плани та fingerprints і має перевірений inverse rollback.
+The `postgres-bootstrap.sh roles-acl` mode is **disposable-only**. It rewrites
+the ownership and ACL of an already-existing DB — that is, it performs the same
+class of mutation as adoption — and therefore requires `AVELREN_TEST_DB=1` and a
+target name containing `test` or `ci`. Applying roles and ACL to a production DB
+is done exclusively through `deploy/postgres-adopt.sh`, which first proves the
+preflight evidence, forward/inverse plans, and fingerprints, and has a verified
+inverse rollback.
 
-Підготовка локального host configuration:
+Preparing the local host configuration:
 
 ```bash
 cp .env.example .env
 ```
 
-Усі secret/DSN placeholders у шаблоні навмисно порожні. Порядок перевірок і
-окремі повільні security/DR/adoption gates описані в
+All secret/DSN placeholders in the template are deliberately empty. The order of
+checks and the separate slow security/DR/adoption gates are described in
 [`docs/backend-testing.md`](docs/backend-testing.md).
 
-Після окремо авторизованого запуску та проходження всіх gate перевірка API:
+After a separately authorized launch and passing all gates, check the API:
 
 ```bash
 curl -s localhost:8000/health
@@ -153,18 +159,18 @@ curl -s localhost:8000/health
 
 ## API
 
-| Метод | Шлях | Опис |
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | стан сервісу та свіжість даних |
-| `GET` | `/checkpoints` | довідник пунктів пропуску |
-| `GET` | `/workload` | останній зріз по всіх чергах |
-| `GET` | `/history/{checkpoint_id}` | історія пункту за період |
+| `GET` | `/health` | service status and data freshness |
+| `GET` | `/checkpoints` | directory of checkpoints |
+| `GET` | `/workload` | latest snapshot across all queues |
+| `GET` | `/history/{checkpoint_id}` | a checkpoint's history over a period |
 
-## На майбутнє
+## Future work
 
-[Прогноз черг по кожному КПП](docs/forecast.md) — на накопиченій історії.
-Не раніше жовтня 2026: тижнева сезонність потребує 8–12 тижнів даних.
+[Queue forecast for each checkpoint](docs/forecast.md) — on the accumulated
+history. Not before October 2026: weekly seasonality needs 8–12 weeks of data.
 
-## Ліцензія
+## License
 
-Дані належать їхньому джерелу — державній системі «єЧерга».
+The data belongs to its source — the government "eCherha" system.

@@ -168,11 +168,11 @@ fi
 assert_order "$calls" roles verify_memberships database_exists create_database extension acl verify
 grep -Fxq migrate_handoff "$WORK/success.out" || fail 'missing migrate handoff'
 
-# Fail-closed guard проти privilege-escalation через role membership: якщо
-# після create_roles лишається заборонений avelren_% ↔ avelren_% membership,
-# bootstrap ПАДАЄ до створення бази і НЕ робить автоматичний REVOKE (аудит #29,
-# postgres-roles-integration-test.sh покриває реальну поведінку; тут — логіка
-# скрипта на fake psql). FAKE_MEMBERSHIP_COUNT>0 імітує залишковий membership.
+# Fail-closed guard against privilege escalation via role membership: if
+# after create_roles a forbidden avelren_% ↔ avelren_% membership remains,
+# bootstrap FAILS before creating the database and does NOT do an automatic REVOKE (audit #29,
+# postgres-roles-integration-test.sh covers the real behavior; here it's the script's
+# logic against a fake psql). FAKE_MEMBERSHIP_COUNT>0 simulates a leftover membership.
 calls="$WORK/forbidden-membership.calls"
 if FAKE_MEMBERSHIP_COUNT=1 run_bootstrap "$calls" fresh >"$WORK/forbidden-membership.out" 2>&1; then
     fail 'fresh bootstrap accepted a forbidden canonical role membership'

@@ -19,14 +19,14 @@ import ua.avelren.app.MainActivity
 import ua.avelren.app.R
 
 /**
- * З Android 13 (TIRAMISU) показ сповіщень — це runtime-permission
- * POST_NOTIFICATIONS. Явний checkSelfPermission() потрібен і для lint: він
- * читає @RequiresPermission на notify() і не йде за викликом.
+ * Since Android 13 (TIRAMISU), showing notifications is the POST_NOTIFICATIONS
+ * runtime permission. An explicit checkSelfPermission() is also needed for lint:
+ * it reads @RequiresPermission on notify() and does not follow the call.
  *
- * AND-2: сама лише перевірка permission брехала на Android 8–12, де
- * runtime-permission немає, але користувач міг вимкнути сповіщення застосунку в
- * системі — тоді notify() тихо нічого не робив. Тепер posting-path питає ту саму
- * істину, що й UI: permission І `areNotificationsEnabled()`.
+ * AND-2: the permission check alone lied on Android 8–12, where there is no
+ * runtime permission, but the user could disable the app's notifications in the
+ * system — then notify() silently did nothing. Now the posting path asks the same
+ * truth as the UI: permission AND `areNotificationsEnabled()`.
  */
 private fun canPostNotifications(context: Context): Boolean {
     val runtimeOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -37,37 +37,37 @@ private fun canPostNotifications(context: Context): Boolean {
 }
 
 /**
- * Сповіщення, яке не зникає саме.
+ * A notification that does not disappear on its own.
  *
- * Вимога: воно триває, доки користувач не натисне «ОК». Досягається трьома
- * речами разом:
- *   1. `setOngoing(true)` — не змахується пальцем і не гасне по «очистити все»;
- *   2. `CATEGORY_ALARM` + канал з IMPORTANCE_HIGH — звук і показ поверх;
- *   3. сервер повторює пуш кожні 5 хвилин, доки немає підтвердження.
+ * Requirement: it persists until the user taps "OK". Achieved by three things
+ * together:
+ *   1. `setOngoing(true)` — cannot be swiped away and does not clear on "clear all";
+ *   2. `CATEGORY_ALARM` + a channel with IMPORTANCE_HIGH — sound and heads-up display;
+ *   3. the server repeats the push every 5 minutes until there is an acknowledgement.
  *
- * Третій пункт головний: саме він робить сповіщення стійким до
- * перезавантаження телефона й вбивства застосунку. Стан тримає сервер.
+ * The third point is the main one: it is what makes the notification resilient to
+ * a phone reboot and app kill. The server holds the state.
  *
- * Повний екран (USE_FULL_SCREEN_INTENT) свідомо не використовуємо: з 22 січня
- * 2025 він за замовчуванням дозволений лише застосункам дзвінків і будильників.
+ * We deliberately do not use full-screen (USE_FULL_SCREEN_INTENT): since 22
+ * January 2025 it is allowed by default only to calling and alarm apps.
  */
 object Notifications {
 
     const val CHANNEL_ID = "avelren_alerts"
     const val INFO_CHANNEL_ID = "avelren_info"
 
-    // Повні kind + alertId у extras сповіщення. Reconciliation читає саме їх, а
-    // не display-id: notificationId() необоротний (усічення alertId % 10^7),
-    // тож відновити повний alertId з нього неможливо (аудит A-02).
+    // The full kind + alertId in the notification's extras. Reconciliation reads
+    // these, not the display-id: notificationId() is irreversible (truncation
+    // alertId % 10^7), so the full alertId cannot be recovered from it (audit A-02).
     const val EXTRA_KIND = "avelren_kind"
     const val EXTRA_ALERT_ID = "avelren_alert_id"
 
     /**
-     * Глобально унікальний ID сповіщення.
+     * A globally unique notification ID.
      *
-     * alerts.id та eta_alerts.id — незалежні послідовності БД, тож threshold №1
-     * і ETA №1 з голим id перезаписували б одне одного на телефоні (знахідка
-     * аудиту R-03). Простір ділиться префіксом типу.
+     * alerts.id and eta_alerts.id are independent DB sequences, so threshold #1
+     * and ETA #1 with a bare id would overwrite each other on the phone (audit
+     * finding R-03). The space is split by a type prefix.
      */
     fun notificationId(kind: String, alertId: Long): Int {
         val kindCode = when (kind) {
@@ -79,9 +79,10 @@ object Notifications {
     }
 
     /**
-     * Канал алертів існує, але вимкнений користувачем (IMPORTANCE_NONE). Окремий
-     * випадок від app-wide блокування: сповіщення застосунку дозволені, а саме
-     * черга — ні, і вести треба в налаштування каналу (AND-2).
+     * The alert channel exists but is disabled by the user (IMPORTANCE_NONE). A
+     * separate case from an app-wide block: the app's notifications are allowed,
+     * but the queue channel specifically is not, and we must lead to the channel
+     * settings (AND-2).
      */
     fun alertChannelBlocked(context: Context): Boolean {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return false
@@ -89,11 +90,11 @@ object Notifications {
         return channel.importance == NotificationManager.IMPORTANCE_NONE
     }
 
-    /** Чи ввімкнені сповіщення застосунку в системі (усі версії Android). */
+    /** Whether the app's notifications are enabled in the system (all Android versions). */
     fun appNotificationsEnabled(context: Context): Boolean =
         NotificationManagerCompat.from(context).areNotificationsEnabled()
 
-    /** Чи видано runtime-permission (на < 33 його немає — вважаємо виданим). */
+    /** Whether the runtime permission is granted (on < 33 it does not exist — we treat it as granted). */
     fun runtimePermissionGranted(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(
@@ -122,10 +123,10 @@ object Notifications {
             .createNotificationChannel(channel)
     }
 
-    // Явна перевірка POST_NOTIFICATIONS робиться в canPostNotifications(),
-    // але lint читає лише анотацію @RequiresPermission на самому notify() і не
-    // йде за викликом. Suppression вузьке (одна функція) і має підставу — це
-    // не lint-baseline.
+    // The explicit POST_NOTIFICATIONS check is done in canPostNotifications(),
+    // but lint reads only the @RequiresPermission annotation on notify() itself and
+    // does not follow the call. The suppression is narrow (one function) and
+    // justified — this is not a lint baseline.
     @SuppressLint("MissingPermission")
     fun show(context: Context, alertId: Long, kind: String, title: String, body: String) {
         ensureChannel(context)
@@ -137,8 +138,8 @@ object Notifications {
             putExtra(AckReceiver.EXTRA_ALERT_ID, alertId)
             putExtra(AckReceiver.EXTRA_KIND, kind)
         }
-        // requestCode теж композитний: однаковий код з FLAG_UPDATE_CURRENT
-        // підмінив би extras чужого PendingIntent.
+        // The requestCode is also composite: an identical code with FLAG_UPDATE_CURRENT
+        // would substitute the extras of another PendingIntent.
         val ackPending = PendingIntent.getBroadcast(
             context, notifId, ackIntent, flags
         )
@@ -149,7 +150,7 @@ object Notifications {
             flags,
         )
 
-        // Повний ключ для reconciliation — саме тут, бо display-id усічений.
+        // The full key for reconciliation — right here, because the display-id is truncated.
         val extras = Bundle().apply {
             putString(EXTRA_KIND, kind)
             putLong(EXTRA_ALERT_ID, alertId)
@@ -162,7 +163,7 @@ object Notifications {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            // Не змахується — гасне лише кнопкою «ОК».
+            // Not swipeable — dismissed only by the "OK" button.
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(openPending)
@@ -177,11 +178,11 @@ object Notifications {
     }
 
     /**
-     * Інформаційне сповіщення (health-тривоги сторожа).
+     * An informational notification (the watchdog's health alerts).
      *
-     * Це НЕ алерт із підтвердженням: воно не ongoing, змахується, без
-     * AckReceiver. Раніше health ішло через show() з alert_id=0 — ongoing,
-     * яке кнопкою ОК не гасилось узагалі (аудит R-03).
+     * This is NOT an alert with acknowledgement: it is not ongoing, is swipeable,
+     * has no AckReceiver. Previously health went through show() with alert_id=0 —
+     * ongoing, which the OK button did not dismiss at all (audit R-03).
      */
     @SuppressLint("MissingPermission")
     fun showInfo(context: Context, title: String, body: String) {
@@ -203,8 +204,8 @@ object Notifications {
             .build()
 
         if (canPostNotifications(context)) {
-            // Стабільний ID по заголовку: «проблема» і «відновився» різні,
-            // а повтори тієї самої проблеми схлопуються.
+            // A stable ID by title: "problem" and "recovered" are different,
+            // while repeats of the same problem collapse together.
             NotificationManagerCompat.from(context)
                 .notify(notificationId("health", (title.hashCode().toLong() and 0xFFFFF)), notification)
         }

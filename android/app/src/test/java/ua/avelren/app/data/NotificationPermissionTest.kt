@@ -6,11 +6,11 @@ import ua.avelren.app.data.NotificationPermission.History
 import ua.avelren.app.data.NotificationPermissionState as S
 
 /**
- * Чиста логіка стану дозволу на сповіщення (AND-2).
+ * Pure notification-permission state logic (AND-2).
  *
- * Перевіряємо не лише Android 13 runtime-permission, а весь шлях, яким алерт
- * може мовчки не дійти: app-wide блокування сповіщень і заблокований канал
- * `avelren_alerts` (IMPORTANCE_NONE).
+ * We check not only the Android 13 runtime permission, but the whole path by
+ * which an alert can silently fail to arrive: an app-wide notification block and a
+ * blocked `avelren_alerts` channel (IMPORTANCE_NONE).
  */
 class NotificationPermissionTest {
 
@@ -51,7 +51,7 @@ class NotificationPermissionTest {
 
     @Test
     fun `denied once without rationale needs app settings`() {
-        // Повторна/permanent denial — діалог більше не з'явиться.
+        // A repeated/permanent denial — the dialog will no longer appear.
         assertEquals(
             S.NeedsAppSettings,
             eval(runtimeGranted = false, asked = true, deniedOnce = true, rationale = false),
@@ -60,8 +60,8 @@ class NotificationPermissionTest {
 
     @Test
     fun `dialog swiped away is not punished with settings`() {
-        // asked=true, але користувач не натискав Deny (deniedOnce=false) і
-        // rationale=false — це swipe-away, дозволено перепитати.
+        // asked=true, but the user did not tap Deny (deniedOnce=false) and
+        // rationale=false — this is a swipe-away, re-asking is allowed.
         assertEquals(
             S.NeedsRequest,
             eval(runtimeGranted = false, asked = true, deniedOnce = false, rationale = false),
@@ -76,7 +76,7 @@ class NotificationPermissionTest {
         )
     }
 
-    // --- app-wide вимкнення (усі API) -------------------------------------
+    // --- app-wide disabling (all APIs) -------------------------------------
 
     @Test
     fun `app notifications blocked below api 33 needs app settings`() {
@@ -96,7 +96,7 @@ class NotificationPermissionTest {
         assertEquals(S.NeedsAppSettings, eval(runtimeGranted = true, appEnabled = false))
     }
 
-    // --- заблокований канал -----------------------------------------------
+    // --- blocked channel -----------------------------------------------
 
     @Test
     fun `blocked alert channel needs channel settings`() {
@@ -116,14 +116,14 @@ class NotificationPermissionTest {
 
     @Test
     fun `app-wide block takes precedence over channel block`() {
-        // Немає сенсу вести в канал, якщо весь застосунок заблокований.
+        // No point leading to the channel if the whole app is blocked.
         assertEquals(
             S.NeedsAppSettings,
             eval(runtimeGranted = true, appEnabled = false, channelBlocked = true),
         )
     }
 
-    // --- повернення з Settings --------------------------------------------
+    // --- returning from Settings --------------------------------------------
 
     @Test
     fun `returning from settings with everything enabled is Granted`() {
@@ -136,13 +136,13 @@ class NotificationPermissionTest {
         )
     }
 
-    // --- міграція вже виданого дозволу (upgrade-установка) ----------------
+    // --- migration of an already-granted permission (upgrade install) ----------------
 
     @Test
     fun `existing install with granted permission seeds everGranted`() {
-        // Історія стартує порожньою після оновлення APK поверх установки, де
-        // дозвіл уже був виданий: callback запиту не спрацює ніколи, тож факт
-        // grant треба зафіксувати з фактичного стану.
+        // The history starts empty after an APK update over an installation where
+        // the permission was already granted: the request callback never fires, so
+        // the fact of the grant must be recorded from the actual state.
         val fresh = History()
         assertEquals(
             History(asked = false, deniedOnce = false, everGranted = true),
@@ -152,17 +152,17 @@ class NotificationPermissionTest {
 
     @Test
     fun `existing grant then revoke needs app settings`() {
-        // Наскрізний сценарій, заради якого потрібен seeding.
+        // The end-to-end scenario for which the seeding is needed.
         val seeded = NotificationPermission.observeCurrentGrant(33, true, History())
         val afterRevoke = NotificationPermission.evaluate(
             sdkInt = 33,
-            runtimeGranted = false,          // відкликали в Settings
+            runtimeGranted = false,          // revoked in Settings
             appNotificationsEnabled = true,
             alertChannelBlocked = false,
             showRationale = false,
             history = seeded,
         )
-        assertEquals(S.NeedsAppSettings, afterRevoke)  // а не NeedsRequest
+        assertEquals(S.NeedsAppSettings, afterRevoke)  // and not NeedsRequest
     }
 
     @Test
@@ -176,8 +176,8 @@ class NotificationPermissionTest {
 
     @Test
     fun `no seeding below api 33`() {
-        // Нижче 33 runtimeGranted синтезується як true (runtime-permission не
-        // існує) — це НЕ доказ реального grant, сідувати з нього не можна.
+        // Below 33 runtimeGranted is synthesized as true (the runtime permission
+        // does not exist) — this is NOT proof of a real grant, we must not seed from it.
         val fresh = History()
         assertEquals(
             fresh,
@@ -194,18 +194,18 @@ class NotificationPermissionTest {
         )
     }
 
-    // --- legacy-міграція (upgrade з версії до AND-2) ----------------------
+    // --- legacy migration (upgrade from a pre-AND-2 version) ----------------------
 
     @Test
     fun `legacy permanent denial upgrade migrates to denied and needs app settings`() {
-        // Оновлення з версії, де стара MainActivity питала на кожен старт;
-        // користувач уже двічі відмовив → діалогу більше не буде.
+        // An upgrade from a version where the old MainActivity asked on every start;
+        // the user already refused twice → there will be no more dialog.
         val migrated = NotificationPermission.migrateLegacyHistory(
             sdkInt = 33, isUpgrade = true, runtimeGranted = false, history = History(),
         )
         assertEquals(History(asked = true, deniedOnce = true, everGranted = false), migrated)
-        // rationale=false бо система вже не показує діалог → ведемо в Settings,
-        // а не залишаємо мертву кнопку «Дозволити».
+        // rationale=false because the system no longer shows the dialog → we lead to
+        // Settings instead of leaving a dead "Allow" button.
         assertEquals(
             S.NeedsAppSettings,
             eval(runtimeGranted = false, asked = true, deniedOnce = true, rationale = false),
@@ -214,8 +214,8 @@ class NotificationPermissionTest {
 
     @Test
     fun `legacy single denial upgrade with rationale stays requestable`() {
-        // Та сама міграція, але система ще готова показати діалог (одна відмова):
-        // short-circuit showRationale у evaluate лишає NeedsRequest.
+        // The same migration, but the system is still ready to show the dialog (one denial):
+        // the showRationale short-circuit in evaluate keeps NeedsRequest.
         val migrated = NotificationPermission.migrateLegacyHistory(
             sdkInt = 33, isUpgrade = true, runtimeGranted = false, history = History(),
         )
@@ -230,8 +230,8 @@ class NotificationPermissionTest {
 
     @Test
     fun `fresh install never asked is not migrated`() {
-        // firstInstallTime == lastUpdateTime → isUpgrade=false: історія лишається
-        // порожньою, evaluate дає NeedsRequest, onCreate робить один автозапит.
+        // firstInstallTime == lastUpdateTime → isUpgrade=false: the history stays
+        // empty, evaluate gives NeedsRequest, onCreate does one auto-request.
         val migrated = NotificationPermission.migrateLegacyHistory(
             sdkInt = 33, isUpgrade = false, runtimeGranted = false, history = History(),
         )
@@ -241,8 +241,8 @@ class NotificationPermissionTest {
 
     @Test
     fun `fresh install swipe away is not turned into denial`() {
-        // Свайп на fresh install робить історію непорожньою (asked=true) ще ДО
-        // будь-якої міграції — тож migrate лишає її незмінною, а не карає Settings.
+        // A swipe on a fresh install makes the history non-empty (asked=true) even
+        // BEFORE any migration — so migrate leaves it unchanged instead of punishing with Settings.
         val swiped = History(asked = true, deniedOnce = false, everGranted = false)
         assertEquals(
             swiped,
@@ -258,7 +258,7 @@ class NotificationPermissionTest {
 
     @Test
     fun `upgrade with granted permission is left for seeding`() {
-        // Grant міграція не чіпає — це робота observeCurrentGrant.
+        // The migration does not touch a grant — that is observeCurrentGrant's job.
         assertEquals(
             History(),
             NotificationPermission.migrateLegacyHistory(
@@ -279,7 +279,7 @@ class NotificationPermissionTest {
 
     @Test
     fun `no legacy migration when history already tracked`() {
-        // AND-2 вже щось записав (напр. everGranted після grant) — не перетирати.
+        // AND-2 already recorded something (e.g. everGranted after a grant) — do not overwrite.
         val tracked = History(asked = true, deniedOnce = false, everGranted = true)
         assertEquals(
             tracked,
@@ -289,11 +289,11 @@ class NotificationPermissionTest {
         )
     }
 
-    // --- запис історії ----------------------------------------------------
+    // --- recording history ----------------------------------------------------
 
     @Test
     fun `explicit deny is recorded as deniedOnce`() {
-        // Явний «Don't allow» робить rationale=true одразу після результату.
+        // An explicit "Don't allow" makes rationale=true right after the result.
         val h = History(asked = true, deniedOnce = false, everGranted = false)
         assertEquals(
             History(asked = true, deniedOnce = true, everGranted = false),
@@ -303,8 +303,8 @@ class NotificationPermissionTest {
 
     @Test
     fun `swiped away dialog is not recorded as denial`() {
-        // Змах не змінює стан permission: rationale лишається false — це НЕ
-        // відмова, інакше перший же змах відправив би користувача в Settings.
+        // A swipe does not change the permission state: rationale stays false — this
+        // is NOT a denial, otherwise the very first swipe would send the user to Settings.
         val h = History(asked = true, deniedOnce = false, everGranted = false)
         assertEquals(
             History(asked = true, deniedOnce = false, everGranted = false),

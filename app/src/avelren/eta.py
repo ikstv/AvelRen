@@ -1,11 +1,11 @@
-"""Орієнтовний час в'їзду і цілі користувача.
+"""Estimated entry time and user targets.
 
-`entry_eta = момент заміру + wait_time` — перевірено звіркою з єЧергою:
-Рава-Руська, замір 07.08 00:45, wait_time 3д 21г 27хв → 10.08 22:12,
-рівно те, що показує сайт.
+`entry_eta = observation moment + wait_time` — verified against eCherha:
+Rava-Ruska, observed 07.08 00:45, wait_time 3d 21h 27m → 10.08 22:12,
+exactly what the site shows.
 
-Функція №2 — зворотна задача: користувач каже «хочу в'їзд о 22:15», а сервер
-стежить, коли реєстрація саме зараз дасть цей результат.
+Function #2 is the inverse problem: the user says "I want to enter at 22:15",
+and the server watches for when registering right now would yield that result.
 """
 
 import logging
@@ -23,12 +23,12 @@ def entry_eta(observed_at: datetime, wait_time_seconds: int) -> datetime:
 
 
 async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem]) -> int:
-    """Створює алерти для цілей, у чиє вікно потрапив поточний час в'їзду."""
+    """Create alerts for targets whose window the current entry time falls into."""
     if not items:
         return 0
 
-    # Призупинена черга з нульовим очікуванням не означає «в'їзд просто зараз» —
-    # вона означає, що прогнозу немає. Не будимо людину через відсутність даних.
+    # A paused queue with zero wait does not mean "entry right now" — it means
+    # there is no forecast. Do not wake the user over missing data.
     eta_by_checkpoint = {
         i.id: entry_eta(at, i.wait_time)
         for i in items
@@ -59,7 +59,7 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
         created += await _fire(conn, target["id"], target["checkpoint_id"], eta, wait)
 
     if created:
-        log.info("створено ETA-алертів: %s", created)
+        log.info("ETA alerts created: %s", created)
     return created
 
 
@@ -82,14 +82,14 @@ async def _fire(
     if row is None:
         return 0
 
-    log.info("ціль %s досягнута: в'їзд %s, алерт %s", target_id, eta.isoformat(), row["id"])
+    log.info("target %s reached: entry %s, alert %s", target_id, eta.isoformat(), row["id"])
     return 1
 
 
 async def expire_passed(conn: AsyncConnection) -> int:
-    """Закриває цілі, чий момент уже минув, разом з їхніми алертами.
+    """Close targets whose moment has already passed, together with their alerts.
 
-    Сповіщати «реєструйся, щоб в'їхати вчора» — гірше, ніж мовчати.
+    Notifying "register to enter yesterday" is worse than staying silent.
     """
     cur = await conn.execute(
         """
@@ -117,5 +117,5 @@ async def expire_passed(conn: AsyncConnection) -> int:
     )
     rows = await cur.fetchall()
     if rows:
-        log.info("закрито ETA-алертів через минулий час: %s", len(rows))
+        log.info("ETA alerts closed due to passed time: %s", len(rows))
     return len(rows)

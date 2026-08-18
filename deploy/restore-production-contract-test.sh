@@ -218,7 +218,7 @@ grep -q 'psql -U avelren_admin' "$WORK/success.log"
 ! grep -Eq -- 'psql -U (avelren|avelren_backup|avelren_migrator)( |$)' "$WORK/success.log"
 ! grep -Eq '(admin|migrator|api)-contract-secret' "$WORK/success.log" "$WORK/success.out"
 
-# M-13: pre-restore snapshot зроблено, ДО рушія, admin-роллю, без витоку пароля.
+# M-13: pre-restore snapshot is taken, BEFORE the engine, under the admin role, without leaking the password.
 grep -q 'db pg_dump' "$WORK/success.log"
 snap=$(ls "$WORK/success.snapshot"/avelren-pre-restore-*.sql.gz 2>/dev/null | head -1)
 [ -n "$snap" ] && [ -s "$snap" ] || { echo 'pre-restore snapshot missing or empty' >&2; exit 1; }
@@ -227,14 +227,14 @@ snap_line=$(grep -n 'db pg_dump' "$WORK/success.log" | head -1 | cut -d: -f1)
 eng_line=$(grep -n ENGINE "$WORK/success.log" | head -1 | cut -d: -f1)
 [ "$snap_line" -lt "$eng_line" ] || { echo 'snapshot must precede restore engine' >&2; exit 1; }
 
-# Best-effort: якщо pg_dump падає (пошкоджена база), restore ВСЕ ОДНО завершується.
+# Best-effort: if pg_dump fails (corrupt database), the restore completes ANYWAY.
 if ! run_fake snapshot-fail FAKE_PGDUMP_FAIL=1; then
     echo 'snapshot failure must not abort restore' >&2
     sed -n '1,240p' "$WORK/snapshot-fail.out" >&2 || true
     exit 1
 fi
 grep -q 'production restore complete' "$WORK/snapshot-fail.out"
-grep -q 'pre-restore snapshot не вдався' "$WORK/snapshot-fail.out"
+grep -q 'pre-restore snapshot failed' "$WORK/snapshot-fail.out"
 grep -q ENGINE "$WORK/snapshot-fail.log"
 [ -z "$(ls "$WORK/snapshot-fail.snapshot"/avelren-pre-restore-*.sql.gz 2>/dev/null)" ]
 
@@ -293,7 +293,7 @@ grep -q 'cleanup left service running: api' "$WORK/cleanup-running.out"
 if run_fake final-missing FAKE_FINAL_MISSING_SERVICE=api; then
     echo "missing service after restore should fail" >&2; exit 1
 fi
-grep -q 'ПОМИЛКА: service не running після restore: api' "$WORK/final-missing.out"
+grep -q 'ERROR: service not running after restore: api' "$WORK/final-missing.out"
 assert_failed_closed final-missing
 
 if run_fake running FAKE_RUNNING_SERVICE=collector; then echo "running service should abort" >&2; exit 1; fi

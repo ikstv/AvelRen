@@ -25,14 +25,14 @@ import java.time.format.DateTimeFormatter
 private val KYIV_ZONE: ZoneId = ZoneId.of("Europe/Kyiv")
 
 /**
- * Вибір цільового часу в'їзду: спершу дата, потім година.
+ * Choosing the target entry time: first the date, then the hour.
  *
- * Дата обов'язкова, а не лише час доби: черги тут тривають днями, і «22:15»
- * без дати означало б різні моменти для Ягодина з його тижнем очікування
- * і для порожнього Порубного.
+ * The date is mandatory, not just the time of day: queues here last for days, and
+ * "22:15" without a date would mean different moments for Yahodyn with its week of
+ * waiting and for an empty Porubne.
  *
- * Минулі дати недоступні — ціль у минулому сервер усе одно відхилить,
- * але краще не дати помилитись, ніж показати помилку після.
+ * Past dates are unavailable — the server would reject a target in the past
+ * anyway, but it is better to prevent the mistake than to show an error after.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,7 +77,7 @@ fun EtaTargetDialog(
                 TextButton(onClick = {
                     val millis = dateState.selectedDateMillis ?: return@TextButton
                     val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                    // Користувач мислить київським часом, сервер — UTC.
+                    // The user thinks in Kyiv time, the server — in UTC.
                     val local = LocalDateTime.of(date, java.time.LocalTime.of(timeState.hour, timeState.minute))
                     val zoned = local.atZone(KYIV_ZONE)
                     onConfirm(

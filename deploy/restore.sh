@@ -6,7 +6,7 @@ STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
 COMPOSE_FILE=${AVELREN_COMPOSE_FILE:-}
 COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-}
 DB_SERVICE=${AVELREN_DB_SERVICE:-db}
-DUMP=${1:?вкажіть файл дампа}
+DUMP=${1:?specify the dump file}
 shift
 TARGET=restore_test
 DRY_RUN=false
@@ -14,28 +14,28 @@ DRY_RUN=false
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --target)
-            [ "$#" -ge 2 ] || { echo "помилка: --target потребує значення" >&2; exit 2; }
+            [ "$#" -ge 2 ] || { echo "error: --target requires a value" >&2; exit 2; }
             TARGET=$2; shift 2 ;;
         --confirm-production-restore)
             # Parse the historical option only to return an explicit fail-closed denial.
-            [ "$#" -ge 2 ] || { echo "помилка: confirmation token відсутній" >&2; exit 2; }
+            [ "$#" -ge 2 ] || { echo "error: confirmation token is missing" >&2; exit 2; }
             shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
-        *) echo "помилка: невідомий аргумент: $1" >&2; exit 2 ;;
+        *) echo "error: unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
-[ -f "$DUMP" ] || { log "ВІДМОВА: backup artifact не знайдено: $DUMP"; exit 1; }
+[ -f "$DUMP" ] || { log "DENIED: backup artifact not found: $DUMP"; exit 1; }
 if [ "$TARGET" != restore_test ]; then
-    log "ВІДМОВА: direct production restore заборонений; використовуйте deploy/restore-production.sh"
+    log "DENIED: direct production restore is forbidden; use deploy/restore-production.sh"
     exit 2
 fi
-gzip -t "$DUMP" || { log "ВІДМОВА: backup artifact не пройшов gzip integrity validation"; exit 1; }
+gzip -t "$DUMP" || { log "DENIED: backup artifact failed gzip integrity validation"; exit 1; }
 
 log "preflight OK: target=$TARGET, backup=$DUMP"
 if [ "$DRY_RUN" = true ]; then
-    log "dry-run: destructive restore не виконувався"
+    log "dry-run: destructive restore was not performed"
     exit 0
 fi
 

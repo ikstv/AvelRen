@@ -1,24 +1,26 @@
-"""API-smoke проти відновленої БД (A-07 / DR restore contract).
+"""API smoke against a restored DB (A-07 / DR restore contract).
 
-Restore не можна вважати доведеним лише за counts рядків. Тут ми піднімаємо
-справжній застосунок (FastAPI TestClient — у процесі, без публікації порту)
-проти БД, на яку вказує DATABASE_URL, і прогонимо мінімальний, але наскрізний
-контракт:
+A restore cannot be considered proven by row counts alone. Here we bring up the
+real application (FastAPI TestClient — in-process, without publishing a port)
+against the DB that DATABASE_URL points to, and run a minimal but end-to-end
+contract:
 
-  1. production-guard        — перевіряємо current_database() ДО будь-якої
-                              mutation: якщо 'avelren' → exit 1 негайно;
-  2. GET /health            — застосунок реально читає observations, і
-                              last_observation не null (відновлені дані реальні);
-  3. GET /active-alerts     — без заголовків → 401 (auth-контур на місці);
-  4. POST /devices          — створює disposable installation (devices +
-                              secret_hash реально працюють);
-  5. GET /active-alerts     — з отриманою парою → 200 (protected-запит,
-                              звірка secret constant-time, зʼєднання саме з
-                              цією БД).
+  1. production-guard        — we check current_database() BEFORE any mutation:
+                              if 'avelren' → exit 1 immediately;
+  2. GET /health            — the app actually reads observations, and
+                              last_observation is not null (the restored data
+                              is real);
+  3. GET /active-alerts     — without headers → 401 (the auth path is in place);
+  4. POST /devices          — creates a disposable installation (devices +
+                              secret_hash actually work);
+  5. GET /active-alerts     — with the obtained pair → 200 (a protected request,
+                              constant-time secret check, a connection to
+                              exactly this DB).
 
-Запускати ЛИШЕ проти disposable restore_test — не проти бойової бази. Shell-wrapper
-`deploy/restore-verify.sh` блокує literal `TARGET == "avelren"` як перший шар, але
-єдиним надійним guard-ом є Python-перевірка current_database() нижче.
+Run ONLY against a disposable restore_test — not against the live database. The
+shell wrapper `deploy/restore-verify.sh` blocks the literal `TARGET == "avelren"`
+as a first layer, but the only reliable guard is the Python current_database()
+check below.
 """
 
 import logging
@@ -36,7 +38,7 @@ log = logging.getLogger("avelren.restore_smoke")
 
 
 def _current_database() -> str:
-    """Фактична назва бази, до якої підключаємося (не просто рядок з URL)."""
+    """The actual name of the database we connect to (not just a string from the URL)."""
     with psycopg.connect(settings.database_dsn, autocommit=True) as conn:
         return conn.execute("SELECT current_database()").fetchone()[0]
 
@@ -46,10 +48,10 @@ def main() -> int:
         level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    # Production guard — перевіряємо поточну БД ДО будь-якої mutation.
-    # Shell-wrapper блокує лише literal рядок "avelren", що обходиться параметрами
-    # URI; тому Python сам звіряє current_database(). Якщо відповідь "avelren" —
-    # негайний вихід, незалежно від того, як саме сформований DATABASE_URL.
+    # Production guard — we check the current DB BEFORE any mutation. The shell
+    # wrapper blocks only the literal string "avelren", which can be bypassed via
+    # URI parameters; so Python itself checks current_database(). If the answer is
+    # "avelren" — immediate exit, regardless of how DATABASE_URL was constructed.
     expected_database = os.environ.get("AVELREN_RESTORE_VERIFY_TARGET")
     expected_role = os.environ.get("AVELREN_RESTORE_VERIFY_ROLE")
     if expected_database != "restore_test" or expected_role != "avelren_api":
@@ -66,37 +68,39 @@ def main() -> int:
     db_name = _current_database()
     if db_name == "avelren":
         log.error(
-            "smoke відмовляється запускатися проти production БД '%s' — "
-            "лише проти disposable restore_test", db_name
+            "smoke refuses to run against production DB '%s' — "
+            "only against a disposable restore_test", db_name
         )
         return 1
 
     with TestClient(app) as client:
         h = client.get("/health")
         if h.status_code != 200:
-            log.error("/health не 200: %s", h.status_code)
+            log.error("/health not 200: %s", h.status_code)
             return 1
 
-        # DR gap: права схема з нульовими даними — неприйнятний false PASS.
-        # /health повертає 200 навіть для stale/no-data стану; тому перевіряємо
-        # last_observation явно. Stale (застарілі дані) прийнятно для DR,
-        # але null (взагалі нема спостережень) означає, що дані не відновились.
+        # DR gap: the right schema with zero data is an unacceptable false PASS.
+        # /health returns 200 even for a stale/no-data state; so we check
+        # last_observation explicitly. Stale (outdated data) is acceptable for DR,
+        # but null (no observations at all) means the data was not restored.
         body = h.json()
         if body.get("last_observation") is None:
             log.error(
-                "/health повертає last_observation=null — відновлена БД не містить "
-                "спостережень; DR restore вважається невдалим"
+                "/health returns last_observation=null — the restored DB contains no "
+                "observations; the DR restore is considered failed"
             )
             return 1
 
         unauth = client.get("/active-alerts")
         if unauth.status_code != 401:
-            log.error("/active-alerts без auth мав бути 401, а є %s", unauth.status_code)
+            log.error(
+                "/active-alerts without auth should have been 401, but is %s", unauth.status_code
+            )
             return 1
 
         reg = client.post("/devices", json={})
         if reg.status_code != 201:
-            log.error("POST /devices не 201: %s", reg.status_code)
+            log.error("POST /devices not 201: %s", reg.status_code)
             return 1
         creds = reg.json()
 
@@ -108,12 +112,14 @@ def main() -> int:
             },
         )
         if authed.status_code != 200:
-            log.error("/active-alerts з auth мав бути 200, а є %s", authed.status_code)
+            log.error(
+                "/active-alerts with auth should have been 200, but is %s", authed.status_code
+            )
             return 1
 
     log.info(
         "restore smoke ok: prod-guard, health+observations, "
-        "auth-контур, devices/secret, protected-запит"
+        "auth path, devices/secret, protected request"
     )
     return 0
 

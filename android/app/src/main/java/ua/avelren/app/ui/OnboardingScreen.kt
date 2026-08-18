@@ -36,8 +36,9 @@ import androidx.compose.ui.unit.sp
 import ua.avelren.app.R
 
 /**
- * Онбординг (екран 1 з дизайну): фонове фото вантажівки з вертикальним
- * затемненням, шапка AVELREN + версія, заголовок, три функції, CTA, футер.
+ * Onboarding (screen 1 from the design): a background truck photo with a vertical
+ * darkening gradient, the AVELREN header + version, a heading, three features, a
+ * CTA, and a footer.
  */
 @Composable
 fun OnboardingScreen(
@@ -51,7 +52,7 @@ fun OnboardingScreen(
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
         )
-        // Вертикальне затемнення — текст читабельний на будь-якому фото.
+        // A vertical darkening gradient — the text stays readable on any photo.
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
@@ -68,7 +69,7 @@ fun OnboardingScreen(
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 24.dp, vertical = 20.dp),
         ) {
-            // Шапка: AVELREN + версія.
+            // Header: AVELREN + version.
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -90,7 +91,7 @@ fun OnboardingScreen(
 
             Spacer(Modifier.weight(1f))
 
-            // Заголовок + тонка червона лінія.
+            // Heading + a thin red line.
             Text(
                 "Ваш помічник для слідкування черг на кордоні",
                 color = Color(0xFFF3F2F2),

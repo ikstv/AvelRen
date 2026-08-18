@@ -19,10 +19,10 @@ class InstallationRepository(
     private val scope: CoroutineScope,
     private val pendingTokens: PendingFcmTokenStore = InMemoryPendingFcmTokenStore(),
     private val retryScheduler: FcmTokenRetryScheduler = ImmediateFcmTokenRetryScheduler(),
-    // Інжектований, як і решта залежностей вище: android.util.Log — платформний
-    // стаб, у plain JUnit кидає "not mocked". Продакшн отримує реальний Log.w
-    // за замовчуванням; тести підміняють no-op, не чіпаючи глобальний
-    // testOptions (див. коментар у InstallationRepositoryTest.kt).
+    // Injected, like the rest of the dependencies above: android.util.Log is a
+    // platform stub that throws "not mocked" in plain JUnit. Production gets the real
+    // Log.w by default; tests substitute a no-op without touching the global
+    // testOptions (see the comment in InstallationRepositoryTest.kt).
     private val logUnavailable: (String, Throwable?) -> Unit =
         { msg, cause -> Log.w("Installation", msg, cause) },
 ) {
@@ -45,13 +45,13 @@ class InstallationRepository(
         if (token != null) onNewFcmToken(token)
         else if (mutex.withLock { creds ?: store.load() } == null &&
             pendingTokenMutex.withLock { pendingTokens.load() } == null) {
-            // Аудит 2026-08-15: цей виняток раніше ковтався мовчки
-            // (.getOrNull()), і саме тому потрібен був тимчасовий Log.e,
-            // щоб дістати справжню причину (невалідний google-services.json
-            // → FirebaseMessaging.getToken() кидав IllegalArgumentException
-            // ще до мережі). Reason тепер несе повідомлення винятку, а не
-            // узагальнений текст; Log.w — постійний, щоб наступного разу
-            // причина була видна з першого logcat, без тимчасової правки коду.
+            // Audit 2026-08-15: this exception was previously swallowed silently
+            // (.getOrNull()), which is exactly why a temporary Log.e was needed
+            // to extract the real cause (an invalid google-services.json
+            // → FirebaseMessaging.getToken() threw IllegalArgumentException
+            // before the network). Reason now carries the exception's message, not
+            // generic text; Log.w is permanent, so that next time the cause is
+            // visible from the first logcat, without a temporary code change.
             val cause = tokenResult.exceptionOrNull()
             val reason = cause?.message ?: "немає FCM-токена для реєстрації"
             logUnavailable("FCM-токен недоступний: installation Unavailable", cause)

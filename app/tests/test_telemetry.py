@@ -1,11 +1,11 @@
-"""Telemetry читає лише host-snapshot, а не /proc/secrets/run.
+"""Telemetry reads only the host snapshot, not /proc/secrets/run.
 
-Ці тести — фактично контракт «API-контейнер не має прямого доступу до host
-файлів»: якщо хтось повернеться до читання /proc або /secrets напряму,
-тести впадуть, бо в CI цих шляхів для нашого контейнера немає, а fixture
-підмінює лише snapshot-файл.
+These tests are effectively the contract "the API container has no direct access
+to host files": if someone reverts to reading /proc or /secrets directly, the
+tests fail, because in CI those paths do not exist for our container, and the
+fixture substitutes only the snapshot file.
 
-Регресія на аудит SEC-1 / A-01.
+Regression for audit SEC-1 / A-01.
 """
 
 import json
@@ -18,7 +18,7 @@ from avelren import telemetry
 
 @pytest.fixture()
 def snapshot(tmp_path, monkeypatch):
-    """Тимчасовий файл snapshot з керованим вмістом і mtime."""
+    """A temporary snapshot file with controlled content and mtime."""
     path = tmp_path / "host.json"
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", path)
 
@@ -58,8 +58,8 @@ def test_system_reads_from_snapshot(snapshot):
 
 
 def test_system_marks_stale_when_snapshot_missing(tmp_path, monkeypatch):
-    """Немає snapshot — не 500, а чесний stale: API-хендлер має вижити навіть
-    якщо host-таймер зламався."""
+    """No snapshot — not a 500, but an honest stale: the API handler must survive
+    even if the host timer broke."""
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
     result = telemetry.system()
     assert result["stale"] is True
@@ -67,8 +67,8 @@ def test_system_marks_stale_when_snapshot_missing(tmp_path, monkeypatch):
 
 
 def test_system_marks_stale_when_snapshot_old(snapshot):
-    """Snapshot старший за 5 хв — теж stale. Інакше протухлі числа виглядають
-    як свіжі й приховують збій telemetry pipeline."""
+    """A snapshot older than 5 min is also stale. Otherwise stale numbers look
+    fresh and hide a failure of the telemetry pipeline."""
     snapshot(
         {"system": {"cpu_count": 2}},
         collected_at=datetime.now(UTC) - timedelta(minutes=10),
@@ -114,18 +114,19 @@ def test_certificate_reads_from_snapshot(snapshot):
 
 
 def test_certificate_reports_snapshot_missing(tmp_path, monkeypatch):
-    """Без snapshot certificate() не робить власний TLS-connect (раніше саме
-    так — синхронно з async handler). Замість цього — чесне повідомлення."""
+    """Without a snapshot, certificate() does not do its own TLS connect (which is
+    how it used to be — synchronously from an async handler). Instead — an honest message."""
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
     result = telemetry.certificate()
     assert result == {"error": "snapshot missing"}
 
 
 def test_stale_snapshot_becomes_a_visible_problem(snapshot):
-    """Регресія на review PR #3: без цього зламаний timer виглядав на телефоні
-    як здоровий сервер — поля ставали нулями, а застосунок писав «Проблем
-    немає». Android має `ignoreUnknownKeys`, тож нове поле `stale` він просто
-    викидав; єдиний спосіб донести це без зміни клієнта — список `problems`."""
+    """Regression for review PR #3: without this, a broken timer looked on the
+    phone like a healthy server — fields became zeros, and the app wrote "No
+    problems". Android has `ignoreUnknownKeys`, so it simply discarded the new
+    `stale` field; the only way to convey this without changing the client is the
+    `problems` list."""
     snapshot(
         {"system": {"cpu_count": 2}},
         collected_at=datetime.now(UTC) - timedelta(minutes=17),
@@ -133,7 +134,7 @@ def test_stale_snapshot_becomes_a_visible_problem(snapshot):
     problem = telemetry.snapshot_problem(telemetry.system())
     assert problem is not None
     assert problem["kind"] == "telemetry_snapshot_stale"
-    # Форма збігається з рядками health_alerts — клієнт відмалює як звичайну.
+    # The shape matches the health_alerts rows — the client renders it as a regular one.
     assert set(problem) == {"kind", "detail", "first_seen", "send_count"}
     assert "17" in problem["detail"]
 
@@ -143,17 +144,17 @@ def test_missing_snapshot_becomes_a_visible_problem(tmp_path, monkeypatch):
     problem = telemetry.snapshot_problem(telemetry.system())
     assert problem is not None
     assert problem["kind"] == "telemetry_snapshot_stale"
-    assert "відсутній" in problem["detail"]
+    assert "absent" in problem["detail"]
 
 
 def test_fresh_snapshot_produces_no_problem(snapshot):
-    """Здоровий timer не має засмічувати список проблем."""
+    """A healthy timer must not clutter the problem list."""
     snapshot({"system": {"cpu_count": 2}}, collected_at=datetime.now(UTC))
     assert telemetry.snapshot_problem(telemetry.system()) is None
 
 
 def test_admin_telemetry_surfaces_stale_snapshot(device, api_client, conn, monkeypatch, tmp_path):
-    """Наскрізно: /admin/telemetry має віддати stale як проблему, а не мовчати."""
+    """End-to-end: /admin/telemetry must return stale as a problem, not stay silent."""
     conn.execute("UPDATE devices SET is_admin = true WHERE id = %s", (device.device_id,))
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
 
@@ -166,7 +167,7 @@ def test_admin_telemetry_surfaces_stale_snapshot(device, api_client, conn, monke
 
 
 def test_snapshot_survives_partial_json(tmp_path, monkeypatch):
-    """Пошкоджений JSON не має валити API. Читач бачить «snapshot відсутній»."""
+    """Corrupt JSON must not crash the API. The reader sees "snapshot absent"."""
     path = tmp_path / "host.json"
     path.write_text("{ not valid json", encoding="utf-8")
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", path)

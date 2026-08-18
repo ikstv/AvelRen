@@ -1,13 +1,15 @@
-"""Обмеження ресурсів public API (issue #16).
+"""Public API resource limits (issue #16).
 
-Два примітиви, обидва fail-closed:
+Two primitives, both fail-closed:
 
-* `BodySizeLimitMiddleware` — відхиляє завеликі тіла запитів (413), і за
-  `Content-Length`, і за фактичними байтами chunked-запиту без нього. Без цього
-  один запит із гігабайтним тілом з'їв би пам'ять процесу ще до валідації.
-* `ConcurrencyGate` — обмежує кількість ОДНОЧАСНИХ дорогих операцій. Перевищення
-  → миттєвий 503, без необмеженої черги очікувань (fail-fast, а не backpressure,
-  який лише відкладає падіння). Дешеві health/status-шляхи gate не проходять.
+* `BodySizeLimitMiddleware` — rejects oversized request bodies (413), both by
+  `Content-Length` and by the actual bytes of a chunked request without it.
+  Without this, a single request with a gigabyte body would eat process memory
+  before validation.
+* `ConcurrencyGate` — limits the number of CONCURRENT expensive operations.
+  Exceeding it → an immediate 503, without an unbounded wait queue (fail-fast,
+  not backpressure, which only postpones the failure). Cheap health/status
+  paths do not pass through the gate.
 """
 
 import contextlib
@@ -18,13 +20,14 @@ from fastapi import HTTPException
 
 log = logging.getLogger("avelren.limits")
 
-# Усі наші тіла — малий JSON (реєстрація, підписка, токен). 16 КіБ — із запасом
-# на будь-яке легітимне тіло й на порядки менше за DoS-корисне навантаження.
+# All our bodies are small JSON (registration, subscription, token). 16 KiB —
+# with headroom for any legitimate body and orders of magnitude below a
+# DoS-worthy payload.
 MAX_BODY_BYTES = 16 * 1024
 
 
 class BodySizeLimitMiddleware:
-    """ASGI middleware, що обмежує розмір тіла запиту."""
+    """ASGI middleware that limits request body size."""
 
     def __init__(self, app, max_bytes: int = MAX_BODY_BYTES) -> None:  # noqa: ANN001
         self.app = app
@@ -32,22 +35,23 @@ class BodySizeLimitMiddleware:
 
     async def __call__(self, scope, receive, send) -> None:  # noqa: ANN001
         if scope["type"] != "http":
-            # lifespan / websocket — не наша справа, пропускаємо як є.
+            # lifespan / websocket — not our concern, pass through as is.
             await self.app(scope, receive, send)
             return
 
         headers = dict(scope.get("headers") or [])
         content_length = headers.get(b"content-length")
         if content_length is not None:
-            # Заявлене тіло вже завелике — відмовляємо, не читаючи ні байта.
+            # The declared body is already too large — reject without reading a byte.
             if not content_length.isdigit() or int(content_length) > self.max_bytes:
                 await self._reject(send)
                 return
 
-        # Bounded read: буферизуємо тіло рівно до ліміту+1. Це ловить і брехливий,
-        # і відсутній Content-Length (chunked), не покладаючись на те, що виняток
-        # із receive прокинеться крізь error-middleware самого застосунку. Пам'ять
-        # обмежена max_bytes, тож саме буферування DoS-вектором не стає.
+        # Bounded read: we buffer the body up to exactly limit+1. This catches
+        # both a lying and a missing Content-Length (chunked), without relying on
+        # an exception from receive propagating through the app's own error
+        # middleware. Memory is bounded by max_bytes, so the buffering itself does
+        # not become a DoS vector.
         buffered: list[dict] = []
         received = 0
         more_body = True
@@ -74,7 +78,7 @@ class BodySizeLimitMiddleware:
         await self.app(scope, replaying_receive, send)
 
     async def _reject(self, send) -> None:  # noqa: ANN001
-        body = '{"detail":"Тіло запиту завелике"}'.encode()
+        body = b'{"detail":"Request body too large"}'
         await send(
             {
                 "type": "http.response.start",
@@ -86,15 +90,15 @@ class BodySizeLimitMiddleware:
 
 
 class ConcurrencyGate:
-    """Обмежувач одночасних дорогих операцій (fail-fast, без черги).
+    """Limiter of concurrent expensive operations (fail-fast, no queue).
 
-    Однопотоковий asyncio: перевірка й інкремент відбуваються без проміжного
-    await, тож стан узгоджений без блокувань.
+    Single-threaded asyncio: the check and increment happen without an
+    intervening await, so the state is consistent without locks.
     """
 
     def __init__(self, limit: int) -> None:
         if limit < 1:
-            raise ValueError("limit має бути >= 1")
+            raise ValueError("limit must be >= 1")
         self.limit = limit
         self._in_flight = 0
 
@@ -103,7 +107,7 @@ class ConcurrencyGate:
         if self._in_flight >= self.limit:
             raise HTTPException(
                 status_code=503,
-                detail="Сервіс перевантажений, спробуйте пізніше",
+                detail="Service overloaded, please try again later",
                 headers={"Retry-After": "1"},
             )
         self._in_flight += 1

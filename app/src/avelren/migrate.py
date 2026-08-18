@@ -1,31 +1,32 @@
-"""Застосовувач міграцій.
+"""Migration applier.
 
-Docker виконує файли з db/migrations лише при створенні порожньої БД, тож на
-вже наповненому проді нові міграції доводилось накатувати руками — і рано чи
-пізно хтось забуде, а прод розійдеться з кодом.
+Docker runs files from db/migrations only when creating an empty DB, so on an
+already-populated prod, new migrations had to be applied by hand — and sooner or
+later someone forgets, and prod diverges from the code.
 
-Тут кожна міграція застосовується рівно один раз, факт фіксується в БД, а
-запуск на актуальній базі нічого не робить. Безпечно викликати щодеплою.
+Here each migration is applied exactly once, the fact is recorded in the DB, and
+a run against an up-to-date database does nothing. Safe to call every deploy.
 
-**A-07 — fail-closed.** Раніше при порожньому `schema_migrations`, але наявній
-таблиці `checkpoints`, застосовувач позначав УСІ файли застосованими на
-евристику по одній таблиці. Після битого/старого restore це створювало дуже
-переконливу брехню: історія каже «001..NNN застосовано», а структур насправді
-нема. Тепер:
+**A-07 — fail-closed.** Previously, with an empty `schema_migrations` but an
+existing `checkpoints` table, the applier marked ALL files as applied on a
+one-table heuristic. After a corrupt/old restore this produced a very
+convincing lie: history says "001..NNN applied", while the structures are not
+actually there. Now:
 
-  * порожній каталог міграцій → **FAIL CLOSED** (не можна довести стан);
-  * чиста БД (жодного відомого AvelRen-обʼєкта) → створюємо історію й
-    застосовуємо все;
-  * коректна історія → prefix-gate + pre-apply physical check, потім нові файли;
-  * будь-який AvelRen-обʼєкт існує, а довіреної історії нема → **FAIL CLOSED**.
+  * empty migrations directory → **FAIL CLOSED** (state cannot be proven);
+  * clean DB (no known AvelRen object) → we create the history and apply
+    everything;
+  * valid history → prefix-gate + pre-apply physical check, then new files;
+  * any AvelRen object exists but there is no trusted history → **FAIL CLOSED**.
 
-Автоматичного baseline більше немає. Якщо колись треба узаконити legacy-БД без
-історії — це свідома ручна процедура оператора (перевірити структуру, вставити
-рядки в schema_migrations), а не щось, що відбувається саме собою на deploy.
+Automatic baseline is gone. If a legacy DB without history ever needs to be
+legitimized — that is a deliberate manual operator procedure (verify the
+structure, insert rows into schema_migrations), not something that happens on
+its own at deploy.
 
-Після застосування схема звіряється з повним контрактом (`schema_verify`): якщо
-`schema_migrations` каже одне, а фізична схема інше (напр. restore втратив
-колонку) — теж exit 1.
+After applying, the schema is checked against the full contract
+(`schema_verify`): if `schema_migrations` says one thing and the physical schema
+another (e.g. the restore lost a column) — that too is exit 1.
 """
 
 import hashlib
@@ -50,10 +51,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 )
 """
 
-# Повний набір відомих AvelRen-обʼєктів. Наявність БУДЬ-ЯКОГО з них при
-# порожній історії — ознака legacy/часткового стану, а не чистої БД. Дивитися
-# лише на `checkpoints` мало: битий restore міг мати `devices`/`alerts` без
-# `checkpoints`.
+# The full set of known AvelRen objects. The presence of ANY of them with an
+# empty history is a sign of a legacy/partial state, not a clean DB. Looking at
+# `checkpoints` alone is not enough: a corrupt restore could have
+# `devices`/`alerts` without `checkpoints`.
 KNOWN_OBJECTS = [
     "checkpoints", "observations", "collector_runs", "countries",
     "devices", "subscriptions", "alerts", "subscription_state",
@@ -82,10 +83,10 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
 
     files = _discover(directory)
     if not files:
-        # Порожній каталог означає, що /migrations не змонтувався, шлях
-        # хибний або каталог видалили. Дозволяти старт API на невідомій схемі
-        # небезпечно — fail closed.
-        log.error("міграцій не знайдено в %s — зупиняємо (fail-closed)", directory)
+        # An empty directory means /migrations did not mount, the path is wrong,
+        # or the directory was deleted. Allowing the API to start on an unknown
+        # schema is dangerous — fail closed.
+        log.error("no migrations found in %s — stopping (fail-closed)", directory)
         return 1
 
     applied = 0
@@ -98,25 +99,26 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
             for row in conn.execute("SELECT version, sha256 FROM schema_migrations").fetchall()
         }
 
-        # A-07 fail-closed: історія порожня — вирішуємо за фактичним станом
-        # схеми, а не за однією таблицею.
+        # A-07 fail-closed: history is empty — we decide by the actual state of
+        # the schema, not by a single table.
         if not known:
             existing = _existing_objects(conn)
             if existing:
                 log.error(
-                    "У БД існує схема AvelRen (%s), але довіреної історії міграцій нема. "
-                    "Автоматичний baseline заборонено (A-07): невідомий/частковий стан "
-                    "не можна оголошувати застосованим. Якщо це відома legacy-БД — "
-                    "узаконьте baseline вручну за runbook, звіривши структуру.",
+                    "An AvelRen schema exists in the DB (%s), but there is no trusted "
+                    "migration history. Automatic baseline is forbidden (A-07): an "
+                    "unknown/partial state cannot be declared applied. If this is a "
+                    "known legacy DB — legitimize the baseline manually per the runbook, "
+                    "verifying the structure.",
                     ", ".join(existing),
                 )
                 return 1
-            log.info("чиста БД — застосовую всі міграції з нуля")
+            log.info("clean DB — applying all migrations from scratch")
 
-        # A-07 prefix gate: якщо щось вже записано, перевіряємо що записане
-        # є коректним contiguous prefix файлів — без пропуску і без майбутніх
-        # версій. Лише потім (і лише при коректному prefix) перевіряємо фізичну
-        # схему, щоб виявити битий restore ДО того, як нові файли застосуються.
+        # A-07 prefix gate: if something is already recorded, we check that what
+        # is recorded is a valid contiguous prefix of the files — with no gap and
+        # no future versions. Only then (and only with a valid prefix) do we check
+        # the physical schema, to detect a corrupt restore BEFORE new files apply.
         if known:
             sorted_stems = [f.stem for f in files]
             known_set = set(known.keys())
@@ -124,7 +126,7 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
             future = known_set - set(sorted_stems)
             if future:
                 log.error(
-                    "в БД записані невідомі/майбутні міграції (файлів нема в репо): %s",
+                    "the DB records unknown/future migrations (files not in the repo): %s",
                     ", ".join(sorted(future)),
                 )
                 return 1
@@ -134,17 +136,17 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
             gaps = expected_prefix - known_set
             if gaps:
                 log.error(
-                    "в записаній історії є пропуски (відсутні з першого prefix): %s",
+                    "the recorded history has gaps (missing from the first prefix): %s",
                     ", ".join(sorted(gaps)),
                 )
                 return 1
 
-            # Фізичний контракт для поточного prefix — до застосування нових файлів.
+            # Physical contract for the current prefix — before applying new files.
             pre_problems = schema_verify.verify_contract(conn, recorded_versions=known_set)
             if pre_problems:
                 log.error(
-                    "фізична схема суперечить записаній PREFIX-історії "
-                    "(A-07, до нових міграцій):"
+                    "the physical schema contradicts the recorded PREFIX history "
+                    "(A-07, before new migrations):"
                 )
                 for p in pre_problems:
                     log.error("  - %s", p)
@@ -157,15 +159,16 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
 
             if version in known:
                 if known[version] != digest:
-                    # Мовчазна розбіжність гірша за падіння: означає, що вже
-                    # застосований файл змінили, і БД більше не відповідає коду.
+                    # A silent mismatch is worse than a crash: it means an
+                    # already-applied file was changed, and the DB no longer
+                    # matches the code.
                     log.error(
-                        "міграцію %s змінено після застосування — виправте вручну", version
+                        "migration %s was changed after being applied — fix it manually", version
                     )
                     return 1
                 continue
 
-            log.info("застосовую %s", version)
+            log.info("applying %s", version)
             try:
                 conn.execute(body)
                 conn.execute(
@@ -176,22 +179,22 @@ def run(directory: Path = MIGRATIONS_DIR) -> int:
                 applied += 1
             except Exception as exc:
                 conn.rollback()
-                log.error("міграція %s не вдалася: %s", version, exc)
+                log.error("migration %s failed: %s", version, exc)
                 return 1
 
-        # Повний post-apply verify: історія + фізичний контракт усіх версій.
+        # Full post-apply verify: history + physical contract of all versions.
         problems = schema_verify.verify(conn, directory)
         if problems:
-            log.error("схема суперечить історії міграцій (A-07):")
+            log.error("the schema contradicts the migration history (A-07):")
             for p in problems:
                 log.error("  - %s", p)
             return 1
 
-    log.info("готово: застосовано %s, усього %s", applied, len(files))
+    log.info("done: applied %s, total %s", applied, len(files))
     return 0
 
 
 if __name__ == "__main__":
-    # Необовʼязковий аргумент — шлях до міграцій: у контейнері це /migrations,
-    # а CI запускає з кореня репозиторію.
+    # Optional argument — the path to migrations: in the container it is
+    # /migrations, while CI runs it from the repository root.
     sys.exit(run(Path(sys.argv[1]) if len(sys.argv) > 1 else MIGRATIONS_DIR))

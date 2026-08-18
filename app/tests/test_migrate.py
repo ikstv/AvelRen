@@ -1,8 +1,8 @@
-"""Fail-closed міграції і звірка схеми з історією (A-07).
+"""Fail-closed migrations and schema-vs-history verification (A-07).
 
-Кожен сценарій — на власній одноразовій БД: migrate.run() працює через
-settings.database_url, тож фікстура створює порожню базу, перенаправляє
-налаштування на неї й прибирає після тесту.
+Each scenario is on its own disposable DB: migrate.run() works through
+settings.database_url, so the fixture creates an empty database, redirects the
+settings to it, and cleans up after the test.
 """
 
 import os
@@ -28,7 +28,7 @@ def _swap_dbname(dsn: str, dbname: str) -> str:
 
 @pytest.fixture()
 def scratch_dsn(monkeypatch):
-    """Порожня одноразова БД + settings.database_url, спрямований на неї."""
+    """An empty disposable DB + settings.database_url pointed at it."""
     name = f"avelren_ci_mig{random.randrange(10**9)}"
     admin = psycopg.connect(DSN, autocommit=True)
     admin.execute(f'CREATE DATABASE "{name}"')
@@ -48,7 +48,7 @@ def _count_migrations(dsn: str) -> int:
         return c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]
 
 
-# --- нормальні шляхи --------------------------------------------------------
+# --- normal paths -----------------------------------------------------------
 
 
 def test_clean_db_applies_all(scratch_dsn):
@@ -58,35 +58,35 @@ def test_clean_db_applies_all(scratch_dsn):
 
 def test_current_db_applies_nothing(scratch_dsn):
     assert migrate.run(MIGRATIONS) == 0
-    # Повторний запуск — ідемпотентний, нічого не застосовує, все ще 0 exit.
+    # A repeated run is idempotent, applies nothing, still exits 0.
     assert migrate.run(MIGRATIONS) == 0
 
 
-# --- fail-closed (порожній каталог) -----------------------------------------
+# --- fail-closed (empty directory) ------------------------------------------
 
 
 def test_empty_migrations_dir_fails(tmp_path):
-    """Порожній каталог → exit 1 (fail-closed: не можна довести стан схеми)."""
+    """Empty directory → exit 1 (fail-closed: the schema state cannot be proven)."""
     assert migrate.run(tmp_path) == 1
 
 
-# --- fail-closed (стан схеми) -----------------------------------------------
+# --- fail-closed (schema state) ---------------------------------------------
 
 
 def test_existing_schema_without_history_fails_closed(scratch_dsn):
-    """Будь-який AvelRen-обʼєкт при порожній історії → FAIL, не mark-all."""
+    """Any AvelRen object with an empty history → FAIL, not mark-all."""
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute("CREATE TABLE checkpoints (id integer PRIMARY KEY)")
     assert migrate.run(MIGRATIONS) == 1
-    # Нічого не записано в історію — саме це головне.
+    # Nothing was written to the history — that is the main point.
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute(_migrate_schema_ddl())
         assert c.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 0
 
 
 def test_partial_schema_without_checkpoints_also_fails(scratch_dsn):
-    """Навіть коли саме checkpoints нема, інший відомий обʼєкт → теж FAIL
-    (стара евристика дивилась лише на checkpoints)."""
+    """Even when checkpoints specifically is missing, another known object → also
+    FAIL (the old heuristic looked only at checkpoints)."""
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute("CREATE TABLE devices (id uuid PRIMARY KEY)")
     assert migrate.run(MIGRATIONS) == 1
@@ -100,12 +100,13 @@ def test_changed_migration_sha_fails(scratch_dsn):
 
 
 def test_history_ok_but_missing_column_fails(scratch_dsn):
-    """Головний партковий-restore сценарій: історія повна й SHA правильні, але
-    фізично колонки нема — post-apply schema_verify мусить це зловити."""
+    """The main partial-restore scenario: history is complete and SHAs are
+    correct, but the column is physically missing — post-apply schema_verify must
+    catch this."""
     assert migrate.run(MIGRATIONS) == 0
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute("ALTER TABLE devices DROP COLUMN secret_hash")
-    # Наступний запуск застосовувати нема чого, але verify має впасти.
+    # The next run has nothing to apply, but verify must fail.
     assert migrate.run(MIGRATIONS) == 1
 
 
@@ -113,20 +114,20 @@ def test_history_ok_but_missing_column_fails(scratch_dsn):
 
 
 def test_history_gap_fails_without_mutation(scratch_dsn):
-    """Пропуск у записаній історії (наприклад 001+003 без 002) → FAIL до
-    застосування будь-яких нових файлів."""
+    """A gap in the recorded history (e.g. 001+003 without 002) → FAIL before
+    applying any new files."""
     assert migrate.run(MIGRATIONS) == 0
-    # Видаляємо середину, щоб утворити gap.
+    # We delete the middle to create a gap.
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute("DELETE FROM schema_migrations WHERE version = '004_alerts'")
     count_before = _count_migrations(scratch_dsn)
     assert migrate.run(MIGRATIONS) == 1
-    # Кількість записів не змінилась — жодної mutation не відбулось.
+    # The record count did not change — no mutation happened.
     assert _count_migrations(scratch_dsn) == count_before
 
 
 def test_history_future_version_fails_without_mutation(scratch_dsn):
-    """Запис майбутньої/чужої версії в schema_migrations → FAIL до mutation."""
+    """A future/foreign version recorded in schema_migrations → FAIL before mutation."""
     assert migrate.run(MIGRATIONS) == 0
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute(
@@ -138,24 +139,24 @@ def test_history_future_version_fails_without_mutation(scratch_dsn):
 
 
 def test_broken_007_fails_before_applying_008_009(scratch_dsn, tmp_path):
-    """Битий фізичний контракт 007 → FAIL до застосування 008 і 009.
+    """A broken physical contract of 007 → FAIL before applying 008 and 009.
 
-    Зараз: pre-apply prefix gate перевіряє фізичну схему перед тим, як
-    застосовувати pending-файли. Без цього gate-у migrator би записав 008+009
-    в БД з уже некоректною схемою 007, і лише потім впав би на post-verify.
+    Now: the pre-apply prefix gate checks the physical schema before applying
+    pending files. Without this gate the migrator would record 008+009 in a DB
+    with an already-incorrect 007 schema, and only then fail on post-verify.
     """
-    # Накатуємо тільки перші 7 міграцій.
+    # We apply only the first 7 migrations.
     partial = tmp_path / "migrations"
     partial.mkdir()
     for f in sorted(MIGRATIONS.glob("*.sql"))[:7]:
         (partial / f.name).write_bytes(f.read_bytes())
     assert migrate.run(partial) == 0
 
-    # Ламаємо контракт 007 (втрата secret_hash).
+    # We break the 007 contract (loss of secret_hash).
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute("ALTER TABLE devices DROP COLUMN secret_hash")
 
-    # Запускаємо проти всіх 9 — має впасти ДО застосування 008+009.
+    # We run against all 9 — it must fail BEFORE applying 008+009.
     assert migrate.run(MIGRATIONS) == 1
 
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
@@ -165,20 +166,20 @@ def test_broken_007_fails_before_applying_008_009(scratch_dsn, tmp_path):
 
 
 def test_valid_007_applies_008_009(scratch_dsn, tmp_path):
-    """Коректний контракт 007 → 008 і 009 застосовуються успішно."""
+    """A valid 007 contract → 008 and 009 apply successfully."""
     partial = tmp_path / "migrations"
     partial.mkdir()
     for f in sorted(MIGRATIONS.glob("*.sql"))[:7]:
         (partial / f.name).write_bytes(f.read_bytes())
     assert migrate.run(partial) == 0
 
-    # Контракт 007 цілий — запускаємо повний набір.
+    # The 007 contract is intact — we run the full set.
     assert migrate.run(MIGRATIONS) == 0
 
     assert _count_migrations(scratch_dsn) == len(list(MIGRATIONS.glob("*.sql")))
 
 
-# --- schema_verify напряму --------------------------------------------------
+# --- schema_verify directly -------------------------------------------------
 
 
 def test_schema_verify_passes_on_full_db(scratch_dsn):
@@ -196,8 +197,8 @@ def test_verify_history_detects_missing_and_future(scratch_dsn):
         )
         problems = schema_verify.verify_history(c, MIGRATIONS)
     joined = " ".join(problems)
-    assert "009_observability" in joined  # пропущена
-    assert "099_future" in joined         # чужа/майбутня
+    assert "009_observability" in joined  # missing
+    assert "099_future" in joined         # foreign/future
 
 
 def test_verify_contract_detects_dropped_index(scratch_dsn):
@@ -209,10 +210,11 @@ def test_verify_contract_detects_dropped_index(scratch_dsn):
 
 
 def test_verify_contract_detects_missing_subscriptions_unique(scratch_dsn):
-    """Втрата UNIQUE(device_id, checkpoint_id, threshold) → verify_contract ловить.
+    """Loss of UNIQUE(device_id, checkpoint_id, threshold) → verify_contract catches it.
 
-    POST /subscriptions покладається на ON CONFLICT (device_id, checkpoint_id, threshold);
-    якщо constraint загубився при restore — запит впаде з неочікуваною помилкою на проді.
+    POST /subscriptions relies on ON CONFLICT (device_id, checkpoint_id, threshold);
+    if the constraint was lost in the restore, the request would fail with an
+    unexpected error in prod.
     """
     assert migrate.run(MIGRATIONS) == 0
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
@@ -225,10 +227,11 @@ def test_verify_contract_detects_missing_subscriptions_unique(scratch_dsn):
 
 
 def test_verify_contract_detects_nonunique_invariant_index(scratch_dsn):
-    """Перетворення UNIQUE partial index на звичайний → verify_contract ловить.
+    """Turning a UNIQUE partial index into a regular one → verify_contract catches it.
 
-    alerts_one_pending_per_subscription мусить бути UNIQUE: без цього можна
-    вставити два pending-алерти на одну підписку і notifier дублюватиме сповіщення.
+    alerts_one_pending_per_subscription must be UNIQUE: without it, two pending
+    alerts can be inserted for one subscription and the notifier would duplicate
+    notifications.
     """
     assert migrate.run(MIGRATIONS) == 0
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
@@ -245,11 +248,11 @@ def test_verify_contract_detects_nonunique_invariant_index(scratch_dsn):
 
 
 def test_verify_contract_detects_wrong_predicate_on_invariant_index(scratch_dsn):
-    """Same-name UNIQUE partial index, але з іншим predicate → FAIL.
+    """Same-name UNIQUE partial index but with a different predicate → FAIL.
 
-    Тільки uniqueness+partial недостатньо: DROP+CREATE із тим же іменем, але
-    predicate `status = 'acknowledged'` замість `status = 'pending'` тримає
-    зовсім інший інваріант; API продовжуватиме генерувати pending-дублікати.
+    Uniqueness+partial alone is not enough: a DROP+CREATE with the same name but a
+    predicate `status = 'acknowledged'` instead of `status = 'pending'` holds a
+    completely different invariant; the API would keep generating pending duplicates.
     """
     assert migrate.run(MIGRATIONS) == 0
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
@@ -266,7 +269,7 @@ def test_verify_contract_detects_wrong_predicate_on_invariant_index(scratch_dsn)
 
 
 def test_verify_contract_detects_wrong_columns_on_invariant_index(scratch_dsn):
-    """Same-name UNIQUE partial index на інших columns → FAIL."""
+    """Same-name UNIQUE partial index on different columns → FAIL."""
     assert migrate.run(MIGRATIONS) == 0
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute("DROP INDEX alerts_one_pending_per_subscription")
@@ -282,11 +285,11 @@ def test_verify_contract_detects_wrong_columns_on_invariant_index(scratch_dsn):
 
 
 def test_verify_contract_detects_wrong_columns_on_named_constraint(scratch_dsn):
-    """Same-name UNIQUE constraint на інших columns → FAIL.
+    """Same-name UNIQUE constraint on different columns → FAIL.
 
-    ON CONFLICT (device_id, checkpoint_id, threshold) у API покладається саме
-    на ці columns; constraint з тим же іменем але (device_id) впаде на проді
-    з неочікуваною помилкою "no unique constraint matching...".
+    ON CONFLICT (device_id, checkpoint_id, threshold) in the API relies exactly on
+    these columns; a constraint with the same name but (device_id) would fail in
+    prod with an unexpected "no unique constraint matching..." error.
     """
     assert migrate.run(MIGRATIONS) == 0
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
@@ -294,8 +297,8 @@ def test_verify_contract_detects_wrong_columns_on_named_constraint(scratch_dsn):
             "ALTER TABLE subscriptions "
             "DROP CONSTRAINT subscriptions_device_id_checkpoint_id_threshold_key"
         )
-        # Створюємо constraint з тим самим іменем, але зовсім іншими columns.
-        # Спершу треба звільнити device_id від дубль-значень (у чистій БД він порожній).
+        # We create a constraint with the same name but completely different columns.
+        # First we must free device_id of duplicate values (in a clean DB it is empty).
         c.execute(
             "ALTER TABLE subscriptions "
             "ADD CONSTRAINT subscriptions_device_id_checkpoint_id_threshold_key "
@@ -312,9 +315,9 @@ def test_verify_contract_detects_wrong_columns_on_named_constraint(scratch_dsn):
 
 
 def test_restore_smoke_passes_on_migrated_db(scratch_dsn, monkeypatch):
-    """DR-контракт: справжній застосунок піднімається проти щойно змігрованої
-    БД з реальними даними і проходить prod-guard + health + auth + devices/secret
-    + protected-запит."""
+    """DR contract: the real application comes up against a just-migrated DB with
+    real data and passes prod-guard + health + auth + devices/secret + a protected
+    request."""
     from avelren import db, restore_smoke
 
     monkeypatch.setenv("AVELREN_RESTORE_VERIFY_TARGET", "restore_test")
@@ -323,8 +326,8 @@ def test_restore_smoke_passes_on_migrated_db(scratch_dsn, monkeypatch):
 
     assert migrate.run(MIGRATIONS) == 0
 
-    # Засіваємо мінімум даних: checkpoint + observation. Без них /health
-    # повертає last_observation=null → smoke завалиться на DR gap check.
+    # We seed the minimum data: checkpoint + observation. Without them /health
+    # returns last_observation=null → smoke would fail on the DR gap check.
     with psycopg.connect(scratch_dsn, autocommit=True) as c:
         c.execute(
             "INSERT INTO checkpoints (id, title, for_vehicle_type) VALUES (1, 'Test', 0)"
@@ -335,7 +338,7 @@ def test_restore_smoke_passes_on_migrated_db(scratch_dsn, monkeypatch):
             "VALUES (now(), 1, 60, 5, false)"
         )
 
-    db._pool = None  # свіжий пул саме на scratch-БД
+    db._pool = None  # a fresh pool on the scratch DB specifically
     try:
         assert restore_smoke.main() == 0
     finally:
@@ -343,11 +346,11 @@ def test_restore_smoke_passes_on_migrated_db(scratch_dsn, monkeypatch):
 
 
 def test_restore_smoke_fails_on_empty_observations(scratch_dsn, monkeypatch):
-    """Правильна схема, але нульові дані → smoke повертає 1 (DR false PASS неприйнятний).
+    """Correct schema but zero data → smoke returns 1 (a DR false PASS is unacceptable).
 
-    /health на AvelRen повертає 200 навіть без observations; тому smoke явно
-    перевіряє last_observation != null, щоб відрізнити «відновлено» від «схема є,
-    даних немає».
+    /health on AvelRen returns 200 even without observations; so smoke explicitly
+    checks last_observation != null, to distinguish "restored" from "schema is
+    there, no data".
     """
     from avelren import db, restore_smoke
 
@@ -364,7 +367,7 @@ def test_restore_smoke_fails_on_empty_observations(scratch_dsn, monkeypatch):
 
 
 def test_restore_smoke_refuses_production_db(monkeypatch):
-    """Smoke відмовляється запускатись, якщо current_database() == 'avelren'."""
+    """Smoke refuses to run if current_database() == 'avelren'."""
     from avelren import restore_smoke
 
     monkeypatch.setenv("AVELREN_RESTORE_VERIFY_TARGET", "restore_test")
@@ -381,6 +384,6 @@ def test_restore_smoke_refuses_production_db(monkeypatch):
 
 
 def _migrate_schema_ddl() -> str:
-    # Той самий DDL, що створює migrate для таблиці історії — щоб тест міг її
-    # прочитати навіть коли міграція не дійшла до створення.
+    # The same DDL that migrate creates for the history table — so the test can
+    # read it even when the migration did not reach creation.
     return migrate._SCHEMA

@@ -10,26 +10,26 @@ from .models import WorkloadResponse
 
 log = logging.getLogger(__name__)
 
-# Гостьовий контракт офіційного web-клієнта (v5). X-User-Agent і device-заголовки
-# додаються динамічно у fetch_workload з конфігу.
+# Guest contract of the official web client (v5). X-User-Agent and device headers
+# are added dynamically in fetch_workload from the config.
 REQUIRED_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
     "X-Client-Locale": "uk",
 }
 
-# Option A: 1–120 друкованих ASCII-символів. Non-ASCII як байти HTTP-заголовка
-# ненадійні між реалізаціями, тож fail-closed, а не «якось закодувати».
+# Option A: 1–120 printable ASCII characters. Non-ASCII as HTTP-header bytes is
+# unreliable across implementations, so fail-closed rather than "encode it somehow".
 _DEVICE_NAME_MAX = 120
 
 
 def _canonical_device_id(raw: str) -> str:
-    """Canonical (lowercase) UUID-рядок або ValueError.
+    """Canonical (lowercase) UUID string or ValueError.
 
-    Політика: parseable UUID обов'язковий; nil відхиляється (граматично валідний,
-    але не називає жодного пристрою); без обмеження версії/варіанта — оператор
-    кладе будь-який реальний persistent UUID. Канонізуємо через str(UUID(...)),
-    щоб {фігурні}, ВЕРХНІЙ регістр і urn: зводились до одного вигляду.
+    Policy: a parseable UUID is mandatory; nil is rejected (grammatically valid,
+    but names no device); no version/variant restriction — the operator supplies
+    any real persistent UUID. We canonicalize via str(UUID(...)), so {braces},
+    UPPERCASE, and urn: all reduce to a single form.
     """
     try:
         parsed = UUID(raw)
@@ -43,8 +43,8 @@ def _canonical_device_id(raw: str) -> str:
 
 
 def _validated_device_name(name: str) -> str:
-    """1–120 друкованих ASCII (0x20–0x7E) або ValueError. Fail-closed на порожнє,
-    Unicode, control-символи (вкл. \\n, \\t), DEL і довші за 120."""
+    """1–120 printable ASCII (0x20–0x7E) or ValueError. Fail-closed on empty,
+    Unicode, control characters (incl. \\n, \\t), DEL, and longer than 120."""
     if (
         not 1 <= len(name) <= _DEVICE_NAME_MAX
         or not name.isascii()
@@ -73,13 +73,13 @@ class FetchResult:
 
 
 async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
-    """Один запит до єЧерги.
+    """A single request to eCherha.
 
-    Помилки джерела не є нашою аварією: повертаємо їх як результат, щоб цикл
-    записав причину і спокійно дочекався наступної хвилини.
+    Source errors are not our outage: we return them as a result, so the cycle
+    records the reason and calmly waits for the next minute.
     """
-    # Fail-closed: некоректний device-конфіг не робить запиту взагалі — причина
-    # йде в collector_runs.error, її бачить сторож. Назовні нічого не летить.
+    # Fail-closed: an invalid device config makes no request at all — the reason
+    # goes into collector_runs.error, which the watchdog sees. Nothing flies out.
     try:
         device_id = _canonical_device_id(settings.echerha_device_id)
         device_name = _validated_device_name(settings.echerha_device_name)
@@ -95,33 +95,34 @@ async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
         "User-Agent": settings.user_agent,
     }
 
-    # Тривалість міряємо власним монотонним таймером: httpx `.elapsed` доступний
-    # лише в реальному networking-шляху (під тестовим транспортом його нема), а
-    # duration_ms — це наша телеметрія, не частина дротового контракту.
+    # We measure duration with our own monotonic timer: httpx `.elapsed` is
+    # available only on the real networking path (under the test transport it is
+    # absent), and duration_ms is our telemetry, not part of the wire contract.
     started = time.monotonic()
     try:
         request = client.build_request("GET", settings.workload_url, headers=headers)
-        # httpx застосовує cookie jar і дефолтні заголовки клієнта на build_request,
-        # тож знімаємо Authorization/Cookie ПІСЛЯ побудови — це покриває і успадковані
-        # заголовки, і replay Set-Cookie з попереднього циклу. auth=None не дає
-        # клієнтському auth повторно їх додати. Жодного ambient session state.
+        # httpx applies the cookie jar and the client's default headers on
+        # build_request, so we strip Authorization/Cookie AFTER building — this
+        # covers both inherited headers and a replay of Set-Cookie from the
+        # previous cycle. auth=None keeps client auth from re-adding them. No
+        # ambient session state.
         request.headers.pop("Authorization", None)
         request.headers.pop("Cookie", None)
         r = await client.send(request, auth=None)
     except httpx.HTTPError as exc:
-        log.warning("запит до єЧерги не вдався: %s", exc)
+        log.warning("request to eCherha failed: %s", exc)
         return FetchResult(None, None, 0, None, str(exc))
     duration_ms = int((time.monotonic() - started) * 1000)
 
     if r.status_code != 200:
-        log.warning("єЧерга відповіла %s", r.status_code)
+        log.warning("eCherha responded %s", r.status_code)
         return FetchResult(None, r.status_code, duration_ms, None, f"HTTP {r.status_code}")
 
     body_sha256 = hashlib.sha256(r.content).hexdigest()
     try:
         parsed = WorkloadResponse.model_validate(r.json())
     except ValueError as exc:
-        log.error("не вдалося розібрати відповідь: %s", exc)
+        log.error("failed to parse response: %s", exc)
         return FetchResult(None, r.status_code, duration_ms, body_sha256, f"parse: {exc}")
 
     return FetchResult(parsed, r.status_code, duration_ms, body_sha256, None)

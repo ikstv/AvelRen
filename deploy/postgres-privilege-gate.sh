@@ -70,7 +70,7 @@ TESTS=app/tests/test_db_privileges.py
 # "test" or "ci". Production's database is `avelren`, so that guard can never be
 # satisfied here — correctly, because it is guarding a suite that runs DELETEs.
 #
-# Without this flag the gate aborted with `Exit: DATABASE_URL не задано` (rc=3)
+# Without this flag the gate aborted with `Exit: DATABASE_URL not set` (rc=3)
 # before running a single assertion. That is what failed the 3B.2 production
 # attempt on 2026-08-14: the post-commit gate could not run, so a correctly
 # committed adoption was rolled back.

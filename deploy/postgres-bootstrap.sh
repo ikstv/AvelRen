@@ -272,20 +272,20 @@ create_roles() {
     admin_psql_maintenance -f "$ROOT/db/security/bootstrap.sql"
 }
 
-# Fail-closed guard проти privilege-escalation через role membership.
+# Fail-closed guard against privilege escalation via role membership.
 #
-# Canonical-граф не має ЖОДНОГО membership між avelren_%-ролями (bootstrap.sql
-# явно REVOKE'ає admin/migrator memberships — це known-safe baseline). Будь-який
-# ЗАЛИШКОВИЙ avelren_% → avelren_% membership (напр. хтось видав
-# `GRANT avelren_collector TO avelren_api`, і api через SET ROLE отримав чужі
-# права) — це неочікувана ескалація, яку bootstrap НЕ виправляє мовчки:
-# автоматичний REVOKE приховав би факт компрометації. Замість цього — halt із
-# явним повідомленням, щоб адміністратор розслідував походження membership'а і
-# зняв його свідомо (саме так робить інтеграційний тест: спершу бачить fail,
-# потім REVOKE руками адміна, потім повторний bootstrap проходить).
+# The canonical graph has NO membership at all between the avelren_% roles (bootstrap.sql
+# explicitly REVOKEs the admin/migrator memberships — that's the known-safe baseline). Any
+# LEFTOVER avelren_% → avelren_% membership (e.g. someone issued
+# `GRANT avelren_collector TO avelren_api`, and api gained someone else's rights via SET
+# ROLE) is an unexpected escalation that bootstrap does NOT fix silently:
+# an automatic REVOKE would hide the fact of a compromise. Instead — halt with
+# an explicit message, so the administrator investigates the origin of the membership and
+# removes it deliberately (this is exactly what the integration test does: it first sees a
+# fail, then REVOKEs by the admin's hand, then a repeat bootstrap passes).
 #
-# Запускається ПІСЛЯ create_roles: baseline-revoke'и bootstrap.sql уже
-# застосовані, тож у чистому стані лишається 0 memberships, і guard мовчить.
+# Runs AFTER create_roles: bootstrap.sql's baseline revokes are already
+# applied, so in a clean state 0 memberships remain and the guard stays silent.
 verify_role_memberships() {
     local forbidden
     if ! forbidden=$(admin_psql_maintenance --set=bootstrap_stage=verify_memberships \

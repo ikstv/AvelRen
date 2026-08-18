@@ -75,8 +75,8 @@ EXPECTED_TABLE_PRIVILEGES = {
         "eta_targets": {"SELECT", "INSERT", "UPDATE"},
         "eta_alerts": {"SELECT", "INSERT", "UPDATE"},
         "notification_cancels": {"INSERT"},
-        # Fail-closed startup schema check (#88) читає max(version) звідси;
-        # без цього SELECT перевірка впала б з 42501 після 3C cutover.
+        # The fail-closed startup schema check (#88) reads max(version) from here;
+        # without this SELECT the check would fail with 42501 after the 3C cutover.
         "schema_migrations": {"SELECT"},
     },
     "NOTIFIER_DATABASE_URL": {
@@ -86,16 +86,16 @@ EXPECTED_TABLE_PRIVILEGES = {
         "eta_targets": {"SELECT"},
         "checkpoints": {"SELECT"},
         "notification_cancels": {"SELECT", "DELETE"},
-        # Fail-closed startup schema check (#88) читає max(version) звідси;
-        # без цього SELECT перевірка впала б з 42501 після 3C cutover.
+        # The fail-closed startup schema check (#88) reads max(version) from here;
+        # without this SELECT the check would fail with 42501 after the 3C cutover.
         "schema_migrations": {"SELECT"},
     },
     "WATCHDOG_DATABASE_URL": {
         "observations": {"SELECT"},
         "collector_runs": {"SELECT"},
         "health_alerts": {"SELECT", "INSERT", "UPDATE"},
-        # Fail-closed startup schema check (#88) читає max(version) звідси;
-        # без цього SELECT перевірка впала б з 42501 після 3C cutover.
+        # The fail-closed startup schema check (#88) reads max(version) from here;
+        # without this SELECT the check would fail with 42501 after the 3C cutover.
         "schema_migrations": {"SELECT"},
     },
     "API_DATABASE_URL": {
@@ -110,9 +110,9 @@ EXPECTED_TABLE_PRIVILEGES = {
         "eta_alerts": {"SELECT"},
         "health_alerts": {"SELECT"},
         "notification_cancels": {"INSERT"},
-        # Read-only: /admin/telemetry version-блок (telemetry.version →
-        # SELECT max(version) FROM schema_migrations) обслуговується API-роллю.
-        # Ніколи не пише — це домен avelren_migrator.
+        # Read-only: the /admin/telemetry version block (telemetry.version →
+        # SELECT max(version) FROM schema_migrations) is served by the API role.
+        # It never writes — that is the domain of avelren_migrator.
         "schema_migrations": {"SELECT"},
     },
 }
@@ -149,10 +149,10 @@ EXPECTED_DEVICE_COLUMN_PRIVILEGES = {
     "WATCHDOG_DATABASE_URL": {
         "id": {"SELECT"},
         "is_admin": {"SELECT"},
-        # UPDATE потрібен для гасіння мертвого адмін-FCM-токена
-        # (watchdog._notify → UPDATE devices SET fcm_token=NULL). Раніше
-        # тут стояв тільки SELECT, і код M-10 падав під роллю watchdog у
-        # проді — див. регресійний тест
+        # UPDATE is needed to clear a dead admin FCM token
+        # (watchdog._notify → UPDATE devices SET fcm_token=NULL). Previously only
+        # SELECT was here, and the M-10 code failed under the watchdog role in
+        # prod — see the regression test
         # `test_watchdog_dead_fcm_token_updates_devices_under_watchdog_role`.
         "fcm_token": {"SELECT", "UPDATE"},
     },
@@ -825,26 +825,26 @@ def test_watchdog_positive_service_paths_cover_health_and_recovery(monkeypatch):
 
 
 def test_watchdog_dead_fcm_token_updates_devices_under_watchdog_role(monkeypatch):
-    """M-10 регресія: dead-FCM-token гасіння виконується `UPDATE devices SET
-    fcm_token = NULL` у watchdog._notify. Без `GRANT UPDATE (fcm_token) ON
-    devices TO avelren_watchdog` цей рядок падає з SQLSTATE 42501, і
-    watchdog вічно ретраїть той самий мертвий токен щоциклу.
+    """M-10 regression: dead-FCM-token clearing is done via `UPDATE devices SET
+    fcm_token = NULL` in watchdog._notify. Without `GRANT UPDATE (fcm_token) ON
+    devices TO avelren_watchdog` this statement fails with SQLSTATE 42501, and the
+    watchdog forever retries the same dead token every cycle.
 
-    Позитивний тест вище (`..._cover_health_and_recovery`) не покриває цей
-    шлях: у нього `fake_send` повертає None, тобто dead-token гілка ніколи
-    не виконується. Цей тест ЯВНО кидає `FcmError(dead_token=True)` під
-    роллю `avelren_watchdog` і перевіряє:
+    The positive test above (`..._cover_health_and_recovery`) does not cover this
+    path: there `fake_send` returns None, so the dead-token branch never runs.
+    This test EXPLICITLY raises `FcmError(dead_token=True)` under the
+    `avelren_watchdog` role and checks:
 
-    1. cycle завершується без винятку (grant присутній);
-    2. `devices.fcm_token` фактично встановлений у NULL;
-    3. `health_alerts` рядок був створений (тобто цикл не впав до вставки).
+    1. the cycle finishes without an exception (the grant is present);
+    2. `devices.fcm_token` is actually set to NULL;
+    3. the `health_alerts` row was created (i.e. the cycle did not fail before insert).
     """
     role = "avelren_watchdog"
     dead_token = f"dead-admin-{uuid.uuid4().hex}"
     device_id = str(uuid.uuid4())
 
     async def fake_dead_send(*args, **kwargs):
-        # Реальна форма FcmError із проду: канонічний dead-token від FCM.
+        # The real FcmError shape from prod: a canonical dead-token from FCM.
         raise fcm.FcmError(
             http_status=404,
             canonical_status="NOT_FOUND",
@@ -863,9 +863,9 @@ def test_watchdog_dead_fcm_token_updates_devices_under_watchdog_role(monkeypatch
         )
 
     async def exercise(pool):
-        # `no_data` проблема виникне автоматично (в БД немає observations).
-        # Це триггерить INSERT у health_alerts і виклик _notify, який
-        # спробує UPDATE devices SET fcm_token=NULL для нашого dead_token.
+        # The `no_data` problem arises automatically (there are no observations in
+        # the DB). This triggers an INSERT into health_alerts and a call to
+        # _notify, which tries UPDATE devices SET fcm_token=NULL for our dead_token.
         with privilege_path(role, "dead-token UPDATE", "devices.fcm_token"):
             await watchdog.run_cycle(client=None)
 
@@ -874,27 +874,27 @@ def test_watchdog_dead_fcm_token_updates_devices_under_watchdog_role(monkeypatch
         asyncio.run(run_with_role_pool("WATCHDOG_DATABASE_URL", exercise))
 
         with connect_env("ADMIN_DATABASE_URL") as admin:
-            # 1. fcm_token дійсно занулений — саме UPDATE devices пройшов.
+            # 1. fcm_token is actually nulled — the UPDATE devices went through.
             token_after = scalar(
                 admin, "SELECT fcm_token FROM devices WHERE id = %s", (device_id,)
             )
             assert token_after is None, (
-                f"watchdog має занулити мертвий fcm_token, отримали: {token_after!r}"
+                f"the watchdog must null the dead fcm_token, got: {token_after!r}"
             )
-            # 2. Цикл дійшов до вставки health_alert — тобто _notify не
-            #    впав до самого UPDATE devices, а виконав його.
+            # 2. The cycle reached the health_alert insert — i.e. _notify did not
+            #    fail before the UPDATE devices, but executed it.
             row = admin.execute(
                 "SELECT id, send_count FROM health_alerts "
                 "WHERE kind = 'no_data' AND resolved_at IS NULL"
             ).fetchone()
-            assert row is not None, "no_data health_alert має бути створений"
+            assert row is not None, "the no_data health_alert must be created"
             health_id = row[0]
-            # send_count лишається 0: dead-token не рахується як успішна
-            # доставка (delivered=False), і `UPDATE health_alerts SET
-            # last_sent_at, send_count` не виконується. Це важливий контракт:
-            # ми не «зараховуємо» dead-token як alert-доставку.
+            # send_count stays 0: a dead token does not count as a successful
+            # delivery (delivered=False), and `UPDATE health_alerts SET
+            # last_sent_at, send_count` is not executed. This is an important
+            # contract: we do not "credit" a dead token as an alert delivery.
             assert row[1] == 0, (
-                f"dead-token НЕ доставка; send_count має бути 0, отримали {row[1]}"
+                f"a dead token is NOT a delivery; send_count must be 0, got {row[1]}"
             )
     finally:
         with connect_env("ADMIN_DATABASE_URL") as admin:

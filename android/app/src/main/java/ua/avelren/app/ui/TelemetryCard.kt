@@ -22,21 +22,21 @@ import ua.avelren.app.data.Api
 import java.time.Instant
 
 /**
- * Server Dashboard для адмін-пристрою. Показує все, що вже віддає
- * `/admin/telemetry`, у секційній структурі. Ніколи не вигадує значення:
- * якщо поле відсутнє — рендериться ⚪ Unknown, а не 🟢 OK. Це основний
- * інваріант — тихий провал моніторингу гірший за відсутність моніторингу.
+ * The Server Dashboard for an admin device. Shows everything `/admin/telemetry`
+ * already returns, in a sectioned structure. Never invents a value: if a field is
+ * missing — it renders ⚪ Unknown, not 🟢 OK. This is the main invariant — a
+ * silent monitoring failure is worse than the absence of monitoring.
  *
- * Розширення сервером (per-container статуси, upstream ЄЧерга, версії, білінг)
- * приходять з PR-B (backend telemetry) та PR-C (Hetzner billing). До того
- * відповідні секції показують чесний ⚪ Unknown із поясненням.
+ * Server-side extensions (per-container statuses, the eCherha upstream, versions,
+ * billing) arrive with PR-B (backend telemetry) and PR-C (Hetzner billing). Until
+ * then the corresponding sections show an honest ⚪ Unknown with an explanation.
  */
 @Composable
 fun TelemetryCard(t: Api.Telemetry?) {
     if (t == null) return
 
-    // "Now" береться один раз на композицію: усе всередині одного recompose
-    // порівнюється з тим самим часом (детерміністично).
+    // "Now" is taken once per composition: everything within one recompose is
+    // compared against the same time (deterministically).
     val nowEpochSeconds = System.currentTimeMillis() / 1000L
 
     val hostStatus = ServerDashboardStatus.host(t.system)
@@ -45,8 +45,8 @@ fun TelemetryCard(t: Api.Telemetry?) {
     val backupStatus = ServerDashboardStatus.backup(t.backups)
     val certStatus = ServerDashboardStatus.certificate(t.certificate)
     val watchdogStatus = ServerDashboardStatus.watchdog(t.problems)
-    // PR-B: якщо backend дав реальні поля — рахуємо на них; інакше fallback
-    // на непрямі сигнали.
+    // PR-B: if the backend provided real fields — we compute from them; otherwise
+    // fall back to indirect signals.
     val upstreamStatus = if (t.last_collector_run != null) {
         ServerDashboardStatus.upstream(
             t.last_collector_run, t.last_collector_success, t.problems, nowEpochSeconds
@@ -186,8 +186,8 @@ private fun HostSection(
     Line("Свіжість host-снапшоту",
         snapAge?.let { formatAgeSeconds(it.toLong()) } ?: "⚪ невідомо")
 
-    // Inode usage. Заповнена filesystem за inode виглядає як «диску купа»,
-    // поки не спробуєш створити файл — тому окрема лінія.
+    // Inode usage. A filesystem full on inodes looks like "plenty of disk"
+    // until you try to create a file — hence a separate line.
     val inodesText = when {
         inodes?.used_percent == null -> "⚪ невідомо"
         inodes.total != null -> "${inodes.used_percent}% (${inodes.used}/${inodes.total})"
@@ -202,7 +202,7 @@ private fun ServicesSection(
     pipeline: Api.TelemetryPipeline,
 ) {
     if (services.isEmpty()) {
-        // Backend без PR-B — fallback на непрямі сигнали (як у PR-A).
+        // A backend without PR-B — fall back to indirect signals (as in PR-A).
         Line("api", ServerDashboardStatus.apiService().emoji + " OK (непрямо)")
         Line("db", ServerDashboardStatus.dbService(pipeline).emoji +
             if (pipeline.observations > 0) " OK (непрямо)" else " невідомо")
@@ -238,7 +238,7 @@ private fun CollectorSection(
     Line("Помилок за годину", "${pipeline.errors_last_hour}")
     Line("Повнота", "${pipeline.completeness_percent}%")
 
-    // PR-B: реальний останній цикл — з HTTP-статусом і причиною помилки.
+    // PR-B: the real last cycle — with the HTTP status and the error cause.
     if (lastRun != null) {
         val runText = buildString {
             lastRun.http_status?.let { append("HTTP $it") } ?: append("HTTP ?")
@@ -333,10 +333,10 @@ private fun CertificateSection(cert: Api.TelemetryCert) {
 
 @Composable
 private fun BillingSection() {
-    // Джерело білінгу з'явиться в PR-C (Hetzner Cloud API, read-only token).
-    // До того чесно показуємо ⚪ Unknown із зазначенням причини. Розраховані
-    // значення (uptime × ціна) НЕ показуємо як «витрачено» — це естімейт, і
-    // називати його фактичним списанням = вводити в оману.
+    // The billing source will appear in PR-C (Hetzner Cloud API, read-only token).
+    // Until then we honestly show ⚪ Unknown with the reason stated. We do NOT show
+    // computed values (uptime × price) as "spent" — it is an estimate, and calling
+    // it an actual charge = misleading.
     Line("Стан", "⚪ Unknown — billing source не налаштований")
     Line("Джерело", "буде: Hetzner Cloud (PR-C)")
 }

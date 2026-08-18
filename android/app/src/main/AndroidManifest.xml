@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- З Android 13 дозвіл на сповіщення треба просити явно. -->
+    <!-- Since Android 13, the notification permission must be requested explicitly. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -31,7 +31,7 @@
             </intent-filter>
         </service>
 
-        <!-- Приймає натиск «ОК» просто зі шторки, без відкриття застосунку. -->
+        <!-- Handles the "OK" tap straight from the notification shade, without opening the app. -->
         <receiver
             android:name=".notify.AckReceiver"
             android:exported="false" />

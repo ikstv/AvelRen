@@ -85,7 +85,7 @@ echo 'C introspection-only subset, no DML/positive-commit/migrate: PASS'
 
 # --- C2: conftest must be disabled --------------------------------------------
 # Regression, production 2026-08-14: the gate aborted with
-# `Exit: DATABASE_URL не задано` (rc=3) before running a single assertion,
+# `Exit: DATABASE_URL not set` (rc=3) before running a single assertion,
 # because app/tests/conftest.py guards the DESTRUCTIVE suite — it requires
 # DATABASE_URL, AVELREN_TEST_DB=1, and a database name containing test/ci. The
 # production database is `avelren`, so that guard can never pass here. The gate

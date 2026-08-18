@@ -23,11 +23,11 @@ private val KYIV_TZ: ZoneId = ZoneId.of("Europe/Kyiv")
 private val TARGET_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM 'о' HH:mm")
 
 /**
- * Активні підписки з можливістю скасувати.
+ * Active subscriptions with the ability to cancel.
  *
- * Без цього екрана помилковий тап на «50» замість «500» означав би сповіщення
- * назавжди — а вони навмисно не змахуються. Створити щось, що не вимикається,
- * гірше, ніж не створити нічого.
+ * Without this screen, a mistaken tap on "50" instead of "500" would mean
+ * notifications forever — and they are deliberately non-swipeable. Creating
+ * something that cannot be turned off is worse than creating nothing.
  */
 @Composable
 fun SubscriptionsSection(
@@ -76,7 +76,7 @@ private fun RemovableRow(text: String, detail: String, enabled: Boolean, onRemov
             Text(text, style = MaterialTheme.typography.bodyMedium)
             Text(detail, style = MaterialTheme.typography.bodySmall)
         }
-        // Protected-дія: у non-Ready стані delete неактивний (B4).
+        // Protected action: in a non-Ready state delete is disabled (B4).
         TextButton(onClick = onRemove, enabled = enabled) { Text("Прибрати") }
     }
 }

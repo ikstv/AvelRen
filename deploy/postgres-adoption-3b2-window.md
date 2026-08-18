@@ -1,101 +1,101 @@
-# Картка вікна 3B.2 — продова adoption володіння й ACL
+# 3B.2 window card — production adoption of ownership and ACL
 
-> **Виконано 2026-08-17 14:07–14:08 UTC, `exit 0`, `stage=committed`.**
-> Ця редакція — та, за якою вікно пройшло. Три попередні спроби провалились на
-> неповному оточенні; розділи 2.6a, 4.1 і 4.2 — саме те, що це закрило.
+> **Performed 2026-08-17 14:07–14:08 UTC, `exit 0`, `stage=committed`.**
+> This revision is the one the window ran under. Three previous attempts failed on
+> an incomplete environment; sections 2.6a, 4.1 and 4.2 are exactly what closed that.
 >
-> Результат, перевірений виміром, а не логом: володіння 20 обʼєктів →
-> `avelren_migrator`; ACL роздано (api 18, backup 14, collector 27,
-> migrator 98, notifier 8, watchdog 6); схема лишилась `009_observability`;
-> легасі `avelren` `SUPERUSER+LOGIN` недоторканий; `db` не перестворено;
-> `migrate` не запускався; гейт після коміту — **25 passed** проти 22 failed у
-> сухій перевірці. Простій клієнтів ~31 с.
+> The result, verified by measurement rather than by the log: ownership of 20 objects →
+> `avelren_migrator`; ACLs granted (api 18, backup 14, collector 27,
+> migrator 98, notifier 8, watchdog 6); the schema stayed `009_observability`;
+> the legacy `avelren` `SUPERUSER+LOGIN` untouched; `db` not recreated;
+> `migrate` did not run; the post-commit gate — **25 passed** against 22 failed in
+> the dry check. Client downtime ~31 s.
 
-> Це **не** авторизація і не заміна `deploy/postgres-adoption-runbook.md`.
-> Рунбук пояснює *чому*; ця картка — точний контракт запуску, виведений із
-> `deploy/postgres-adopt.sh` на комміті прода, плюс правила зупинки.
+> This is **not** an authorization and not a replacement for `deploy/postgres-adoption-runbook.md`.
+> The runbook explains *why*; this card is the exact launch contract, derived from
+> `deploy/postgres-adopt.sh` at the prod commit, plus the stop rules.
 >
-> Одна команда тут **мутує бойову базу**. Усе до неї — read-only.
+> One command here **mutates the production database**. Everything before it is read-only.
 
 ---
 
-## 0. Що робить і чого не робить
+## 0. What it does and does not do
 
-**Робить:** переносить володіння прикладними обʼєктами на `avelren_migrator`,
-застосовує ACL із міграції `010`, лишає легасі `avelren` `SUPERUSER+LOGIN`
-недоторканим, вертає клієнтів на **незмінному** легасі DSN.
+**Does:** transfers ownership of application objects to `avelren_migrator`,
+applies the ACLs from migration `010`, leaves the legacy `avelren` `SUPERUSER+LOGIN`
+untouched, brings clients back on the **unchanged** legacy DSN.
 
-**Не робить:** не створює ролей (це 3B.1, уже зроблено), не запускає `migrate`,
-не штампує `010` — `schema_migrations` лишається на `009` **за проєктом**, не
-перемикає DSN, не чіпає `.env`.
+**Does not:** does not create roles (that's 3B.1, already done), does not run `migrate`,
+does not stamp `010` — `schema_migrations` stays at `009` **by design**, does not
+switch the DSN, does not touch `.env`.
 
-Після успіху — `HARD STOP`. Наступний етап (3C) не існує як продовий режим і
-не запускається випадково.
-
----
-
-## 1. Передумови — доступ
-
-**Вікно запускається під `root`, і це не стиль, а арифметика.** `adopt.sh`
-звіряє власника preflight-файла, токена й раннера з `id -u` того, хто запускає.
-На хості вони `root`-owned (`600`, `600`, `700`), тож рівність виконується лише
-під root — а інакше й неможливо: `docker` потребує sudo, `.env` читається лише
-root, раннер `700 root` для `averlenadmin` невиконуваний.
-
-- `root` або sudo на бойовому хості;
-- `/opt/avelren` — чекаут на комміті прода, **чисте** дерево;
-- `.env` з бойовими DSN — на читання;
-- три файли, кожен зі своїми правами (розділ 2).
-
-Нічого з цього не «добудовується по ходу». Немає — стоп.
+After success — `HARD STOP`. The next stage (3C) does not exist as a production mode and
+does not launch by accident.
 
 ---
 
-## 2. Preflight — усе read-only, усе перевіряється, нічого не припускається
+## 1. Prerequisites — access
 
-### 2.1 Комміт і дерево
+**The window is launched under `root`, and this is not style but arithmetic.** `adopt.sh`
+cross-checks the owner of the preflight file, the token and the runner against the `id -u` of whoever launches it.
+On the host they are `root`-owned (`600`, `600`, `700`), so the equality holds only
+under root — and it could not be otherwise: `docker` needs sudo, `.env` is readable only by
+root, the runner `700 root` is not executable for `averlenadmin`.
+
+- `root` or sudo on the production host;
+- `/opt/avelren` — a checkout at the prod commit, a **clean** tree;
+- `.env` with the production DSNs — read access;
+- three files, each with its own permissions (section 2).
+
+None of this is "built up as we go". If it's missing — stop.
+
+---
+
+## 2. Preflight — everything read-only, everything checked, nothing assumed
+
+### 2.1 Commit and tree
 
 ```bash
 COMMIT=$(git -C /opt/avelren rev-parse HEAD); echo "$COMMIT"
-git -C /opt/avelren status --porcelain          # МУСИТЬ бути порожньо
+git -C /opt/avelren status --porcelain          # MUST be empty
 ```
 
-`adopt.sh` порівнює `AVELREN_EXPECTED_COMMIT` із `git rev-parse HEAD` **точно**
-(40 hex, нижній регістр) і відмовляє на `exact commit mismatch`. Будь-який
-неврахований файл у чекауті → `worktree is dirty`.
+`adopt.sh` compares `AVELREN_EXPECTED_COMMIT` with `git rev-parse HEAD` **exactly**
+(40 hex, lowercase) and refuses with `exact commit mismatch`. Any
+unaccounted-for file in the checkout → `worktree is dirty`.
 
-### 2.2 Preflight-файл
+### 2.2 Preflight file
 
 ```bash
 PREFLIGHT=/var/lib/avelren-adoption/recovery-preflight-<stamp>.txt
-stat -c '%a %u %F' "$PREFLIGHT"    # 400 або 600, uid = id -u, regular file
-wc -l -c "$PREFLIGHT"              # 3 рядки
+stat -c '%a %u %F' "$PREFLIGHT"    # 400 or 600, uid = id -u, regular file
+wc -l -c "$PREFLIGHT"              # 3 lines
 grep -Fxq "exact_commit=$COMMIT" "$PREFLIGHT" && echo PREFLIGHT-COMMIT-OK
 ```
 
-Скрипт вимагає **рівно** три рядки і звіряє третій із `EXPECTED_COMMIT`
-(`recovery preflight commit mismatch`). Файл — не симлінк, власник = той, хто
-запускає adoption.
+The script requires **exactly** three lines and cross-checks the third against `EXPECTED_COMMIT`
+(`recovery preflight commit mismatch`). The file must not be a symlink, and its owner = whoever
+launches adoption.
 
-### 2.3 Токен-файл
+### 2.3 Token file
 
 ```bash
 TOKEN=/var/lib/avelren-adoption/prod-adoption-token
-stat -c '%a %u' "$TOKEN"           # 400 або 600, uid = id -u
+stat -c '%a %u' "$TOKEN"           # 400 or 600, uid = id -u
 ```
 
-Вміст мусить бути **точно** `AVELREN-POSTGRES-ADOPTION-PROD`. Токен читається
-з файлу, ніколи з argv — не передавай його в командному рядку.
+The content must be **exactly** `AVELREN-POSTGRES-ADOPTION-PROD`. The token is read
+from the file, never from argv — do not pass it on the command line.
 
-### 2.4 Раннер гейта
+### 2.4 Gate runner
 
 ```bash
-RUNNER=/usr/local/sbin/avelren-privilege-gate     # звір фактичний шлях
-stat -c '%a %u %F' "$RUNNER"       # 500 або 700, uid = id -u, regular, не симлінк
+RUNNER=/usr/local/sbin/avelren-privilege-gate     # cross-check the actual path
+stat -c '%a %u %F' "$RUNNER"       # 500 or 700, uid = id -u, regular, not a symlink
 test -x "$RUNNER" && echo RUNNER-EXECUTABLE
 ```
 
-**І свіжість образу** — те, що завалило 14 серпня і мало не завалило зараз:
+**And the image freshness** — the thing that broke on 14 August and nearly broke now:
 
 ```bash
 sudo docker run --rm --network none --entrypoint sh \
@@ -103,62 +103,62 @@ sudo docker run --rm --network none --entrypoint sh \
   'grep -c "\"schema_migrations\": {\"SELECT\"}" /workspace/app/tests/test_db_privileges.py'
 ```
 
-Мусить бути **4**. Не 4 — образ несвіжий, перезбирай, вікно не відкривай.
+Must be **4**. Not 4 — the image is stale, rebuild it, do not open the window.
 
-### 2.5 Каталог evidence — **не передумова, а параметр**
+### 2.5 The evidence directory — **not a prerequisite, but a parameter**
 
-Створювати його наперед **не треба**. `prepare_evidence_dir()`
-(`deploy/postgres-ownership.lib.sh`) сам робить `mkdir -p`, ставить `chmod 700`
-і звіряє власника з `id -u`. Фіксованого каталогу з таким іменем не існує —
-шлях цілком визначає `AVELREN_EVIDENCE_DIR` при запуску.
+There is **no need** to create it in advance. `prepare_evidence_dir()`
+(`deploy/postgres-ownership.lib.sh`) does the `mkdir -p` itself, sets `chmod 700`
+and cross-checks the owner against `id -u`. There is no fixed directory with such a name —
+the path is fully defined by `AVELREN_EVIDENCE_DIR` at launch.
 
 ```bash
 EVID=/var/lib/avelren-adoption/evidence-3b2-$(git -C /opt/avelren rev-parse --short HEAD)-$(date -u +%Y%m%dT%H%M%SZ)
 ```
 
-Вимог до нього рівно чотири, і всі перевіряє скрипт: **абсолютний**, **поза
-`/opt/avelren`**, **не симлінк**, і власником стане той, хто запускає adoption.
-Evidence усередині чекауту робить дерево брудним і відмовляє adoption — це вже
-траплялось на попередній 3B.1.
+There are exactly four requirements on it, and the script checks all of them: **absolute**, **outside
+`/opt/avelren`**, **not a symlink**, and its owner will be whoever launches adoption.
+Evidence inside the checkout makes the tree dirty and refuses adoption — this already
+happened on the previous 3B.1.
 
-> Попередження про «відсутній каталог evidence» — хибна тривога. Її дав мій
-> власний аудит, що припустив статичний батьківський шлях, якого `adopt.sh`
-> не споживає.
+> The warning about a "missing evidence directory" is a false alarm. It was raised by my
+> own audit, which assumed a static parent path that `adopt.sh`
+> does not consume.
 
-### 2.6 Шість DSN для гейта — **звір, що вони існують**
+### 2.6 The six DSNs for the gate — **cross-check that they exist**
 
-Раннер fail-close на кожному з: `AVELREN_ADMIN_TOOL_DSN`,
+The runner fail-closes on each of: `AVELREN_ADMIN_TOOL_DSN`,
 `AVELREN_COLLECTOR_DSN`, `AVELREN_NOTIFIER_DSN`, `AVELREN_WATCHDOG_DSN`,
 `AVELREN_API_DSN`, `AVELREN_BACKUP_DSN`.
 
-Чотири з них компоуз використовує сам, тож вони в `.env` майже напевно є.
-`AVELREN_ADMIN_TOOL_DSN` і `AVELREN_BACKUP_DSN` компоуз **не** використовує —
-перевір їх окремо, не припускай:
+Four of them compose uses itself, so they are almost certainly present in `.env`.
+`AVELREN_ADMIN_TOOL_DSN` and `AVELREN_BACKUP_DSN` compose does **not** use —
+check them separately, do not assume:
 
 ```bash
 sudo grep -c '^AVELREN_ADMIN_TOOL_DSN=' /opt/avelren/.env
 sudo grep -c '^AVELREN_BACKUP_DSN='     /opt/avelren/.env
-# кожне має дати 1; значень НЕ друкуй
+# each must give 1; do NOT print the values
 ```
 
-Якщо котрогось немає — **стоп**. Гейт впаде вже після коміту, і коректну
-adoption відкотить.
+If any is missing — **stop**. The gate will fail after the commit, and it will roll back
+a correct adoption.
 
-### 2.6a `AVELREN_PSQL_BIN` — обовʼязково на бойовому хості
+### 2.6a `AVELREN_PSQL_BIN` — mandatory on the production host
 
-`_adoption_psql()` (`postgres-ownership.lib.sh:135`) викликає
-`"${AVELREN_PSQL_BIN:-psql}"`. На хості `psql` **не встановлений** — він живе
-лише в контейнері `db`. Без цієї змінної adoption відмовляється на
-`admin connection failed` ще до будь-якої мутації.
+`_adoption_psql()` (`postgres-ownership.lib.sh:135`) calls
+`"${AVELREN_PSQL_BIN:-psql}"`. On the host `psql` is **not installed** — it lives
+only in the `db` container. Without this variable adoption refuses with
+`admin connection failed` before any mutation.
 
-Обгортку **не вигадувати**: у проєкті є еталон
-(`deploy/postgres-adoption-bootstrap-topology-test.sh:132`), і в ньому — деталь,
-яку саморобна версія втрачає: `_adoption_psql` кладе DSN у `PGDATABASE`, а
-справжній `psql` **не розгортає URI зі змінної `PGDATABASE`**, тому її треба
-передати позиційним conninfo всередині контейнера.
+Do **not** invent the wrapper: the project has a reference
+(`deploy/postgres-adoption-bootstrap-topology-test.sh:132`), and in it — a detail
+a homemade version loses: `_adoption_psql` puts the DSN into `PGDATABASE`, and
+a real `psql` **does not expand a URI from the `PGDATABASE` variable**, so it must be
+passed as a positional conninfo inside the container.
 
-Покласти **поза чекаутом** (файл усередині `/opt/avelren` зробив би дерево
-брудним і відмовив adoption):
+Place it **outside the checkout** (a file inside `/opt/avelren` would make the tree
+dirty and refuse adoption):
 
 ```bash
 cat >/var/lib/avelren-adoption/psql-in-db.sh <<'WRAP'
@@ -171,25 +171,25 @@ chown root:root /var/lib/avelren-adoption/psql-in-db.sh
 chmod 0700     /var/lib/avelren-adoption/psql-in-db.sh
 ```
 
-Що зберігається: DSN іде **за іменем** через `-e PGDATABASE`, ніколи в argv;
-`-T` пропускає stdin, яким adopt.sh подає плани; `exec` пробрасує код виходу.
+What is preserved: the DSN goes **by name** via `-e PGDATABASE`, never in argv;
+`-T` passes through the stdin by which adopt.sh feeds the plans; `exec` propagates the exit code.
 
-> **Пастка запуску.** `docker compose exec -T` читає stdin. Якщо запускати
-> `adopt.sh` через SSH-heredoc, перший же виклик psql зʼїсть решту скрипта.
-> Запускай **файлом** (`bash deploy/postgres-adopt.sh …`), не потоком.
+> **Launch trap.** `docker compose exec -T` reads stdin. If you launch
+> `adopt.sh` via an SSH heredoc, the very first psql call will eat the rest of the script.
+> Launch **by file** (`bash deploy/postgres-adopt.sh …`), not by stream.
 
-### 2.7 Операційний оверлей
+### 2.7 Operational overlay
 
 ```bash
 ls -l /opt/avelren/docker-compose.override.yml
 ```
 
-Рестарт після коміту явно іменує цей файл, бо на проді він постачає
-`ECHERHA_*`, яких немає у відстежуваному compose і без яких `config.py`
-fail-close. Якщо файлу немає — з'ясуй чому **до** вікна: інакше клієнти
-піднімуться в другий режим відмови 14 серпня.
+The restart after the commit names this file explicitly, because on prod it supplies
+`ECHERHA_*`, which are not in the tracked compose and without which `config.py`
+fail-closes. If the file is missing — find out why **before** the window: otherwise the clients
+will come up in the second failure mode of 14 August.
 
-### 2.8 Базлайн для стоп-правил
+### 2.8 Baseline for the stop rules
 
 ```bash
 sudo docker ps --format '{{.Names}}\t{{.CreatedAt}}\t{{.Status}}'
@@ -197,38 +197,38 @@ sudo docker inspect avelren-db-1 --format '{{.Id}} {{.State.StartedAt}}'
 curl -fsS https://api.bordersignal.pp.ua/api/health
 ```
 
-Запиши. Це те, з чим звірятимешся після.
+Record it. This is what you will compare against afterwards.
 
 ---
 
-## 3. Вибір моменту
+## 3. Choosing the moment
 
-Дрейф каталогу — головна причина «безпідставної» відмови. TimescaleDB створює
-новий chunk на межі 7 днів; якщо він з'явиться між preflight-знімком і вікном,
-adoption **відмовиться до першої мутації**:
+Catalog drift is the main cause of a "baseless" refusal. TimescaleDB creates
+a new chunk at the 7-day boundary; if it appears between the preflight snapshot and the window,
+adoption **will refuse before the first mutation**:
 
 ```
 ADOPTION REFUSED: catalog drifted between preflight and mutation window
 ```
 
-Це запобіжник, що працює, а не аварія. Щоб не ловити його:
+This is a safeguard that works, not an incident. To avoid catching it:
 
-- запускай **одразу** після preflight, без пауз на каву;
-- не в межах нічного бекапу (03:00–04:00 UTC);
-- денний час — краще: збирач пише рівно, ніч нічим не краща.
+- launch **immediately** after preflight, with no coffee breaks;
+- not within the nightly backup (03:00–04:00 UTC);
+- daytime is better: the collector writes evenly, night is no better in any way.
 
 ---
 
-## 4. Запуск
+## 4. Launch
 
-Значення DSN беруться з `.env` у середовище й **ніколи не потрапляють в argv**.
+The DSN values are taken from `.env` into the environment and **never end up in argv**.
 
 ```bash
 cd /opt/avelren
 set -a; . ./.env; set +a
 
 AVELREN_TARGET_DB=avelren \
-AVELREN_ADMIN_DSN="<легасі avelren superuser DSN з .env>" \
+AVELREN_ADMIN_DSN="<legacy avelren superuser DSN from .env>" \
 AVELREN_EXPECTED_COMMIT="$COMMIT" \
 AVELREN_RECOVERY_PREFLIGHT_FILE="$PREFLIGHT" \
 AVELREN_EVIDENCE_DIR="$EVID" \
@@ -249,172 +249,171 @@ bash deploy/postgres-adopt.sh \
   2>&1 | tee "$EVID/run.log"
 ```
 
-### 4.1 Замикання оточення — п'ятнадцять змінних, і чому саме стільки
+### 4.1 Environment closure — fifteen variables, and why exactly that many
 
-Тричі поспіль вікно провалилось через неповний перелік. Тому нижче не «те, що
-я згадав», а **механічне замикання**: усе, що читають `adopt.sh`,
-`postgres-ownership.lib.sh` і `postgres-privilege-gate.sh` разом.
+Three times in a row the window failed because of an incomplete list. So below is not "what
+I remembered", but a **mechanical closure**: everything that `adopt.sh`,
+`postgres-ownership.lib.sh` and `postgres-privilege-gate.sh` read together.
 
-> **Корінь усіх трьох провалів — один, і він методологічний.** Контракт
-> оточення виводили з `adopt.sh` — точки входу. А `adopt.sh` **породжує** інші
-> процеси (обгортку psql, раннер гейта) і передає їм оточення успадкуванням, не
-> експортом. Тому змінна може мати безпечний дефолт у точці входу і бути
-> `:?`-fail-close у нащадку. Саме так і сталося тричі: `AVELREN_PSQL_BIN`
-> (дефолт `psql`, якого на хості нема), `AVELREN_STACK_DIR` і
-> `AVELREN_COMPOSE_PROJECT` (дефолти в `adopt.sh`, `:?` у раннері).
+> **The root of all three failures is one, and it is methodological.** The environment
+> contract was derived from `adopt.sh` — the entry point. But `adopt.sh` **spawns** other
+> processes (the psql wrapper, the gate runner) and passes the environment to them by inheritance, not
+> by export. So a variable can have a safe default at the entry point and be
+> `:?` fail-close in a descendant. That is exactly what happened three times: `AVELREN_PSQL_BIN`
+> (default `psql`, which is not on the host), `AVELREN_STACK_DIR` and
+> `AVELREN_COMPOSE_PROJECT` (defaults in `adopt.sh`, `:?` in the runner).
 >
-> **Правило на майбутнє:** контракт оточення рахується по **транзитивному
-> замиканню процесів**, а не по точці входу. Для 3C це критично — там
-> породжуються ще п'ять раннерів.
+> **A rule for the future:** the environment contract is computed over the **transitive
+> closure of processes**, not over the entry point. For 3C this is critical — there
+> five more runners are spawned.
 >
-> **І друге джерело істини, про яке варто пам'ятати:** авторитетним виявився не
-> лише код, а **фактичний launch-скрипт попередньої спроби** на хості
-> (`run-3b2-<commit>.sh`). Він містив рівно ті три змінні. Читати код —
-> правильно; читати код **і останній реальний запуск** — повніше.
+> **And a second source of truth worth remembering:** the authoritative thing turned out to be not
+> only the code, but the **actual launch script of the previous attempt** on the host
+> (`run-3b2-<commit>.sh`). It contained exactly those three variables. Reading the code is
+> right; reading the code **and the last real launch** is more complete.
 
-**Пастка, яка коштувала коміту й відкату:** `adopt.sh` має дефолти для
-`AVELREN_STACK_DIR` і `AVELREN_COMPOSE_PROJECT`, а раннер гейта fail-close на
-обох через `:?`. Тобто adopt.sh спокійно доходить до коміту, а гейт
-відмовляється, **не виконавши жодного асерту** → інверсний відкат коректної
-adoption. Механізм тотожний інциденту 2026-08-14.
+**The trap that cost a commit and a rollback:** `adopt.sh` has defaults for
+`AVELREN_STACK_DIR` and `AVELREN_COMPOSE_PROJECT`, while the gate runner fail-closes on
+both via `:?`. That is, adopt.sh calmly reaches the commit, while the gate
+refuses **without running a single assertion** → an inverse rollback of a correct
+adoption. The mechanism is identical to the 2026-08-14 incident.
 
-| # | змінна | чому потрібна |
+| # | variable | why it's needed |
 |---|---|---|
-| 1 | `AVELREN_TARGET_DB=avelren` | точна назва, звіряється |
-| 2 | `AVELREN_ADMIN_DSN` | легасі суперюзер |
+| 1 | `AVELREN_TARGET_DB=avelren` | exact name, cross-checked |
+| 2 | `AVELREN_ADMIN_DSN` | legacy superuser |
 | 3 | `AVELREN_EXPECTED_COMMIT` | 40-hex, = HEAD |
 | 4 | `AVELREN_RECOVERY_PREFLIGHT_FILE` | |
-| 5 | `AVELREN_EVIDENCE_DIR` | свіжий шлях |
+| 5 | `AVELREN_EVIDENCE_DIR` | fresh path |
 | 6 | `AVELREN_ADOPTION_SUCCESS_GATE_RUNNER` | |
-| 7 | `AVELREN_PSQL_BIN` | на хості немає `psql` |
-| 8 | **`AVELREN_STACK_DIR`** | **`:?` у раннері гейта** |
-| 9 | **`AVELREN_COMPOSE_PROJECT`** | **`:?` у раннері гейта** |
-| 10–15 | `AVELREN_{ADMIN_TOOL,COLLECTOR,NOTIFIER,WATCHDOG,API,BACKUP}_DSN` | шість `:?` у раннері гейта |
+| 7 | `AVELREN_PSQL_BIN` | there is no `psql` on the host |
+| 8 | **`AVELREN_STACK_DIR`** | **`:?` in the gate runner** |
+| 9 | **`AVELREN_COMPOSE_PROJECT`** | **`:?` in the gate runner** |
+| 10–15 | `AVELREN_{ADMIN_TOOL,COLLECTOR,NOTIFIER,WATCHDOG,API,BACKUP}_DSN` | six `:?` in the gate runner |
 
-**Не встановлювати ЖОДНОЇ з цих:**
+**Do NOT set ANY of these:**
 
-`AVELREN_COMPOSE_FILE` — окремо небезпечна, і не як «тест-змінна».
-Іменування compose-файлу вимикає автопошук, і тоді рестарт після коміту
-**втратить `docker-compose.override.yml`**, який на проді постачає `ECHERHA_*`.
-Клієнти піднімуться у другий режим відмови 14 серпня. Лишити порожньою.
+`AVELREN_COMPOSE_FILE` — separately dangerous, and not as a "test variable".
+Naming the compose file disables auto-discovery, and then the restart after the commit
+**will lose `docker-compose.override.yml`**, which on prod supplies `ECHERHA_*`.
+The clients will come up in the second failure mode of 14 August. Leave it empty.
 
 `AVELREN_TEST_DB`, `AVELREN_ADOPTION_FAILPOINT`,
 `AVELREN_ADOPTION_POST_COMMIT_GATE`, `AVELREN_ADOPTION_COMMITTED_FAILPOINT`,
 `AVELREN_ADOPTION_CORRUPT_INVERSE`, `AVELREN_PRODUCTION_TARGET_OVERRIDE`,
 `AVELREN_PRODUCTION_DRIFT_INJECT`, `AVELREN_ALLOW_DIRTY_TEST`,
-`AVELREN_CURRENT_DB_USER` — усе це тестові інʼєкції; більшість скрипт відкине
-сам, але `AVELREN_CURRENT_DB_USER` підмінив би перевірку адмін-підключення
-мовчки.
+`AVELREN_CURRENT_DB_USER` — these are all test injections; most the script will reject
+itself, but `AVELREN_CURRENT_DB_USER` would silently override the admin-connection check.
 
-Ролі (`avelren`, `avelren_admin`, `avelren_migrator`) — `readonly` у
-бібліотеці, не змінні. `AVELREN_DOCKER_BIN`, `AVELREN_GIT_BIN`,
-`AVELREN_PRIVILEGE_GATE_{COMPOSE_FILE,SERVICE}` мають правильні дефолти.
+The roles (`avelren`, `avelren_admin`, `avelren_migrator`) are `readonly` in the
+library, not variables. `AVELREN_DOCKER_BIN`, `AVELREN_GIT_BIN`,
+`AVELREN_PRIVILEGE_GATE_{COMPOSE_FILE,SERVICE}` have correct defaults.
 
-### 4.2 Суха перевірка гейта — **обовʼязково перед запуском**
+### 4.2 Dry check of the gate — **mandatory before launch**
 
-Це структурне виправлення того, що двічі провалилось: не давати post-commit
-шляху містити крок, чиї передумови не перевірені під **тим самим** оточенням.
+This is the structural fix for what failed twice: not letting the post-commit
+path contain a step whose preconditions are not checked under the **same** environment.
 
-Візьми **той самий launch-файл**, заміни виклик `adopt.sh` на прямий виклик
-раннера і прожени:
+Take the **same launch file**, replace the `adopt.sh` call with a direct call to the
+runner and run it:
 
 ```bash
-... той самий блок env ... \
+... the same env block ... \
 bash "$RUNNER" privilege_contracts; echo "rc=$?"
 ```
 
-Очікується падіння на `assert actual == expected` замороженого ACL — база ще не
-адоптована. Це **успіх** перевірки: гейт дійшов до асертів, отже оточення повне.
+Expect a failure on `assert actual == expected` of the frozen ACL — the database is not yet
+adopted. This is a **success** of the check: the gate reached the assertions, so the environment is complete.
 
-Будь-яке інше падіння — `AVELREN_STACK_DIR is required`, `is required` на DSN,
-помилка компоуза, `--noconftest` — означає, що оточення досі неповне.
-**Вікно не відкривати.**
-
----
-
-**Не встановлюй** `AVELREN_TEST_DB`, жодного failpoint, і не додавай
-`--retire-legacy` — кожне з них скрипт відкидає окремою відмовою, і правильно.
+Any other failure — `AVELREN_STACK_DIR is required`, `is required` on a DSN,
+a compose error, `--noconftest` — means the environment is still incomplete.
+**Do not open the window.**
 
 ---
 
-## 5. Що відбувається всередині, по порядку
+**Do not set** `AVELREN_TEST_DB`, any failpoint, and do not add
+`--retire-legacy` — each of these the script rejects with a separate refusal, and correctly.
 
-Щоб читати лог, а не гадати:
+---
 
-1. перевірка токена, комміта, чистого дерева, preflight, прав раннера;
-2. **read-only** твердження, що всі 7 ролей існують (їх скрипт ніколи не створює);
-3. знімок preflight-маніфесту володіння/ACL;
-4. **вхід у вікно**: зупинка `caddy api collector notifier watchdog`; `db` лишається;
-5. повторний знімок маніфесту вже без клієнтів → порівняння з п.3 (це і є drift-check);
-6. побудова forward/inverse планів, доказ їх розбору й round-trip;
-7. **КОМІТ** forward-плану;
-8. гейт `privilege_contracts` — introspection-only pytest у одноразовому контейнері;
-9. твердження, що легасі `avelren` лишився `SUPERUSER+LOGIN`;
-10. публікація evidence `stage=committed`;
-11. рестарт клієнтів на **незмінному** легасі DSN, з `--no-deps`;
+## 5. What happens inside, in order
+
+To read the log rather than guess:
+
+1. check of the token, commit, clean tree, preflight, runner permissions;
+2. **read-only** assertion that all 7 roles exist (the script never creates them);
+3. snapshot of the preflight ownership/ACL manifest;
+4. **entering the window**: stop of `caddy api collector notifier watchdog`; `db` stays;
+5. a repeat manifest snapshot, now without clients → comparison with step 3 (this is the drift check);
+6. building the forward/inverse plans, proof of their parse and round-trip;
+7. **COMMIT** of the forward plan;
+8. the `privilege_contracts` gate — introspection-only pytest in a disposable container;
+9. assertion that the legacy `avelren` stayed `SUPERUSER+LOGIN`;
+10. publication of the evidence `stage=committed`;
+11. restart of the clients on the **unchanged** legacy DSN, with `--no-deps`;
 12. `HARD STOP`.
 
-Мутація починається аж на п.7. Усе до нього — відмова без наслідків.
+The mutation begins only at step 7. Everything before it is a refusal without consequences.
 
 ---
 
-## 6. Коди виходу — читай уважно, тут легко нашкодити
+## 6. Exit codes — read carefully, it's easy to do harm here
 
-| код | означає | що робити |
+| code | means | what to do |
 |---|---|---|
-| `0` | adoption закомічено, клієнти піднялись | перевірити health і зупинитись |
-| **`3`** | **adoption закомічено і коректне, але клієнти не піднялись** | **НЕ відкочувати.** Підняти вручну: `docker compose up -d --no-deps caddy api collector notifier watchdog`, тоді health |
-| інше | відмовлено або відкочено | читати лог; мутації або не було, або її знято інверсним планом |
+| `0` | adoption committed, clients came up | check health and stop |
+| **`3`** | **adoption committed and correct, but the clients did not come up** | **Do NOT roll back.** Bring them up by hand: `docker compose up -d --no-deps caddy api collector notifier watchdog`, then health |
+| other | refused or rolled back | read the log; either there was no mutation, or it was undone by the inverse plan |
 
-**Про код 3 окремо.** Спокуса «щось пішло не так → відкотити» тут помилкова:
-база вже в правильному стані, відкат зруйнував би коректну роботу. І в ручному
-рестарті **обовʼязково `--no-deps`**: без нього Compose підтягне `migrate` як
-залежність, той побачить 009, застосує й заштампує `010` поза послідовністю —
-а інверсний план ACL відкотити зможе, штамп `010` — ні.
+**About code 3 specifically.** The temptation of "something went wrong → roll back" is mistaken here:
+the database is already in the correct state, and a rollback would destroy correct operation. And in the manual
+restart **`--no-deps` is mandatory**: without it Compose will pull in `migrate` as a
+dependency, and it will see 009, apply and stamp `010` out of sequence —
+and while the inverse ACL plan can roll back, the `010` stamp cannot.
 
-Ніколи не запускай голий `docker compose up -d` у цей момент.
-
----
-
-## 7. Стоп-правила
-
-Зупиняйся **до** запуску, якщо не сходиться будь-що з розділу 2.
-
-Після запуску скрипт керує сам: він або доводить справу, або відмовляється, або
-відкочує. Твоє завдання — **не втручатися** до появи коду виходу. Зокрема:
-
-- не перезапускай сервіси руками, доки скрипт працює;
-- не роби `docker compose up` у сусідньому терміналі;
-- не редагуй `.env`.
-
-Якщо процес обірвався (мережа, SSH) — **нічого не роби**, читай evidence:
-`$EVID/stage` каже, в якому стані все зупинилось.
+Never run a bare `docker compose up -d` at this moment.
 
 ---
 
-## 8. Відомі відмови й що вони означають
+## 7. Stop rules
 
-| повідомлення | означає |
+Stop **before** launch if anything from section 2 does not match.
+
+After launch the script drives itself: it either finishes the job, or refuses, or
+rolls back. Your task is to **not intervene** until an exit code appears. In particular:
+
+- do not restart services by hand while the script is running;
+- do not do `docker compose up` in a neighboring terminal;
+- do not edit `.env`.
+
+If the process is cut off (network, SSH) — **do nothing**, read the evidence:
+`$EVID/stage` says in which state everything stopped.
+
+---
+
+## 8. Known refusals and what they mean
+
+| message | means |
 |---|---|
 | `exact commit mismatch` | `AVELREN_EXPECTED_COMMIT` ≠ HEAD |
-| `worktree is dirty` | сторонній файл у чекауті; винести **поза** `/opt/avelren`, не видаляти evidence |
-| `recovery preflight commit mismatch` | третій рядок preflight не той комміт |
-| `production token file mode must be 0400 or 0600` | права токена |
-| `post-commit gate runner mode must be 0500 or 0700` | права раннера |
-| `production adoption requires a privilege-contract gate runner` | не задано `AVELREN_ADOPTION_SUCCESS_GATE_RUNNER` |
-| `production target must be exactly avelren` | описка в `AVELREN_TARGET_DB` |
-| `admin connection failed` | не задано `AVELREN_PSQL_BIN` (на хості немає `psql`), або обгортка не передає DSN позиційним conninfo. **Мутації не було** — це найперша перевірка |
-| `catalog drifted between preflight and mutation window` | новий chunk між знімком і вікном; **нічого не мутовано**, повторити ближче до вікна |
-| `production privilege-contract acceptance failed` | гейт впав **після** коміту → інверсний відкат. Дивитись, на чому саме: якщо на замороженому ACL — образ гейта несвіжий (розділ 2.4) |
+| `worktree is dirty` | a stray file in the checkout; move it **outside** `/opt/avelren`, do not delete evidence |
+| `recovery preflight commit mismatch` | the third line of preflight is the wrong commit |
+| `production token file mode must be 0400 or 0600` | token permissions |
+| `post-commit gate runner mode must be 0500 or 0700` | runner permissions |
+| `production adoption requires a privilege-contract gate runner` | `AVELREN_ADOPTION_SUCCESS_GATE_RUNNER` not set |
+| `production target must be exactly avelren` | a typo in `AVELREN_TARGET_DB` |
+| `admin connection failed` | `AVELREN_PSQL_BIN` not set (there is no `psql` on the host), or the wrapper does not pass the DSN as a positional conninfo. **There was no mutation** — this is the very first check |
+| `catalog drifted between preflight and mutation window` | a new chunk between the snapshot and the window; **nothing was mutated**, retry closer to the window |
+| `production privilege-contract acceptance failed` | the gate failed **after** the commit → an inverse rollback. Look at what exactly: if it's on the frozen ACL — the gate image is stale (section 2.4) |
 
 ---
 
-## 9. Після успіху
+## 9. After success
 
-Стан: володіння на семи ролях, ACL з `010`, `schema_migrations` = `009`,
-легасі `avelren` `SUPERUSER+LOGIN`, клієнти на легасі DSN.
+State: ownership on the seven roles, ACLs from `010`, `schema_migrations` = `009`,
+the legacy `avelren` `SUPERUSER+LOGIN`, the clients on the legacy DSN.
 
-Перевірити й записати:
+Check and record:
 
 ```bash
 curl -fsS https://api.bordersignal.pp.ua/api/health
@@ -423,10 +422,10 @@ ls -l "$EVID"                      # stage, original.tsv, forward.sql, inverse.s
 git -C /opt/avelren status --porcelain
 ```
 
-І потім — **зупинитись**. Це валідний стан спокою; у ньому можна стояти
-місяцями. 3C продового режиму не має і сам не запуститься.
+And then — **stop**. This is a valid state of rest; you can sit in it for
+months. 3C has no production mode and will not launch on its own.
 
-Чого **не** робити після 3B.2:
+What **not** to do after 3B.2:
 
-- голий `docker compose up -d` — підтягне `migrate` і заштампує `010` поза 3D;
-- `deploy/backup.sh` замість розгорнутого `/usr/local/sbin/avelren-backup` — гранти для `avelren_backup` є вже зараз, але заміна скрипта це окрема зміна (#93), не побічний ефект вікна.
+- a bare `docker compose up -d` — it will pull in `migrate` and stamp `010` outside of 3D;
+- `deploy/backup.sh` instead of the deployed `/usr/local/sbin/avelren-backup` — the grants for `avelren_backup` exist already now, but replacing the script is a separate change (#93), not a side effect of the window.
