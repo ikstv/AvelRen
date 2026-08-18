@@ -18,6 +18,7 @@ from .config import settings
 from .db import get_pool
 from .limits import BodySizeLimitMiddleware, ConcurrencyGate
 from .ratelimit import check as rate_check
+from .schema_gate import assert_schema_at_least
 from .subscriptions_api import router as subscriptions_router
 
 log = logging.getLogger("avelren.api")
@@ -33,6 +34,10 @@ async def lifespan(app: FastAPI):
     # statement_timeout вмикається саме тут: він стосується лише пулу API-процесу.
     pool = get_pool(settings.api_statement_timeout_ms)
     await pool.open(wait=True, timeout=30)
+    # Fail-closed перевірка схеми (issue #88): сервіс не стартує, якщо
+    # записана версія схеми НИЖЧА за вимогу коду. Стоїть одразу після
+    # відкриття пулу — до першої корисної роботи.
+    await assert_schema_at_least(pool)
     yield
     await pool.close()
 
