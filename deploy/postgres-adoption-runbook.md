@@ -53,6 +53,10 @@ expected LOGIN/attributes, then **HARD STOP**.
 
 ## 3B.2 — ownership/ACL adoption (separate GO)
 
+> Точний контракт запуску, замикання оточення і стоп-правила —
+> `deploy/postgres-adoption-3b2-window.md` (за цією редакцією вікно пройшло
+> 2026-08-17, `exit 0`).
+
 `postgres-adopt.sh --production-adopt --production-token-file <0400/0600 file>`
 bootstraps under the legacy `avelren` SUPERUSER, asserts the 7 roles exist,
 captures the preflight manifest, enters a maintenance window (stops
