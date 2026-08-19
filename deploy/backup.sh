@@ -115,7 +115,15 @@ for old in "${old_names[@]}"; do
     [ "$old" != "$NAME" ] || fail "rotation tried to delete the just-created backup"
     log "deleting stale $old"
     rclone deletefile "$REMOTE/$TIER/$old" --config "$RCLONE_CONFIG"
-    rclone deletefile "$REMOTE/$TIER/$old.sha256" --config "$RCLONE_CONFIG"
+    # The sidecar may or may not exist: the deployed script never wrote them,
+    # so on the first repository-script run every rotated dump has a missing
+    # `.sha256`. `rclone deletefile` returns non-zero on missing → `set -e`
+    # would kill an otherwise successful backup, AND `touch "$STAMP_FILE"`
+    # below would not run, silently starving watchdog after 36 h.
+    # `rclone delete <dir> --include <name>` returns 0 on an empty match and
+    # non-zero on real access errors — the semantic we want. `|| true` here
+    # would also mask genuine remote failures, so do not simplify to that.
+    rclone delete "$REMOTE/$TIER/" --include "$old.sha256" --config "$RCLONE_CONFIG"
 done
 
 mkdir -p -- "$(dirname "$STAMP_FILE")"

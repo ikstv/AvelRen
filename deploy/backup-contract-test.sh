@@ -86,7 +86,33 @@ lsf)
     find "$dir" -maxdepth 1 -type f -name 'avelren-*.sql.gz' -printf '%f\n' 2>/dev/null || true
     ;;
 deletefile)
-    rm -f -- "$(path "$1")"
+    # Real rclone deletefile fails with exit 3 when the target does not exist.
+    # The `-f` in `rm -f` used to hide that, so a bug where the caller passed a
+    # non-existent path (like a `.sha256` sidecar the deployed script never
+    # wrote) would slip through this contract test. Mirror the real semantics.
+    target=$(path "$1")
+    printf 'DELETEFILE %s\n' "${1##*/}" >>"${FAKE_CALL_LOG:-/dev/null}"
+    if [ ! -e "$target" ]; then
+        echo "rclone-stub: file not found: $target" >&2
+        exit 3
+    fi
+    rm -f -- "$target"
+    ;;
+delete)
+    # `rclone delete <dir> --include <pattern>` — semantic used for the
+    # sidecar cleanup: an empty match returns 0, a real access failure does
+    # not. The stub mirrors that: `find -exec rm -f` is silent on missing.
+    dir=$(path "$1"); shift
+    pattern=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --include) pattern=$2; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    [ -n "$pattern" ] || exit 12
+    printf 'DELETE %s\n' "$pattern" >>"${FAKE_CALL_LOG:-/dev/null}"
+    find "$dir" -maxdepth 1 -type f -name "$pattern" -exec rm -f {} + 2>/dev/null
     ;;
 *) exit 12 ;;
 esac
@@ -200,5 +226,17 @@ fi
 mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-note"
 run_case unrelated
 [ "$(cat "$WORK/unrelated/work/operator-note")" = keep ]
+
+# TODO(#93 follow-up): a retention case with missing `.sha256` sidecars — the
+# actual production state — is not covered here yet. The rotation fix in
+# backup.sh (rclone delete --include instead of rclone deletefile) is therefore
+# proven by one observed CI run, not by a regression test.
+#
+# Note for whoever writes it: `path()` above prepends $FAKE_REMOTE to an already
+# absolute path, so the stub actually operates inside a nested
+# $FAKE_REMOTE/$FAKE_REMOTE/<tier>/ directory. It is self-consistent (every stub
+# command uses path()), which is why the existing cases pass — they search with
+# `find` recursively. Seeding legacy artifacts into the plain remote/<tier>/ path
+# makes them invisible to the stub, and rotation then has nothing to rotate.
 
 echo "backup contract tests: 18 passed"

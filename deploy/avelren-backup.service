@@ -4,6 +4,11 @@ After=docker.service
 Requires=docker.service
 
 [Service]
+# The script (deploy/backup.sh) fail-closes if AVELREN_BACKUP_PASSWORD is empty;
+# without an EnvironmentFile it would run into that fail-close nightly. Absence
+# of `-` prefix is deliberate: a missing file must fail the unit loudly at
+# systemd load, not silently at line 37 of the script — loud earlier > loud later.
+EnvironmentFile=/etc/avelren/backup.env
 Type=oneshot
 ExecStart=/usr/local/sbin/avelren-backup
 UMask=0077
