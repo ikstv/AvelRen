@@ -40,32 +40,32 @@ services:
       timeout: 5s
       retries: 10
 
-  # Runs before every service start and then exits. This keeps the DB schema
-  # from drifting away from the code because of a forgotten migration.
+  # Runs before every service start and then exits, keeping the DB schema from
+  # drifting away from the code because of a forgotten migration.
   #
-  # WHY migrate is NOT behind `profiles:`, even though an implicit start is a
-  # real hazard. migrate.py applies ALL *.sql not present in schema_migrations,
-  # with no pin on the maximum version, so any `compose up` that pulls migrate in
-  # as a dependency applies 010 outside adoption (the model: "3B.2 leaves 009,
-  # stamped at 3D"). A profile would remove migrate from the default set and
-  # close this structurally — but making it work requires adding
-  # `required: false` to the four depends_on edges below, otherwise Compose
-  # declares the model invalid whenever the profile is inactive ("depends on
-  # undefined service "migrate": invalid compose project", exit 1 — which fails
-  # even `config`).
+  # WHY migrate IS behind `profiles:` (since #88 PR 2). migrate.py applies ALL
+  # *.sql not present in schema_migrations, with no pin on the maximum version,
+  # so any `compose up` that pulls migrate in as a resolved dependency applies
+  # the next migration outside the adoption sequence. The profile removes
+  # migrate from the default service set and closes that structurally: a bare
+  # `docker compose up -d` cannot start it at all.
   #
-  # And `required: false` removes fail-closed NOT only for "service absent" but
-  # also for "service present and FAILED". Verified by direct experiment on
-  # compose v5.3.1: with `required: false` and the profile active, a failed
-  # migrate (exit 1) lets api start anyway, and `up` returns 0; without it the
-  # same failure stops the start with exit 1. So the price of the profile is the
-  # very fail-closed property that migrate.py declares verbatim (A-07), and which
-  # nothing else backstops: no service verifies the schema version at startup.
+  # The profile requires `required: false` on the four depends_on edges below —
+  # otherwise Compose declares the whole model invalid whenever the profile is
+  # inactive ("depends on undefined service migrate: invalid compose project",
+  # exit 1, which fails even `config`).
   #
-  # So the guard here is a single one, right at the call site — `--no-deps` in
-  # both of adopt.sh's restarts. The profile will come back once fail-closed
-  # moves into the application (a startup check of max(version)), i.e. where it
-  # cannot be bypassed by the way it is launched.
+  # And `required: false` drops fail-closed not only for "service absent" but
+  # also for "service present and FAILED": with the profile active, a migrate
+  # that exits 1 lets the runtime services start anyway and `up` returns 0
+  # (measured on compose v5.3.1). That property is NOT lost — it moved into the
+  # application. `avelren/schema_gate.py` checks max(schema_migrations.version)
+  # against the version the code requires, at startup, in all four services, and
+  # refuses to serve if the schema is behind. Unlike a compose edge, it cannot be
+  # bypassed by the way the container is launched.
+  #
+  # `--no-deps` at adopt.sh's call sites stays as a second belt: a host overlay
+  # or a future compose file could re-declare migrate outside the profile.
   migrate:
     build: *avelren-build
     image: avelren-app:latest
@@ -78,6 +78,7 @@ services:
     volumes:
       - ./db/migrations:/migrations:ro
     restart: "no"
+    profiles: ["migrate"]
     depends_on:
       db:
         condition: service_healthy
@@ -108,13 +109,12 @@ services:
       CONTACT_EMAIL: ${CONTACT_EMAIL}
       LOG_LEVEL: ${LOG_LEVEL}
       REARM_FACTOR: ${REARM_FACTOR}
-    # An edge WITHOUT `required: false` — deliberately: it is the fail-closed
-    # itself. A failed migrate must stop the start (verified: `up` exits with 1
-    # and the service does not come up). The tradeoff details are in the migrate
-    # comment above.
+    # `required: false` on the migrate edge — see the migrate service comment
+    # above for why the profile needs it on all four runtime edges.
     depends_on:
       migrate:
         condition: service_completed_successfully
+        required: false
 
   # Separate from the collector: history must keep accumulating even if FCM is
   # down.
@@ -136,6 +136,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+        required: false
 
   # Notices that the system has gone silent. The most dangerous failure is a
   # quiet one.
@@ -162,6 +163,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+        required: false
 
   api:
     build: *avelren-build
@@ -185,6 +187,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+        required: false
 
   caddy:
     image: caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0

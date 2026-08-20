@@ -238,14 +238,17 @@ x-runtime: &runtime
       echo "PROBE_RESULT=\$\$probe_verdict run_id=\$\${AVELREN_PROBE_RUN_ID:-none} service=\$\${AVELREN_PROBE_SERVICE:-unknown} actual_role=\$\$probe_role table=\$\${AVELREN_PROBE_TABLE:-none}"
       trap 'exit 0' TERM INT
       while :; do sleep 3600; done
-  # The runtime services carry the SAME edge to migrate that production's
-  # compose does — same condition, and deliberately WITHOUT \`required: false\`,
-  # because production does not have it either. Without this edge the harness
-  # could never observe the hazard it is meant to guard: in production
-  # \`up -d <five services>\` pulls migrate in as a resolved dependency, and this
-  # edge is the only reason it does. A harness whose runtime services depend on
-  # db alone would stay green no matter what adopt.sh passed, because there
-  # would be nothing for --no-deps to suppress.
+  # The runtime services keep a HARD edge to migrate — same condition, and
+  # deliberately WITHOUT \`required: false\`. This is intentionally a MORE
+  # dangerous topology than production, where since #88 migrate sits behind a
+  # \`profiles:\` gate and a bare \`up -d\` cannot pull it in at all. The harness
+  # keeps the worse case on purpose: it is the only configuration in which an
+  # unguarded restart can actually pull migrate in as a resolved dependency and
+  # stamp the next migration, so it is what \`--no-deps\` at adopt.sh's call
+  # sites has to be proven against. A harness whose runtime services depend on
+  # db alone — or that mirrored production's profile — would stay green no
+  # matter what adopt.sh passed, because there would be nothing for --no-deps
+  # to suppress.
   depends_on:
     db:
       condition: service_healthy
@@ -323,9 +326,11 @@ services:
   # It now runs the REAL migration applier out of the test image, against the
   # same DSN production gives it, so an unguarded restart advances
   # schema_migrations to 010 exactly as production would — and the existing
-  # assertion catches it. Like production, it sits in the default service set
-  # with no profile: --no-deps at adopt.sh's call sites is the guard under test,
-  # and putting a profile here would hide whether that flag does its job.
+  # assertion catches it. UNLIKE production (where #88 PR 2 puts migrate behind
+  # a \`profiles:\` gate), it deliberately sits in the default service set with
+  # no profile: --no-deps at adopt.sh's call sites is the guard under test, and
+  # a profile here would hide whether that flag does its job by removing the
+  # hazard the flag exists to suppress.
   migrate:
     build:
       context: '$ROOT_FOR_COMPOSE'
