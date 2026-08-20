@@ -158,6 +158,11 @@ fun AvelRenScreen() {
     val creds = remember { DeviceStore.credentials(context) }
     var subscriptions by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
     var etaTargets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
+    // Порожній список сам по собі НЕ означає «підписок немає» — рівно так само
+    // виглядає список, який ще не вдалося завантажити (офлайн-старт). Без цього
+    // прапорця UI стверджував «Нема вибраних вами КПП», хоча підписки є (#107).
+    // true лише після успішної відповіді сервера.
+    var monitorsLoaded by remember { mutableStateOf(false) }
     var showThresholdCpPicker by remember { mutableStateOf(false) }
     var pendingThresholdCp by remember { mutableStateOf<Api.Workload?>(null) }
     var showEtaCpPicker by remember { mutableStateOf(false) }
@@ -168,16 +173,19 @@ fun AvelRenScreen() {
     // Рядок, який ✕ пропонує прибрати — тримаємо до підтвердження (запобіжник
     // від випадкового тапу). Саме видалення — лише після «Прибрати».
     var pendingRemove by remember { mutableStateOf<MonitorRow?>(null) }
-    val reloadSubs: () -> Unit = {
+    // Одне тіло завантаження моніторингу на всі тригери — старт, зміна вкладки,
+    // відновлення мережі, полл, зміни підписок, — щоб вони не розійшлись у
+    // поведінці. Прапорець зводиться лише коли ОБИДВА запити вдались: інакше
+    // напівпорожній список видавали б за повний.
+    val loadMonitors: suspend () -> Unit = {
         creds?.let { c ->
-            scope.launch { runCatching { Api.subscriptions(c) }.onSuccess { subscriptions = it } }
+            val subsRes = runCatching { Api.subscriptions(c) }.onSuccess { subscriptions = it }
+            val tgtRes = runCatching { Api.etaTargets(c) }.onSuccess { etaTargets = it }
+            if (subsRes.isSuccess && tgtRes.isSuccess) monitorsLoaded = true
         }
     }
-    val reloadTargets: () -> Unit = {
-        creds?.let { c ->
-            scope.launch { runCatching { Api.etaTargets(c) }.onSuccess { etaTargets = it } }
-        }
-    }
+    val reloadSubs: () -> Unit = { scope.launch { loadMonitors() } }
+    val reloadTargets: () -> Unit = { scope.launch { loadMonitors() } }
     // Спільний список моніторингу — пороги + час в'їзду. Показується і на 04, і
     // (дублем) на головній. Поле `current` — живий стан цього КПП зараз (черга
     // для порога / час в'їзду для eta) з workload. Прибирання знає тип DELETE.
@@ -211,7 +219,7 @@ fun AvelRenScreen() {
                         MonitorKind.ETA -> Api.deleteEtaTarget(c, row.id)
                     }
                 }
-                reloadSubs(); reloadTargets()
+                loadMonitors()
             }
         }
     }
@@ -224,6 +232,10 @@ fun AvelRenScreen() {
         wlRes
             .onSuccess { refreshError = false }
             .onFailure { refreshError = true }
+        // Моніторинг оновлюємо тим самим тілом, що й чергу. Інакше після
+        // відновлення мережі черга оживала, а секція «Ваш моніторинг» лишалась
+        // порожньою до випадкового перемикання вкладки (#107).
+        loadMonitors()
         // Годинник свіжості рухається щополл, незалежно від payload.
         freshnessNow = Instant.now()
         loading = false
@@ -268,14 +280,12 @@ fun AvelRenScreen() {
         }
     }
 
-    // Моніторинг (пороги + час в'їзду) вантажимо на старті й при кожній зміні
-    // вкладки — потрібен на обох екранах (на головній дублюється). Мовчить, коли
-    // креденшалів ще нема.
+    // Моніторинг потрібен на обох вкладках (на головній дублюється), тож
+    // перезавантажуємо при зміні вкладки. Основний шлях — `refresh()` (полл +
+    // сигнал мережі); цей ефект лише доганяє перемикання вкладки між поллами.
+    // Мовчить, коли креденшалів ще нема.
     LaunchedEffect(activeTab, creds) {
-        if (creds != null) {
-            runCatching { Api.subscriptions(creds) }.onSuccess { subscriptions = it }
-            runCatching { Api.etaTargets(creds) }.onSuccess { etaTargets = it }
-        }
+        loadMonitors()
     }
 
     if (loading) {
@@ -356,6 +366,7 @@ fun AvelRenScreen() {
                 onRemove = { pendingRemove = it },
                 modifier = Modifier.fillMaxWidth().weight(1.5f),
                 fill = true,
+                loaded = monitorsLoaded,
             )
         }
     } else {
@@ -384,6 +395,7 @@ fun AvelRenScreen() {
                         rows = monitorRows,
                         onRemove = { pendingRemove = it },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        loaded = monitorsLoaded,
                     )
                 }
             } else {
@@ -674,6 +686,7 @@ private fun MonitoringTile(
     onRemove: (MonitorRow) -> Unit,
     modifier: Modifier = Modifier,
     fill: Boolean = false,   // true — заповнити висоту плитки (екран «Моніторинг»)
+    loaded: Boolean = true,  // false — список ще не приїхав; НЕ показувати empty-state
 ) {
     Column(
         modifier
@@ -696,14 +709,25 @@ private fun MonitoringTile(
                 if (fill) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    "Нема вибраних вами КПП для моніторингу",
-                    color = EmptyInk,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = 12.5.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(vertical = 22.dp),
-                )
+                // Поки список не приїхав — стан очікування, а не твердження
+                // «нічого не відстежується». Стверджувати можна лише після
+                // успішної відповіді сервера (#107).
+                if (!loaded) {
+                    CircularProgressIndicator(
+                        color = HeroYellow,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.padding(vertical = 22.dp).size(20.dp),
+                    )
+                } else {
+                    Text(
+                        "Нема вибраних вами КПП для моніторингу",
+                        color = EmptyInk,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 12.5.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 22.dp),
+                    )
+                }
             }
         } else {
             Spacer(Modifier.height(12.dp))
@@ -757,10 +781,15 @@ private fun MonitorRowView(row: MonitorRow, onRemove: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        // Поточний стан цього КПП зараз (жива черга / час в'їзду).
+        // Поточний стан цього КПП зараз (жива черга / час в'їзду). Мітка
+        // залежить від типу рядка: під «зараз» стояли то авто, то дата, і
+        // прочитати 06:00-бейдж поряд із датою було неможливо.
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                "зараз",
+                when (row.kind) {
+                    MonitorKind.THRESHOLD -> "зараз, авто"
+                    MonitorKind.ETA -> "в'їзд"
+                },
                 color = EmptyInk,
                 fontWeight = FontWeight.Bold,
                 fontSize = 8.sp,
