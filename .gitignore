@@ -44,6 +44,10 @@ app/build/
 # only; never required on a fresh clone.
 _to_delete/
 
+# Screen captures taken while iterating on the design (before/after comparison
+# material). Working artefacts of a session, not repository content.
+scratch_*.png
+
 # Operational compose override, machine-local. Stage 3B.2 adoption keeps the
 # runtime on the legacy `avelren` DSN (adopt.sh restarts clients "on the
 # UNCHANGED legacy DSN"; the per-role DSN cutover is the separate 3C gate). On a
@@ -54,3 +58,12 @@ _to_delete/
 # clean-worktree guard would otherwise refuse to run while the override that
 # keeps the site up is present. Removed at the 3C cutover.
 docker-compose.override.yml
+
+# Local build output (APKs, etc.) copied here by hand for distribution —
+# never a build artifact the repo should track.
+dist/
+
+# Zipped export staged for Claude Design (DesignSync). Derived from
+# design-system/ — that directory IS tracked: it is the ROAD SIGN source of
+# truth the Compose code is written against, and it must survive this machine.
+design-system.zip

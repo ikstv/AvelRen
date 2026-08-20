@@ -1,192 +1,424 @@
 package ua.avelren.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import ua.avelren.app.R
+import ua.avelren.app.ui.theme.SignOnWarn
+import ua.avelren.app.ui.theme.SignWarn
+import ua.avelren.app.ui.theme.tapNoRipple
+
+// Онбординг за макетом Design (проєкт 53c4fe13, екрани 01 і 02): фото
+// вантажівки на всю площу, затемнення згори й знизу, скляні (blur-like)
+// панелі поверх. Два кроки: дисклеймер із підтвердженням, далі інструкція.
+private val Ink = Color(0xFF08090A)
+private val OnInk = Color(0xFFFFFFFF)
+private val HairlineMid = Color(0xD9FFFFFF)   // .85 alpha — центр градієнтної лінії
+private val GlassBg = Color(0x6B0A0A0A)       // rgba(10,10,10,.42)
+// Макет має rgba(10,10,10,.35) РАЗОМ з `backdrop-filter:blur(18px)`. Compose
+// не вміє розмивати те, що під елементом, тож буквальні 35% чорного на
+// яскравому фото роблять текст нечитабельним. Компенсуємо щільністю: візуальна
+// вага та сама, що дає blur у браузері.
+private val GlassBgSoft = Color(0xC70A0A0A)
+private val GlassBorder = Color(0x38FFFFFF)   // rgba(255,255,255,.22)
+private val GlassBorderSoft = Color(0x26FFFFFF)
+private val FooterText = Color(0x66F3F2F2)
+
+// Незмінні draw-об'єкти (створюються раз на процес): grayscale-фільтр для ч/б
+// фото на кроці інструкції та два градієнти-затемнення згори/знизу.
+private val GrayscaleFilter: ColorFilter =
+    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+private val TopScrim: Brush =
+    Brush.verticalGradient(listOf(Color(0xB808090A), Color(0x0008090A)))
+private val BottomScrim: Brush =
+    Brush.verticalGradient(listOf(Color(0x00000000), Color(0xBF000000)))
+
+private enum class OnboardingStep { DISCLAIMER, INSTRUCTIONS }
 
 /**
- * Onboarding (screen 1 from the design): a background truck photo with a vertical
- * darkening gradient, the AVELREN header + version, a heading, three features, a
- * CTA, and a footer.
+ * Онбординг: крок 1 — дисклеймер (кнопка активна лише після «ОЗНАЙОМИВСЯ»),
+ * крок 2 — інструкція використання. Обидва на тому самому фоні.
  */
 @Composable
 fun OnboardingScreen(
     version: String,
     onStart: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().background(Color(0xFF1A1817))) {
+    var step by remember { mutableStateOf(OnboardingStep.DISCLAIMER) }
+    var acked by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize().background(Ink)) {
+        // Макет: екран 01 — кольорове фото, екран 02 — те саме фото з
+        // `filter:grayscale(100%) contrast(1.05)`.
         Image(
             painter = painterResource(R.drawable.onboarding_truck),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
+            colorFilter = if (step == OnboardingStep.INSTRUCTIONS) GrayscaleFilter else null,
         )
-        // A vertical darkening gradient — the text stays readable on any photo.
+        // Затемнення згори (190dp) і знизу (170dp) — як у макеті.
         Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to Color(0x66000000),
-                    0.45f to Color(0x99141210),
-                    1f to Color(0xF21A1817),
-                )
-            )
+            Modifier.fillMaxWidth().height(190.dp).align(Alignment.TopCenter)
+                .background(TopScrim)
+        )
+        Box(
+            Modifier.fillMaxWidth().height(170.dp).align(Alignment.BottomCenter)
+                .background(BottomScrim)
         )
 
         Column(
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .padding(horizontal = 20.dp, vertical = 20.dp),
         ) {
-            // Header: AVELREN + version.
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "AVELREN",
-                    color = Color(0xFFF3F2F2),
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 2.sp,
-                    style = MaterialTheme.typography.titleMedium,
+            OnboardingHeader(version)
+
+            when (step) {
+                OnboardingStep.DISCLAIMER -> DisclaimerBody(
+                    acked = acked,
+                    onToggleAck = { acked = !acked },
                 )
-                Text(
-                    "ВЕРСІЯ $version",
-                    color = Color(0xB3F3F2F2),
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                OnboardingStep.INSTRUCTIONS -> InstructionsBody()
             }
 
             Spacer(Modifier.weight(1f))
 
-            // Heading + a thin red line.
+            when (step) {
+                OnboardingStep.DISCLAIMER -> GlassButton(
+                    label = "ПОЧАТИ РОБОТУ →",
+                    enabled = acked,
+                    onClick = { step = OnboardingStep.INSTRUCTIONS },
+                )
+                OnboardingStep.INSTRUCTIONS -> GlassButton(
+                    label = "ГОЛОВНА",
+                    enabled = true,
+                    onClick = onStart,
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Hairline()
+            Spacer(Modifier.height(8.dp))
             Text(
-                "Ваш помічник для слідкування черг на кордоні",
-                color = Color(0xFFF3F2F2),
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 38.sp,
-                lineHeight = 42.sp,
+                "DEVELOPER — TANKO VIKTOR",
+                color = FooterText,
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 9.sp,
+                letterSpacing = 1.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(14.dp))
-            Box(
-                Modifier
-                    .width(120.dp)
-                    .height(3.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
-            )
-            Spacer(Modifier.height(20.dp))
-
-            Feature("Історія завантаженості пунктів пропуску за 7 днів")
-            Feature("Сповіщення, коли черга сягає вашого порогу")
-            Feature("АІ-прогноз часу очікування", beta = true)
-
-            Spacer(Modifier.height(24.dp))
-
-            Button(
-                onClick = onStart,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(0.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color(0xFFF3F2F2),
-                ),
-            ) {
-                Text(
-                    "ОБРАТИ ПУНКТ ПРОПУСКУ",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Start,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 0.8.sp,
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            Column(
-                Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "DEVELOPED BY · TANKO VIKTOR",
-                    color = Color(0x99F3F2F2),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier
-                        .width(160.dp)
-                        .height(1.dp)
-                        .background(Color(0x33F3F2F2))
-                )
-            }
         }
     }
 }
 
 @Composable
-private fun Feature(text: String, beta: Boolean = false) {
+private fun OnboardingHeader(version: String) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
+    ) {
+        // Макет: обидва підписи — у боксі `height:20px; align-items:flex-end`,
+        // тобто притиснуті до НИЗУ однакової висоти, щоб «ВЕРСІЯ» стояла на
+        // рівні «AVELREN», а не вище через менший кегль.
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.height(20.dp), contentAlignment = Alignment.BottomStart) {
+                Text(
+                    "AVELREN",
+                    color = OnInk,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 20.sp,
+                    letterSpacing = 3.5.sp,
+                    lineHeight = 20.sp,
+                )
+            }
+            Spacer(Modifier.height(7.dp))
+            Hairline(Modifier.width(140.dp))
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.height(20.dp), contentAlignment = Alignment.BottomCenter) {
+                Text(
+                    "ВЕРСІЯ $version",
+                    color = OnInk,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    letterSpacing = 2.sp,
+                )
+            }
+            Spacer(Modifier.height(7.dp))
+            Hairline(Modifier.width(96.dp))
+        }
+    }
+}
+
+@Composable
+private fun DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) {
+    Spacer(Modifier.height(40.dp))
+    Text(
+        "Це мій перший додаток, який я створив сам, — для детального " +
+            "моніторингу черг на кордоні. Проєкт ще у розробці й тестуванні — " +
+            "можливі неточності, тож не варто повністю покладатись на додаток",
+        color = Color(0xD9FFFFFF),
+        fontSize = 12.5.sp,
+        lineHeight = 18.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(10.dp))
+    Hairline()
+    Spacer(Modifier.height(14.dp))
+    Row(
+        Modifier.fillMaxWidth().tapNoRipple(onClick = onToggleAck),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
-                .padding(top = 6.dp)
-                .width(8.dp)
-                .height(8.dp)
-                .background(MaterialTheme.colorScheme.primary)
+                .size(20.dp)
+                .border(1.5.dp, Color(0xD9FFFFFF), RoundedCornerShape(5.dp))
+                .background(
+                    if (acked) Color(0xD9FFFFFF) else Color.Transparent,
+                    RoundedCornerShape(5.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (acked) {
+                Text("✓", color = Ink, fontWeight = FontWeight.Black, fontSize = 13.sp)
+            }
+        }
+        Spacer(Modifier.width(9.dp))
+        Text(
+            "ОЗНАЙОМИВСЯ",
+            color = OnInk,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            letterSpacing = 1.5.sp,
+        )
+    }
+}
+
+@Composable
+private fun InstructionsBody() {
+    Spacer(Modifier.height(20.dp))
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(GlassBgSoft)
+            .border(1.dp, GlassBorderSoft, RoundedCornerShape(16.dp))
+            .padding(18.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Text(
+            "Інструкція використання",
+            color = OnInk,
+            fontWeight = FontWeight.Black,
+            fontSize = 30.sp,
+            lineHeight = 34.sp,
+        )
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0x59FFFFFF)))
+        Spacer(Modifier.height(16.dp))
+
+        InstructionRow(
+            "01",
+            "Обери поріг — 50, 100, 150 чи 200 авто — і ми надішлемо " +
+                "сповіщення, щойно черга його сягне",
+        )
+        Spacer(Modifier.height(12.dp))
+        InstructionRow(
+            "02",
+            "Обери день і час, коли плануєш в'їхати — ми сповістимо, коли " +
+                "черга сягне саме цього бажаного часу заїзду на КПП",
+        )
+        Spacer(Modifier.height(12.dp))
+        InstructionRow(
+            "03",
+            "АІ-модель поки вчиться на зібраних даних, щоб прогнозувати " +
+                "хвилі реєстрацій у чергу",
+            beta = true,
+            extra = "Наприклад: сьогодні на обраному КПП прогнозується різке " +
+                "зростання черги о 03:00–05:00 ранку",
+        )
+
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "Можна обрати будь-яку комбінацію цих налаштувань і навіть " +
+                "слідкувати одразу за кількома пунктами пропуску",
+            color = Color(0xCCFFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(14.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "У майбутньому більшість цих функцій стануть доступні лише в " +
+                "платній версії додатку",
+            color = SignWarn,
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+        )
+    }
+}
+
+@Composable
+private fun InstructionRow(
+    number: String,
+    text: String,
+    beta: Boolean = false,
+    extra: String? = null,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Text(
+            number,
+            color = Color(0xB3FFFFFF),
+            fontWeight = FontWeight.Black,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 2.dp),
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                text,
-                color = Color(0xFFF3F2F2),
-                style = MaterialTheme.typography.bodyMedium,
-            )
             if (beta) {
-                Spacer(Modifier.height(3.dp))
+                // Макет: бейдж — inline-`<span>` у кінці тексту, тож він
+                // переноситься разом із рядком, а не стоїть окремою колонкою.
+                val badgeId = "beta"
+                val annotated = buildAnnotatedString {
+                    append(text)
+                    append(' ')
+                    appendInlineContent(badgeId, "[BETA]")
+                }
                 Text(
-                    "У БЕТА-ТЕСТУВАННІ",
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(0.dp))
-                        .background(Color(0x33FF563C))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
+                    annotated,
+                    color = OnInk,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    inlineContent = mapOf(
+                        badgeId to InlineTextContent(
+                            Placeholder(
+                                width = 4.2.em,
+                                height = 1.35.em,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.Center,
+                            )
+                        ) {
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(SignWarn),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "BETA",
+                                    color = SignOnWarn,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 9.sp,
+                                    letterSpacing = 0.167.em,
+                                )
+                            }
+                        }
+                    ),
                 )
+            } else {
+                Text(text, color = OnInk, fontSize = 14.sp, lineHeight = 20.sp)
+            }
+            if (extra != null) {
+                Spacer(Modifier.height(14.dp))
+                Text(extra, color = OnInk, fontSize = 14.sp, lineHeight = 20.sp)
             }
         }
     }
+}
+
+/** Скляна кнопка макета: напівпрозорий фон, тонка світла рамка, 16dp кут. */
+@Composable
+private fun GlassButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().height(54.dp),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if (enabled) GlassBorder else Color.Transparent),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = GlassBg,
+            contentColor = OnInk,
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = Color(0x40FFFFFF),
+        ),
+    ) {
+        Text(
+            label,
+            fontWeight = FontWeight.Black,
+            fontSize = 13.sp,
+            letterSpacing = 2.sp,
+        )
+    }
+}
+
+/** Горизонтальна лінія-волосина, що згасає до країв (як у макеті). */
+@Composable
+private fun Hairline(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    0f to Color.Transparent,
+                    0.22f to HairlineMid,
+                    0.78f to HairlineMid,
+                    1f to Color.Transparent,
+                )
+            )
+    )
 }
