@@ -1,0 +1,60 @@
+<!-- @dsCard group="Foundations" -->
+<!DOCTYPE html><html lang="uk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Типографіка — Overpass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F4F5F3; --ink:#1C1E20; --ink2:#5B6065; --line:#D9DCD8; --panel:#FFFFFF;
+  --go:#0E7A4E; --go-deep:#0A5F3D; --on-go:#FFFFFF;
+  --warn:#F5C400; --on-warn:#231F00; --warn-deep:#C9A100;
+  --closed:#D5382C; --data:#0B5FA5; --frame:#FFFFFF;
+}
+body.dark{
+  --paper:#16181A; --ink:#F2F4F1; --ink2:#9AA0A6; --line:#2A2E31; --panel:#1F2224;
+  --data:#4C97DB; --frame:#E8ECE8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+     font-family:'Overpass',system-ui,sans-serif;padding:20px;transition:background .15s}
+.toggle{position:fixed;top:12px;right:12px;z-index:9;background:var(--go);color:#fff;
+  border:2px solid var(--frame);border-radius:8px;font:700 11px 'Overpass';letter-spacing:1px;
+  padding:8px 13px;cursor:pointer}
+h3{font:900 11px 'Overpass';letter-spacing:2px;color:var(--ink2);margin:0 0 10px;text-transform:uppercase}
+h3+p{margin:-6px 0 14px;font-size:12.5px;color:var(--ink2);line-height:1.5;max-width:560px}
+.stack{display:flex;flex-direction:column;gap:22px;max-width:620px}
+.wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.spec{font:400 11px 'Overpass';color:var(--ink2);margin-top:6px;line-height:1.45}
+code{font-family:ui-monospace,monospace;font-size:11px;background:var(--panel);
+     border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+/* ── примітиви системи ── */
+.sign{background:var(--go);color:var(--on-go);border:3px solid var(--frame);border-radius:10px;
+      box-shadow:inset 0 0 0 2px var(--go-deep),0 4px 14px rgba(0,0,0,.16)}
+.sign.stop{background:var(--closed);box-shadow:inset 0 0 0 2px #A32A20,0 4px 14px rgba(0,0,0,.16)}
+.sign.y{background:var(--warn);color:var(--on-warn);box-shadow:inset 0 0 0 2px var(--warn-deep),0 4px 14px rgba(0,0,0,.12)}
+.plate{display:inline-block;border:2px solid var(--ink);border-radius:6px;padding:3px 10px;
+       font:900 16px 'Overpass';font-variant-numeric:tabular-nums;color:var(--ink)}
+.plate.warn{border-color:var(--warn-deep);background:var(--warn);color:var(--on-warn)}
+.plate.closed{border-color:var(--closed);color:var(--closed);font-size:11px;letter-spacing:1.5px}
+.km{display:inline-flex;align-items:center;gap:7px;border:2px solid var(--line);border-radius:8px;
+    padding:5px 11px;font:700 11px 'Overpass';letter-spacing:1px;color:var(--ink2)}
+.km .d{width:8px;height:8px;border-radius:99px;background:var(--go)}
+.km.stale .d{background:var(--warn)}
+.chip{border:2px solid var(--line);background:none;color:var(--ink);font:700 13px 'Overpass';
+      padding:8px 14px;border-radius:8px;cursor:pointer;font-variant-numeric:tabular-nums}
+.chip.on{border-color:var(--go);background:var(--go);color:#fff}
+.chip:disabled{opacity:.4;cursor:not-allowed}
+.btn-cta{height:56px;background:var(--warn);color:var(--on-warn);border:3px solid #fff;border-radius:10px;
+  font:900 15px 'Overpass';letter-spacing:1.5px;cursor:pointer;box-shadow:inset 0 0 0 2px var(--warn-deep);
+  display:flex;align-items:center;justify-content:center;gap:10px;width:100%}
+.btn-out{height:46px;background:none;border:2px solid var(--ink);color:var(--ink);border-radius:8px;
+  font:900 12.5px 'Overpass';letter-spacing:1px;cursor:pointer;width:100%}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.arrow{font-weight:900}
+</style></head><body class="light">
+<button class="toggle" onclick="document.body.classList.toggle('dark')">НІЧ / ДЕНЬ</button>
+<h3>Overpass — шрифт трас</h3>
+<p>Цифровий нащадок Highway Gothic, яким розмічені дороги. Ваги 400 / 700 / 900, ліцензія OFL.
+Правило: числа завжди <code>tabular-nums</code>, мітки завжди великими з розрядкою.</p>
+<div class="stack"><div><div style="font:900 64px 'Overpass';font-variant-numeric:tabular-nums;letter-spacing:-2px;line-height:.9">Число черги</div><div class="spec">Тільки герой-панель. tabular-nums обов'язково — цифри не мають стрибати щохвилини.</div></div><div><div style="font:900 30px 'Overpass';line-height:1.12">Заголовок екрана</div><div class="spec">Онбординг, назви екранів.</div></div><div><div style="font:700 14px 'Overpass'">Назва пункту</div><div class="spec">Рядки списку, шапка герой-панелі.</div></div><div><div style="font:400 14px 'Overpass';line-height:1.4">Основний текст</div><div class="spec">Пояснення, рядок в'їзду.</div></div><div><div style="font:700 10.5px 'Overpass';letter-spacing:2px;text-transform:uppercase">Мітка секції</div><div class="spec">Розділи. Великі літери + розрядка — як на знаках.</div></div><div><div style="font:900 16px 'Overpass';font-variant-numeric:tabular-nums">Табличка</div><div class="spec">Числа в рамці.</div></div></div>
+</body></html>

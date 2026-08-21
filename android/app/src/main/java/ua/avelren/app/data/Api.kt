@@ -307,6 +307,21 @@ object Api {
         val points: List<ForecastPoint> = emptyList(),
     )
 
+    /** Одна точка історії черги (сире спостереження щохвилини). */
+    @Serializable
+    data class HistoryPoint(
+        val time: String,
+        val vehicles_in_queue: Int = 0,
+        val is_paused: Boolean = false,
+    )
+
+    @Serializable
+    data class History(
+        /** raw (≤48 год) — точки щохвилини; hourly — погодинні агрегати. */
+        val resolution: String = "raw",
+        val points: List<HistoryPoint> = emptyList(),
+    )
+
     @Serializable
     private data class DeviceIn(val fcm_token: String, val platform: String = "android")
 
@@ -364,6 +379,10 @@ object Api {
 
     suspend fun forecast(checkpointId: Int, hours: Int = 24): Forecast =
         client.get("$base/forecast/$checkpointId?hours=$hours").body()
+
+    /** Динаміка черги за останні `hours` годин. hours=1 → ~60 точок щохвилини. */
+    suspend fun history(checkpointId: Int, hours: Int = 1): History =
+        client.get("$base/history/$checkpointId?hours=$hours").body()
 
     suspend fun subscriptions(creds: DeviceStore.Credentials): List<Subscription> =
         client.get("$base/subscriptions") { auth(creds) }.body()

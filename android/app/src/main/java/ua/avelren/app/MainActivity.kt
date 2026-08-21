@@ -23,12 +23,11 @@ import kotlinx.coroutines.launch
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.NotificationPermission
 import ua.avelren.app.data.NotificationPermissionState
-import ua.avelren.app.data.ThemePrefs
+import ua.avelren.app.data.UiPrefs
 import ua.avelren.app.notify.Notifications
 import ua.avelren.app.ui.AvelRenScreen
 import ua.avelren.app.ui.OnboardingScreen
 import ua.avelren.app.ui.theme.AvelRenTheme
-import ua.avelren.app.ui.theme.ThemeMode
 
 class MainActivity : ComponentActivity() {
 
@@ -74,25 +73,20 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val ctx = LocalContext.current
-            val mode by ThemePrefs.themeModeFlow(ctx)
-                .collectAsStateWithLifecycle(ThemeMode.SYSTEM)
-            val onboardingSeen by ThemePrefs.onboardingSeenFlow(ctx)
+            val onboardingSeen by UiPrefs.onboardingSeenFlow(ctx)
                 .collectAsStateWithLifecycle(false)
             val scope = rememberCoroutineScope()
-            AvelRenTheme(mode) {
+            AvelRenTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     if (!onboardingSeen) {
                         OnboardingScreen(
                             version = BuildConfig.VERSION_NAME,
-                            onStart = { scope.launch { ThemePrefs.setOnboardingSeen(ctx) } },
+                            onStart = { scope.launch { UiPrefs.setOnboardingSeen(ctx) } },
                         )
                     } else {
                         AvelRenScreen(
                             permissionState = permissionState,
-                            onRequestPermission = ::launchRequest,
-                            onOpenSettings = ::openNotificationSettings,
-                            themeMode = mode,
-                            onThemeChange = { scope.launch { ThemePrefs.setThemeMode(ctx, it) } },
+                            onOpenNotificationSettings = { openNotificationSettings() },
                         )
                     }
                 }

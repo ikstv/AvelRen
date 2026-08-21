@@ -8,12 +8,12 @@ plugins {
 
 android {
     namespace = "ua.avelren.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "ua.avelren.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
@@ -58,6 +58,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    // Офіційний набір Material-іконок (версія — з compose BOM вище).
+    implementation("androidx.compose.material:material-icons-extended")
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
