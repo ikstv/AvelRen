@@ -31,6 +31,12 @@ android/app/build/
 android/local.properties
 android/.idea/
 *.apk
+# Signing keystore і креденшели. Ключа ще нема; сітку ставимо ДО нього, бо
+# secret-scan CI цих патернів не ловить, а коли ключ ляже на машину — під ним
+# ігнору вже не буде.
+*.jks
+*.keystore
+keystore.properties
 
 # Package build artifacts (created by pip install ./app)
 app/build/
