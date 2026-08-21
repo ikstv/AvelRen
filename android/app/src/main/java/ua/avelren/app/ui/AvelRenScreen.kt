@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +74,9 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import ua.avelren.app.data.NotificationPermissionState
+import ua.avelren.app.ui.theme.SignClosed
+import ua.avelren.app.ui.theme.SignOnClosed
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -130,9 +134,15 @@ private fun countryLabel(flag: String?): String {
  * коли карток стало більше трьох.
  */
 @Composable
-fun AvelRenScreen() {
+fun AvelRenScreen(
+    permissionState: NotificationPermissionState,
+    onOpenNotificationSettings: () -> Unit,
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    // Малюємо стан дозволу в момент рендеру, нічого не зберігаючи в підписках:
+    // позначка «беззвучна» має зникнути сама, щойно дозвіл з'явиться.
+    val notificationsSilent = permissionState !is NotificationPermissionState.Granted
 
     var workload by remember { mutableStateOf<List<Api.Workload>>(emptyList()) }
     var selected by remember { mutableStateOf(DeviceStore.selectedCheckpoint(context)) }
@@ -170,6 +180,10 @@ fun AvelRenScreen() {
     // AI-прогноз — читання (не підписка): обрав КПП → показуємо прогноз.
     var showAiCpPicker by remember { mutableStateOf(false) }
     var pendingAiCp by remember { mutableStateOf<Api.Workload?>(null) }
+    // Гейт беззвучної підписки (#117 крок 2): коли дозволу нема, вибір порога
+    // веде не прямо в subscribe, а в діалог «увімкнути / все одно». Тут — КПП+поріг,
+    // що чекають на рішення. Наполегливо, але прохідно: намір не втрачається.
+    var pendingSilentSub by remember { mutableStateOf<Pair<Api.Workload, Int>?>(null) }
     // Рядок, який ✕ пропонує прибрати — тримаємо до підтвердження (запобіжник
     // від випадкового тапу). Саме видалення — лише після «Прибрати».
     var pendingRemove by remember { mutableStateOf<MonitorRow?>(null) }
@@ -340,6 +354,9 @@ fun AvelRenScreen() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HeaderRow(freshness = freshness, hasError = refreshError)
+            if (notificationsSilent) {
+                NotificationSilentBanner(onOpenNotificationSettings)
+            }
             ActionTile(
                 title = "Пороги",
                 subtitle = "Сповістити, коли черга сягне певної кількості авто",
@@ -367,6 +384,7 @@ fun AvelRenScreen() {
                 modifier = Modifier.fillMaxWidth().weight(1.5f),
                 fill = true,
                 loaded = monitorsLoaded,
+                notificationsSilent = notificationsSilent,
             )
         }
     } else {
@@ -380,6 +398,9 @@ fun AvelRenScreen() {
         ) {
             item {
                 HeaderRow(freshness = freshness, hasError = refreshError)
+            }
+            if (notificationsSilent) {
+                item { NotificationSilentBanner(onOpenNotificationSettings) }
             }
             if (current != null) {
                 item { HeroPanel(current) { showPicker = true } }
@@ -396,6 +417,7 @@ fun AvelRenScreen() {
                         onRemove = { pendingRemove = it },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                         loaded = monitorsLoaded,
+                        notificationsSilent = notificationsSilent,
                     )
                 }
             } else {
@@ -456,15 +478,40 @@ fun AvelRenScreen() {
         ThresholdChooserDialog(
             checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
             onPick = { threshold ->
+                if (notificationsSilent) {
+                    // Дозволу нема — не підписуємо мовчки: спершу діалог вибору.
+                    pendingSilentSub = cp to threshold
+                } else {
+                    creds?.let { c ->
+                        scope.launch {
+                            runCatching { Api.subscribe(c, cp.checkpoint_id, threshold) }
+                            reloadSubs()
+                        }
+                    }
+                }
+                pendingThresholdCp = null
+            },
+            onDismiss = { pendingThresholdCp = null },
+        )
+    }
+
+    // Гейт беззвучної підписки (#117): наполегливо, але прохідно.
+    pendingSilentSub?.let { (cp, threshold) ->
+        SilentSubscribeDialog(
+            onEnable = {
+                onOpenNotificationSettings()
+                pendingSilentSub = null
+            },
+            onSubscribeAnyway = {
                 creds?.let { c ->
                     scope.launch {
                         runCatching { Api.subscribe(c, cp.checkpoint_id, threshold) }
                         reloadSubs()
                     }
                 }
-                pendingThresholdCp = null
+                pendingSilentSub = null
             },
-            onDismiss = { pendingThresholdCp = null },
+            onDismiss = { pendingSilentSub = null },
         )
     }
 
@@ -687,6 +734,7 @@ private fun MonitoringTile(
     modifier: Modifier = Modifier,
     fill: Boolean = false,   // true — заповнити висоту плитки (екран «Моніторинг»)
     loaded: Boolean = true,  // false — список ще не приїхав; НЕ показувати empty-state
+    notificationsSilent: Boolean = false,  // дозволу нема → рядки несуть позначку «беззвучна»
 ) {
     Column(
         modifier
@@ -737,7 +785,7 @@ private fun MonitoringTile(
                     .then(if (fill) Modifier.weight(1f).verticalScroll(rememberScrollState()) else Modifier),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                rows.forEach { row -> MonitorRowView(row) { onRemove(row) } }
+                rows.forEach { row -> MonitorRowView(row, notificationsSilent) { onRemove(row) } }
             }
         }
     }
@@ -748,7 +796,7 @@ private fun MonitoringTile(
  * («зараз N» авто для порога / поточний час в'їзду для eta), ✕ прибрати.
  */
 @Composable
-private fun MonitorRowView(row: MonitorRow, onRemove: () -> Unit) {
+private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemove: () -> Unit) {
     val view = LocalView.current
     Row(
         Modifier
@@ -772,6 +820,17 @@ private fun MonitorRowView(row: MonitorRow, onRemove: () -> Unit) {
                 .border(1.5.dp, HeroYellow, RoundedCornerShape(8.dp))
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
+        if (notificationsSilent) {
+            // Позначка «беззвучна» — суто зі стану дозволу в момент рендеру.
+            // Зникне сама, щойно дозвіл з'явиться (нічого не збережено в підписці).
+            Text(
+                "🔕",
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .border(1.dp, SignClosed, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 5.dp, vertical = 3.dp),
+            )
+        }
         Text(
             row.label,
             color = Color.White,
@@ -886,6 +945,106 @@ private fun ActionTile(
 @Composable
 private fun TileIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Icon(icon, contentDescription = null, tint = HeroYellow, modifier = Modifier.size(26.dp))
+}
+
+/**
+ * Банер «сповіщення вимкнені» (#117 крок 1). Малюється лише коли дозволу нема;
+ * тап веде в налаштування. Стан перечитується в MainActivity.onResume, тож банер
+ * зникає сам після повернення з налаштувань.
+ */
+@Composable
+private fun NotificationSilentBanner(onOpenSettings: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(SignClosed)
+            .clickable { onOpenSettings() }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("🔕", fontSize = 18.sp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Сповіщення вимкнені",
+                color = SignOnClosed,
+                fontWeight = FontWeight.Black,
+                fontSize = 12.5.sp,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "Застосунок не зможе вас попередити. Натисніть, щоб увімкнути.",
+                color = SignOnClosed,
+                fontSize = 11.5.sp,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/**
+ * Гейт беззвучної підписки (#117 крок 2): наполегливо, але прохідно. Дві дії —
+ * увімкнути дозвіл або підписатись усе одно (тоді рядок нестиме позначку «беззвучна»).
+ */
+@Composable
+private fun SilentSubscribeDialog(
+    onEnable: () -> Unit,
+    onSubscribeAnyway: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(PickerSheetBg)
+                .border(1.dp, NavBorder, RoundedCornerShape(20.dp))
+                .padding(20.dp),
+        ) {
+            Text(
+                "Сповіщення вимкнені",
+                color = HeroYellow,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.bodyMedium,
+                fontSize = 14.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Без дозволу на сповіщення підписка не зможе вас попередити — " +
+                    "сервер надішле, але екран промовчить.",
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(18.dp))
+            Text(
+                "Увімкнути сповіщення",
+                color = PickerInk,
+                fontWeight = FontWeight.Black,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(HeroYellow)
+                    .clickable { onEnable() }
+                    .padding(vertical = 12.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Все одно підписатись",
+                color = EmptyInk,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.5.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSubscribeAnyway() }
+                    .padding(vertical = 8.dp),
+            )
+        }
+    }
 }
 
 /** Крок 2 додавання порога: діалог із чипами 50/100/150/200 для обраного КПП. */

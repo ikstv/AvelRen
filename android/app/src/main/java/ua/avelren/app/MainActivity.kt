@@ -84,7 +84,10 @@ class MainActivity : ComponentActivity() {
                             onStart = { scope.launch { UiPrefs.setOnboardingSeen(ctx) } },
                         )
                     } else {
-                        AvelRenScreen()
+                        AvelRenScreen(
+                            permissionState = permissionState,
+                            onOpenNotificationSettings = { openNotificationSettings() },
+                        )
                     }
                 }
             }
