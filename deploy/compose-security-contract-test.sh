@@ -57,11 +57,24 @@ ENV
         ECHERHA_CLIENT_VERSION=ECHERHA_CLIENT_VERSION_SENTINEL \
         ECHERHA_DEVICE_ID=ECHERHA_DEVICE_ID_SENTINEL \
         ECHERHA_DEVICE_NAME=ECHERHA_DEVICE_NAME_SENTINEL \
-        docker compose --env-file .env config --format json >"$RESOLVED" 2>"$COMPOSE_ERROR"
+        docker compose --profile migrate --env-file .env config --format json >"$RESOLVED" 2>"$COMPOSE_ERROR"
     ) || fail 'docker compose config failed'
 }
 
 run_compose_config
+
+# The profile is load-bearing since #88 PR 2: it is what keeps a bare
+# `docker compose up -d` from applying and stamping the next migration. Guard
+# all three properties the profile relies on, each with a distinct failure.
+if docker compose -f "$ROOT/docker-compose.yml" config --services 2>/dev/null | grep -qx migrate; then
+    fail 'migrate is in the default service set — the #88 profile is gone'
+fi
+if ! docker compose --profile migrate -f "$ROOT/docker-compose.yml" config --services 2>/dev/null | grep -qx migrate; then
+    fail 'migrate is not reachable even with its profile'
+fi
+if ! docker compose -f "$ROOT/docker-compose.yml" config --quiet 2>/dev/null; then
+    fail 'model invalid with the profile inactive — required: false is missing'
+fi
 
 # M-1: no service may bind-mount the whole host /run (it carries docker.sock);
 # watchdog reads host facts (backup-stamp, reboot-required) from the /telemetry
