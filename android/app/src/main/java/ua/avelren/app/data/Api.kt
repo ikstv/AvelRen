@@ -33,10 +33,10 @@ object Timeouts {
 }
 
 /**
- * Клієнт нашого API.
+ * Client for our API.
  *
- * Тут немає і не може бути жодного звернення до echerha.gov.ua — застосунок
- * ходить виключно на власний сервер (див. AGENTS.md, правило 1).
+ * There is not, and cannot be, any call to echerha.gov.ua here — the app talks
+ * exclusively to its own server (see AGENTS.md, rule 1).
  */
 object Api {
 
@@ -56,10 +56,10 @@ object Api {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
         }
-        // Без цього Ktor 3 повертає non-2xx як «успіх» — виклики без body<>()
-        // (updateToken, ack, delete) не помітили б 401 взагалі, і клієнт
-        // після DB restore потрапляв у вічний loop 401 без re-registration
-        // (NEW-AUTH-2). Тепер будь-який 4xx кидає ClientRequestException,
+        // Without this, Ktor 3 returns non-2xx as "success" — calls without body<>()
+        // (updateToken, ack, delete) would not notice a 401 at all, and after a DB
+        // restore the client would fall into an endless 401 loop without
+        // re-registration (NEW-AUTH-2). Now any 4xx throws ClientRequestException,
         // 5xx — ServerResponseException.
         expectSuccess = true
     }
@@ -67,11 +67,11 @@ object Api {
     private val base = BuildConfig.API_BASE_URL
 
     /**
-     * Розпізнає 401 будь-де в API-виклику. `AvelRenApp` та
-     * `AvelRenMessagingService` використовують це, щоб очистити збережені
-     * credentials і зареєструватися заново — типовий сценарій DB restore.
-     * Ktor кидає `ClientRequestException` і на 4xx з body-decode, і на 4xx
-     * без body — це одна точка обробки.
+     * Recognizes a 401 anywhere in an API call. `AvelRenApp` and
+     * `AvelRenMessagingService` use this to clear the stored credentials and
+     * register again — the typical DB-restore scenario. Ktor throws a
+     * `ClientRequestException` both on a 4xx with body-decode and on a 4xx
+     * without a body — this is a single handling point.
      */
     fun isStaleInstallation(exc: Throwable): Boolean =
         exc is ClientRequestException && exc.response.status == HttpStatusCode.Unauthorized
@@ -93,9 +93,9 @@ object Api {
         val wait_time_seconds: Int,
         val is_paused: Boolean,
         val entry_eta: String? = null,
-        // Час фактичного заміру (server observation time). Nullable — щоб старі
-        // fixture/JSON без поля лишалися сумісними. Свіжість рахуємо саме з нього,
-        // а не з часу HTTP-запиту (AND-4).
+        // The actual measurement time (server observation time). Nullable — so that
+        // old fixtures/JSON without the field stay compatible. We compute freshness
+        // from it, not from the HTTP request time (AND-4).
         val time: String? = null,
     )
 
@@ -112,8 +112,8 @@ object Api {
     data class TelemetrySystem(
         val uptime_seconds: Int? = null,
         val load_1m: Double? = null,
-        // load_5m приходить з host-snapshot (PR-A). Nullable — старий сервер без
-        // поля продовжує парситись.
+        // load_5m comes from the host snapshot (PR-A). Nullable — an old server
+        // without the field keeps parsing.
         val load_5m: Double? = null,
         val cpu_count: Int? = null,
         val memory_total_mb: Int = 0,
@@ -125,16 +125,16 @@ object Api {
         val disk_used_percent: Int? = null,
         val reboot_required: Boolean = false,
         val reboot_pending_days: Int? = null,
-        // Доступні оновлення пакетів. null (default) = перевірити не вдалося
-        // або старий сервер без поля; 0 = перевірено, оновлень немає. Розрізняти
-        // важливо: 0 приховав би збій probe за виглядом здорового хоста.
+        // Available package updates. null (default) = the check failed or an old
+        // server without the field; 0 = checked, no updates. The distinction
+        // matters: 0 would hide a probe failure behind the look of a healthy host.
         val updates_pending: Int? = null,
         val updates_security: Int? = null,
-        // Свіжість host-snapshot: null у старого сервера, число — вік у секундах.
+        // Host-snapshot freshness: null on an old server, a number — age in seconds.
         val snapshot_age_seconds: Int? = null,
-        // Сервер сам виставляє true, якщо snapshot > 5 хв або зник. При true у
-        // problems уже додано telemetry_snapshot_stale — тут дублюємо як явний
-        // булевий сигнал для секції Host.
+        // The server itself sets true if the snapshot is > 5 min old or gone. When
+        // true, telemetry_snapshot_stale has already been added to problems — here
+        // we duplicate it as an explicit boolean signal for the Host section.
         val stale: Boolean? = null,
     )
 
@@ -152,16 +152,16 @@ object Api {
         val pushes_sent: Long = 0,
         val db_size_mb: Double = 0.0,
         val completeness_percent: Int = 0,
-        // Час останнього спостереження (ISO-8601 з сервера). Джерело істини
-        // «свіжості» конвеєра — з нього рахуємо age на клієнті. Nullable —
-        // порожня БД або старий сервер.
+        // The time of the last observation (ISO-8601 from the server). The source
+        // of truth for pipeline "freshness" — we compute age on the client from it.
+        // Nullable — an empty DB or an old server.
         val last_observation: String? = null,
-        // Успішні цикли за годину. errors_last_hour уже є; разом дають
-        // success/error split без нового запиту.
+        // Successful cycles per hour. errors_last_hour already exists; together
+        // they give a success/error split without a new request.
         val runs_last_hour: Int? = null,
-        // Активні (pending) alerts у БД. Розширює картину «сповіщення».
+        // Active (pending) alerts in the DB. Broadens the "notifications" picture.
         val alerts_pending: Int? = null,
-        // Найстаріше observation — «як давно збираємо».
+        // The oldest observation — "how long we have been collecting".
         val collecting_since: String? = null,
     )
 
@@ -169,8 +169,8 @@ object Api {
     data class TelemetryCert(
         val days_left: Int? = null,
         val issuer: String? = null,
-        // Помилка ssl-handshake з host-snapshot (напр. «handshake failed»).
-        // Nullable — все ок або старий сервер.
+        // An ssl-handshake error from the host snapshot (e.g. "handshake failed").
+        // Nullable — all is well or an old server.
         val error: String? = null,
     )
 
@@ -178,16 +178,16 @@ object Api {
     data class TelemetryBackups(
         val age_hours: Double? = null,
         val stale: Boolean = false,
-        // Unix epoch останнього запуску (з host-snapshot). Nullable — копії
-        // ніколи не запускались або старий сервер.
+        // Unix epoch of the last run (from the host snapshot). Nullable — backups
+        // never ran or an old server.
         val last_run: Long? = null,
     )
 
-    // ---- PR-B: per-container і глобальні розширення ----
+    // ---- PR-B: per-container and global extensions ----
     //
-    // Усі нові поля nullable / мають дефолт: старий сервер (без PR-B) далі
-    // парситься тим же клієнтом; новий сервер із PR-B, але старий клієнт —
-    // теж працює (ignoreUnknownKeys).
+    // All new fields are nullable / have a default: an old server (without PR-B)
+    // still parses with the same client; a new server with PR-B but an old client
+    // also works (ignoreUnknownKeys).
 
     @Serializable
     data class TelemetryService(
@@ -259,7 +259,7 @@ object Api {
         val certificate: TelemetryCert,
         val backups: TelemetryBackups,
         val problems: List<HealthProblem> = emptyList(),
-        // PR-B — усе опціональне для сумісності зі старим сервером.
+        // PR-B — everything optional for compatibility with an old server.
         val services: List<TelemetryService> = emptyList(),
         val docker: TelemetryDocker? = null,
         val inodes: TelemetryInodes? = null,
@@ -269,7 +269,7 @@ object Api {
         val version: TelemetryVersion? = null,
     )
 
-    /** Canonical перелік активних (pending) alert'ів для reconciliation (A-02). */
+    /** Canonical list of active (pending) alerts for reconciliation (A-02). */
     @Serializable
     data class ActiveAlerts(
         val threshold: List<Long> = emptyList(),
@@ -299,7 +299,7 @@ object Api {
     @Serializable
     data class Forecast(
         val checkpoint_id: Int,
-        /** collecting — прогнозу немає; preliminary — попередній; ready — готовий. */
+        /** collecting — no forecast yet; preliminary — provisional; ready — final. */
         val status: String,
         val weeks_collected: Double,
         val weeks_needed: Int,
@@ -307,10 +307,25 @@ object Api {
         val points: List<ForecastPoint> = emptyList(),
     )
 
+    /** Одна точка історії черги (сире спостереження щохвилини). */
+    @Serializable
+    data class HistoryPoint(
+        val time: String,
+        val vehicles_in_queue: Int = 0,
+        val is_paused: Boolean = false,
+    )
+
+    @Serializable
+    data class History(
+        /** raw (≤48 год) — точки щохвилини; hourly — погодинні агрегати. */
+        val resolution: String = "raw",
+        val points: List<HistoryPoint> = emptyList(),
+    )
+
     @Serializable
     private data class DeviceIn(val fcm_token: String, val platform: String = "android")
 
-    /** Сервер повертає secret ЄДИНИЙ раз — у відповідь на POST /devices. */
+    /** The server returns the secret ONLY once — in response to POST /devices. */
     @Serializable
     private data class DeviceOut(val device_id: String, val device_secret: String)
 
@@ -318,9 +333,8 @@ object Api {
     private data class TokenIn(val fcm_token: String)
 
     /**
-     * Додає до запиту обидва заголовки автентифікації installation. Одного
-     * X-Device-Id для стан-змінних викликів сервер більше не приймає
-     * (закриття AUTH-1).
+     * Adds both installation authentication headers to the request. The server no
+     * longer accepts X-Device-Id alone for state-changing calls (closing AUTH-1).
      */
     private fun io.ktor.client.request.HttpRequestBuilder.auth(
         creds: DeviceStore.Credentials
@@ -359,12 +373,16 @@ object Api {
 
     suspend fun workload(): List<Workload> = client.get("$base/workload").body()
 
-    /** Телеметрія доступна лише адмін-пристроям; для решти сервер віддає 403. */
+    /** Telemetry is available only to admin devices; for the rest the server returns 403. */
     suspend fun telemetry(creds: DeviceStore.Credentials): Telemetry =
         client.get("$base/admin/telemetry") { auth(creds) }.body()
 
     suspend fun forecast(checkpointId: Int, hours: Int = 24): Forecast =
         client.get("$base/forecast/$checkpointId?hours=$hours").body()
+
+    /** Динаміка черги за останні `hours` годин. hours=1 → ~60 точок щохвилини. */
+    suspend fun history(checkpointId: Int, hours: Int = 1): History =
+        client.get("$base/history/$checkpointId?hours=$hours").body()
 
     suspend fun subscriptions(creds: DeviceStore.Credentials): List<Subscription> =
         client.get("$base/subscriptions") { auth(creds) }.body()
@@ -384,8 +402,8 @@ object Api {
     suspend fun etaTargets(creds: DeviceStore.Credentials): List<EtaTarget> =
         client.get("$base/eta-targets") { auth(creds) }.body()
 
-    /** Canonical pending-стан для reconciliation. 401/5xx/offline кидають —
-     * викликач (NotificationReconciler) на будь-якому винятку нічого не гасить. */
+    /** Canonical pending state for reconciliation. 401/5xx/offline throw —
+     * the caller (NotificationReconciler) dismisses nothing on any exception. */
     suspend fun activeAlerts(creds: DeviceStore.Credentials): ActiveAlerts =
         client.get("$base/active-alerts") { auth(creds) }.body()
 
@@ -403,7 +421,7 @@ object Api {
         }
     }
 
-    /** Кнопка «ОК». Після неї сервер припиняє повтори. */
+    /** The "OK" button. After it the server stops retrying. */
     suspend fun ack(creds: DeviceStore.Credentials, alertId: Long, kind: String) {
         ackWith(client, creds, alertId, kind)
     }

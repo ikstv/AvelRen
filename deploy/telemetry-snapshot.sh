@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# Знімає стан хоста в один JSON-файл для API-контейнера.
+# Captures host state into a single JSON file for the API container.
 #
-# Мета — витягти API з trust boundary хоста. До цього public FastAPI-контейнер
-# монтував /secrets, /proc і /run, щоб /admin/telemetry могла показати
-# завантаженість і диск; побічним ефектом RCE або path-traversal у API
-# отримував доступ до Firebase service-account.json (аудит SEC-1 / A-01).
+# The goal is to pull the API out of the host's trust boundary. Previously the public
+# FastAPI container mounted /secrets, /proc and /run so that /admin/telemetry could show
+# load and disk usage; as a side effect, an RCE or path traversal in the API would gain
+# access to the Firebase service-account.json (audit SEC-1 / A-01).
 #
-# Тепер snapshot робить root на хості, а API читає лише вже зібраний JSON.
-# Ніяких secrets, ніякого /proc, ніякого /run у контейнері.
+# Now root on the host takes the snapshot, and the API only reads the already-assembled JSON.
+# No secrets, no /proc, no /run inside the container.
 #
-# Файл пишеться атомарно (write to .tmp → rename), тож читач ніколи не бачить
-# half-written state. Time — ISO-8601 UTC; API перевіряє свіжість і показує
-# "stale", якщо snapshot старше за 5 хв.
+# The file is written atomically (write to .tmp → rename), so a reader never sees a
+# half-written state. Time is ISO-8601 UTC; the API checks freshness and shows
+# "stale" if the snapshot is older than 5 min.
 #
 set -euo pipefail
 
@@ -21,11 +21,11 @@ OUT=$OUT_DIR/host.json
 TMP=$OUT.tmp
 FS_PROBE=${AVELREN_FS_PROBE:-/opt/avelren}
 API_HOST=${AVELREN_CERT_HOST:-api.bordersignal.pp.ua}
-# Перевизначається лише в CI, щоб прогнати фільтрацію інтерфейсів на
-# синтетичному файлі — тестувати треба цей script, а не його копію в workflow.
+# Overridden only in CI, to exercise interface filtering against a
+# synthetic file — we must test this script, not a copy of it in the workflow.
 NET_DEV=${AVELREN_NET_DEV:-/proc/1/net/dev}
-# Перевизначається лише в CI, щоб прогнати саму логіку apt-check (null /
-# валідний вивід / ненульовий вихід) на синтетичному probe.
+# Overridden only in CI, to exercise the apt-check logic itself (null /
+# valid output / nonzero exit) against a synthetic probe.
 APT_CHECK=${AVELREN_APT_CHECK:-/usr/lib/update-notifier/apt-check}
 
 mkdir -p "$OUT_DIR"
@@ -40,7 +40,7 @@ mem_avail_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
 swap_total_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
 swap_free_kb=$(awk '/^SwapFree:/ {print $2}' /proc/meminfo)
 
-# statvfs самого хоста через df — не потребує монтувань у контейнер.
+# statvfs of the host itself via df — requires no mounts into the container.
 read -r _fs disk_total_1k disk_used_1k disk_avail_1k _rest < <(
     df -Pk "$FS_PROBE" | tail -1
 )
@@ -54,43 +54,43 @@ if [ -e /run/reboot-required ]; then
     reboot_pending_days=$(( (now - mtime) / 86400 ))
 fi
 
-# Доступні оновлення пакетів. `reboot_required` показує лише наслідок уже
-# встановленого ядра — самі непоставлені оновлення (і особливо security) до
-# цього моменту не було видно взагалі, тож дізнатися про них можна було тільки
-# зайшовши на хост руками.
+# Available package updates. `reboot_required` only reflects the consequence of an
+# already-installed kernel — the pending updates themselves (especially security ones)
+# were not visible at all until this point, so the only way to learn about them was to
+# log into the host by hand.
 #
-# Рахуємо через apt-check: він читає вже завантажені списки пакетів і не
-# ходить у мережу, тож безпечний для щохвилинного таймера (на відміну від
-# `apt-get update`). Формат виводу — "звичайні;безпекові" у stderr.
-# 0 і null тут різні: 0 = перевірено, оновлень немає; null = перевірити не
-# вдалося (немає apt-check, зламаний вивід, ненульовий вихід probe). Показувати
-# «немає» замість «невідомо» — брехати про стан хоста, тож default = null.
+# We count them via apt-check: it reads the already-downloaded package lists and does
+# not go out to the network, so it's safe for a per-minute timer (unlike
+# `apt-get update`). Output format is "regular;security" on stderr.
+# 0 and null differ here: 0 = checked, no updates; null = the check could not be
+# performed (no apt-check, broken output, nonzero probe exit). Showing
+# "none" instead of "unknown" would be lying about host state, so the default is null.
 updates_pending=null
 updates_security=null
 if [ -x "$APT_CHECK" ]; then
-    # apt-check пише "звичайні;безпекові" у stderr. `|| raw=""` — той самий
-    # fail-safe, що нижче для openssl: probe не має бути single point of failure.
-    # Під `set -euo pipefail` ненульовий вихід apt-check (а в update-notifier
-    # такі сценарії траплялися) інакше поклав би ввесь snapshot ще до валідації.
+    # apt-check writes "regular;security" to stderr. `|| raw=""` is the same
+    # fail-safe as for openssl below: the probe must not be a single point of failure.
+    # Under `set -euo pipefail`, a nonzero exit of apt-check (and update-notifier
+    # has had such scenarios) would otherwise bring down the whole snapshot before validation.
     raw=$("$APT_CHECK" 2>&1 | tr -d '[:space:]') || raw=""
-    # Лише валідний "N;M" дає числа; будь-що інше лишає null.
+    # Only a valid "N;M" yields numbers; anything else leaves null.
     if printf '%s' "$raw" | grep -qE '^[0-9]+;[0-9]+$'; then
         updates_pending=${raw%%;*}
         updates_security=${raw##*;}
     fi
 fi
 
-# --- network (RX/TX через host PID 1) ---
+# --- network (RX/TX via host PID 1) ---
 #
-# Парситься через awk, а не bash-підстановки: у /proc/net/dev назви
-# інтерфейсів вирівняні пробілами ("    lo:"), і ${name## } зрізає рівно один
-# пробіл, тож фільтр lo/docker*/br-*/veth* мовчки не спрацьовував і локальний
-# та docker-трафік потрапляв у лічильник зовнішнього.
+# Parsed with awk rather than bash substitutions: in /proc/net/dev the interface
+# names are space-aligned ("    lo:"), and ${name## } strips exactly one
+# space, so the lo/docker*/br-*/veth* filter silently failed and local and
+# docker traffic ended up in the external counter.
 #
-# `index($0, ":")` ріже саме на двокрапці — це переживає і довгі назви
-# інтерфейсів, що зливаються з першим числом. `split(rest, f, " ")` з
-# однопробільним роздільником використовує дефолтну семантику awk: зрізає
-# краї і ділить по групах пробілів. f[1]=rx_bytes, f[9]=tx_bytes.
+# `index($0, ":")` splits exactly on the colon — this survives even long interface
+# names that run into the first number. `split(rest, f, " ")` with a
+# single-space separator uses awk's default semantics: it trims the
+# edges and splits on runs of whitespace. f[1]=rx_bytes, f[9]=tx_bytes.
 rx_total=0
 tx_total=0
 if [ -r "$NET_DEV" ]; then
@@ -113,26 +113,26 @@ if [ -r "$NET_DEV" ]; then
 fi
 
 # --- inodes ---
-# Диск за байтами може бути на 20%, а за inode на 100% — і create() почне
-# віддавати ENOSPC, хоча df -h нічого не підозрює. Тому окрема секція.
+# The disk may be at 20% by bytes but 100% by inodes — and create() will start
+# returning ENOSPC even though df -h suspects nothing. Hence a separate section.
 inodes_total=null
 inodes_used=null
 inodes_used_percent=null
 if inodes_line=$(df -Pi "$FS_PROBE" 2>/dev/null | tail -1); then
-    # `df -Pi` формат: Filesystem Inodes IUsed IFree IUse% Mounted
+    # `df -Pi` format: Filesystem Inodes IUsed IFree IUse% Mounted
     read -r _fs inodes_total inodes_used _ifree ipct _rest <<< "$inodes_line"
     inodes_used_percent=${ipct%\%}
-    # Якщо будь-яке з чисел не число (наприклад "-" для tmpfs) — залишаємо null.
+    # If any of the numbers is not a number (e.g. "-" for tmpfs) — leave null.
     case "$inodes_total" in ''|*[!0-9]*) inodes_total=null ;; esac
     case "$inodes_used"  in ''|*[!0-9]*) inodes_used=null  ;; esac
     case "$inodes_used_percent" in ''|*[!0-9]*) inodes_used_percent=null ;; esac
 fi
 
 # --- docker daemon / compose version ---
-# `docker version --format` не має форматного варіанту, який би повернув
-# лише один рядок серверної версії; --format '{{.Server.Version}}' — точно
-# те, що треба. Ненульовий вихід (docker daemon не працює) → null, а не
-# півронути весь snapshot.
+# `docker version --format` has no format variant that returns
+# just a single line with the server version; --format '{{.Server.Version}}' is exactly
+# what we need. A nonzero exit (docker daemon not running) → null, rather than
+# taking down the whole snapshot.
 docker_daemon_version=null
 docker_compose_version=null
 if command -v docker >/dev/null 2>&1; then
@@ -145,15 +145,15 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 # --- services (per-container status) ---
-# `docker inspect --format` тягне ТІЛЬКИ поля з whitelist. Не використовуємо
-# `docker inspect ... | jq`: jq на живому snapshot може випадково витягти
-# зайве поле (env/mounts), а тут кожне поле іменоване явно — helper 'field'
-# нижче збирає безпечний JSON рядок для одного контейнера. Health може бути
-# порожнім (немає healthcheck) — тоді null. exit_code для running теж null:
-# 0 у running ≠ «успішно завершено».
+# `docker inspect --format` pulls ONLY the whitelisted fields. We do not use
+# `docker inspect ... | jq`: jq on a live snapshot could accidentally pull out
+# an extra field (env/mounts), whereas here every field is named explicitly — the 'field'
+# helper below assembles a safe JSON string for a single container. Health may be
+# empty (no healthcheck) — then null. exit_code for running is also null:
+# 0 while running ≠ "completed successfully".
 #
-# COMPOSE_PROJECT дозволяє нам ловити контейнери, які docker-compose назвав
-# як `<project>-<service>-<n>`. Дефолт — `avelren` (див. docker-compose.yml).
+# COMPOSE_PROJECT lets us catch containers that docker-compose named
+# as `<project>-<service>-<n>`. The default is `avelren` (see docker-compose.yml).
 COMPOSE_PROJECT=${AVELREN_COMPOSE_PROJECT:-avelren}
 SERVICE_NAMES="db api collector notifier watchdog caddy"
 
@@ -172,13 +172,13 @@ for svc in $SERVICE_NAMES; do
         if [ "$h" = "none" ]; then health="null"; else health="\"${h}\""; fi
         started_at="\"${st}\""
         restart_count="$rc"
-        # exit_code має сенс лише для контейнерів, які завершились: `docker
-        # inspect` у running-стані повертає 0, який виглядає як «успіх», хоча
-        # це просто default. Показуємо null для активних — інакше клієнт
-        # неправильно інтерпретує «0» на живому сервісі.
+        # exit_code only makes sense for containers that have exited: `docker
+        # inspect` in the running state returns 0, which looks like "success" even
+        # though it's just the default. We show null for active ones — otherwise a client
+        # would misread "0" on a live service.
         if [ "$s" = "running" ]; then exit_code="null"; else exit_code="$ec"; fi
         if [ "$oom" = "true" ]; then oom_killed="true"; else oom_killed="false"; fi
-        # image містить лише tag (напр. avelren-app:latest), без env/mounts.
+        # image contains only the tag (e.g. avelren-app:latest), without env/mounts.
         image="\"${img}\""
     fi
 
@@ -211,8 +211,8 @@ if [ -e "$backup_stamp" ]; then
 fi
 
 # --- TLS certificate ---
-# Раніше API робив синхронний ssl-connect із async-хендлера. Тепер це robить
-# host-таймер: event loop API не блокується, а мережева поверхня API — ні.
+# Previously the API did a synchronous ssl-connect from an async handler. Now the
+# host timer does it: the API's event loop is not blocked, and the API's network surface stays clean.
 cert_days_left=null
 cert_issuer=null
 cert_error=null
@@ -231,7 +231,7 @@ if [ -n "$cert_out" ]; then
         fi
     fi
     if [ -n "$issuer_line" ]; then
-        # Витягнути organizationName, якщо є.
+        # Extract organizationName, if present.
         org=$(printf '%s' "$issuer_line" | grep -oE 'O = [^,]+' | head -1 | sed 's/^O = //')
         [ -n "$org" ] && cert_issuer="\"$org\""
     fi
@@ -241,7 +241,7 @@ fi
 
 collected_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Атомарний запис. Читач ніколи не бачить half-written файл.
+# Atomic write. A reader never sees a half-written file.
 cat > "$TMP" <<JSON
 {
   "collected_at": "$collected_at",

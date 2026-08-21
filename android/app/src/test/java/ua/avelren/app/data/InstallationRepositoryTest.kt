@@ -14,24 +14,24 @@ import org.junit.Test
 import ua.avelren.app.data.DeviceStore.Credentials
 
 /**
- * Unit-тести централізованого installation-стану (AND-1). Мережа, FCM і
- * сховище замінені fakes — жодного Firebase/Android runtime.
+ * Unit tests of the centralized installation state (AND-1). The network, FCM and
+ * storage are replaced by fakes — no Firebase/Android runtime.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class InstallationRepositoryTest {
 
-    /** Маркер 401 (stale installation). Реальний seam розпізнає його як 401. */
+    /** A 401 marker (stale installation). The real seam recognizes it as a 401. */
     private class Stale : RuntimeException()
 
     private class FakeApi : InstallationApi {
         var registerCount = 0
         var updateCount = 0
-        var updateBehavior: (() -> Unit) = {}          // за замовч. — успіх
-        var registerBehavior: (() -> Unit) = {}          // hook: напр. кинути
+        var updateBehavior: (() -> Unit) = {}          // by default — success
+        var registerBehavior: (() -> Unit) = {}          // hook: e.g. throw
         val updatedTokens = mutableListOf<String>()
 
         override suspend fun registerDevice(fcmToken: String): Credentials {
-            yield() // дати іншим корутинам дійти до mutex — для dedup-тесту
+            yield() // let other coroutines reach the mutex — for the dedup test
             registerBehavior()
             registerCount++
             return Credentials("device-$registerCount", "secret-$registerCount")
@@ -71,9 +71,9 @@ class InstallationRepositoryTest {
         scope: kotlinx.coroutines.CoroutineScope,
     ) = InstallationRepository(
         api, store, tokens, scope,
-        // no-op: android.util.Log — платформний стаб, у plain JUnit кидає
-        // "not mocked". Інжектуємо тут замість глобального testOptions, щоб
-        // не приховувати потенційні проблеми в інших unit-тестах модуля.
+        // no-op: android.util.Log is a platform stub that throws "not mocked" in
+        // plain JUnit. We inject it here instead of the global testOptions, so as
+        // not to hide potential problems in the module's other unit tests.
         logUnavailable = { _, _ -> },
     )
 
@@ -87,8 +87,8 @@ class InstallationRepositoryTest {
         r.initialize()
 
         assertTrue(r.state.value is InstallationState.Ready)
-        assertEquals(0, api.registerCount)          // не реєструвались наново
-        assertEquals(1, api.updateCount)            // токен синхронізовано
+        assertEquals(0, api.registerCount)          // did not register anew
+        assertEquals(1, api.updateCount)            // the token was synchronized
         assertEquals("dev-A", (r.state.value as InstallationState.Ready).deviceId)
     }
 
@@ -113,7 +113,7 @@ class InstallationRepositoryTest {
         val r = repo(api, FakeStore(null), FakeTokens("tok-1"), backgroundScope)
 
         val seen = mutableListOf<InstallationState>()
-        // Unconfined: collector підписується одразу й ловить Initializing ДО initialize.
+        // Unconfined: the collector subscribes immediately and catches Initializing BEFORE initialize.
         val job = backgroundScope.launch { r.state.collect { seen += it } }
 
         assertEquals(InstallationState.Initializing, seen.first())
@@ -156,10 +156,10 @@ class InstallationRepositoryTest {
         }
 
         assertEquals("ok", result)
-        assertEquals(2, attempts)                        // рівно один retry
-        assertEquals(1, api.registerCount)               // одна нова installation
-        assertEquals("dev-old", usedCreds[0].deviceId)   // спершу стара
-        assertEquals("device-1", usedCreds[1].deviceId)  // потім свіжа
+        assertEquals(2, attempts)                        // exactly one retry
+        assertEquals(1, api.registerCount)               // one new installation
+        assertEquals("dev-old", usedCreds[0].deviceId)   // the old one first
+        assertEquals("device-1", usedCreds[1].deviceId)  // then the fresh one
     }
 
     // 6
@@ -175,11 +175,11 @@ class InstallationRepositoryTest {
             r.authenticatedCall<String> { _ -> attempts++; throw Stale() }
             throw AssertionError("мав кинути")
         } catch (e: Stale) {
-            // очікувано
+            // expected
         }
 
-        assertEquals(2, attempts)                // 1 оригінал + 1 retry, не більше
-        assertEquals(1, api.registerCount)       // рівно одна спроба recovery
+        assertEquals(2, attempts)                // 1 original + 1 retry, no more
+        assertEquals(1, api.registerCount)       // exactly one recovery attempt
     }
 
     // 7
@@ -199,7 +199,7 @@ class InstallationRepositoryTest {
         val results = calls.awaitAll()
 
         assertTrue(results.all { it.startsWith("ok-") })
-        assertEquals(1, api.registerCount)       // єдиний POST /devices на всі 5
+        assertEquals(1, api.registerCount)       // a single POST /devices for all 5
     }
 
     // 8
@@ -223,14 +223,14 @@ class InstallationRepositoryTest {
         val api = FakeApi().apply { updateBehavior = { throw Stale() } }
         val store = FakeStore(Credentials("dev-A", "sec-A"))
         val r = repo(api, store, FakeTokens("tok-1"), backgroundScope)
-        // initialize зробить свій updateToken(stale)→register; скинемо, щоб бачити саме onNewFcmToken
+        // initialize does its own updateToken(stale)→register; reset it so we see onNewFcmToken specifically
         r.initialize()
         val baselineRegister = api.registerCount
         store.cleared = 0
 
         r.onNewFcmToken("tok-new")
 
-        assertEquals(baselineRegister + 1, api.registerCount)  // централізований recovery
+        assertEquals(baselineRegister + 1, api.registerCount)  // centralized recovery
         assertTrue(r.state.value is InstallationState.Ready)
     }
 
@@ -247,10 +247,10 @@ class InstallationRepositoryTest {
         r.initialize()
 
         assertTrue(r.state.value is InstallationState.Unavailable)
-        assertNull(store.current)                // невалідну пару прибрано, не Ready з нею
+        assertNull(store.current)                // the invalid pair was removed, not Ready with it
     }
 
-    // 13 (B1) — провал runtime-recovery не лишає брехливий Ready
+    // 13 (B1) — a runtime-recovery failure does not leave a lying Ready
     @Test
     fun `authenticatedCall recovery failure goes Unavailable with cleared creds`() = runTest {
         val api = FakeApi().apply { registerBehavior = { throw RuntimeException("net down") } }
@@ -262,14 +262,14 @@ class InstallationRepositoryTest {
             r.authenticatedCall<String> { _ -> throw Stale() }
             throw AssertionError("мав кинути")
         } catch (e: RuntimeException) {
-            // очікувано — реєстрація впала
+            // expected — registration failed
         }
 
-        assertTrue(r.state.value is InstallationState.Unavailable)  // НЕ Ready
+        assertTrue(r.state.value is InstallationState.Unavailable)  // NOT Ready
         assertNull(store.current)
     }
 
-    // 14 (B1) — другий 401 після успішного retry → Unavailable, без 2-ї реєстрації
+    // 14 (B1) — a second 401 after a successful retry → Unavailable, without a 2nd registration
     @Test
     fun `authenticatedCall second 401 invalidates and does not re-register`() = runTest {
         val api = FakeApi()
@@ -278,18 +278,18 @@ class InstallationRepositoryTest {
         r.initialize()
 
         try {
-            r.authenticatedCall<String> { _ -> throw Stale() }  // 401 щоразу
+            r.authenticatedCall<String> { _ -> throw Stale() }  // 401 every time
             throw AssertionError("мав кинути")
         } catch (e: Stale) {
-            // очікувано
+            // expected
         }
 
-        assertEquals(1, api.registerCount)                          // рівно одна реєстрація
-        assertTrue(r.state.value is InstallationState.Unavailable)  // свіжу пару теж відкинуто
+        assertEquals(1, api.registerCount)                          // exactly one registration
+        assertTrue(r.state.value is InstallationState.Unavailable)  // the fresh pair was discarded too
         assertNull(store.current)
     }
 
-    // 15 (B1) — провал FCM stale-recovery → Unavailable + store очищено
+    // 15 (B1) — a failed FCM stale-recovery → Unavailable + store cleared
     @Test
     fun `onNewFcmToken stale recovery failure goes Unavailable`() = runTest {
         val api = FakeApi().apply {
@@ -305,10 +305,10 @@ class InstallationRepositoryTest {
         assertNull(store.current)
     }
 
-    // 16 — аудит 2026-08-15: причина Unavailable мала нести справжній виняток
-    // FCM-провайдера, а не узагальнений текст. Раніше .getOrNull() ковтав його
-    // мовчки, і саме тому знадобився тимчасовий Log.e, щоб дістати "Please set
-    // a valid API key" при зламаному google-services.json.
+    // 16 — audit 2026-08-15: the Unavailable reason had to carry the real FCM
+    // provider exception, not generic text. Previously .getOrNull() swallowed it
+    // silently, which is exactly why a temporary Log.e was needed to extract
+    // "Please set a valid API key" with a broken google-services.json.
     @Test
     fun `initialize with no credentials surfaces the real token failure as reason`() = runTest {
         val api = FakeApi()
@@ -323,7 +323,7 @@ class InstallationRepositoryTest {
         assertEquals("play services offline", (state as InstallationState.Unavailable).reason)
     }
 
-    // 12 (seam для UI без instrumented Compose)
+    // 12 (a seam for the UI without instrumented Compose)
     @Test
     fun `protected load runs when installation becomes Ready`() = runTest(UnconfinedTestDispatcher()) {
         val state = kotlinx.coroutines.flow.MutableStateFlow<InstallationState>(
@@ -339,6 +339,6 @@ class InstallationRepositoryTest {
         state.value = InstallationState.Ready("dev-A")
         job.cancel()
 
-        assertEquals(listOf("dev-A"), loads)     // поява Ready запустила protected load
+        assertEquals(listOf("dev-A"), loads)     // the appearance of Ready started the protected load
     }
 }

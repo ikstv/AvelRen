@@ -62,15 +62,15 @@ if identity != ("avelren_migrator", False):
 compose run --rm --no-deps -T test sh -c \
     'ruff check app/src app/tests && python -m avelren.migrate db/migrations'
 
-# Restore-allowlist contract: суто статична перевірка (БД не потрібна), яка
-# звіряє hardcoded allowlist у `deploy/restore-engine.lib.sh` зі схемою
-# (schema_verify._TABLES_V + `bigserial` у міграціях). Без цього кроку
-# майбутня міграція з новою таблицею проходить CI, а production-restore
-# ловить mismatch уже ПІСЛЯ dropdb — під час DR. `restore-allowlist-
-# contract-test.py` існує в repo, але не був підключений до канонічного
-# гейта — виправляємо саме тут, щоб один і той самий script закривав і
-# локальний прогін, і CI (deploy-скрипти мають бути частиною SLO контрактів,
-# а не окремою чек-листою у голові reviewer'а).
+# Restore-allowlist contract: a purely static check (no DB needed) that
+# reconciles the hardcoded allowlist in `deploy/restore-engine.lib.sh` with the
+# schema (schema_verify._TABLES_V + `bigserial` in the migrations). Without this
+# step a future migration adding a new table passes CI, and production-restore
+# catches the mismatch only AFTER dropdb — during DR. `restore-allowlist-
+# contract-test.py` exists in the repo but was not wired into the canonical
+# gate — we fix that right here, so a single script covers both the local run
+# and CI (deploy scripts should be part of the SLO contracts, not a separate
+# checklist in the reviewer's head).
 compose run --rm --no-deps -T test python3 deploy/restore-allowlist-contract-test.py
 
 compose run --rm --no-deps -T \

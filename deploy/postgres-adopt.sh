@@ -215,7 +215,30 @@ restart_runtime_on_legacy_dsn() {
     # file is expected to stop forcing the legacy DSN.
     args+=(-f "$overlay")
     [ -z "$COMPOSE_PROJECT" ] || args+=(-p "$COMPOSE_PROJECT")
-    "${args[@]}" up -d caddy api collector notifier watchdog
+    # --no-deps: naming the five services is NOT enough to keep migrate out.
+    # Compose resolves each named service's depends_on and starts what it finds,
+    # so this call used to pull in migrate as a dependency of all four runtime
+    # services (verified: the exact argv shape below, without --no-deps, creates
+    # and runs the migrate container). That is the whole hazard. By this point
+    # adoption is COMMITTED and the 010 grants exist, so avelren_migrator is no
+    # longer powerless — and the overlay hands migrate the legacy SUPERUSER DSN
+    # regardless. migrate would find 009, apply 010 and stamp it, during 3B.2,
+    # against the documented model in which 3B.2 leaves 009 and 3D does the
+    # stamping. Worse, if the restart then failed, the inverse rollback below
+    # restores the ACLs but cannot unstamp 010: the journal would claim an ACL
+    # state the database does not have, and none of the three existing guards
+    # would see it (the sha256 still matches, verify_contract only checks
+    # structure, and migrate skips versions already recorded).
+    #
+    # This flag is the ONLY guard against that, deliberately. A compose profile
+    # on migrate would close it structurally too, but making a profile valid
+    # requires `required: false` on the runtime services' depends_on, and that
+    # was measured to drop fail-closed for a migrate that is present and FAILS —
+    # not merely one that is absent. Since no service verifies the schema
+    # version at startup, that edge is the only thing keeping the runtime off an
+    # unknown schema, and trading it away here would be a worse bargain than the
+    # hazard it fixes. See the comment on migrate in docker-compose.yml.
+    "${args[@]}" up -d --no-deps caddy api collector notifier watchdog
 }
 
 [ -n "$EVIDENCE_DIR" ] || fail 'evidence directory is required'
@@ -729,7 +752,7 @@ if [ "$PRODUCTION_ADOPT" = true ]; then
     # committed and correct, so it is not rolled back, but the operator must not
     # read a down runtime as a clean success.
     if ! restart_runtime_on_legacy_dsn; then
-        log 'ADOPTION COMMITTED, but clients did NOT restart on the legacy DSN. The adoption is valid and must NOT be rolled back; restart the clients manually (compose up -d) and verify health.' >&2
+        log 'ADOPTION COMMITTED, but clients did NOT restart on the legacy DSN. The adoption is valid and must NOT be rolled back. Restart the clients manually with the service list AND --no-deps: `docker compose up -d --no-deps caddy api collector notifier watchdog`, then verify health. Do NOT run a bare `docker compose up -d`: while avelren_migrator is powerless on an un-adopted database, migrate exits 1 and the four runtime services never start (service_completed_successfully is never met), which takes the site down; once the 010 grants do exist, the same bare command instead lets migrate apply and stamp 010 outside the adoption sequence.' >&2
         exit 3
     fi
     log 'Stage 3B.2 production adoption complete; HARD STOP'
@@ -751,7 +774,14 @@ if [ "$FAILPOINT" = success ]; then
     log 'all success gates PASS; accepted cutover evidence published; starting new runtime'
     ADOPTION_NEW_RUNTIME_START_ATTEMPTED=true
     ADOPTION_NEW_RUNTIME_STOP_CONFIRMED=false
-    if ! compose up -d caddy api collector notifier watchdog; then
+    # --no-deps for the same reason as the 3B.2 restart above: an explicit
+    # service list does not stop Compose from resolving depends_on and starting
+    # migrate. This is the post-cutover restart, so the 010 grants certainly
+    # exist by now and migrate would run and stamp unprompted. The migrate
+    # success gate above is the sanctioned place for that: it runs through the
+    # configured gate runner as a deliberate, gated step — not as a side effect
+    # of bringing the runtime back up.
+    if ! compose up -d --no-deps caddy api collector notifier watchdog; then
         log 'new runtime start failed; restoring maintenance before inverse rollback' >&2
         if ! compose stop caddy api collector notifier watchdog; then
             log 'ADOPTION FAILED: partial new runtime could not be stopped; manual intervention required' >&2

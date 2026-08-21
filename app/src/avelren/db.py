@@ -12,10 +12,10 @@ log = logging.getLogger(__name__)
 
 _pool: AsyncConnectionPool | None = None
 
-# Верхня межа конекшенів у пулі. Винесено в константу, бо від неї залежить
-# запас для дешевих ендпоінтів: дорогий concurrency-gate має бути МЕНШИЙ за це
-# число (див. Settings.api_max_concurrent_expensive), інакше дорогі читання
-# заберуть усі конекшени й заморять health/workload.
+# Upper bound on pool connections. Kept as a constant because it governs the
+# headroom for cheap endpoints: the expensive concurrency gate must be SMALLER
+# than this number (see Settings.api_max_concurrent_expensive), otherwise
+# expensive reads would grab every connection and starve health/workload.
 POOL_MAX_SIZE = 5
 
 
@@ -24,16 +24,18 @@ def get_pool(statement_timeout_ms: int | None = None) -> AsyncConnectionPool:
     if _pool is None:
         kwargs: dict = {"row_factory": dict_row}
         if statement_timeout_ms is not None:
-            # Застосовується per-connection лише для пулу ЦЬОГО процесу (API його
-            # вмикає в lifespan). collector/notifier/watchdog створюють свій пул
-            # без параметра й timeout не отримують — це не глобальна політика БД.
+            # Applied per-connection only for THIS process's pool (the API
+            # enables it in lifespan). collector/notifier/watchdog create their
+            # own pool without the parameter and get no timeout — this is not a
+            # global DB policy.
             kwargs["options"] = f"-c statement_timeout={int(statement_timeout_ms)}"
         _pool = AsyncConnectionPool(
             settings.database_dsn,
             min_size=1,
             max_size=POOL_MAX_SIZE,
-            # Коротко: цикл збирача має 60 с на все, і чекання з'єднання не
-            # сміє з'їдати цей бюджет — інакше цикл зникає без сліду.
+            # In short: the collector cycle has 60s for everything, and waiting
+            # for a connection must not eat into that budget — otherwise the
+            # cycle vanishes without a trace.
             timeout=5,
             open=False,
             kwargs=kwargs,
@@ -58,10 +60,10 @@ async def upsert_countries(conn: AsyncConnection, countries: list[Country]) -> N
 async def upsert_checkpoints(
     conn: AsyncConnection, items: list[WorkloadItem], countries: list[Country]
 ) -> None:
-    """Довідник живий: назви й координати змінюються, нові пункти з'являються.
+    """The reference list is alive: names and coordinates change, new points appear.
 
-    `last_seen` оновлюється щоциклу — саме за ним список лишається актуальним
-    без ручного втручання, і зниклі пункти самі відпадають.
+    `last_seen` is updated every cycle — it is what keeps the list current
+    without manual intervention, and vanished points drop off on their own.
     """
     by_id = {c.id: c for c in countries}
 
@@ -103,8 +105,8 @@ async def upsert_checkpoints(
 async def insert_observations(
     conn: AsyncConnection, at: datetime, items: list[WorkloadItem]
 ) -> int:
-    """Усі спостереження одного циклу мають спільну мітку часу — так ряди
-    різних пунктів залишаються вирівняними."""
+    """All observations of a single cycle share one timestamp — this keeps the
+    series of different points aligned."""
     await conn.cursor().executemany(
         """
         INSERT INTO observations
@@ -138,11 +140,11 @@ async def record_run(
 
 
 async def record_derived(conn: AsyncConnection, at: datetime, error: str | None) -> None:
-    """Статус вторинної фази (alerts/ETA) того самого циклу (OBS-1).
+    """Status of the secondary phase (alerts/ETA) of the same cycle (OBS-1).
 
-    Пишеться ОКРЕМОЮ транзакцією після primary-коміту, у той самий рядок
-    collector_runs. `error=None` — фаза відпрацювала (навіть якщо роботи не
-    було); текст — впала, і саме це має побачити watchdog.
+    Written in a SEPARATE transaction after the primary commit, into the same
+    collector_runs row. `error=None` — the phase ran (even if there was no
+    work); text — it failed, and this is exactly what the watchdog must see.
     """
     await conn.execute(
         """

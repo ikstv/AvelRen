@@ -17,8 +17,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Домен винесено в конфіг: у застосунку немає жодної згадки про
-        // echerha.gov.ua — клієнт ходить тільки до нас (AGENTS.md, правило 1).
+        // The domain is moved into config: the app has no mention of
+        // echerha.gov.ua — the client talks only to us (AGENTS.md, rule 1).
         buildConfigField("String", "API_BASE_URL", "\"https://api.bordersignal.pp.ua/api\"")
     }
 
@@ -58,6 +58,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    // Офіційний набір Material-іконок (версія — з compose BOM вище).
+    implementation("androidx.compose.material:material-icons-extended")
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)

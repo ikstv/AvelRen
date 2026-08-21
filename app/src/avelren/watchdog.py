@@ -1,12 +1,12 @@
-"""Сторож: помічає, що система замовкла, і будить адміністратора.
+"""Watchdog: notices that the system went silent, and wakes the administrator.
 
-Найнебезпечніший збій — тихий. Збирач може впасти вночі, і про це ніхто не
-дізнається до ранку, а прогалину в історії потім не відновиш: єЧерга минулого
-не зберігає.
+The most dangerous failure is a silent one. The collector may crash at night,
+and no one will find out until morning, while the gap in the history cannot be
+restored later: eCherha does not keep the past.
 
-Тривоги йдуть тим самим каналом, що й звичайні сповіщення — FCM на телефон із
-позначкою `is_admin`. Окрема система (пошта, Telegram) означала б ще один
-сервіс, ще один секрет і ще одну точку відмови.
+Alerts go through the same channel as regular notifications — FCM to a phone
+marked `is_admin`. A separate system (email, Telegram) would mean another
+service, another secret, and another point of failure.
 """
 
 import asyncio
@@ -23,38 +23,40 @@ from psycopg import AsyncConnection
 from . import fcm
 from .config import settings
 from .db import get_pool
+from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.watchdog")
 
 CHECK_INTERVAL = 300
-# Ребут — справа планова, а не термінова: даємо кілька діб на зручний момент.
+# A reboot is a planned matter, not an urgent one: we allow a few days for a
+# convenient moment.
 REBOOT_GRACE_DAYS = 3
-RESEND_INTERVAL = 3600  # тривогу повторюємо раз на годину, а не щоп'ять хвилин
-# Якщо recovery так і не доставлено за стільки діб — здаємось (напр. адмін-
-# пристрій зник). Інакше ретраїли б вічно.
+RESEND_INTERVAL = 3600  # we repeat the alert once an hour, not every five minutes
+# If a recovery is still not delivered after this many days — we give up (e.g. the
+# admin device is gone). Otherwise we would retry forever.
 RECOVERY_GIVE_UP_DAYS = 1
-# Скільки незавершених secondary-циклів після grace вважати проблемою. Кілька,
-# а не один: під час deploy старий колектор устигає записати 1–2 рядки без
-# derived-статусу, і це не має піднімати тривогу.
+# How many unfinished secondary cycles after grace count as a problem. A few, not
+# one: during a deploy the old collector manages to write 1–2 rows without a
+# derived status, and that must not raise an alert.
 DERIVED_STUCK_THRESHOLD = 3
-# Бекап іде щодоби. >36 год без успішного — це вже ≥2 добові прогони поспіль,
-# що не завершились (одиночний збій, що сам вилікувався вночі, будити не варто).
-# Раніше провал бекапу було видно лише в пасивній адмін-телеметрії — днями
-# (аудит M-12).
+# The backup runs daily. >36 h without a successful one is already ≥2 daily runs
+# in a row that did not finish (a single failure that healed itself overnight is
+# not worth waking anyone for). Previously a backup failure was visible only in
+# passive admin telemetry — for days (audit M-12).
 BACKUP_STALE_HOURS = 36
-# backup-stamp і reboot-required факти беремо з host-snapshot (той самий
-# /telemetry/host.json, що вже читає API за SEC-1), а не монтуючи весь хостовий
-# /run у контейнер (аудит M-1: широкий /run тягнув і docker.sock). Snapshot
-# оновлюється щохвилини systemd-таймером і вже містить backups.age_hours та
-# system.reboot_pending_days.
+# We take the backup-stamp and reboot-required facts from the host snapshot (the
+# same /telemetry/host.json the API already reads under SEC-1), rather than
+# mounting the entire host /run into the container (audit M-1: a broad /run
+# pulled in docker.sock too). The snapshot is refreshed every minute by a systemd
+# timer and already contains backups.age_hours and system.reboot_pending_days.
 SNAPSHOT_PATH = Path(os.environ.get("AVELREN_TELEMETRY_SNAPSHOT", "/telemetry/host.json"))
 
 
 def _read_snapshot() -> dict | None:
-    """Розпарсений host-snapshot, або None якщо його ще/уже немає чи він битий.
+    """Parsed host snapshot, or None if it is not yet/no longer there or is corrupt.
 
-    None веде себе як «невідомо» — краще не тривожити на основі відсутніх даних,
-    ніж кричати хибно (той самий fail-safe, що був для відсутнього штампа)."""
+    None behaves as "unknown" — better not to alert based on missing data than
+    to cry falsely (the same fail-safe that existed for a missing stamp)."""
     try:
         return json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -68,7 +70,7 @@ def _request_stop(*_: object) -> None:
 
 
 async def _checks(conn: AsyncConnection) -> dict[str, str]:
-    """Повертає {тип_проблеми: опис}. Порожньо — все гаразд."""
+    """Returns {problem_type: description}. Empty — all is well."""
     problems: dict[str, str] = {}
 
     row = await (
@@ -77,12 +79,12 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     last = row["last"] if row else None
 
     if last is None:
-        problems["no_data"] = "у базі немає спостережень"
+        problems["no_data"] = "there are no observations in the database"
     else:
         age = (datetime.now(UTC) - last).total_seconds()
-        # Три пропущені цикли поспіль — це вже не мережева ікавка.
+        # Three missed cycles in a row is no longer a network hiccup.
         if age > settings.poll_interval_seconds * 3:
-            problems["collector_silent"] = f"збирач мовчить {int(age // 60)} хв"
+            problems["collector_silent"] = f"collector silent for {int(age // 60)} min"
 
     row = await (
         await conn.execute(
@@ -94,11 +96,12 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
         )
     ).fetchone()
     if row and row["failed"] >= 10:
-        problems["collector_errors"] = f"{row['failed']} помилок за півгодини"
+        problems["collector_errors"] = f"{row['failed']} errors in the last half hour"
 
-    # Вторинний конвеєр (alerts/ETA) — окремо від fetch. Без цієї перевірки
-    # observations свіжі, collector_errors чистий, а сповіщення тихо не
-    # працюють (аудит OBS-1). Дзеркало перевірки вище, але по derived_error.
+    # The secondary pipeline (alerts/ETA) — separate from fetch. Without this
+    # check, observations are fresh, collector_errors is clean, yet notifications
+    # quietly do not work (audit OBS-1). A mirror of the check above, but by
+    # derived_error.
     row = await (
         await conn.execute(
             """
@@ -110,14 +113,15 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     ).fetchone()
     if row and row["failed"] >= 10:
         problems["derived_errors"] = (
-            f"обробка алертів/ETA впала {row['failed']} разів за півгодини"
+            f"alert/ETA processing failed {row['failed']} times in the last half hour"
         )
 
-    # Hard-crash secondary-фази: SIGKILL/OOM між primary-комітом і кінцем
-    # secondary лишає derived_processed_at=NULL і derived_error=NULL — виняток
-    # не спрацював, тож попередня перевірка це не ловить. Після grace-періоду
-    # (in-flight цикл ще міг не дописати статус) такі рядки — реальний сигнал,
-    # що вторинний конвеєр systematically не завершується (аудит OBS-1 / B3).
+    # Hard crash of the secondary phase: a SIGKILL/OOM between the primary commit
+    # and the end of secondary leaves derived_processed_at=NULL and
+    # derived_error=NULL — the exception did not fire, so the previous check does
+    # not catch it. After the grace period (an in-flight cycle might not have
+    # written the status yet) such rows are a real signal that the secondary
+    # pipeline systematically does not finish (audit OBS-1 / B3).
     row = await (
         await conn.execute(
             """
@@ -132,8 +136,8 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     ).fetchone()
     if row and row["stuck"] >= DERIVED_STUCK_THRESHOLD:
         problems["derived_stuck"] = (
-            f"обробка алертів/ETA не завершилась {row['stuck']} разів за півгодини "
-            "(ймовірно, контейнер падає у вторинній фазі)"
+            f"alert/ETA processing did not finish {row['stuck']} times in the last half hour "
+            "(the container likely crashes in the secondary phase)"
         )
 
     row = await (
@@ -143,31 +147,32 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     ).fetchone()
     gb = (row["bytes"] if row else 0) / 1024**3
     if gb > 20:
-        problems["db_size"] = f"база розрослась до {gb:.1f} ГБ"
+        problems["db_size"] = f"the database has grown to {gb:.1f} GB"
 
     reboot = _reboot_pending()
     if reboot is not None and reboot >= REBOOT_GRACE_DAYS:
         problems["reboot_required"] = (
-            f"оновлення чекає перезавантаження {reboot} дн. "
-            "Ядро з виправленням встановлене, але працює старе"
+            f"an update has been waiting for a reboot for {reboot} days. "
+            "The fixed kernel is installed, but the old one is running"
         )
 
     backup_age = _backup_age_hours()
     if backup_age is not None and backup_age > BACKUP_STALE_HOURS:
         problems["backup_stale"] = (
-            f"останній успішний бекап був {int(backup_age)} год тому "
-            "(≥2 добові прогони поспіль не завершились)"
+            f"the last successful backup was {int(backup_age)} hours ago "
+            "(≥2 daily runs in a row did not finish)"
         )
 
     return problems
 
 
 def _backup_age_hours() -> float | None:
-    """Скільки годин тому deploy/backup.sh востаннє успішно завершився, або None.
+    """How many hours ago deploy/backup.sh last finished successfully, or None.
 
-    None — штамп ще не створювався: свіжий деплой до першого бекапу, або хост
-    щойно перезавантажився (штамп на /run — tmpfs). І там, і там тривога була б
-    хибною, а timer із Persistent=true скоро відновить штамп.
+    None — the stamp has not been created yet: a fresh deploy before the first
+    backup, or the host just rebooted (the stamp on /run is tmpfs). In both cases
+    the alert would be false, and a timer with Persistent=true will soon restore
+    the stamp.
     """
     snapshot = _read_snapshot()
     if snapshot is None:
@@ -179,11 +184,12 @@ def _backup_age_hours() -> float | None:
 
 
 def _reboot_pending() -> int | None:
-    """Скільки діб сервер просить перезавантаження, або None.
+    """How many days the server has been asking for a reboot, or None.
 
-    Автоматичний ребут ми свідомо не вмикаємо: сервіс лягав би вночі без
-    попередження. Але тоді хтось має помічати цей файл — інакше ядро з
-    відомою вразливістю встановлене, а працює старе, і так місяцями.
+    We deliberately do not enable automatic reboot: the service would go down at
+    night without warning. But then someone has to notice this file — otherwise
+    a kernel with a known vulnerability is installed while the old one runs, and
+    so for months.
     """
     snapshot = _read_snapshot()
     if snapshot is None:
@@ -220,17 +226,18 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
         problems = await _checks(conn)
         open_alerts = await _open_alerts(conn)
 
-        # Проблема зникла — закриваємо тривогу ОДРАЗУ (стан системи не має
-        # брехати). Recovery-повідомлення НЕ шлемо тут: раніше resolved_at
-        # ставився незалежно від результату _notify, і якщо push падав, адмін
-        # не дізнавався про відновлення, а повтору не було (аудит OBS-2).
-        # Доставку recovery веде окрема фаза нижче.
+        # The problem is gone — we close the alert IMMEDIATELY (the system state
+        # must not lie). We do NOT send the recovery message here: previously
+        # resolved_at was set regardless of the _notify result, and if the push
+        # failed, the admin did not learn about the recovery, and there was no
+        # repeat (audit OBS-2). Recovery delivery is handled by a separate phase
+        # below.
         for kind, alert in open_alerts.items():
             if kind not in problems:
                 await conn.execute(
                     "UPDATE health_alerts SET resolved_at = now() WHERE id = %s", (alert["id"],)
                 )
-                log.info("проблема %s зникла", kind)
+                log.info("problem %s is gone", kind)
 
         await _deliver_recoveries(conn, client)
 
@@ -241,8 +248,8 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
                 await conn.execute(
                     "INSERT INTO health_alerts (kind, detail) VALUES (%s, %s)", (kind, detail)
                 )
-                log.error("ПРОБЛЕМА %s: %s", kind, detail)
-                if await _notify(conn, client, "AvelRen: проблема", detail, kind):
+                log.error("PROBLEM %s: %s", kind, detail)
+                if await _notify(conn, client, "AvelRen: problem", detail, kind):
                     await conn.execute(
                         """
                         UPDATE health_alerts SET last_sent_at = now(), send_count = send_count + 1
@@ -255,8 +262,8 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
             sent = alert["last_sent_at"]
             due = sent is None or (datetime.now(UTC) - sent).total_seconds() > RESEND_INTERVAL
             if due:
-                log.warning("проблема %s триває: %s", kind, detail)
-                if await _notify(conn, client, "AvelRen: проблема триває", detail, kind):
+                log.warning("problem %s persists: %s", kind, detail)
+                if await _notify(conn, client, "AvelRen: problem persists", detail, kind):
                     await conn.execute(
                         """
                         UPDATE health_alerts SET last_sent_at = now(), send_count = send_count + 1
@@ -267,12 +274,12 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
 
 
 async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) -> None:
-    """Доставляє recovery-повідомлення для вже закритих проблем (OBS-2).
+    """Delivers recovery messages for already-closed problems (OBS-2).
 
-    resolved_at ставиться одразу, коли проблема зникла, а recovery_notified_at
-    — лише після фактичної доставки. Ретраїмо щоциклу, поки не вийде; якщо за
-    RECOVERY_GIVE_UP_DAYS так і не доставили (напр. немає адмін-пристрою),
-    здаємось, щоб не намагатися вічно.
+    resolved_at is set immediately when the problem is gone, but
+    recovery_notified_at — only after actual delivery. We retry every cycle until
+    it succeeds; if after RECOVERY_GIVE_UP_DAYS it is still not delivered (e.g.
+    there is no admin device), we give up, so as not to try forever.
     """
     rows = await (
         await conn.execute(
@@ -290,22 +297,25 @@ async def _deliver_recoveries(conn: AsyncConnection, client: httpx.AsyncClient) 
     for r in rows:
         age_days = (datetime.now(UTC) - r["resolved_at"]).total_seconds() / 86400
         if await _notify(
-            conn, client, "AvelRen відновився", f"{r['kind']}: усе гаразд", r["kind"]
+            conn, client, "AvelRen recovered", f"{r['kind']}: all is well", r["kind"]
         ):
-            # notified — ЛИШЕ по факту доставки. Give-up іде в окреме поле,
-            # щоб по БД можна було відрізнити «доставлено» від «здалися» (B2).
+            # notified — ONLY on the fact of delivery. Give-up goes into a
+            # separate field, so the DB can distinguish "delivered" from
+            # "gave up" (B2).
             await conn.execute(
                 "UPDATE health_alerts SET recovery_notified_at = now() WHERE id = %s",
                 (r["id"],),
             )
-            log.info("доставлено recovery %s", r["kind"])
+            log.info("delivered recovery %s", r["kind"])
         elif age_days > RECOVERY_GIVE_UP_DAYS:
             await conn.execute(
                 "UPDATE health_alerts SET recovery_abandoned_at = now() WHERE id = %s",
                 (r["id"],),
             )
             log.warning(
-                "здаюся з recovery %s: не доставлено за %d дн", r["kind"], RECOVERY_GIVE_UP_DAYS
+                "giving up on recovery %s: not delivered within %d days",
+                r["kind"],
+                RECOVERY_GIVE_UP_DAYS,
             )
 
 
@@ -314,7 +324,7 @@ async def _notify(
 ) -> bool:
     tokens = await _admin_tokens(conn)
     if not tokens:
-        log.warning("немає адмін-пристроїв, тривога лише в лозі: %s", body)
+        log.warning("no admin devices, alert only in the log: %s", body)
         return False
 
     delivered = False
@@ -324,25 +334,25 @@ async def _notify(
                 client,
                 token,
                 {"type": "health", "title": title, "body": body},
-                # Окремий ключ на кожен тип проблеми, інакше на офлайн-пристрої
-                # новіша тривога (напр. db_size) мовчки витісняє ще не показану
-                # (напр. collector_silent) — аудит M-10.
+                # A separate key per problem type, otherwise on an offline device
+                # a newer alert (e.g. db_size) silently evicts one not yet shown
+                # (e.g. collector_silent) — audit M-10.
                 collapse_key=f"health:{kind}",
                 ttl_seconds=1800,
             )
             delivered = True
         except fcm.FcmError as exc:
-            # Мертвий адмін-токен інакше ретраїться щоциклу вічно; гасимо його
-            # так само, як notifier гасить мертві клієнтські токени.
+            # A dead admin token would otherwise be retried every cycle forever;
+            # we clear it the same way the notifier clears dead client tokens.
             if exc.dead_token:
                 await conn.execute(
                     "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s", (token,)
                 )
-                log.warning("вимкнув мертвий адмін-токен")
+                log.warning("disabled a dead admin token")
             else:
-                log.error("не вдалося надіслати тривогу: %s", exc)
+                log.error("failed to send alert: %s", exc)
         except Exception as exc:
-            log.error("не вдалося надіслати тривогу: %s", exc)
+            log.error("failed to send alert: %s", exc)
     return delivered
 
 
@@ -357,16 +367,20 @@ async def main() -> None:
 
     pool = get_pool()
     await pool.open(wait=True, timeout=30)
-    log.info("сторож стартував, перевірка кожні %s с", CHECK_INTERVAL)
+    # Fail-closed schema check (issue #88): the service does not start if the
+    # recorded schema version is LOWER than the code's requirement. Placed right
+    # after the pool opens — before the first useful work.
+    await assert_schema_at_least(pool)
+    log.info("watchdog started, checking every %s s", CHECK_INTERVAL)
 
     async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
         while not _stop.is_set():
             try:
                 await run_cycle(client)
             except Exception as exc:
-                # Сторож, який падає від власної помилки, гірший за відсутність
-                # сторожа: створює хибне відчуття нагляду.
-                log.error("цикл перевірки впав: %s", exc)
+                # A watchdog that crashes from its own error is worse than no
+                # watchdog: it creates a false sense of supervision.
+                log.error("check cycle failed: %s", exc)
 
             try:
                 await asyncio.wait_for(_stop.wait(), timeout=CHECK_INTERVAL)
@@ -374,7 +388,7 @@ async def main() -> None:
                 pass
 
     await pool.close()
-    log.info("сторож зупинено")
+    log.info("watchdog stopped")
 
 
 if __name__ == "__main__":

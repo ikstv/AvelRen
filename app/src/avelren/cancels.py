@@ -1,16 +1,17 @@
-"""Скасування вже показаних сповіщень (A-02).
+"""Cancelling already-shown notifications (A-02).
 
-Сервер — єдине джерело істини про активність alert. Коли alert покидає
-`pending` не через локальний ACK (expire або каскадне видалення), телефон
-треба повідомити, що ongoing-нотифікацію пора зняти. Два шари:
+The server is the single source of truth about an alert's activity. When an
+alert leaves `pending` not through a local ACK (expire or cascade delete), the
+phone must be told that the ongoing notification should be removed. Two layers:
 
-  1. cancel-push через FCM (швидкий шлях, тут);
-  2. reconciliation на клієнті при foreground (гарантія збіжності, коли push
-     загубився — окремо, через `active_alert_keys`).
+  1. cancel-push via FCM (the fast path, here);
+  2. reconciliation on the client at foreground (a convergence guarantee when
+     the push was lost — separately, via `active_alert_keys`).
 
-Enqueue cancel'ів відбувається В ОДНІЙ ТРАНЗАКЦІЇ з переходом стану — це
-роблять CTE в `alerts.expire_stale`/`eta.expire_passed` та delete-ендпоінти.
-Тут — лише відправка з outbox, its lifecycle і canonical active-стан.
+Enqueueing cancels happens IN THE SAME TRANSACTION as the state transition —
+done by the CTEs in `alerts.expire_stale`/`eta.expire_passed` and the delete
+endpoints. Here — only sending from the outbox, its lifecycle, and the
+canonical active state.
 """
 
 import logging
@@ -19,16 +20,16 @@ from psycopg import AsyncConnection
 
 log = logging.getLogger("avelren.cancels")
 
-# Як довго пробуємо доставити cancel, перш ніж здатися. Age-based, а не
-# лічильник спроб: notifier ходить раз на хвилину, тож 5 спроб = ~5 хв, і
-# коротка перерва FCM залишила б ongoing-нотифікацію висіти надовго. Година
-# ретраїв покриває типовий FCM-збій; після неї підстрахує reconciliation при
-# наступному foreground (аудит A-02 / B3).
+# How long we try to deliver a cancel before giving up. Age-based, not an
+# attempt counter: the notifier runs once a minute, so 5 attempts = ~5 min, and
+# a short FCM outage would leave the ongoing notification hanging for a long
+# time. An hour of retries covers a typical FCM failure; after it, reconciliation
+# at the next foreground is the backstop (audit A-02 / B3).
 ABANDON_AFTER = "1 hour"
 
 
 async def fetch_open(conn: AsyncConnection) -> list[dict]:
-    """Ще не закриті cancel'и разом із поточним токеном пристрою."""
+    """Not-yet-closed cancels together with the device's current token."""
     return await (
         await conn.execute(
             """
@@ -51,10 +52,10 @@ async def mark_accepted(conn: AsyncConnection, cancel_id: int) -> None:
 
 
 async def record_attempt(conn: AsyncConnection, cancel_id: int) -> None:
-    """Фіксує невдалу спробу; здаємось лише коли запис старший за ABANDON_AFTER.
+    """Records a failed attempt; we give up only when the record is older than ABANDON_AFTER.
 
-    attempt_count лишається для діагностики, але рішення про abandon — за віком
-    created_at, а не за кількістю спроб (див. ABANDON_AFTER).
+    attempt_count stays for diagnostics, but the abandon decision is by the age
+    of created_at, not by the number of attempts (see ABANDON_AFTER).
     """
     await conn.execute(
         f"""
@@ -72,7 +73,7 @@ async def record_attempt(conn: AsyncConnection, cancel_id: int) -> None:
 
 
 async def mark_abandoned(conn: AsyncConnection, cancel_id: int) -> None:
-    """Здаємось одразу (мертвий токен: пристрою вже нема кому показувати)."""
+    """Give up immediately (dead token: there is no one on the device to show it to)."""
     await conn.execute(
         "UPDATE notification_cancels SET abandoned_at = now(), last_attempt_at = now() "
         "WHERE id = %s",
@@ -81,7 +82,7 @@ async def mark_abandoned(conn: AsyncConnection, cancel_id: int) -> None:
 
 
 async def cleanup_closed(conn: AsyncConnection) -> None:
-    """Прибирає закриті записи, старші за добу: історія тут не потрібна."""
+    """Removes closed records older than a day: history is not needed here."""
     await conn.execute(
         """
         DELETE FROM notification_cancels
@@ -92,9 +93,10 @@ async def cleanup_closed(conn: AsyncConnection) -> None:
 
 
 async def active_alert_keys(conn: AsyncConnection, device_id: str) -> dict[str, list[int]]:
-    """Canonical перелік активних (pending) alert'ів пристрою — для
-    reconciliation. Свідомо БЕЗ фільтра send_count: істина — статус, а не
-    історія успішного запису лічильника. Порожні списки — усе закрито.
+    """Canonical list of the device's active (pending) alerts — for
+    reconciliation. Deliberately WITHOUT a send_count filter: the truth is the
+    status, not the history of a successful counter write. Empty lists — all
+    closed.
     """
     threshold = await (
         await conn.execute(

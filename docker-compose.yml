@@ -1,12 +1,14 @@
-# Спільний build-спец для всіх сервісів на образі `avelren-app:latest`.
-# SOURCE_COMMIT прокидується у Dockerfile як ARG → env AVELREN_GIT_SHA, який
-# `/admin/telemetry.version.git_sha` віддає Server Dashboard. Дефолт — пустий
-# рядок: краще null на клієнті, ніж підроблене «unknown» (див. N5 review #34).
+# Shared build spec for all services on the `avelren-app:latest` image.
+# SOURCE_COMMIT is passed into the Dockerfile as an ARG → env AVELREN_GIT_SHA,
+# which `/admin/telemetry.version.git_sha` serves to the Server Dashboard.
+# Default is an empty string: better a null on the client than a fake "unknown"
+# (see N5 review #34).
 #
-# Deploy runbook експортує змінну перед build:
+# The deploy runbook (`deploy/schema-gate-deploy.md`) exports the variable before
+# the build:
 #   export SOURCE_COMMIT=$(git rev-parse HEAD)
 #   sudo -E docker compose build migrate
-# Без `sudo -E` env-змінна не долітає до docker compose під sudo.
+# Without `sudo -E` the env variable does not reach docker compose under sudo.
 x-avelren-build: &avelren-build
   context: ./app
   args:
@@ -38,8 +40,32 @@ services:
       timeout: 5s
       retries: 10
 
-  # Виконується до кожного старту сервісів і завершується. Так схема БД не
-  # може розійтися з кодом через забуту міграцію.
+  # Runs before every service start and then exits. This keeps the DB schema
+  # from drifting away from the code because of a forgotten migration.
+  #
+  # WHY migrate is NOT behind `profiles:`, even though an implicit start is a
+  # real hazard. migrate.py applies ALL *.sql not present in schema_migrations,
+  # with no pin on the maximum version, so any `compose up` that pulls migrate in
+  # as a dependency applies 010 outside adoption (the model: "3B.2 leaves 009,
+  # stamped at 3D"). A profile would remove migrate from the default set and
+  # close this structurally — but making it work requires adding
+  # `required: false` to the four depends_on edges below, otherwise Compose
+  # declares the model invalid whenever the profile is inactive ("depends on
+  # undefined service "migrate": invalid compose project", exit 1 — which fails
+  # even `config`).
+  #
+  # And `required: false` removes fail-closed NOT only for "service absent" but
+  # also for "service present and FAILED". Verified by direct experiment on
+  # compose v5.3.1: with `required: false` and the profile active, a failed
+  # migrate (exit 1) lets api start anyway, and `up` returns 0; without it the
+  # same failure stops the start with exit 1. So the price of the profile is the
+  # very fail-closed property that migrate.py declares verbatim (A-07), and which
+  # nothing else backstops: no service verifies the schema version at startup.
+  #
+  # So the guard here is a single one, right at the call site — `--no-deps` in
+  # both of adopt.sh's restarts. The profile will come back once fail-closed
+  # moves into the application (a startup check of max(version)), i.e. where it
+  # cannot be bypassed by the way it is launched.
   migrate:
     build: *avelren-build
     image: avelren-app:latest
@@ -82,11 +108,16 @@ services:
       CONTACT_EMAIL: ${CONTACT_EMAIL}
       LOG_LEVEL: ${LOG_LEVEL}
       REARM_FACTOR: ${REARM_FACTOR}
+    # An edge WITHOUT `required: false` — deliberately: it is the fail-closed
+    # itself. A failed migrate must stop the start (verified: `up` exits with 1
+    # and the service does not come up). The tradeoff details are in the migrate
+    # comment above.
     depends_on:
       migrate:
         condition: service_completed_successfully
 
-  # Окремо від збирача: історія має накопичуватись, навіть якщо FCM лежить.
+  # Separate from the collector: history must keep accumulating even if FCM is
+  # down.
   notifier:
     build: *avelren-build
     image: avelren-app:latest
@@ -106,7 +137,8 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # Помічає, що система замовкла. Найнебезпечніший збій — тихий.
+  # Notices that the system has gone silent. The most dangerous failure is a
+  # quiet one.
   watchdog:
     build: *avelren-build
     image: avelren-app:latest
@@ -122,9 +154,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
     volumes:
       - ./secrets:/secrets:ro
-      # host-факти (backup-stamp, reboot-required) беремо з host-snapshot, як
-      # API за SEC-1 — без монтування всього /run (де є й docker.sock; аудит
-      # M-1). Snapshot пише systemd-таймер (deploy/telemetry-snapshot.sh).
+      # Host facts (backup-stamp, reboot-required) come from the host snapshot,
+      # like the API per SEC-1 — without mounting the whole /run (which also has
+      # docker.sock; audit M-1). The snapshot is written by a systemd timer
+      # (deploy/telemetry-snapshot.sh).
       - /var/lib/avelren-telemetry:/telemetry:ro
     depends_on:
       migrate:
@@ -142,10 +175,10 @@ services:
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
       ECHERHA_VEHICLE_TYPE: ${ECHERHA_VEHICLE_TYPE}
     volumes:
-      # Тільки host-telemetry snapshot: JSON пише systemd-таймер на хості
-      # (deploy/telemetry-snapshot.sh), API його лише читає. Ніяких /secrets,
-      # /proc, /run у public контейнері — RCE у FastAPI більше не веде до
-      # Firebase service-account (аудит SEC-1 / A-01).
+      # Host-telemetry snapshot only: the JSON is written by a systemd timer on
+      # the host (deploy/telemetry-snapshot.sh), the API only reads it. No
+      # /secrets, /proc, /run in the public container — an RCE in FastAPI no
+      # longer leads to the Firebase service-account (audit SEC-1 / A-01).
       - /var/lib/avelren-telemetry:/telemetry:ro
     expose:
       - "8000"

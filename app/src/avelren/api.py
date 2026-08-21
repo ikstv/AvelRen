@@ -1,7 +1,7 @@
-"""Публічний API AvelRen.
+"""AvelRen public API.
 
-Дані віддаються ВИКЛЮЧНО з нашої БД. Жоден ендпоінт не звертається до
-echerha.gov.ua — див. AGENTS.md, правило 1.
+Data is served EXCLUSIVELY from our DB. No endpoint reaches out to
+echerha.gov.ua — see AGENTS.md, rule 1.
 """
 
 import logging
@@ -18,21 +18,26 @@ from .config import settings
 from .db import get_pool
 from .limits import BodySizeLimitMiddleware, ConcurrencyGate
 from .ratelimit import check as rate_check
+from .schema_gate import assert_schema_at_least
 from .subscriptions_api import router as subscriptions_router
 
 log = logging.getLogger("avelren.api")
 
-# Дорогі читання (агрегації історії/прогнозу) проходять спільний gate: під
-# навантаженням вони не сміють вичерпати пул і покласти дешеві health/workload
-# (аудит #16). Дешеві ендпоінти gate НЕ проходять.
+# Expensive reads (history/forecast aggregations) pass through a shared gate:
+# under load they must not exhaust the pool and take down cheap health/workload
+# (audit #16). Cheap endpoints do NOT pass through the gate.
 _expensive_gate = ConcurrencyGate(settings.api_max_concurrent_expensive)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # statement_timeout вмикається саме тут: він стосується лише пулу API-процесу.
+    # statement_timeout is enabled right here: it applies only to the API process's pool.
     pool = get_pool(settings.api_statement_timeout_ms)
     await pool.open(wait=True, timeout=30)
+    # Fail-closed schema check (issue #88): the service does not start if the
+    # recorded schema version is LOWER than the code's requirement. Placed right
+    # after the pool opens — before the first useful work.
+    await assert_schema_at_least(pool)
     yield
     await pool.close()
 
@@ -45,23 +50,24 @@ app.include_router(subscriptions_router)
 @app.exception_handler(OperationalError)
 @app.exception_handler(PoolTimeout)
 async def _database_unavailable(request: Request, exc: Exception) -> JSONResponse:
-    """Падіння чи недоступність БД — це «спробуй пізніше», а не «баг сервера».
+    """A DB crash or unavailability is a "try later", not a "server bug".
 
-    Без цього кожен публічний GET і тіло write-ендпоінта після auth віддавали б
-    сирий 500, і клієнт не міг відрізнити тимчасову недоступність від помилки.
-    _device у subscriptions_api вже мапить це на 503 точково; тут — глобальний
-    запобіжник для решти шляхів (аудит M-9)."""
-    log.warning("БД недоступна (%s): %s", type(exc).__name__, exc)
+    Without this, every public GET and the body of a write endpoint after auth
+    would return a raw 500, and the client could not tell temporary
+    unavailability from an error. _device in subscriptions_api already maps this
+    to 503 locally; here is the global safety net for the remaining paths
+    (audit M-9)."""
+    log.warning("DB unavailable (%s): %s", type(exc).__name__, exc)
     return JSONResponse(
         status_code=503,
-        content={"detail": "Сервіс тимчасово недоступний, спробуйте пізніше"},
+        content={"detail": "Service temporarily unavailable, please try again later"},
         headers={"Retry-After": "5"},
     )
 
 
 @app.get("/health")
 async def health() -> dict:
-    """Живий сервіс з протухлими даними — теж проблема, тому міряємо свіжість."""
+    """A live service with stale data is also a problem, so we measure freshness."""
     async with get_pool().connection() as conn:
         row = await (await conn.execute("SELECT max(time) AS last FROM observations")).fetchone()
 
@@ -78,12 +84,12 @@ async def health() -> dict:
 
 @app.get("/checkpoints")
 async def checkpoints(request: Request, include_stale: bool = False) -> list[dict]:
-    """Список вантажних КПП для екрана вибору.
+    """The list of freight checkpoints for the selection screen.
 
-    Актуальність тримається сама: `last_seen` оновлюється щоциклу, тож новий
-    39-й пункт з'явиться тут наступної хвилини після появи в джерелі, а зниклий
-    відпаде. Поріг у добу — щоб коротка аварія нашого збирача не спорожнила
-    список у застосунку.
+    Currency maintains itself: `last_seen` is updated every cycle, so a new 39th
+    point appears here the minute after it shows up in the source, and a vanished
+    one drops off. The one-day threshold keeps a short outage of our collector
+    from emptying the list in the app.
     """
     rate_check(request, "read")
     async with get_pool().connection() as conn:
@@ -106,12 +112,12 @@ async def checkpoints(request: Request, include_stale: bool = False) -> list[dic
 
 @app.get("/workload")
 async def workload(request: Request) -> list[dict]:
-    """Останній зріз по кожній черзі.
+    """The latest snapshot for each queue.
 
-    `entry_eta` — орієнтовний час в'їзду для того, хто стає в чергу зараз.
-    Формула звірена з єЧергою: момент заміру плюс `wait_time`. Для
-    призупиненої черги з нульовим очікуванням прогнозу немає, а не «в'їзд
-    просто зараз», тому там `null`.
+    `entry_eta` is the approximate entry time for someone joining the queue now.
+    The formula is verified against eCherha: the measurement moment plus
+    `wait_time`. For a paused queue with zero wait there is no forecast, rather
+    than "entry right now", so it is `null` there.
     """
     rate_check(request, "read")
     async with get_pool().connection() as conn:
@@ -141,8 +147,8 @@ async def history(
     checkpoint_id: int,
     hours: int = Query(24, ge=1, le=24 * 90),
 ) -> dict:
-    """Історія пункту. За довгі періоди віддаємо погодинні агрегати —
-    сирий ряд на 90 днів це 130 тисяч точок, які клієнту нема куди подіти."""
+    """A point's history. For long periods we serve hourly aggregates — a raw
+    series over 90 days is 130 thousand points, which the client has nowhere to put."""
     rate_check(request, "read")
     since = datetime.now(UTC) - timedelta(hours=hours)
 
@@ -151,7 +157,7 @@ async def history(
             await conn.execute("SELECT id, title FROM checkpoints WHERE id = %s", (checkpoint_id,))
         ).fetchone()
         if cp is None:
-            raise HTTPException(status_code=404, detail="Пункт пропуску не знайдено")
+            raise HTTPException(status_code=404, detail="Checkpoint not found")
 
         if hours <= 48:
             rows = await (
@@ -193,11 +199,11 @@ async def history(
 async def forecast_endpoint(
     request: Request, checkpoint_id: int, hours: int = Query(24, ge=1, le=168)
 ) -> dict:
-    """Функція №3: прогноз завантаженості.
+    """Feature #3: workload forecast.
 
-    Поки історії замало, повертає `status: collecting` і порожній список точок.
-    Це навмисно: прогноз на добі даних виглядав би переконливо й був би
-    вигадкою, а на ньому люди планують рейси.
+    While there is too little history, it returns `status: collecting` and an
+    empty list of points. This is deliberate: a forecast on a day's worth of data
+    would look convincing and be a fabrication, and people plan trips on it.
     """
     rate_check(request, "read")
     async with _expensive_gate.guard(), get_pool().connection() as conn:
@@ -207,7 +213,7 @@ async def forecast_endpoint(
             )
         ).fetchone()
         if cp is None:
-            raise HTTPException(status_code=404, detail="Пункт пропуску не знайдено")
+            raise HTTPException(status_code=404, detail="Checkpoint not found")
 
         result = await forecast.forecast(conn, checkpoint_id, hours)
 
@@ -217,8 +223,8 @@ async def forecast_endpoint(
 
 @app.get("/forecast/{checkpoint_id}/quality")
 async def forecast_quality(request: Request, checkpoint_id: int) -> dict:
-    """Похибка базової моделі. Без цього числа неможливо сказати, чи майбутня
-    складніша модель узагалі щось покращила."""
+    """Error of the base model. Without this number it is impossible to say
+    whether a future more complex model improved anything at all."""
     rate_check(request, "read")
     async with _expensive_gate.guard(), get_pool().connection() as conn:
         return await forecast.evaluate(conn, checkpoint_id)

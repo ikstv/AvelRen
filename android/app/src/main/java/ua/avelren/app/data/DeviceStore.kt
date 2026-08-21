@@ -6,15 +6,15 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 /**
- * Зберігає облікові дані installation: пару `device_id + device_secret`.
+ * Stores the installation credentials: the `device_id + device_secret` pair.
  *
- * Раніше сервер приймав лише X-Device-Id, і UUID сам по собі відкривав
- * підписки — це компрометувалось, якщо FCM-токен потрапляв не в ті руки
- * (аудит AUTH-1). Тепер сервер вимагає X-Device-Secret; знання одного лише
- * UUID нічого не дає, і зберігати обидва треба з шифруванням.
+ * Previously the server accepted only X-Device-Id, and the UUID alone unlocked
+ * subscriptions — this was compromisable if the FCM token fell into the wrong
+ * hands (audit AUTH-1). Now the server requires X-Device-Secret; knowing the
+ * UUID alone gives nothing, and both must be stored encrypted.
  *
- * `Credentials` — атомарна одиниця: якщо є id, то мусить бути й secret. Без
- * пари ніяких запитів робити не можна.
+ * `Credentials` is an atomic unit: if there is an id, there must be a secret
+ * too. Without the pair, no requests can be made.
  */
 object DeviceStore {
 
@@ -25,27 +25,27 @@ object DeviceStore {
     private const val KEY_DEVICE_SECRET = "device_secret"
     private const val KEY_SELECTED = "selected_checkpoint"
     private const val KEY_PENDING_FCM_TOKEN = "pending_fcm_token"
-    // AND-2. Свідомо НЕ чіпається clearCredentials(): історія запитів дозволу
-    // не має скидатися при 401-перереєстрації installation — інакше після
-    // кожного DB restore ми знову питали б дозвіл у того, хто вже відмовив.
+    // AND-2. Deliberately NOT touched by clearCredentials(): the permission-request
+    // history must not reset on a 401 installation re-registration — otherwise after
+    // every DB restore we would again ask for permission from someone who already refused.
     private const val KEY_NOTIF_ASKED = "notif_asked"
     private const val KEY_NOTIF_DENIED = "notif_denied_once"
     private const val KEY_NOTIF_GRANTED = "notif_ever_granted"
-    // Маркер одноразової legacy-міграції (upgrade з версії до AND-2). Так само
-    // НЕ чіпається clearCredentials(): міграцію треба зробити рівно раз на
-    // установку, незалежно від 401-перереєстрації.
+    // Marker of the one-time legacy migration (upgrade from a pre-AND-2 version).
+    // Likewise NOT touched by clearCredentials(): the migration must be done exactly
+    // once per installation, regardless of a 401 re-registration.
     private const val KEY_NOTIF_MIGRATED = "notif_legacy_migrated"
 
     @Volatile
     private var prefs: SharedPreferences? = null
 
     private fun prefs(context: Context): SharedPreferences {
-        // Подвійна перевірка з блокуванням. Холодний старт свідомо гонить два
-        // потоки до цього методу одночасно: AvelRenApp.start() на Dispatchers.IO
-        // і MainActivity на головному потоці. Паралельне створення
-        // EncryptedSharedPreferences/MasterKey для одного файлу — відома причина
-        // крашів (KeyStoreException) і псування keyset із безповоротною втратою
-        // облікових даних пристрою (аудит H-4).
+        // Double-checked locking. A cold start deliberately drives two threads to
+        // this method at once: AvelRenApp.start() on Dispatchers.IO and MainActivity
+        // on the main thread. Concurrent creation of
+        // EncryptedSharedPreferences/MasterKey for one file is a known cause of
+        // crashes (KeyStoreException) and keyset corruption with irreversible loss
+        // of the device credentials (audit H-4).
         prefs?.let { return it }
         return synchronized(this) {
             prefs ?: run {
@@ -78,9 +78,9 @@ object DeviceStore {
     }
 
     /**
-     * Очистити збережену пару. Викликаємо, коли сервер сказав 401 на
-     * гарантовано наші заголовки — installation більше не існує (наприклад,
-     * DB restore відкотив реєстрацію). Наступний старт створить нову.
+     * Clear the stored pair. We call this when the server returned a 401 on
+     * guaranteed-ours headers — the installation no longer exists (for example, a
+     * DB restore rolled back the registration). The next start will create a new one.
      */
     fun clearCredentials(context: Context) {
         prefs(context).edit()
@@ -106,7 +106,7 @@ object DeviceStore {
             .apply()
     }
 
-    /** Чи вже виконана одноразова legacy-міграція історії дозволу (AND-2 B2). */
+    /** Whether the one-time legacy migration of the permission history is already done (AND-2 B2). */
     fun notificationLegacyMigrated(context: Context): Boolean =
         prefs(context).getBoolean(KEY_NOTIF_MIGRATED, false)
 

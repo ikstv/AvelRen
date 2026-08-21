@@ -1,9 +1,9 @@
-"""#16: forecast-quality не сміє агрегувати необмежену історію.
+"""#16: forecast-quality must not aggregate unbounded history.
 
-`evaluate()` раніше сканував УСІ `observations_hourly` пункту — з роками даних
-це необмежений за часом і пам'яттю запит на кожен публічний виклик
-`/forecast/{id}/quality`. Тест доводить, що запит тепер несе server-owned нижню
-межу за часом; сам SQL виконується проти spy-conn, реальна БД не потрібна.
+`evaluate()` previously scanned ALL of a point's `observations_hourly` — with
+years of data this is a time- and memory-unbounded query on every public call to
+`/forecast/{id}/quality`. The test proves the query now carries a server-owned
+lower time bound; the SQL itself runs against a spy conn, no real DB needed.
 """
 
 import asyncio
@@ -21,7 +21,7 @@ class _FakeCursor:
 
 
 class _SpyConn:
-    """Фіксує кожен execute(sql, params), нічого не виконуючи."""
+    """Records each execute(sql, params), executing nothing."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple]] = []
@@ -35,16 +35,16 @@ def test_evaluate_query_is_time_bounded() -> None:
     spy = _SpyConn()
     asyncio.run(forecast.evaluate(spy, 123))
 
-    assert spy.calls, "evaluate має виконати запит"
+    assert spy.calls, "evaluate must run a query"
     sql, params = spy.calls[0]
 
-    # Нижня межа за часом присутня в SQL...
-    assert "bucket >=" in sql.lower(), "запит evaluate має обмежувати bucket знизу"
-    # ...і передається server-owned since-параметром, не з клієнта.
-    assert len(params) >= 2, "має бути переданий since-параметр"
+    # A lower time bound is present in the SQL...
+    assert "bucket >=" in sql.lower(), "the evaluate query must bound bucket from below"
+    # ...and is passed as a server-owned since parameter, not from the client.
+    assert len(params) >= 2, "a since parameter must be passed"
     since = next((p for p in params if isinstance(p, datetime)), None)
-    assert since is not None, "серед параметрів має бути datetime-межа"
+    assert since is not None, "there must be a datetime bound among the parameters"
 
     window = datetime.now(UTC) - since
-    # Вікно скінченне й розумне (не «вся історія»). LOOKBACK_WEEKS з запасом.
+    # The window is finite and reasonable (not "all history"). LOOKBACK_WEEKS with margin.
     assert timedelta(0) < window <= timedelta(weeks=forecast.LOOKBACK_WEEKS + 1)

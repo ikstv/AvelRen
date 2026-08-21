@@ -368,7 +368,7 @@ echo 'bootstrap-topology privilege_contracts: PASS'
 # `--noconftest` instead.
 #
 # Regression 2026-08-14: the gate shipped WITHOUT that flag and aborted with
-# `Exit: DATABASE_URL не задано` (rc=3) before a single assertion, failing the
+# `Exit: DATABASE_URL not set` (rc=3) before a single assertion, failing the
 # post-commit acceptance and rolling back a correctly committed adoption. It was
 # never caught because the gate's own contract test drives a FAKE docker (argv
 # assertions only) and CI merely `bash -n`-checked it — the real pytest

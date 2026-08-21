@@ -24,14 +24,15 @@ import ua.avelren.app.notify.NotificationReconciler
 import ua.avelren.app.notify.Notifications
 
 /**
- * Власник процес-скоупного [InstallationRepository] — єдиного джерела істини про
- * installation. Раніше реєстрація/recovery жили тут і дублювалися в
- * `AvelRenMessagingService`, а UI напряму читав `DeviceStore`. Тепер усі шляхи
- * (cold start, FCM-токен, 401-recovery, protected-виклики) сходяться в repository.
+ * Owner of the process-scoped [InstallationRepository] — the single source of
+ * truth about the installation. Previously registration/recovery lived here and
+ * were duplicated in `AvelRenMessagingService`, while the UI read `DeviceStore`
+ * directly. Now all paths (cold start, FCM token, 401 recovery, protected calls)
+ * converge in the repository.
  */
 class AvelRenApp : Application() {
 
-    /** Один SupervisorJob-скоуп на весь процес — без розсипаних CoroutineScope. */
+    /** A single SupervisorJob scope for the whole process — no scattered CoroutineScope instances. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var installationRef: InstallationRepository? = null
@@ -43,8 +44,8 @@ class AvelRenApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Канал створюємо одразу: якщо його не буде на момент першого пуша,
-        // сповіщення просто не з'явиться.
+        // Create the channel right away: if it does not exist at the moment of
+        // the first push, the notification simply will not appear.
         Notifications.ensureChannel(this)
 
         val ctx: Context = this
@@ -77,20 +78,20 @@ class AvelRenApp : Application() {
         )
         installation.start()
 
-        // Reconcile на КОЖЕН новий Ready (у т.ч. після recovery-перереєстрації).
-        // Закриває startup-race (A-02): foreground onResume міг спрацювати ще до
-        // появи credentials і той reconcile вийшов рано; тепер перехід
-        // Initializing→Ready сам запускає звірку. Mutex у reconciler дедупить із
-        // foreground-шляхом.
+        // Reconcile on EVERY new Ready (including after a recovery re-registration).
+        // Closes the startup race (A-02): foreground onResume could fire before
+        // credentials appeared and that reconcile returned early; now the
+        // Initializing→Ready transition itself triggers reconciliation. A mutex in
+        // the reconciler deduplicates against the foreground path.
         appScope.launch {
             ProtectedLoad.observe(installation.state) {
                 NotificationReconciler.reconcile(ctx, installation)
             }
         }
 
-        // Reconciliation при поверненні у foreground (A-02, шар 2): якщо
-        // cancel-push загубився, звіряємо показані сповіщення з сервером. На
-        // рівні application, а не Compose-екрана: це не UI-стан.
+        // Reconciliation on return to foreground (A-02, layer 2): if a
+        // cancel-push was lost, reconcile the shown notifications against the
+        // server. At the application level, not the Compose screen: this is not UI state.
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onResume(owner: LifecycleOwner) {
@@ -100,14 +101,14 @@ class AvelRenApp : Application() {
         )
     }
 
-    /** FCM-сервіс делегує сюди — весь register/recovery централізовано в repository. */
+    /** The FCM service delegates here — all register/recovery is centralized in the repository. */
     fun handleNewFcmToken(token: String) {
         appScope.launch { installation.onNewFcmToken(token) }
     }
 
     /**
-     * Запуск короткої фонової роботи в application-scope (напр. server-ack із
-     * `AckReceiver`), щоб компоненти не плодили власні `CoroutineScope`.
+     * Launch short background work in the application scope (e.g. a server-ack
+     * from `AckReceiver`), so components do not spawn their own `CoroutineScope`.
      */
     fun launchInScope(block: suspend () -> Unit) {
         appScope.launch { block() }

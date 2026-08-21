@@ -1,19 +1,20 @@
 # AvelRen Android
 
-## Збірка з чистого клону
+## Building from a clean clone
 
-Потрібні: JDK 17, Android SDK (platform 35).
+Requirements: JDK 17, Android SDK (platform 35).
 
-1. **`google-services.json`** — не в git і не буде: він містить ідентифікатори
-   Firebase-проєкту. Взяти з Firebase Console (Project settings → Your apps →
-   AvelRen → google-services.json) і покласти в `android/app/`.
-   Без нього збірка падає на плагіні Google Services — це очікувано.
-2. `local.properties` створюється сам, або вручну:
-   `sdk.dir=<шлях до Android SDK>` (прямі слеші працюють і на Windows).
-3. Збірка: `./gradlew assembleDebug`
+1. **`google-services.json`** — not in git and never will be: it contains the
+   Firebase project identifiers. Get it from the Firebase Console (Project
+   settings → Your apps → AvelRen → google-services.json) and put it in
+   `android/app/`. Without it the build fails on the Google Services plugin —
+   this is expected.
+2. `local.properties` is created automatically, or manually:
+   `sdk.dir=<path to the Android SDK>` (forward slashes work on Windows too).
+3. Build: `./gradlew assembleDebug`
    APK: `app/build/outputs/apk/debug/app-debug.apk`
 
-## Правило
+## Rule
 
-Застосунок звертається **тільки** до нашого API (`api.bordersignal.pp.ua`).
-Жодних запитів до echerha.gov.ua з клієнта — див. корінний `AGENTS.md`, правило 1.
+The app talks **only** to our API (`api.bordersignal.pp.ua`).
+No requests to echerha.gov.ua from the client — see the root `AGENTS.md`, rule 1.

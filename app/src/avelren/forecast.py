@@ -1,19 +1,19 @@
-"""Функція №3: прогноз завантаженості КПП.
+"""Feature #3: checkpoint workload forecast.
 
-Базова модель — **сезонний наївний прогноз**: очікування о вівторок 09:00
-беремо як середнє по вівторках 09:00 за попередні тижні. На таких рядах вона
-несподівано сильна, і будь-яка складніша модель мусить її побити на тих самих
-даних, інакше не впроваджуємо (див. `docs/forecast.md`).
+The base model is a **seasonal naive forecast**: the expectation for Tuesday
+09:00 is taken as the average over Tuesdays 09:00 in prior weeks. On such series
+it is surprisingly strong, and any more complex model must beat it on the same
+data, otherwise we do not adopt it (see `docs/forecast.md`).
 
-Головне тут не якість моделі, а **чесність про достатність даних**. Тижнева
-сезонність — головний сигнал, і оцінити її можна лише маючи достатньо повторів
-кожного дня тижня. На двох тижнях будь-яка модель вивчить шум і показуватиме
-впевнені дурниці — а на них люди планують рейси.
+The key thing here is not the model's quality but **honesty about data
+sufficiency**. Weekly seasonality is the main signal, and it can only be
+estimated with enough repeats of each day of the week. On two weeks any model
+will learn noise and show confident nonsense — and people plan trips on it.
 
-Тому прогноз має три стани, і користувач завжди бачить, у якому він:
-  collecting   — даних замало, прогнозу немає взагалі;
-  preliminary  — прогноз є, але попередній, з широким діапазоном;
-  ready        — даних достатньо.
+That is why the forecast has three states, and the user always sees which one:
+  collecting   — too little data, no forecast at all;
+  preliminary  — there is a forecast, but preliminary, with a wide range;
+  ready        — enough data.
 """
 
 import logging
@@ -25,19 +25,19 @@ from psycopg import AsyncConnection
 
 log = logging.getLogger("avelren.forecast")
 
-# Сезонність прикордонного трафіку живе в локальному часі: «вівторок 09:00» —
-# це київський вівторок, не UTC. Тому і бакетимо історію, і шукаємо майбутній
-# слот за київським часом. Без цього перехід на літній/зимовий час розмазав би
-# один локальний час по різних UTC-слотах у вікні lookback (аудит M-7).
+# Border-traffic seasonality lives in local time: "Tuesday 09:00" means Kyiv
+# Tuesday, not UTC. That is why we both bucket history and look up the future
+# slot by Kyiv time. Without this, a DST transition would smear one local time
+# across different UTC slots within the lookback window (audit M-7).
 KYIV = ZoneInfo("Europe/Kyiv")
 
-# Мінімум повторів кожного слоту (день тижня + година), щоб узагалі щось
-# показувати, і скільки треба для повноцінного прогнозу.
+# Minimum repeats of each slot (day of week + hour) to show anything at all,
+# and how many are needed for a full forecast.
 MIN_SAMPLES_PRELIMINARY = 2
 MIN_SAMPLES_READY = 8
 
-# Скільки тижнів історії враховуємо. Далекі тижні гірше описують сьогодення:
-# змінюються правила, пропускна спроможність, потоки.
+# How many weeks of history we consider. Distant weeks describe today worse:
+# rules, throughput, and flows change.
 LOOKBACK_WEEKS = 12
 
 
@@ -80,10 +80,10 @@ async def readiness(conn: AsyncConnection, checkpoint_id: int) -> Readiness:
 async def forecast(
     conn: AsyncConnection, checkpoint_id: int, hours_ahead: int = 24
 ) -> dict:
-    """Прогноз на найближчі години з розрізом по годинах.
+    """Forecast for the coming hours, broken down by hour.
 
-    Повертає діапазон, а не одне число: «2–4 дні» чесніше за «3 дні 14 годин».
-    Друге створює хибну точність.
+    Returns a range, not a single number: "2–4 days" is more honest than "3 days
+    14 hours". The latter creates false precision.
     """
     state = await readiness(conn, checkpoint_id)
 
@@ -98,8 +98,8 @@ async def forecast(
     }
 
     if state.status == "collecting":
-        # Свідомо не повертаємо нічого: показати прогноз на добі даних —
-        # означає збрехати впевненим тоном.
+        # Deliberately return nothing: showing a forecast on a day's worth of
+        # data means lying in a confident tone.
         return result
 
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
@@ -128,11 +128,11 @@ async def forecast(
 
     for i in range(1, hours_ahead + 1):
         at = now + timedelta(hours=i)
-        # Слот шукаємо за КИЇВСЬКИМ днем/годиною, щоб збігтися з бакетингом
-        # історії вище (AT TIME ZONE 'Europe/Kyiv'). `at` лишається абсолютним
-        # моментом (UTC) для поля "time".
+        # We look up the slot by KYIV day/hour to match the history bucketing
+        # above (AT TIME ZONE 'Europe/Kyiv'). `at` stays an absolute moment
+        # (UTC) for the "time" field.
         at_local = at.astimezone(KYIV)
-        # Python: понеділок = 0, неділя = 6. PostgreSQL: неділя = 0, субота = 6.
+        # Python: Monday = 0, Sunday = 6. PostgreSQL: Sunday = 0, Saturday = 6.
         pg_dow = (at_local.weekday() + 1) % 7
         slot = by_slot.get((pg_dow, at_local.hour))
         if slot is None or slot["samples"] < MIN_SAMPLES_PRELIMINARY:
@@ -153,14 +153,15 @@ async def forecast(
 
 
 async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
-    """Похибка базової моделі на наявній історії.
+    """Error of the base model on the available history.
 
-    Без цього числа неможливо сказати, чи майбутня складніша модель узагалі
-    щось покращила. Міряємо середню абсолютну похибку в годинах.
+    Without this number it is impossible to say whether a future more complex
+    model improved anything at all. We measure the mean absolute error in hours.
     """
-    # Server-owned нижня межа: оцінка бере ті самі LOOKBACK_WEEKS, що й прогноз,
-    # а не всю історію пункту. Інакше кожен публічний виклик /forecast/{id}/quality
-    # сканував би необмежений за часом ряд (з роками даних — DoS-вектор, аудит #16).
+    # Server-owned lower bound: the evaluation takes the same LOOKBACK_WEEKS as
+    # the forecast, not the point's entire history. Otherwise every public call
+    # to /forecast/{id}/quality would scan a time-unbounded series (with years of
+    # data — a DoS vector, audit #16).
     since = datetime.now(UTC) - timedelta(weeks=LOOKBACK_WEEKS)
     row = await (
         await conn.execute(
@@ -190,8 +191,8 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
         "method": "seasonal_naive",
         "samples": row["n"] if row else 0,
         "mae_hours": round(float(row["mae_hours"]), 2) if row and row["mae_hours"] else None,
-        # Похибка, порахована на тих самих даних, на яких будувалась модель,
-        # завжди оптимістична. Чесна оцінка зʼявиться, коли вистачить історії
-        # на розділення навчання й перевірки.
-        "note": "оцінка на тих самих даних, оптимістична",
+        # Error computed on the same data the model was built on is always
+        # optimistic. An honest estimate will appear once there is enough history
+        # to separate training and validation.
+        "note": "estimate on the same data, optimistic",
     }

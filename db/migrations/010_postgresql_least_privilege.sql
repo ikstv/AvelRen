@@ -144,6 +144,29 @@ GRANT USAGE ON SEQUENCE
     notification_cancels_id_seq
 TO avelren_api;
 
+-- Журнал міграцій: читання для решти рантайм-ролей.
+--
+-- `avelren_api` уже отримав SELECT на schema_migrations вище (version-блок
+-- Server Dashboard). Тут те саме для трьох інших: collector, notifier,
+-- watchdog. Причина не косметична — це передумова fail-closed перевірки схеми
+-- при старті (issue #88): сервіс має відмовитись працювати на схемі, старішій
+-- за ту, яку вимагає його код. Без цього гранту така перевірка впала б з
+-- 42501 у трьох сервісах із чотирьох рівно тоді, коли 3C переведе їх на
+-- власні DSN — тобто fail-closed перетворився б на fail-always.
+--
+-- Чому саме тут, а не окремою 011: adoption вставляє ВЕСЬ цей файл у forward
+-- plan (`build_forward_plan` → `cat "$migration"`), тож 3B.2 застосує ці рядки
+-- тим самим механізмом, що й решту ACL. Дописати їх після 3B.2 означало б, що
+-- 3B.2 застосував одну версію файлу і зберіг її в evidence, а 3D проштампував
+-- інший sha256 — журнал стверджував би стан, якого немає, і жоден із наявних
+-- guard'ів цього не побачить.
+--
+-- Це метаінформація про застосовані міграції, не бізнес-таємниця (та сама
+-- підстава, що вже записана для avelren_api). Тільки SELECT: писати в журнал
+-- може винятково avelren_migrator.
+GRANT SELECT ON TABLE schema_migrations
+    TO avelren_collector, avelren_notifier, avelren_watchdog;
+
 -- New migrator-owned objects are private until a future migration grants access.
 ALTER DEFAULT PRIVILEGES FOR ROLE avelren_migrator
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;

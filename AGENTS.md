@@ -1,71 +1,115 @@
-# Правила для агентів і розробників
+# Rules for agents and developers
 
-## 1. Клієнт ніколи не ходить у єЧергу
+## 1. Clients never reach eCherha
 
-До `echerha.gov.ua` / `back.echerha.gov.ua` звертається **тільки** сервіс
-`collector`. Ніколи — веб-фронтенд, мобільний застосунок, браузер користувача
-чи сторонній скрипт.
+Only the `collector` service talks to `echerha.gov.ua` / `back.echerha.gov.ua`.
+Never the web front-end, the mobile app, the user's browser, or any third-party
+script.
 
-Якщо клієнту бракує даних — **розширюємо наш API**, а не пускаємо клієнта назовні.
-Заборонено: проксі-ендпоінт, що пересилає запит у єЧергу; «тимчасовий» fetch із
-фронтенду; SDK, що ходить напряму.
+If a client is missing data, we **extend our own API** — we do not let the client
+reach out directly. Forbidden: a proxy endpoint that forwards a request to
+eCherha; a "temporary" fetch from the front-end; an SDK that talks to it
+directly.
 
-Причина: `x-ratelimit-limit: 60` на боці держсервісу. Розподілені клієнтські
-запити вичерпують ліміт і призводять до банів по IP.
+Reason: `x-ratelimit-limit: 60` on the government service's side. Distributed
+client requests exhaust the limit and lead to IP bans.
 
-## 2. Рівно 60 секунд
+## 2. Exactly 60 seconds
 
-Інтервал опитування — 60 секунд між **початками** циклів, не `sleep(60)` після
-роботи (інакше інтервал повзе). Не частіше: це державний сервіс, ми в гостях.
-Не рідше: дані змінюються в межах хвилини.
+The polling interval is 60 seconds between the **starts** of cycles, not
+`sleep(60)` after the work is done (otherwise the interval drifts). No more
+often: this is a government service, we are guests here. No less often: the data
+changes within a minute.
 
-## 3. Не втрачати спостереження
+## 3. Do not lose observations
 
-Пишемо кожне опитування, без дедуплікації. Прогалину в часовому ряді потім не
-відновиш — джерело історії не зберігає.
+We record every poll, with no deduplication. A gap in the time series cannot be
+recovered later — the source of history keeps nothing.
 
-Кожен цикл фіксується в `collector_runs`, включно з невдалими. Мовчазний збій
-гірший за гучний.
+Every cycle is recorded in `collector_runs`, including the failed ones. A silent
+failure is worse than a loud one.
 
-## 4. Помилки джерела — не наша аварія
+## 4. Source errors are not our outage
 
-При `429`/`5xx`/таймауті: пропускаємо цикл, пишемо причину, чекаємо наступного.
-Не ретраїмо агресивно, не зменшуємо інтервал, не піднімаємо паралельність.
+On `429`/`5xx`/timeout: skip the cycle, record the reason, wait for the next one.
+Do not retry aggressively, do not shorten the interval, do not raise concurrency.
 
-## 5. Зміни схеми — лише міграцією
+## 5. Schema changes only via migration
 
-Новий файл `db/migrations/NNN_опис.sql`, послідовний номер. Сервіс `migrate`
-застосовує їх сам перед стартом `collector` і `api`.
+A new file `db/migrations/NNN_description.sql`, with a sequential number. The
+`migrate` service applies them itself before `collector` and `api` start.
 
-**Не редагувати вже застосовану міграцію** — застосовувач звіряє sha256 і
-зупиниться з помилкою. Потрібна правка — нова міграція.
+**Do not edit an already-applied migration** — the applier compares sha256 and
+will stop with an error. If a fix is needed, write a new migration.
 
-## 6. Секрети не потрапляють у git
+## 6. Secrets never land in git
 
-`.env` у `.gitignore`. У репозиторії лише `.env.example` з порожніми значеннями.
+`.env` is in `.gitignore`. The repository holds only `.env.example` with empty
+values.
 
-## Скоуп зараз
+## Scope right now
 
-Тільки вантажівки (`/workload/1`, `for_vehicle_type: 1`). Автобуси (`/workload/2`)
-навмисно не чіпаємо, поки не буде рішення.
+Trucks only (`/workload/1`, `for_vehicle_type: 1`). Buses (`/workload/2`) are
+deliberately left alone until there is a decision.
 
-## 7. Прогноз не підміняє вимір
+## 7. A forecast does not replace a measurement
 
-`entry_eta` — це факт від першоджерела (момент заміру + `wait_time`), і саме
-тому йому можна вірити. Коли зʼявиться прогноз (див. `docs/forecast.md`), він
-має бути **окремим полем з окремою назвою**. Користувач завжди мусить бачити,
-де вимір, а де здогад.
+`entry_eta` is a fact from the primary source (the moment of measurement +
+`wait_time`), and that is exactly why it can be trusted. When a forecast appears
+(see `docs/forecast.md`), it must be a **separate field with a separate name**.
+The user must always be able to see where the measurement is and where the guess
+is.
 
-## 8. Резервні копії
+## 8. Backups
 
-Щодня о 03:20 UTC, `systemd`-таймер `avelren-backup`. Дамп шифрується перед
-відправкою (`rclone crypt`) — у ньому FCM-токени пристроїв, а їде він у чужу
-хмару. Ключ лишається на сервері.
+Daily at 03:20 UTC, via the `systemd` timer `avelren-backup`. The dump is
+encrypted before being uploaded (`rclone crypt`) — it contains devices' FCM
+tokens, and it travels to someone else's cloud. The key stays on the server.
 
-Схема: 7 денних, 4 тижневі, 3 місячні.
+Schedule: 7 daily, 4 weekly, 3 monthly.
 
-**Відновлювати тільки через `avelren-restore`.** Звичайний `psql` на дампі
-TimescaleDB дає помилки на гіпертаблицях і стисненні: потрібні
-`timescaledb_pre_restore()` до і `timescaledb_post_restore()` після.
+**Restore only via `avelren-restore`.** A plain `psql` on a TimescaleDB dump
+throws errors on hypertables and compression: you need
+`timescaledb_pre_restore()` before and `timescaledb_post_restore()` after.
 
-За замовчуванням скрипт відновлює в `restore_test`, а не в бойову базу.
+By default the script restores into `restore_test`, not into the live database.
+
+## 9. The app's design is ROAD SIGN, and it lives in `main`
+
+The canonical design is **ROAD SIGN** — signal semantics borrowed from road
+signs: green `#0E7A4E` "go", yellow `#F5C400` "attention" (the de facto brand
+colour), red `#D5382C` "closed". Tokens live in
+`android/app/src/main/java/ua/avelren/app/ui/theme/Color.kt`, which is the
+source of truth; the HTML under `design-system/` follows it, not the reverse.
+
+If you find `AvelRedLight = 0xFFEC3013` anywhere, you are looking at the old
+Modernist design. It was deleted on 2026-08-20 (PR #106) and is not canonical.
+
+**`design-system/ds/screens/` holds one screen out of ten.** The other nine
+exist only as Compose code in `ui/AvelRenScreen.kt`. Do not conclude from the
+design system alone that you have seen the app. See `docs/design.md`.
+
+Reason: until 2026-08-20 the working design lived in an unmerged branch while
+`main` carried a completely different one. That drift cost a full investigation
+(comparing an APK pulled off the device by sha256) and nearly cost the wrong
+deletion. Keep the design in `main` and the confusion cannot come back.
+
+## 10. Build the device APK only from a clean `main`
+
+The APK installed on a phone must come from the clean tip of `main` — never
+from a feature branch:
+
+```
+git status          # tree must be clean
+cd android && ./gradlew assembleDebug
+```
+
+Record what was installed in `dist/BUILD.txt`: sha256, commit, date. Verify by
+pulling the installed `base.apk` back off the device and comparing hashes —
+"looks the same" is not the same as "is the same".
+
+`dist/` is in `.gitignore` (the APK is ~20 MB), so that record does not travel
+between machines. The commit hash in it is what makes the build reproducible
+elsewhere.
+
+Reason: the drift described in rule 9 began with an APK built from a branch.

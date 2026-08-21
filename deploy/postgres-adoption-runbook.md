@@ -53,6 +53,10 @@ expected LOGIN/attributes, then **HARD STOP**.
 
 ## 3B.2 — ownership/ACL adoption (separate GO)
 
+> The exact launch contract, environment lockdown, and stop rules —
+> `deploy/postgres-adoption-3b2-window.md` (under this revision the window ran
+> 2026-08-17, `exit 0`).
+
 `postgres-adopt.sh --production-adopt --production-token-file <0400/0600 file>`
 bootstraps under the legacy `avelren` SUPERUSER, asserts the 7 roles exist,
 captures the preflight manifest, enters a maintenance window (stops
@@ -65,8 +69,41 @@ the **unchanged** legacy DSN. `schema_migrations` intentionally stays at `009`
 
 Exit codes: `0` = adoption committed and clients restarted; **`3` = adoption
 committed and correct, but clients did not restart** — do NOT roll back, restart
-them manually (`compose up -d`) and verify health; non-`0`/non-`3` = refused or
-rolled back, see the log.
+them manually and verify health; non-`0`/non-`3` = refused or rolled back, see
+the log.
+
+The manual restart names the five services **and** passes `--no-deps`:
+
+```bash
+docker compose up -d --no-deps caddy api collector notifier watchdog
+```
+
+> **Never restart the runtime with a bare `docker compose up -d`.** An explicit
+> service list alone does not help either: Compose resolves `depends_on` and
+> starts what it finds there, and `migrate` is a dependency of all four runtime
+> services. `--no-deps` is the only thing that suppresses that, which is why it
+> is not optional here — it is the guard, not a refinement of one.
+>
+> Both failure modes are real, and which one you get depends only on whether the
+> 010 grants exist yet:
+>
+> * **Un-adopted database** (`avelren_migrator` still powerless): `migrate` exits
+>   1 with `permission denied for schema public`, so
+>   `service_completed_successfully` is never satisfied and caddy/api/collector/
+>   notifier/watchdog **do not start at all**. The site goes down. This is the
+>   state production is in today.
+> * **After the grants exist**: `migrate` succeeds, finds `009`, and applies and
+>   stamps `010` — outside the adoption sequence, contradicting the model above
+>   in which 3B.2 leaves `009` and 3D does the stamping. If the restart then
+>   fails, the inverse rollback restores the ACLs but cannot unstamp `010`, and
+>   no existing guard detects the resulting divergence.
+
+To apply migrations deliberately — at 3D, or any other sanctioned moment — name
+the service explicitly, which starts it and nothing else:
+
+```bash
+docker compose up -d --no-deps migrate
+```
 
 ### The drift check — read this before the 3 a.m. window
 

@@ -1,21 +1,21 @@
-"""Телеметрія сервера для застосунку.
+"""Server telemetry for the app.
 
-**Trust boundary.** Раніше цей модуль читав `/proc`, `/run` та `/secrets`
-безпосередньо з файлової системи. Це означало, що public API-контейнер мусив
-мати bind-mounts до всього перерахованого — включно з каталогом, де лежить
-Firebase service-account. Помилка path-traversal або RCE в API давала доступ
-до FCM-ключа, хоча самому API він не потрібен (аудит SEC-1 / A-01).
+**Trust boundary.** Previously this module read `/proc`, `/run`, and `/secrets`
+directly from the filesystem. This meant the public API container had to have
+bind-mounts to all of the above — including the directory where the Firebase
+service account lives. A path-traversal bug or RCE in the API gave access to the
+FCM key, even though the API itself does not need it (audit SEC-1 / A-01).
 
-Тепер збір host-метрик відбувається на самому хості (`deploy/telemetry-snapshot.sh`
-під systemd-таймером), API читає лише один JSON-файл — і жодного secrets,
-proc чи run у контейнері немає. Свідомо не робимо fallback до старих шляхів:
-"тимчасовий compatibility" — це найгірший спосіб протягнути security-fix у
-production.
+Now host-metric collection happens on the host itself
+(`deploy/telemetry-snapshot.sh` under a systemd timer), the API reads just one
+JSON file — and there are no secrets, proc, or run in the container. We
+deliberately do not fall back to the old paths: "temporary compatibility" is the
+worst way to sneak a security fix into production.
 
-Свідомо **не** монтуємо `/var/run/docker.sock`: доступ до нього рівносильний
-root на хості, і віддавати таке заради красивого списку контейнерів — поганий
-обмін. Стан сервісів виводимо з того, що вони роблять: збирач живий, якщо
-пише спостереження; розсилач живий, якщо надсилає.
+We deliberately do **not** mount `/var/run/docker.sock`: access to it is
+equivalent to root on the host, and giving that away for a pretty container list
+is a bad trade. We infer service state from what they do: the collector is alive
+if it writes observations; the sender is alive if it sends.
 """
 
 import json
@@ -28,34 +28,35 @@ from psycopg import AsyncConnection
 from . import __version__ as APP_VERSION
 from .config import settings
 
-# Whitelist полів, що ми віддаємо для кожного контейнера. Свідомо ВЕЛИКА
-# паранойя тут: raw `docker inspect` містить env (може мати креденшіали),
-# mounts (розкриває шляхи secrets), cmd, labels. Розширюємо цей набір лише
-# явно і з обґрунтуванням у коментарі — не «а давайте додамо всі поля».
+# Whitelist of fields we expose for each container. Deliberately HEAVY paranoia
+# here: raw `docker inspect` contains env (may hold credentials), mounts (reveals
+# secret paths), cmd, labels. We extend this set only explicitly and with a
+# rationale in a comment — not "let's just add all fields".
 _SERVICE_ALLOWED_FIELDS = frozenset(
     {"status", "health", "started_at", "restart_count", "exit_code", "oom_killed", "image"}
 )
 
-# Whitelist контейнерів, які ми знаємо і хочемо показувати. Будь-що інше з
-# snapshot ігнорується — щоб випадкове поле в JSON не з'явилось на клієнті.
+# Whitelist of containers we know and want to show. Anything else from the
+# snapshot is ignored — so that a stray field in the JSON does not reach the client.
 _SERVICE_ALLOWED_NAMES = frozenset(
     {"db", "api", "collector", "notifier", "watchdog", "caddy"}
 )
 
-# Каталог bind-mount snapshot-файлу. Змінна для тестів; у docker-compose
-# монтується /var/lib/avelren-telemetry:/telemetry:ro.
+# The bind-mount directory of the snapshot file. A variable for tests; in
+# docker-compose /var/lib/avelren-telemetry:/telemetry:ro is mounted.
 SNAPSHOT_PATH = Path(os.environ.get("AVELREN_TELEMETRY_SNAPSHOT", "/telemetry/host.json"))
 
-# Snapshot старший за 5 хв вважається протухлим: timer має інтервал 1 хв, тож
-# запас чотирикратний і покриває коротку паузу без хибних тривог.
+# A snapshot older than 5 min is considered stale: the timer has a 1-min
+# interval, so the margin is fourfold and covers a short pause without false alarms.
 SNAPSHOT_MAX_AGE_SECONDS = 300
 
 
 def _snapshot() -> dict:
-    """Читає останній host-snapshot. Порожній dict — snapshot відсутній.
+    """Reads the latest host snapshot. An empty dict means the snapshot is absent.
 
-    Помилки не роблять exception назовні: API-хендлер має вижити навіть при
-    зникненні snapshot pipeline; клієнт побачить `stale: true` замість 500.
+    Errors do not raise an exception outward: the API handler must survive even
+    if the snapshot pipeline disappears; the client will see `stale: true` instead
+    of a 500.
     """
     try:
         raw = SNAPSHOT_PATH.read_text(encoding="utf-8")
@@ -72,7 +73,7 @@ def _snapshot_age_seconds(snap: dict) -> int | None:
     if not ts:
         return None
     try:
-        # Формат від snapshot script: ISO-8601 UTC з "Z".
+        # Format from the snapshot script: ISO-8601 UTC with "Z".
         collected = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError:
         return None
@@ -80,12 +81,11 @@ def _snapshot_age_seconds(snap: dict) -> int | None:
 
 
 def system() -> dict:
-    """Стан хоста: load, memory, disk, потреба ребуту.
+    """Host state: load, memory, disk, reboot need.
 
-    `stale=true` означає, що snapshot-файл старіший за
-    `SNAPSHOT_MAX_AGE_SECONDS` або відсутній взагалі. Це важливий сигнал:
-    інакше протухлі числа виглядають як свіжі й приховують збій telemetry
-    pipeline.
+    `stale=true` means the snapshot file is older than `SNAPSHOT_MAX_AGE_SECONDS`
+    or absent altogether. This is an important signal: otherwise stale numbers
+    look fresh and hide a failure of the telemetry pipeline.
     """
     snap = _snapshot()
     data = dict(snap.get("system") or {})
@@ -96,7 +96,7 @@ def system() -> dict:
 
 
 async def pipeline(conn: AsyncConnection) -> dict:
-    """Стан конвеєра даних: те, заради чого сервер існує."""
+    """State of the data pipeline: the thing the server exists for."""
     row = await (
         await conn.execute(
             """
@@ -127,12 +127,12 @@ async def pipeline(conn: AsyncConnection) -> dict:
     data = dict(row) if row else {}
     data["db_size_mb"] = round((data.pop("db_bytes", 0) or 0) / 1024**2, 1)
 
-    # Очікуємо 60 циклів на годину. Менше — були прогалини, і це видно одразу.
-    # Completeness рахує УСПІШНІ цикли (error IS NULL), а не просто спроби:
-    # коли ЄЧерга щохвилини віддає 502, collector_runs усе одно поповнюється
-    # (runs_last_hour → 60), але жодне спостереження не зібране. Рахувати спроби
-    # означало б показувати 100% повноти під час повного збою збору даних —
-    # рівно те, від чого completeness має захищати.
+    # We expect 60 cycles per hour. Fewer — there were gaps, and it shows
+    # immediately. Completeness counts SUCCESSFUL cycles (error IS NULL), not just
+    # attempts: when eCherha returns 502 every minute, collector_runs still fills
+    # up (runs_last_hour → 60), but no observation is collected. Counting attempts
+    # would mean showing 100% completeness during a total data-collection failure —
+    # exactly what completeness is meant to protect against.
     successful = data.get("successful_runs_last_hour") or 0
     data["cycles_expected_per_hour"] = 60
     data["completeness_percent"] = min(100, round(successful / 60 * 100))
@@ -141,14 +141,14 @@ async def pipeline(conn: AsyncConnection) -> dict:
 
 
 async def last_collector_run(conn: AsyncConnection) -> dict | None:
-    """Останній цикл збирача — успіх чи ні, включно з HTTP-статусом upstream.
+    """The collector's last cycle — success or not, including the upstream HTTP status.
 
-    Потрібно, щоб Server Dashboard не покладався на непрямі сигнали
-    (last_observation, errors_last_hour): у режимі «ЄЧерга відповідає 502
-    щохвилини» observations стають протухлими, а причину видно лише в цьому
-    рядку. Свідомо НЕ віддаємо `body_sha256` — це технічний артефакт для
-    порівняння payload'ів, клієнту не потрібен і потенційно пришвидшить
-    інференс, чи є на upstream new content.
+    Needed so the Server Dashboard does not rely on indirect signals
+    (last_observation, errors_last_hour): in the "eCherha responds 502 every
+    minute" mode, observations become stale, and the reason is visible only in
+    this row. We deliberately do NOT expose `body_sha256` — it is a technical
+    artifact for comparing payloads, the client does not need it, and it could
+    potentially speed up inferring whether there is new content upstream.
     """
     row = await (
         await conn.execute(
@@ -165,10 +165,11 @@ async def last_collector_run(conn: AsyncConnection) -> dict | None:
 
 
 async def last_collector_success(conn: AsyncConnection) -> dict | None:
-    """Останній успішний цикл. Окремо від last_run — потрібно розрізняти
-    «ЄЧерга щойно повернула 200, збережено N рядків» vs «останній цикл впав,
-    попередній успіх був годину тому». Без цього поля дашборд однаково
-    показує ⚪ на «щойно почалися проблеми» і на «давно все зламано»."""
+    """The last successful cycle. Separate from last_run — we need to distinguish
+    "eCherha just returned 200, N rows saved" vs "the last cycle failed, the
+    previous success was an hour ago". Without this field the dashboard shows the
+    same ⚪ for "problems just started" and for "everything has been broken for a
+    long time"."""
     row = await (
         await conn.execute(
             """
@@ -184,9 +185,10 @@ async def last_collector_success(conn: AsyncConnection) -> dict | None:
 
 
 def upstream() -> dict:
-    """Що і куди зараз ходить збирач. Не читає БД: сам endpoint береться з
-    settings — джерела правди для того ж collector'а. Клієнт бачить зв'язку
-    «ось цей URL, ось з нього ми качаємо» без здогадок."""
+    """What the collector currently fetches and from where. Does not read the DB:
+    the endpoint comes from settings — the source of truth for the same collector.
+    The client sees the link "this URL, this is where we pull from" without
+    guessing."""
     return {
         "base_url": settings.echerha_base_url,
         "workload_url": settings.workload_url,
@@ -196,10 +198,10 @@ def upstream() -> dict:
 
 
 def services() -> list[dict]:
-    """Список контейнерів зі snapshot. Whitelist полів застосовується ТУТ, не
-    в snapshot-скрипті: навіть якщо host-скрипт випадково запише зайве поле,
-    API нічого зайвого не віддасть. Це classic defence-in-depth — один
-    неувічний коміт у deploy/ не має відкрити канал для утечки env/mounts."""
+    """The list of containers from the snapshot. The field whitelist is applied
+    HERE, not in the snapshot script: even if the host script accidentally writes
+    an extra field, the API exposes nothing extra. Classic defence-in-depth — one
+    careless commit in deploy/ must not open a channel for leaking env/mounts."""
     raw = _snapshot().get("services") or []
     if not isinstance(raw, list):
         return []
@@ -215,15 +217,15 @@ def services() -> list[dict]:
             if field in entry:
                 safe[field] = entry[field]
         out.append(safe)
-    # Стабільний порядок — щоб UI не «стрибав» між композиціями.
+    # Stable order — so the UI does not "jump" between compositions.
     order = ["db", "api", "collector", "notifier", "watchdog", "caddy"]
     out.sort(key=lambda s: order.index(s["name"]) if s["name"] in order else 999)
     return out
 
 
 def docker() -> dict:
-    """Версії docker daemon і compose зі snapshot. Мета — на дашборді видно,
-    коли хост відстає від рекомендованої версії."""
+    """Docker daemon and compose versions from the snapshot. The goal is that the
+    dashboard shows when the host lags behind the recommended version."""
     raw = _snapshot().get("docker") or {}
     if not isinstance(raw, dict):
         return {}
@@ -234,8 +236,8 @@ def docker() -> dict:
 
 
 def inodes() -> dict:
-    """Використання inode. Заповнена filesystem по inode виглядає як «диску
-    ще купа», аж поки не спробуєш створити файл. Тому окремо від diskUsage."""
+    """Inode usage. A filesystem full by inode looks like "plenty of disk left",
+    until you try to create a file. Hence separate from diskUsage."""
     raw = _snapshot().get("inodes") or {}
     if not isinstance(raw, dict):
         return {"total": None, "used": None, "used_percent": None}
@@ -247,15 +249,16 @@ def inodes() -> dict:
 
 
 async def version(conn: AsyncConnection) -> dict:
-    """Ідентифікація версії застосунку на сервері.
+    """Identifying the app version on the server.
 
-    - `app_version` беремо з `__version__` пакета (єдине джерело правди).
-    - `git_sha` — з env `AVELREN_GIT_SHA`, який docker-build проставляє з
-      `SOURCE_COMMIT` (див. Dockerfile). У dev-режимі його може не бути —
-      тоді null, а не «unknown»: клієнт має розрізняти «версія відома, це dev»
-      від «версія була, але зникла».
-    - `migrations_version` — max(version) з `schema_migrations`. Свіжа схема
-      і застарілий код (або навпаки) — головний клас deploy-збоїв.
+    - `app_version` comes from the package's `__version__` (the single source of
+      truth).
+    - `git_sha` — from the env `AVELREN_GIT_SHA`, which docker-build sets from
+      `SOURCE_COMMIT` (see Dockerfile). In dev mode it may be absent — then null,
+      not "unknown": the client must distinguish "version known, this is dev" from
+      "version was there but vanished".
+    - `migrations_version` — max(version) from `schema_migrations`. A fresh schema
+      and stale code (or vice versa) is the main class of deploy failures.
     """
     row = await (
         await conn.execute(
@@ -270,11 +273,11 @@ async def version(conn: AsyncConnection) -> dict:
 
 
 def network() -> dict:
-    """Трафік сервера від старту системи (з host-snapshot).
+    """Server traffic since system start (from the host snapshot).
 
-    Раніше API читав `/host/proc/1/net/dev` напряму — це вимагало mount-у
-    цілого хостового `/proc` у public контейнер. Тепер лічильники беруться зі
-    snapshot, зібраного під root на хості.
+    Previously the API read `/host/proc/1/net/dev` directly — this required
+    mounting the entire host `/proc` into the public container. Now the counters
+    come from the snapshot, collected as root on the host.
     """
     data = dict(_snapshot().get("network") or {})
     data.setdefault("rx_total_gb", 0.0)
@@ -283,44 +286,45 @@ def network() -> dict:
 
 
 def certificate() -> dict:
-    """Термін сертифіката (з host-snapshot).
+    """Certificate expiry (from the host snapshot).
 
-    Раніше цей виклик робив синхронний ssl-handshake напряму з async
-    FastAPI-хендлера — блокував event loop на секунди і давав API мережеву
-    поверхню назовні. Тепер cert перевіряє host-таймер, API лише читає число.
+    Previously this call did a synchronous ssl handshake directly from an async
+    FastAPI handler — it blocked the event loop for seconds and gave the API an
+    outward network surface. Now a host timer checks the cert, the API only reads
+    the number.
     """
     return dict(_snapshot().get("certificate") or {"error": "snapshot missing"})
 
 
 def backups() -> dict:
-    """Свіжість резервних копій (з host-snapshot).
+    """Backup freshness (from the host snapshot).
 
-    Копія, про яку ніхто не дивиться, тихо ламається й лишається зламаною
-    рівно до дня, коли знадобиться.
+    A backup nobody looks at quietly breaks and stays broken right up to the day
+    it is needed.
     """
     return dict(_snapshot().get("backups") or {"last_run": None, "age_hours": None})
 
 
 def snapshot_problem(system_data: dict) -> dict | None:
-    """Синтетична проблема, коли host-snapshot протух або зник.
+    """A synthetic problem when the host snapshot went stale or disappeared.
 
-    Без цього збій telemetry-таймера виглядав би на телефоні як здоровий
-    сервер: поля з відсутнього snapshot стають нулями за замовчуванням, а
-    застосунок ще й пише «Проблем немає». Мовчазний збій моніторингу — гірший
-    за відсутність моніторингу, тож stale має потрапити саме в той список,
-    який користувач читає першим.
+    Without this, a failure of the telemetry timer would look on the phone like a
+    healthy server: fields from a missing snapshot default to zeros, and the app
+    even writes "No problems". A silent monitoring failure is worse than no
+    monitoring, so the stale state must land in exactly the list the user reads
+    first.
 
-    Форма збігається з рядками `health_alerts`, тож клієнту не потрібно нічого
-    знати про нове поле — він відмалює це як звичайну проблему.
+    The shape matches the `health_alerts` rows, so the client does not need to
+    know anything about a new field — it renders this as an ordinary problem.
     """
     if not system_data.get("stale"):
         return None
 
     age = system_data.get("snapshot_age_seconds")
     if age is None:
-        detail = "Host-телеметрія не збирається: snapshot відсутній"
+        detail = "Host telemetry is not being collected: snapshot absent"
     else:
-        detail = f"Host-телеметрія не оновлювалась {age // 60} хв"
+        detail = f"Host telemetry has not updated for {age // 60} min"
 
     return {
         "kind": "telemetry_snapshot_stale",

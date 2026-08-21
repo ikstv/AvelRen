@@ -13,9 +13,9 @@ datastore = "1.1.1"
 coroutinesPlayServices = "1.9.0"
 junit = "4.13.2"
 work = "2.11.2"
-# androidx.activity 1.9 транзитивно тягне старий fragment; lint скаржиться на
-# InvalidFragmentVersionForActivityResult, бо у registerForActivityResult()
-# нижче 1.3.0 був витік стану. Явна залежність фіксує саме нашу версію.
+# androidx.activity 1.9 transitively pulls in an old fragment; lint complains about
+# InvalidFragmentVersionForActivityResult, because in registerForActivityResult()
+# below 1.3.0 there was a state leak. An explicit dependency pins our version.
 fragment = "1.8.5"
 
 [libraries]
@@ -37,11 +37,11 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
-# Task.await(): досі резолвився транзитивно через firebase-messaging-ktx;
-# покладатися на чужі транзитивні залежності — спосіб зламатись при їх оновленні.
+# Task.await(): until now resolved transitively via firebase-messaging-ktx;
+# relying on others' transitive dependencies is a way to break when they update.
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
-# Той самий version key, що й play-services (1.9.0): тримати coroutines-артефакти
-# синхронними, інакше можливий конфлікт версій runtime vs test.
+# The same version key as play-services (1.9.0): keep the coroutines artifacts
+# in sync, otherwise a runtime-vs-test version conflict is possible.
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesPlayServices" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 

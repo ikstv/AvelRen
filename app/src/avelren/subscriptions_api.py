@@ -1,22 +1,22 @@
-"""Ендпоінти підписок, цілей і підтверджень.
+"""Endpoints for subscriptions, targets, and acknowledgements.
 
-**Модель автентифікації.** Реєстрація анонімна: пристрій, а не людина. Кожна
-installation отримує пару `(device_id, device_secret)`. `device_id` — UUID,
-`device_secret` — 32 випадкові байти. У БД зберігається лише SHA-256 hex
-digest секрета, перевірка через `hmac.compare_digest` (constant-time).
-Обґрунтування вибору дайджеста (чому не bcrypt) — у міграції
+**Authentication model.** Registration is anonymous: a device, not a person.
+Each installation gets a `(device_id, device_secret)` pair. `device_id` is a
+UUID, `device_secret` is 32 random bytes. The DB stores only the SHA-256 hex
+digest of the secret, verified via `hmac.compare_digest` (constant-time). The
+rationale for the digest choice (why not bcrypt) is in the migration
 `007_device_secret.sql`.
 
-Стан-змінні запити (POST/PUT/DELETE, /ack, /admin) вимагають ОБОХ заголовків:
-`X-Device-Id` і `X-Device-Secret`. Знання лише UUID саме по собі нічого не дає
-— саме це закриває AUTH-1 (аудит): раніше POST /devices повертав існуючий
-device_id за відомим FCM-токеном, а токен — не секрет (живе на клієнті, в
-логах Google, у крешах). Тепер POST /devices завжди створює НОВУ installation
-і повертає нову пару; знання чужого FCM-токена не дає доступу до чужих
-підписок.
+State-changing requests (POST/PUT/DELETE, /ack, /admin) require BOTH headers:
+`X-Device-Id` and `X-Device-Secret`. Knowing the UUID alone gives nothing — this
+is exactly what closes AUTH-1 (audit): previously POST /devices returned an
+existing device_id for a known FCM token, and a token is not a secret (it lives
+on the client, in Google's logs, in crashes). Now POST /devices always creates a
+NEW installation and returns a new pair; knowing someone else's FCM token grants
+no access to their subscriptions.
 
-Заголовки, а не URL: параметри осідають у логах проксі та в історії, заголовки
-— ні.
+Headers, not the URL: parameters settle in proxy logs and in history, headers
+do not.
 """
 
 import hashlib
@@ -36,39 +36,39 @@ from .schemas import DeviceIn, DeviceOut, EtaTargetIn, SubscriptionIn, TokenIn
 
 router = APIRouter()
 
-# 32 байти ентропії — 43 символи url-safe base64. Достатньо, щоб перебір був
-# нереальний навіть без rate limit на /ack.
+# 32 bytes of entropy — 43 url-safe base64 characters. Enough to make brute force
+# infeasible even without a rate limit on /ack.
 SECRET_BYTES = 32
 
 
 def _hash_secret(secret: str) -> str:
     """SHA-256 hex digest.
 
-    Пояснення вибору — в міграції 007_device_secret.sql: 256-бітний випадковий
-    секрет робить bcrypt зайвим (перебір усе одно нереальний), а bcrypt на
-    кожному захищеному запиті — це готовий CPU-DoS вектор (NEW-AUTH-1).
+    The rationale is in the migration 007_device_secret.sql: a 256-bit random
+    secret makes bcrypt unnecessary (brute force is infeasible anyway), while
+    bcrypt on every protected request is a ready-made CPU-DoS vector (NEW-AUTH-1).
     """
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
 async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
-    """Двофакторна перевірка installation credential.
+    """Two-factor verification of the installation credential.
 
-    Розділяємо помилки коректно: невалідний UUID у заголовку — 400, БД лежить
-    — 503, невірна пара — 401. До цього виправлення (аудит API-1) будь-яке
-    падіння БД читалося як «поганий device id» і клієнт міг вирішити
-    перереєструватися.
+    We separate errors correctly: an invalid UUID in the header — 400, the DB is
+    down — 503, a wrong pair — 401. Before this fix (audit API-1) any DB failure
+    read as a "bad device id" and the client could decide to re-register.
 
-    Порівняння через `hmac.compare_digest` (constant-time), не через
-    `stored == given`: часовий attack на побайтне порівняння тривіальний.
+    Comparison via `hmac.compare_digest` (constant-time), not via
+    `stored == given`: a timing attack on a byte-by-byte comparison is trivial.
     """
     if not x_device_id or not x_device_secret:
         raise HTTPException(
-            status_code=401, detail="Потрібні заголовки X-Device-Id і X-Device-Secret"
+            status_code=401, detail="X-Device-Id and X-Device-Secret headers are required"
         )
-    # try огортає ВЕСЬ `async with connection()` — включно з UPDATE last_seen
-    # і виходом з context manager (commit/close). Без цього падіння БД між
-    # SELECT і UPDATE піде як необроблений 500, а не 503 (API-1).
+    # The try wraps the ENTIRE `async with connection()` — including the UPDATE
+    # last_seen and exiting the context manager (commit/close). Without this, a DB
+    # failure between the SELECT and the UPDATE would go as an unhandled 500, not
+    # a 503 (API-1).
     try:
         async with get_pool().connection() as conn:
             row = await (
@@ -84,31 +84,31 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
             if row is None or not hmac.compare_digest(
                 row["secret_hash"], _hash_secret(x_device_secret)
             ):
-                # І неіснуючий id, і невірний secret ведуть сюди — не
-                # розголошуємо, яка саме частина неправильна, щоб не давати
-                # оракул для перебору.
+                # Both a nonexistent id and a wrong secret lead here — we do not
+                # disclose which part is wrong, so as not to give an oracle for
+                # brute force.
                 raise HTTPException(
-                    status_code=401, detail="Невірні облікові дані пристрою"
+                    status_code=401, detail="Invalid device credentials"
                 )
 
-            # last_seen оновлюємо лише після успішної перевірки — інакше сам
-            # факт оновлення був би оракулом «id існує». Throttle до однієї
-            # години: last_seen потрібен тільки для ознаки «активний за добу»
-            # (is_active), тож немає сенсу писати в devices на КОЖЕН
-            # авторизований запит — інакше звичайний GET перетворюється на
-            # write і створює непотрібне навантаження на БД (аудит MED).
+            # We update last_seen only after a successful check — otherwise the
+            # very fact of the update would be an "id exists" oracle. Throttled to
+            # one hour: last_seen is needed only for the "active in a day"
+            # indicator (is_active), so there is no point writing to devices on
+            # EVERY authorized request — otherwise a regular GET turns into a write
+            # and creates needless load on the DB (audit MED).
             await conn.execute(
                 "UPDATE devices SET last_seen = now() "
                 "WHERE id = %s AND last_seen < now() - INTERVAL '1 hour'",
                 (x_device_id,),
             )
     except HTTPException:
-        # Наші власні 400/401/503 — прокидаємо як є, не мапимо на 503.
+        # Our own 400/401/503 — re-raise as is, do not map to 503.
         raise
     except (InvalidTextRepresentation, DataError):
-        raise HTTPException(status_code=400, detail="Некоректний X-Device-Id") from None
+        raise HTTPException(status_code=400, detail="Invalid X-Device-Id") from None
     except OperationalError as exc:
-        raise HTTPException(status_code=503, detail="БД недоступна") from exc
+        raise HTTPException(status_code=503, detail="DB unavailable") from exc
     return x_device_id
 
 
@@ -119,20 +119,20 @@ async def thresholds() -> dict:
 
 @router.post("/devices", status_code=201)
 async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
-    """Створення installation.
+    """Creating an installation.
 
-    На відміну від попередньої версії, при співпадінні FCM-токена ми НЕ
-    повертаємо id вже існуючого пристрою — саме це було шляхом AUTH-1. Токен
-    переноситься на нову installation (стара залишається сиротою і буде
-    прибрана retention'ом), а клієнт отримує свіжу пару `(id, secret)`.
+    Unlike the previous version, on an FCM-token match we do NOT return the id of
+    an already-existing device — that was exactly the AUTH-1 path. The token is
+    moved to the new installation (the old one is left orphaned and will be
+    cleaned up by retention), and the client gets a fresh `(id, secret)` pair.
     """
     rate_check(request, "write")
     secret = token_urlsafe(SECRET_BYTES)
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # UNIQUE(fcm_token) не дасть залишити токен на двох рядках. Спершу
-            # знімаємо його зі старої installation (якщо був), потім вставляємо
-            # нову з цим самим токеном.
+            # UNIQUE(fcm_token) will not allow the token to stay on two rows.
+            # First we strip it from the old installation (if any), then insert
+            # the new one with this same token.
             if body.fcm_token:
                 await conn.execute(
                     "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s",
@@ -148,8 +148,8 @@ async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
                     (body.fcm_token, body.platform, _hash_secret(secret)),
                 )
             ).fetchone()
-    # Секрет віддається один-єдиний раз. У БД лежить лише хеш — відновити
-    # неможливо, тільки створити нову installation.
+    # The secret is returned exactly once. Only the hash is in the DB —
+    # recovery is impossible, only creating a new installation.
     return DeviceOut(device_id=str(row["id"]), device_secret=secret)
 
 
@@ -164,8 +164,8 @@ async def update_token(
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # Той самий токен може «переходити» з осиротілої installation:
-            # знімаємо, щоб не порушити UNIQUE(fcm_token).
+            # The same token may "migrate" from an orphaned installation:
+            # we strip it so as not to violate UNIQUE(fcm_token).
             await conn.execute(
                 "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s AND id != %s",
                 (body.fcm_token, device_id),
@@ -177,7 +177,7 @@ async def update_token(
     return {"status": "ok"}
 
 
-# --- Функція №1: пороги ---------------------------------------------------
+# --- Feature #1: thresholds ------------------------------------------------
 
 
 @router.get("/subscriptions")
@@ -215,7 +215,7 @@ async def create_subscription(
 ) -> dict:
     rate_check(request, "write")
     if body.threshold not in THRESHOLDS:
-        raise HTTPException(status_code=422, detail=f"Поріг має бути одним із {THRESHOLDS}")
+        raise HTTPException(status_code=422, detail=f"Threshold must be one of {THRESHOLDS}")
     device_id = await _device(x_device_id, x_device_secret)
 
     async with get_pool().connection() as conn:
@@ -223,7 +223,7 @@ async def create_subscription(
             await conn.execute("SELECT 1 FROM checkpoints WHERE id = %s", (body.checkpoint_id,))
         ).fetchone()
         if exists is None:
-            raise HTTPException(status_code=404, detail="Пункт пропуску не знайдено")
+            raise HTTPException(status_code=404, detail="Checkpoint not found")
 
         row = await (
             await conn.execute(
@@ -251,9 +251,10 @@ async def delete_subscription(
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # Enqueue cancel'ів ДО видалення, в одній транзакції: інакше
-            # каскадне видалення прибрало б рядки alert'ів, і телефон лишився б
-            # з ongoing-сповіщенням, яке нема як закрити (аудит A-02).
+            # Enqueue the cancels BEFORE the delete, in one transaction:
+            # otherwise the cascade delete would remove the alert rows, and the
+            # phone would be left with an ongoing notification that cannot be
+            # closed (audit A-02).
             await conn.execute(
                 """
                 INSERT INTO notification_cancels (kind, alert_id, device_id)
@@ -273,7 +274,7 @@ async def delete_subscription(
                 )
             ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="Підписку не знайдено")
+        raise HTTPException(status_code=404, detail="Subscription not found")
 
 
 @router.post("/alerts/{alert_id}/ack")
@@ -283,7 +284,7 @@ async def acknowledge_alert(
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict:
-    """Кнопка «ОК». Після неї повтори припиняються назавжди."""
+    """The "OK" button. After it, repeats stop forever."""
     rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
@@ -300,12 +301,12 @@ async def acknowledge_alert(
                 (alert_id, device_id),
             )
         ).fetchone()
-    # Повторне підтвердження не помилка: користувач міг натиснути двічі, а
-    # застосунок — повторити запит після втрати мережі.
+    # A repeated acknowledgement is not an error: the user may have tapped twice,
+    # and the app may retry the request after losing the network.
     return {"status": "acknowledged" if row else "already_closed"}
 
 
-# --- Reconciliation активних сповіщень (A-02) -----------------------------
+# --- Reconciliation of active notifications (A-02) -------------------------
 
 
 @router.get("/active-alerts")
@@ -313,19 +314,20 @@ async def active_alerts(
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict[str, list[int]]:
-    """Canonical перелік активних (pending) alert'ів пристрою.
+    """Canonical list of the device's active (pending) alerts.
 
-    Клієнт при поверненні у foreground звіряє показані ongoing-сповіщення з
-    цим списком і гасить ті, яких тут немає — гарантія збіжності, коли
-    cancel-push загубився (Doze/offline/force-stop). Сервер лишається єдиним
-    джерелом істини; телефон лише приводить локальний стан до нього.
+    On returning to foreground, the client reconciles the shown ongoing
+    notifications against this list and dismisses those not present here — a
+    convergence guarantee when the cancel-push was lost (Doze/offline/force-stop).
+    The server remains the single source of truth; the phone only brings its
+    local state in line with it.
     """
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         return await cancels.active_alert_keys(conn, device_id)
 
 
-# --- Функція №2: цільовий час вʼїзду --------------------------------------
+# --- Feature #2: target entry time -----------------------------------------
 
 
 @router.get("/eta-targets")
@@ -363,7 +365,7 @@ async def create_eta_target(
 ) -> dict:
     rate_check(request, "write")
     if body.target_at <= datetime.now(UTC):
-        raise HTTPException(status_code=422, detail="Цільовий час має бути в майбутньому")
+        raise HTTPException(status_code=422, detail="The target time must be in the future")
     device_id = await _device(x_device_id, x_device_secret)
 
     async with get_pool().connection() as conn:
@@ -371,7 +373,7 @@ async def create_eta_target(
             await conn.execute("SELECT 1 FROM checkpoints WHERE id = %s", (body.checkpoint_id,))
         ).fetchone()
         if exists is None:
-            raise HTTPException(status_code=404, detail="Пункт пропуску не знайдено")
+            raise HTTPException(status_code=404, detail="Checkpoint not found")
 
         row = await (
             await conn.execute(
@@ -401,8 +403,8 @@ async def delete_eta_target(
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # Дзеркало delete_subscription: enqueue cancel'ів ДО каскадного
-            # видалення, в одній транзакції, зі скоупом за власністю (аудит A-02).
+            # Mirror of delete_subscription: enqueue the cancels BEFORE the
+            # cascade delete, in one transaction, scoped by ownership (audit A-02).
             await conn.execute(
                 """
                 INSERT INTO notification_cancels (kind, alert_id, device_id)
@@ -422,7 +424,7 @@ async def delete_eta_target(
                 )
             ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="Ціль не знайдено")
+        raise HTTPException(status_code=404, detail="Target not found")
 
 
 @router.post("/eta-alerts/{alert_id}/ack")
@@ -449,9 +451,10 @@ async def acknowledge_eta_alert(
             )
         ).fetchone()
         if row:
-            # Ціль виконала призначення. Без цього наступний цикл у тому ж
-            # вікні створив би НОВИЙ алерт (аудит R-05) — а вимога власника
-            # пряма: після ОК сповіщення більше не потрібне.
+            # The target has served its purpose. Without this, the next cycle in
+            # the same window would create a NEW alert (audit R-05) — and the
+            # owner's requirement is direct: after OK the notification is no
+            # longer needed.
             await conn.execute(
                 "UPDATE eta_targets SET is_active = false WHERE id = %s",
                 (row["target_id"],),
@@ -459,7 +462,7 @@ async def acknowledge_eta_alert(
     return {"status": "acknowledged" if row else "already_closed"}
 
 
-# --- Телеметрія (лише для адмін-пристроїв) --------------------------------
+# --- Telemetry (admin devices only) ----------------------------------------
 
 
 @router.get("/admin/telemetry")
@@ -467,11 +470,11 @@ async def admin_telemetry(
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict:
-    """Повний стан сервера.
+    """Full server state.
 
-    Доступ лише пристроям з позначкою `is_admin`: телеметрія розкриває
-    внутрішній устрій — версії, обсяги, свіжість копій. Стороннім це не
-    потрібно, а зловмиснику корисно.
+    Access only for devices marked `is_admin`: telemetry reveals the internal
+    workings — versions, volumes, backup freshness. Outsiders do not need it, and
+    an attacker finds it useful.
     """
     device_id = await _device(x_device_id, x_device_secret)
 
@@ -480,20 +483,21 @@ async def admin_telemetry(
             await conn.execute("SELECT is_admin FROM devices WHERE id = %s", (device_id,))
         ).fetchone()
         if not row or not row["is_admin"]:
-            raise HTTPException(status_code=403, detail="Потрібен адміністративний пристрій")
+            raise HTTPException(status_code=403, detail="An administrative device is required")
 
         system = telemetry.system()
         problems = await telemetry.health_alerts(conn)
 
-        # Протухлий host-snapshot підіймаємо в той самий список проблем:
-        # інакше збій telemetry-таймера виглядає як здоровий сервер із нулями.
+        # A stale host snapshot is surfaced into the same problem list:
+        # otherwise a failure of the telemetry timer looks like a healthy server
+        # with zeros.
         stale = telemetry.snapshot_problem(system)
         if stale is not None:
             problems = [stale, *problems]
 
-        # Розширення (PR-B): нові блоки backward-compatible, ЖОДНЕ існуюче
-        # поле не видалено і не перейменовано — старий Android продовжить
-        # парсити цю відповідь без змін.
+        # Extension (PR-B): the new blocks are backward-compatible, NO existing
+        # field is removed or renamed — an old Android will keep parsing this
+        # response unchanged.
         return {
             "system": system,
             "network": telemetry.network(),

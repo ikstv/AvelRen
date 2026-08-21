@@ -64,21 +64,21 @@ def test_malformed_forwarded_input_falls_back_to_peer(value: str):
 
 
 def test_stale_queues_are_pruned_to_bound_memory():
-    """M-4: черги від клієнтів, що зникли, не мають рости необмежено.
+    """M-4: queues from clients that vanished must not grow unbounded.
 
-    Раніше чистка видаляла лише порожні черги, тож 10k+ разових запитів від
-    різних адрес лишалися в пам'яті назавжди.
+    Previously the cleanup deleted only empty queues, so 10k+ one-off requests
+    from different addresses stayed in memory forever.
     """
     import time
 
     now = time.monotonic()
-    # 10_001 простроченa черга (запис старший за вікно 'read' = 60с) від
-    # клієнтів, що більше не повертаються.
+    # 10_001 stale queues (an entry older than the 'read' window = 60s) from
+    # clients that no longer come back.
     for index in range(10_001):
         ratelimit._hits[f"read:stale-{index}"].append(now - 3600)
 
-    # Свіжий запит переступає межу чистки й тригерить прибирання.
+    # A fresh request crosses the cleanup threshold and triggers pruning.
     ratelimit.check(make_request("203.0.113.50"), "read")
 
-    assert len(ratelimit._hits) < 100  # прострочені вичищені
-    assert "read:203.0.113.50" in ratelimit._hits  # свіжий лишився
+    assert len(ratelimit._hits) < 100  # stale ones cleaned out
+    assert "read:203.0.113.50" in ratelimit._hits  # the fresh one remained

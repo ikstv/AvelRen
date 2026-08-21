@@ -67,6 +67,9 @@ No RTO or RPO is asserted here; neither has been approved.
 
 ## Backup selection and integrity
 
+> Restore rehearsal on an isolated bench — `docs/restore-rehearsal.md`
+> (performed on a production artifact 2026-08-17).
+
 1. Select the intended daily, weekly, or monthly artifact.
 2. Retrieve it through the configured `gdrive-crypt` remote.
 3. Retrieve and compare its `.sha256` sidecar.

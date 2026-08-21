@@ -6,26 +6,26 @@ import java.time.Instant
 import java.time.OffsetDateTime
 
 /**
- * Чиста логіка живого оновлення даних черги (AND-4), винесена з Compose заради
- * JVM-тестування. Compose лише запускає/скасовує [poll] через `repeatOnLifecycle`
- * і малює [Freshness]; уся поведінка — тут.
+ * Pure logic for live-refreshing the queue data (AND-4), extracted from Compose
+ * for JVM testing. Compose only starts/cancels [poll] via `repeatOnLifecycle`
+ * and draws [Freshness]; all the behavior is here.
  */
 object LiveRefresh {
 
-    /** Період автооновлення у foreground. */
+    /** Auto-refresh interval in the foreground. */
     const val INTERVAL_MS: Long = 60_000
 
-    /** Дані вважаються застарілими після 3 циклів збору (3×60 c) без свіжого
-     *  observation — узгоджено з частотою збирача, без backend-зміни. */
+    /** Data is considered stale after 3 collection cycles (3×60 s) without a fresh
+     *  observation — aligned with the collector's frequency, without a backend change. */
     const val STALE_AFTER_SECONDS: Long = 180
 
     data class Freshness(val label: String, val stale: Boolean)
 
     /**
-     * Оцінка свіжості за server observation time (НЕ за часом HTTP-запиту).
-     * `null` або нерозбірний час → невідомо + stale. Викликач передає `time`
-     * саме обраного КПП; якщо той зник зі snapshot — теж передає `null`, і ми
-     * НЕ підміняємо його чужим часом.
+     * Freshness estimate by server observation time (NOT by the HTTP request time).
+     * `null` or an unparseable time → unknown + stale. The caller passes the `time`
+     * of the selected checkpoint specifically; if it disappeared from the snapshot
+     * it passes `null` too, and we do NOT substitute someone else's time for it.
      */
     fun freshness(
         observationIso: String?,
@@ -42,18 +42,19 @@ object LiveRefresh {
     }
 
     /**
-     * Keep-last-on-error: при успіху — нові дані, при помилці — попередній
-     * валідний snapshot (ніколи не затираємо його порожнім/`null`). Workload і
-     * forecast застосовують це незалежно, тож збій одного не блокує інший.
+     * Keep-last-on-error: on success — new data, on error — the previous valid
+     * snapshot (we never overwrite it with empty/`null`). Workload and forecast
+     * apply this independently, so a failure of one does not block the other.
      */
     fun <T> keepOnError(previous: T, attempt: Result<T>): T =
         attempt.getOrDefault(previous)
 
     /**
-     * Keep-last для forecast, прив'язаний саме до обраного КПП. Інакше повільний
-     * або впалий запит forecast нового КПП залишив би на екрані прогноз
-     * попереднього — а під карткою вже інший пункт (люди на цьому планують час).
-     * Cached приймаємо лише якщо він того ж checkpoint, що й обраний.
+     * Keep-last for the forecast, bound specifically to the selected checkpoint.
+     * Otherwise a slow or failed forecast request for a new checkpoint would leave
+     * the previous one's forecast on screen — while the card already shows a
+     * different point (people plan their time by this). We accept the cached value
+     * only if it belongs to the same checkpoint as the selected one.
      */
     fun scopedForecast(
         previous: Api.Forecast?,
@@ -65,10 +66,10 @@ object LiveRefresh {
     }
 
     /**
-     * Foreground-цикл: refresh ОДРАЗУ, потім кожні [intervalMs]. Скасування
-     * корутини зупиняє подальші оновлення. `repeatOnLifecycle(RESUMED)` у
-     * Compose запускає це при вході/поверненні (миттєвий refresh) і скасовує при
-     * згортанні.
+     * Foreground loop: refresh IMMEDIATELY, then every [intervalMs]. Cancelling
+     * the coroutine stops further refreshes. `repeatOnLifecycle(RESUMED)` in
+     * Compose starts this on entry/return (an immediate refresh) and cancels it on
+     * backgrounding.
      */
     suspend fun poll(intervalMs: Long = INTERVAL_MS, refresh: suspend () -> Unit) {
         while (true) {

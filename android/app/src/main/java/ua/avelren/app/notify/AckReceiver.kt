@@ -12,12 +12,13 @@ import ua.avelren.app.data.Api
 import ua.avelren.app.data.Timeouts
 
 /**
- * Кнопка «ОК» зі шторки.
+ * The "OK" button from the notification shade.
  *
- * Сповіщення гасимо одразу, не чекаючи на відповідь сервера: користувач
- * натиснув — воно має зникнути негайно, інакше здається зламаним. Якщо запит
- * не пройде, сервер надішле пуш ще раз через п'ять хвилин, і нічого не
- * загубиться. Повторне підтвердження сервер сприймає спокійно.
+ * We dismiss the notification immediately, without waiting for the server's
+ * response: the user tapped — it must disappear at once, otherwise it seems
+ * broken. If the request does not go through, the server will send the push
+ * again in five minutes, and nothing is lost. The server takes a repeated
+ * acknowledgement calmly.
  */
 class AckReceiver : BroadcastReceiver() {
 
@@ -28,9 +29,9 @@ class AckReceiver : BroadcastReceiver() {
 
         Notifications.cancel(context, kind, alertId)
 
-        // Локальне сповіщення вже погашено. Серверний ACK — через repository
-        // (централізований 401-recovery). Якщо немає installation або запит
-        // не пройде, сервер повторить пуш — нічого не губиться.
+        // The local notification is already dismissed. The server ACK goes through
+        // the repository (centralized 401 recovery). If there is no installation or
+        // the request does not go through, the server will repeat the push — nothing is lost.
         val app = context.applicationContext as? AvelRenApp ?: return
         val pending = goAsync()
         app.launchInScope {

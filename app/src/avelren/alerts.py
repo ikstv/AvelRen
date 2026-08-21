@@ -1,9 +1,9 @@
-"""Виявлення перетину порога чергою.
+"""Detecting a queue crossing a threshold.
 
-Спрацьовує лише на зростання: «черга зросла до 50» — новина, «впала до 50» — ні.
+Fires only on growth: "the queue grew to 50" is news, "fell to 50" is not.
 
-Стан тримає сервер, а не телефон, тому сповіщення переживає перезавантаження
-пристрою й вбивство застосунку.
+The state lives on the server, not the phone, so a notification survives a
+device reboot and the app being killed.
 """
 
 import logging
@@ -19,10 +19,10 @@ THRESHOLDS = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]
 
 
 async def evaluate(conn: AsyncConnection, items: list[WorkloadItem]) -> int:
-    """Створює алерти для підписок, чий поріг щойно перетнуто вгору.
+    """Create alerts for subscriptions whose threshold was just crossed upward.
 
-    Викликається одразу після запису спостережень: значення вже в пам'яті.
-    Повертає кількість створених алертів.
+    Called right after observations are written: the values are already in
+    memory. Returns the number of alerts created.
     """
     if not items:
         return 0
@@ -48,8 +48,8 @@ async def evaluate(conn: AsyncConnection, items: list[WorkloadItem]) -> int:
         threshold = sub["threshold"]
 
         if vehicles < threshold:
-            # Черга нижче порога — перезаряджаємо, але тільки з запасом,
-            # інакше дрібні коливання на межі будили б щохвилини.
+            # Queue below the threshold — re-arm, but only with a margin,
+            # otherwise small fluctuations at the edge would wake every minute.
             if not sub["is_armed"] and vehicles < threshold * settings.rearm_factor:
                 await _rearm(conn, sub["id"])
             continue
@@ -60,15 +60,15 @@ async def evaluate(conn: AsyncConnection, items: list[WorkloadItem]) -> int:
         created += await _fire(conn, sub["id"], sub["checkpoint_id"], threshold, vehicles)
 
     if created:
-        log.info("створено алертів: %s", created)
+        log.info("alerts created: %s", created)
     return created
 
 
 async def _fire(
     conn: AsyncConnection, subscription_id: int, checkpoint_id: int, threshold: int, vehicles: int
 ) -> int:
-    # Часткові унікальні індекси не працюють з ON CONFLICT без явного предиката,
-    # тож перевіряємо наявність незакритого алерта прямо.
+    # Partial unique indexes do not work with ON CONFLICT without an explicit
+    # predicate, so we check for an open alert directly.
     cur = await conn.execute(
         """
         INSERT INTO alerts
@@ -96,7 +96,7 @@ async def _fire(
         (subscription_id,),
     )
     log.info(
-        "поріг %s перетнуто на КПП %s: %s авто, алерт %s",
+        "threshold %s crossed at checkpoint %s: %s vehicles, alert %s",
         threshold,
         checkpoint_id,
         vehicles,
@@ -117,14 +117,15 @@ async def _rearm(conn: AsyncConnection, subscription_id: int) -> None:
 
 
 async def expire_stale(conn: AsyncConnection) -> int:
-    """Закриває непідтверджені алерти, чия черга вже впала нижче порога.
+    """Close unacknowledged alerts whose queue has already fallen below the threshold.
 
-    Будити людину новиною про чергу, якої більше немає, — шкода, а не користь.
+    Waking a user with news of a queue that no longer exists is harm, not help.
 
-    Перехід pending → expired і enqueue cancel'а йдуть однією транзакцією
-    (CTE): інакше падіння процесу між ними лишило б телефон із ongoing-
-    сповіщенням, яке сервер уже закрив (аудит A-02). Cancel enqueue-иться
-    незалежно від send_count — див. cancels / міграцію 008.
+    The pending → expired transition and the cancel enqueue go in one
+    transaction (CTE): otherwise a process crash between them would leave the
+    phone with an ongoing notification the server has already closed (audit
+    A-02). The cancel is enqueued regardless of send_count — see cancels /
+    migration 008.
     """
     cur = await conn.execute(
         """
@@ -154,5 +155,5 @@ async def expire_stale(conn: AsyncConnection) -> int:
     )
     rows = await cur.fetchall()
     if rows:
-        log.info("закрито алертів, бо черга впала: %s", len(rows))
+        log.info("alerts closed because the queue fell: %s", len(rows))
     return len(rows)

@@ -1,12 +1,12 @@
-# Caddy сам отримує й оновлює сертифікат Let's Encrypt для цього імені.
+# Caddy obtains and renews the Let's Encrypt certificate for this name on its own.
 https://api.bordersignal.pp.ua {
 	encode gzip
 
 	handle /api/* {
-		# Обмежуємо тіло запиту до того, як воно потрапить в API: неавтен-
-		# тифікований POST /devices читає тіло в памʼять, тож без стелі один
-		# великий запит — дешевий спосіб з'їсти памʼять. 64KB із запасом
-		# покриває найбільший легітимний payload (реєстрація/підписки).
+		# Cap the request body before it reaches the API: the unauthenticated
+		# POST /devices reads the body into memory, so without a ceiling a
+		# single large request is a cheap way to exhaust memory. 64KB with
+		# headroom covers the largest legitimate payload (registration/subscriptions).
 		request_body {
 			max_size 64KB
 		}
@@ -23,8 +23,8 @@ https://api.bordersignal.pp.ua {
 	}
 }
 
-# Доступ по голому IP лишаємо для діагностики з самого сервера, але без
-# HTTPS: сертифікат на IP-адресу не випишеш, а застосунок ходить на домен.
+# We keep bare-IP access for diagnostics from the server itself, but without
+# HTTPS: you can't issue a certificate for an IP address, and the app talks to the domain.
 :80 {
 	redir https://{host}{uri} permanent
 }
