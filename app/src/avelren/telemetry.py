@@ -95,6 +95,30 @@ def system() -> dict:
     return data
 
 
+async def alert_channel(conn: AsyncConnection) -> str:
+    """Can the watchdog's alert channel reach anyone? (#113)
+
+    "empty" — there is no admin device with a live FCM token, so the watchdog
+    physically cannot deliver a health alert. This state is itself an alarm, but
+    it cannot be delivered through the very channel that is empty — so an EXTERNAL
+    black-box monitor reads this from the public /health and raises the alarm from
+    outside the stack.
+
+    A single BIT, deliberately: the exact count is admin-only telemetry (it would
+    otherwise leak the size and dynamics of the admin fleet to anyone).
+
+    This catches "empty" (no token at all), NOT "dead": an admin whose FCM token
+    is present but expired reads as "ok" here — a dead token is an ack concern
+    (#19), a different failure with a different fix.
+    """
+    row = await (
+        await conn.execute(
+            "SELECT count(*) FILTER (WHERE is_admin AND fcm_token IS NOT NULL) AS n FROM devices"
+        )
+    ).fetchone()
+    return "ok" if row and row["n"] > 0 else "empty"
+
+
 async def pipeline(conn: AsyncConnection) -> dict:
     """State of the data pipeline: the thing the server exists for."""
     row = await (
@@ -114,6 +138,8 @@ async def pipeline(conn: AsyncConnection) -> dict:
                   WHERE time > now() - INTERVAL '1 hour' AND error IS NULL)
                                                         AS successful_runs_last_hour,
                 (SELECT count(*) FROM devices)                            AS devices,
+                (SELECT count(*) FROM devices
+                  WHERE is_admin AND fcm_token IS NOT NULL)                AS admins_with_token,
                 (SELECT count(*) FROM subscriptions WHERE is_active)      AS subscriptions,
                 (SELECT count(*) FROM eta_targets WHERE is_active)        AS eta_targets,
                 (SELECT count(*) FROM alerts WHERE status = 'pending')    AS alerts_pending,
