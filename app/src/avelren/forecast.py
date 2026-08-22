@@ -108,6 +108,28 @@ async def forecast(
     rows = await (
         await conn.execute(
             """
+            -- clean_hourly is observations_hourly recomputed inline with ONE added
+            -- filter: rows where a queue exists yet wait is reported as zero
+            -- (wait=0 AND vehicles>0) are physically impossible — a missing source
+            -- estimate written as a measured 0 (#111) — and they drag the median
+            -- down. Everything else is copied verbatim from the continuous
+            -- aggregate's definition (db/migrations/001_init.sql): the same
+            -- time_bucket (UTC; Kyiv is applied downstream, not here) and the same
+            -- ::integer averages, so on data without contamination this is
+            -- byte-identical to reading observations_hourly, and `samples` keeps
+            -- meaning weekly hour-repeats (the readiness gate stays intact).
+            -- is_paused is deliberately NOT folded in here — that is a separate,
+            -- explicit decision (see api.py / eta.py), left open in #111.
+            WITH clean_hourly AS (
+                SELECT
+                    time_bucket(INTERVAL '1 hour', time) AS bucket,
+                    avg(wait_time_seconds)::integer AS avg_wait_seconds,
+                    avg(vehicles_in_queue)::integer AS avg_vehicles
+                FROM observations
+                WHERE checkpoint_id = %s AND time >= %s
+                  AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
+                GROUP BY bucket
+            )
             SELECT
                 EXTRACT(dow  FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
                 EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour,
@@ -116,8 +138,7 @@ async def forecast(
                 percentile_cont(0.75) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p75,
                 percentile_cont(0.50) WITHIN GROUP (ORDER BY avg_vehicles)     AS vehicles,
                 count(*) AS samples
-            FROM observations_hourly
-            WHERE checkpoint_id = %s AND bucket >= %s
+            FROM clean_hourly
             GROUP BY dow, hour
             """,
             (checkpoint_id, since),
@@ -166,12 +187,24 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
     row = await (
         await conn.execute(
             """
-            WITH actual AS (
+            -- Same clean_hourly as forecast(): observations_hourly recomputed with
+            -- the #111 contamination filter. The server-owned lower bound now sits
+            -- on the raw `time` column (audit #16 intent unchanged — still finite
+            -- and server-set), because the aggregate is built here rather than read.
+            WITH clean_hourly AS (
+                SELECT
+                    time_bucket(INTERVAL '1 hour', time) AS bucket,
+                    avg(wait_time_seconds)::integer AS avg_wait_seconds
+                FROM observations
+                WHERE checkpoint_id = %s AND time >= %s
+                  AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
+                GROUP BY bucket
+            ),
+            actual AS (
                 SELECT bucket, avg_wait_seconds,
                        EXTRACT(dow  FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
                        EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour
-                FROM observations_hourly
-                WHERE checkpoint_id = %s AND bucket >= %s
+                FROM clean_hourly
             ),
             predicted AS (
                 SELECT dow, hour,

@@ -38,8 +38,11 @@ def test_evaluate_query_is_time_bounded() -> None:
     assert spy.calls, "evaluate must run a query"
     sql, params = spy.calls[0]
 
-    # A lower time bound is present in the SQL...
-    assert "bucket >=" in sql.lower(), "the evaluate query must bound bucket from below"
+    # A lower time bound is present in the SQL. Since #111 the aggregate is
+    # recomputed inline from raw `observations` (clean_hourly), so the server-owned
+    # bound now sits on the raw `time` column rather than the view's `bucket` —
+    # same #16 intent (finite, server-set), different column.
+    assert "time >=" in sql.lower(), "the evaluate query must bound time from below"
     # ...and is passed as a server-owned since parameter, not from the client.
     assert len(params) >= 2, "a since parameter must be passed"
     since = next((p for p in params if isinstance(p, datetime)), None)

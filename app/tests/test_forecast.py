@@ -118,3 +118,89 @@ def test_status_thresholds(status, expected):
     """The state boundaries must not drift unnoticed during edits."""
     assert (forecast.MIN_SAMPLES_PRELIMINARY < forecast.MIN_SAMPLES_READY) is True
     assert forecast.MIN_SAMPLES_READY == 8
+
+
+# --- #111: forecast reads observations_hourly recomputed with a contamination
+# filter (wait=0 AND vehicles>0). The two tests below are the load-bearing ones.
+
+# The percentile+bucketing the fix reproduces from observations_hourly's own
+# definition. `_OLD` reads the continuous aggregate (the pre-#111 source);
+# `_NEW` recomputes it inline with the one added filter — the same SQL the fix
+# uses. Comparing them is comparing "before" and "after" on identical data.
+_OLD = """
+    SELECT EXTRACT(dow  FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
+           EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour,
+           percentile_cont(0.50) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p50,
+           count(*) AS samples
+    FROM observations_hourly WHERE checkpoint_id = %s GROUP BY dow, hour ORDER BY dow, hour
+"""
+_NEW = """
+    WITH clean_hourly AS (
+        SELECT time_bucket(INTERVAL '1 hour', time) AS bucket,
+               avg(wait_time_seconds)::integer AS avg_wait_seconds
+        FROM observations
+        WHERE checkpoint_id = %s
+          AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
+        GROUP BY bucket
+    )
+    SELECT EXTRACT(dow  FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
+           EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour,
+           percentile_cont(0.50) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p50,
+           count(*) AS samples
+    FROM clean_hourly GROUP BY dow, hour ORDER BY dow, hour
+"""
+
+
+def _seed(conn, cid, rows):
+    conn.cursor().executemany(
+        "INSERT INTO observations (time, checkpoint_id, wait_time_seconds, "
+        "vehicles_in_queue, is_paused) VALUES (%s, %s, %s, %s, false)",
+        [(t, cid, w, v) for (t, w, v) in rows],
+    )
+    # observations_hourly is a continuous aggregate — the pre-#111 source reads
+    # nothing until it is materialised. autocommit (conftest) lets refresh run.
+    conn.execute("CALL refresh_continuous_aggregate('observations_hourly', NULL, NULL)")
+
+
+def _bucket(day: int, hour: int, minute: int) -> datetime:
+    # Recent, inside LOOKBACK_WEEKS; minute varies so a bucket holds several raw rows.
+    base = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    return base - timedelta(days=day) + timedelta(hours=hour, minutes=minute)
+
+
+def test_clean_hourly_is_byte_identical_without_contamination(conn, checkpoint):
+    """The fix must change exactly one thing. With no contaminated row present,
+    the recomputed clean_hourly must equal the continuous aggregate the forecast
+    used before — same buckets, same ::integer averages, same percentiles. A
+    difference here means the bucketing, the timezone, or the weighting moved."""
+    rows = []
+    for day in (2, 9, 16):  # three weekly repeats of one slot
+        for minute, wait in ((5, 600), (25, 1200), (45, 1800)):  # veh always > 0
+            rows.append((_bucket(day, 8, minute), wait, 4))
+    _seed(conn, checkpoint, rows)
+
+    old = conn.execute(_OLD, (checkpoint,)).fetchall()
+    new = conn.execute(_NEW, (checkpoint,)).fetchall()
+    assert new == old, "clean_hourly diverged from observations_hourly on clean data"
+    assert old, "fixture must produce at least one slot"
+
+
+def test_contamination_pulls_the_old_median_below_the_clean_one(conn, checkpoint):
+    """The defect and its fix, in one comparison. Rows with wait=0 while a queue
+    exists drag the aggregate median down; removing them raises it. If the filter
+    were absent (new == old) this test is red — which is the point."""
+    rows = []
+    for day in (2, 9, 16):
+        # Real signal in the bucket: a genuine wait with a queue.
+        rows.append((_bucket(day, 8, 5), 1800, 5))
+        rows.append((_bucket(day, 8, 25), 1800, 5))
+        # Contamination: a queue exists, yet wait is reported as 0.
+        rows.append((_bucket(day, 8, 45), 0, 5))
+    _seed(conn, checkpoint, rows)
+
+    old = conn.execute(_OLD, (checkpoint,)).fetchall()
+    new = conn.execute(_NEW, (checkpoint,)).fetchall()
+    assert old and new, "both queries must return the slot"
+    assert new[0]["p50"] > old[0]["p50"], (
+        f"clean median {new[0]['p50']} must exceed contaminated {old[0]['p50']}"
+    )
