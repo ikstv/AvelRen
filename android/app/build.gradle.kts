@@ -1,9 +1,21 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.google.services)
+}
+
+// Signing config is loaded from a gitignored keystore.properties (see
+// docs/release-signing.md). The file is absent in CI and on machines without
+// the upload key, so the release signingConfig is created only when it exists;
+// a debug/unsigned assemble still works everywhere.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) load(FileInputStream(keystorePropsFile))
 }
 
 android {
@@ -22,10 +34,31 @@ android {
         buildConfigField("String", "API_BASE_URL", "\"https://api.bordersignal.pp.ua/api\"")
     }
 
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProps["storeFile"] as String)
+                storePassword = keystoreProps["storePassword"] as String
+                keyAlias = keystoreProps["keyAlias"] as String
+                keyPassword = keystoreProps["keyPassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // First release ships unminified on purpose: minify + resource
+            // shrinking need a ProGuard pass verified on-device (ktor +
+            // kotlinx.serialization + Firebase use reflection). The rules are
+            // already staged in proguard-rules.pro, so enabling this later is a
+            // one-line flip once a device run confirms every screen. See
+            // docs/release-signing.md.
             isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (keystorePropsFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
