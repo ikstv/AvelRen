@@ -2,6 +2,14 @@
 https://api.bordersignal.pp.ua {
 	encode gzip
 
+	# Static privacy policy for the Play Console listing. Served from a
+	# read-only bind mount (see docker-compose.yml). No API involvement.
+	handle /privacy {
+		root * /srv/static
+		try_files /privacy-policy.html
+		file_server
+	}
+
 	handle /api/* {
 		# Cap the request body before it reaches the API: the unauthenticated
 		# POST /devices reads the body into memory, so without a ceiling a
