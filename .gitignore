@@ -73,3 +73,4 @@ dist/
 # design-system/ — that directory IS tracked: it is the ROAD SIGN source of
 # truth the Compose code is written against, and it must survive this machine.
 design-system.zip
+_architect/

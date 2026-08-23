@@ -7,7 +7,7 @@ grant any production authorization. See the README section "Operational
 authorization boundary" and `docs/disaster-recovery.md` for the hard operational
 boundary.
 
-The full current-state analysis lives in `AUDIT-2026-08-15.md` — this snapshot
+The full current-state analysis lives in `docs/audits/AUDIT-2026-08-15.md` — this snapshot
 is the short index over it.
 
 ## Canonical baseline
@@ -29,7 +29,7 @@ Three root-cause classes, all fixed with regression tests: leftover
 `restore_test` database (now refused by name pre-mutation, #62), a privilege
 gate that could not run anywhere (`--noconftest`, contract now executed in CI,
 #68), and the adopt.sh-vs-compose DSN model split (legacy-DSN restart overlay,
-PR #80). Full narrative and findings: `AUDIT-2026-08-15.md` §1.
+PR #80). Full narrative and findings: `docs/audits/AUDIT-2026-08-15.md` §1.
 
 ## Production state (informational, changes only via explicit GO gates)
 
