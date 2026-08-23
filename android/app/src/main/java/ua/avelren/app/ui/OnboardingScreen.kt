@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -41,11 +42,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -129,7 +135,7 @@ fun OnboardingScreen(
                 OnboardingStep.INSTRUCTIONS -> InstructionsBody()
             }
 
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(16.dp))
 
             when (step) {
                 OnboardingStep.DISCLAIMER -> GlassButton(
@@ -201,21 +207,138 @@ private fun OnboardingHeader(version: String) {
 }
 
 @Composable
-private fun DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) {
-    Spacer(Modifier.height(40.dp))
-    Text(
-        "Це мій перший додаток, який я створив сам, — для детального " +
-            "моніторингу черг на кордоні. Проєкт ще у розробці й тестуванні — " +
-            "можливі неточності, тож не варто повністю покладатись на додаток",
-        color = Color(0xD9FFFFFF),
-        fontSize = 12.5.sp,
-        lineHeight = 18.sp,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Spacer(Modifier.height(10.dp))
-    Hairline()
+private fun ColumnScope.DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) {
+    Spacer(Modifier.height(20.dp))
+    // Скляна панель того ж стилю, що й крок «Інструкція»: заголовок →
+    // бета-попередження (рамка SignWarn) → політика → клікабельний лінк.
+    // Прокручується всередині; чекбокс лишається під панеллю, завжди видимий.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .weight(1f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(GlassBgSoft)
+            .border(1.dp, GlassBorderSoft, RoundedCornerShape(16.dp))
+            .padding(18.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Text(
+            "Важливо перед початком",
+            color = OnInk,
+            fontWeight = FontWeight.Black,
+            fontSize = 26.sp,
+            lineHeight = 30.sp,
+        )
+        Spacer(Modifier.height(16.dp))
+
+        // Бета-попередження — виділене рамкою SignWarn (жовтий акцент дизайну).
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, SignWarn, RoundedCornerShape(12.dp))
+                .padding(14.dp),
+        ) {
+            Text(
+                "Застосунок працює в режимі бета-тестування",
+                color = SignWarn,
+                fontWeight = FontWeight.Black,
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "AvelRen перебуває в активній розробці: ми перевіряємо " +
+                    "стабільність сервісу та точність показників. У цей період " +
+                    "можливі неточності даних, затримки сповіщень і тимчасові " +
+                    "перерви в роботі.",
+                color = OnInk,
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Використовуйте застосунок як допоміжний інструмент. Не " +
+                    "плануйте перетин кордону, покладаючись лише на його дані, — " +
+                    "звіряйтеся з офіційними джерелами. Розробник не несе " +
+                    "відповідальності за рішення, ухвалені виключно на підставі " +
+                    "показників застосунку.",
+                color = OnInk,
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+            )
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            "Політика конфіденційності",
+            color = OnInk,
+            fontWeight = FontWeight.Black,
+            fontSize = 18.sp,
+            lineHeight = 22.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Застосунок не збирає персональних даних: ми не знаємо вашого " +
+                "імені, e-mail, номера телефону чи місцезнаходження.",
+            color = Color(0xE6FFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Для роботи сервісу зберігаються лише:",
+            color = Color(0xE6FFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        PolicyBullet("випадковий ідентифікатор пристрою, згенерований застосунком")
+        PolicyBullet("токен push-сповіщень (FCM) — щоб доставляти обрані вами сповіщення")
+        PolicyBullet("ваші підписки: пункти пропуску, пороги, бажаний час в'їзду")
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Ці дані використовуються виключно для роботи застосунку і не " +
+                "передаються третім сторонам. Передавання — лише захищеним " +
+                "з'єднанням (HTTPS), резервні копії шифруються.",
+            color = Color(0xE6FFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Видалення застосунку розриває зв'язок пристрою із сервісом. Щоб " +
+                "повністю видалити дані пристрою з сервера, напишіть на " +
+                "vtanko2019@gmail.com — видалимо впродовж 30 днів.",
+            color = Color(0xE6FFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+        val policyLink = buildAnnotatedString {
+            append("Повний текст політики: ")
+            withLink(
+                LinkAnnotation.Url(
+                    "https://api.bordersignal.pp.ua/privacy",
+                    TextLinkStyles(
+                        style = SpanStyle(
+                            color = SignWarn,
+                            textDecoration = TextDecoration.Underline,
+                        ),
+                    ),
+                )
+            ) {
+                append("api.bordersignal.pp.ua/privacy")
+            }
+        }
+        Text(policyLink, color = Color(0xE6FFFFFF), fontSize = 13.sp, lineHeight = 19.sp)
+    }
+
     Spacer(Modifier.height(14.dp))
+    // Підтвердження згоди — поза скрол-панеллю, завжди на видноті над кнопкою.
     Row(
         Modifier.fillMaxWidth().tapNoRipple(onClick = onToggleAck),
         horizontalArrangement = Arrangement.Center,
@@ -237,7 +360,7 @@ private fun DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) {
         }
         Spacer(Modifier.width(9.dp))
         Text(
-            "ОЗНАЙОМИВСЯ",
+            "ОЗНАЙОМИВСЯ Й ПРИЙМАЮ",
             color = OnInk,
             fontWeight = FontWeight.Bold,
             fontSize = 11.sp,
@@ -247,11 +370,30 @@ private fun DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) {
 }
 
 @Composable
-private fun InstructionsBody() {
+private fun PolicyBullet(text: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text("•", color = SignWarn, fontSize = 13.sp, lineHeight = 19.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text,
+            color = Color(0xE6FFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ColumnScope.InstructionsBody() {
     Spacer(Modifier.height(20.dp))
     Column(
         Modifier
             .fillMaxWidth()
+            .weight(1f)
             .clip(RoundedCornerShape(16.dp))
             .background(GlassBgSoft)
             .border(1.dp, GlassBorderSoft, RoundedCornerShape(16.dp))
@@ -299,16 +441,6 @@ private fun InstructionsBody() {
             color = Color(0xCCFFFFFF),
             fontSize = 13.sp,
             lineHeight = 19.sp,
-        )
-        Spacer(Modifier.height(14.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
-        Spacer(Modifier.height(14.dp))
-        Text(
-            "У майбутньому більшість цих функцій стануть доступні лише в " +
-                "платній версії додатку",
-            color = SignWarn,
-            fontSize = 12.sp,
-            lineHeight = 18.sp,
         )
     }
 }
