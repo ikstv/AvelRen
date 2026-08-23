@@ -82,7 +82,7 @@ This is not a reason to stop, but it must be recorded explicitly in the report.
 > Why `git status` must be empty: not because it blocks the rehearsal (it does not
 > block it), but because a dirty tree will block `postgres-adopt.sh` later anyway
 > — better to find out now. See "Clean-worktree invariant" in
-> `deploy/postgres-adoption-runbook.md`.
+> `postgres-adoption-runbook.md` (private AvelRen-ops).
 
 ---
 
@@ -236,7 +236,7 @@ Practical consequences, each verified by the commands above:
 SHA is an error.
 
 The production database is at **009** deliberately (`010` is stamped only at 3D —
-`deploy/postgres-adoption-runbook.md`). If you mount the full `db/migrations` into the bench,
+`postgres-adoption-runbook.md` (private AvelRen-ops)). If you mount the full `db/migrations` into the bench,
 the check is guaranteed to fail with:
 
 ```

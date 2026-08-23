@@ -4,8 +4,8 @@
 # Default is an empty string: better a null on the client than a fake "unknown"
 # (see N5 review #34).
 #
-# The deploy runbook (`deploy/schema-gate-deploy.md`) exports the variable before
-# the build:
+# The deploy runbook (`schema-gate-deploy.md` in the private AvelRen-ops repo)
+# exports the variable before the build:
 #   export SOURCE_COMMIT=$(git rev-parse HEAD)
 #   sudo -E docker compose build migrate
 # Without `sudo -E` the env variable does not reach docker compose under sudo.

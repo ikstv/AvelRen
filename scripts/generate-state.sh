@@ -9,7 +9,8 @@
 #
 # Division of labor after this script:
 #   PROJECT_STATUS.md — policy only: authorization boundaries, procedures,
-#                       bring-up. Changes rarely and deliberately, by a human.
+#                       bring-up. Lives in the private AvelRen-ops repo (it names
+#                       production specifics). Changes rarely, by a human.
 #   STATE.md          — state only. Nobody writes it, so it cannot lie.
 #   deploy/PROD_PIN   — the ONE volatile fact git cannot know: the commit prod
 #                       sits on. One line, updated by the operator during a
@@ -61,7 +62,8 @@ emit() {
 
 <!-- DO NOT EDIT BY HAND. This file is fully overwritten by
      scripts/generate-state.sh. Policy and authorization boundaries live in
-     PROJECT_STATUS.md; only what is derived from git and gh lands here. -->
+     PROJECT_STATUS.md (private AvelRen-ops repo); only what is derived from git
+     and gh lands here. -->
 
 Generated from \`main\` @ \`$MAIN_SHORT\`.
 
