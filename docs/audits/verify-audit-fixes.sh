@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Full verification of the 2026-08-12 audit fixes. Run FROM THE ROOT of the
-# AvelRen repository on the server (or anywhere with Docker + Python3):
+# Full verification of the 2026-08-12 audit fixes. The script lives in
+# docs/audits/ but must run against the repository root (it cd's there itself),
+# on the server or anywhere with Docker + Python3:
 #
-#     bash verify-audit-fixes.sh          # fast checks (safe, ~a minute)
-#     bash verify-audit-fixes.sh --full   # + the full backend suite (spins up
-#                                          #   a disposable test DB via compose)
+#     bash docs/audits/verify-audit-fixes.sh          # fast checks (safe, ~a minute)
+#     bash docs/audits/verify-audit-fixes.sh --full   # + the full backend suite
+#                                                      #   (disposable test DB via compose)
 #
 # Touches no production data: the contract tests are fakeable, and the backend
 # suite brings up an isolated disposable DB with an env guard. Prints a PASS/FAIL
 # summary.
 set -uo pipefail
 
-cd "$(dirname "$0")"
+# Script lives in docs/audits/; operate from the repository root two levels up.
+cd "$(dirname "$0")/../.."
 FULL=0
 [ "${1:-}" = "--full" ] && FULL=1
 
