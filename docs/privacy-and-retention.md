@@ -66,8 +66,10 @@ and `deploy/postgres-adoption-runbook.md`.
 
 ## Related runbooks
 
-- `docs/backup-key-escrow.md` — off-host encrypted backup key handling.
-- `docs/disaster-recovery.md` — restore procedure and verification.
+- Off-host encrypted backup key handling and the disaster-recovery runbook
+  (restore procedure and verification) live in the private ops repo
+  `AvelRen-ops` (`docs/backup-key-escrow.md`, `docs/disaster-recovery.md`) —
+  they name production and key-handling specifics that stay out of a public repo.
 - `docs/trusted-proxy.md` — how the real client IP is derived (and not stored).
 
 ## Known gaps (honestly)

@@ -61,9 +61,9 @@ emit() {
 # AvelRen — state (generated automatically)
 
 <!-- DO NOT EDIT BY HAND. This file is fully overwritten by
-     scripts/generate-state.sh. Policy and authorization boundaries live in
-     PROJECT_STATUS.md (private AvelRen-ops repo); only what is derived from git
-     and gh lands here. -->
+     scripts/generate-state.sh. Authorization boundaries live in AUTHORIZATION.md
+     (this repo); detailed operational state lives in the private AvelRen-ops
+     repo; only what is derived from git and gh lands here. -->
 
 Generated from \`main\` @ \`$MAIN_SHORT\`.
 

@@ -1,5 +1,10 @@
 # Rules for agents and developers
 
+> **Authorization boundaries** — no production mutation without an explicit GO,
+> no force-push, no editing an applied migration, APK only from a clean `main` —
+> are in [`AUTHORIZATION.md`](AUTHORIZATION.md). The detailed operational state
+> lives in the private ops repo `AvelRen-ops`.
+
 ## 1. Clients never reach the upstream source
 
 Only the `collector` service talks to the external upstream source. Never the web
