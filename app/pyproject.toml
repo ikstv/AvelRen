@@ -1,7 +1,7 @@
 [project]
 name = "avelren"
 version = "0.1.0"
-description = "Border checkpoint workload history (eCherha, trucks)"
+description = "Border checkpoint workload history (trucks)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

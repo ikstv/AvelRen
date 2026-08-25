@@ -29,4 +29,5 @@ predictive back, and rotation/large-screen layout.
 ## Rule
 
 The app talks **only** to our API (`api.bordersignal.pp.ua`).
-No requests to echerha.gov.ua from the client — see the root `AGENTS.md`, rule 1.
+No requests to the upstream source from the client — see the root `AGENTS.md`,
+rule 1.

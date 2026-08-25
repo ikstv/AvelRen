@@ -179,7 +179,7 @@ fi
 
 # M-13: best-effort snapshot of the current database BEFORE destruction. Restore pulls
 # in yesterday's backup and irreversibly discards everything collected overnight — even
-# perfectly healthy data (docs/disaster-recovery.md: there is no automatic rollback). The
+# perfectly healthy data (see the DR runbook in AvelRen-ops: there is no automatic rollback). The
 # moment is ideal: ingress and clients are already stopped and there are no active sessions,
 # so the dump is consistent. Best-effort: if the database is corrupt (the very reason for the
 # restore), we only warn and continue — the snapshot must NOT block recovery.

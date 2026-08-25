@@ -1,15 +1,22 @@
 # Rules for agents and developers
 
-## 1. Clients never reach eCherha
+> **Authorization boundaries** — no production mutation without an explicit GO,
+> no force-push, no editing an applied migration, APK only from a clean `main` —
+> are in [`AUTHORIZATION.md`](AUTHORIZATION.md). The detailed operational state
+> lives in the private ops repo `AvelRen-ops`.
 
-Only the `collector` service talks to `echerha.gov.ua` / `back.echerha.gov.ua`.
-Never the web front-end, the mobile app, the user's browser, or any third-party
-script.
+## 1. Clients never reach the upstream source
+
+Only the `collector` service talks to the external upstream source. Never the web
+front-end, the mobile app, the user's browser, or any third-party script.
 
 If a client is missing data, we **extend our own API** — we do not let the client
-reach out directly. Forbidden: a proxy endpoint that forwards a request to
-eCherha; a "temporary" fetch from the front-end; an SDK that talks to it
+reach out directly. Forbidden: a proxy endpoint that forwards a request to the
+upstream; a "temporary" fetch from the front-end; an SDK that talks to it
 directly.
+
+(The upstream is named, with its endpoint and headers, only in the private
+`AvelRen-ops/INTEGRATION.md`.)
 
 Reason: `x-ratelimit-limit: 60` on the government service's side. Distributed
 client requests exhaust the limit and lead to IP bans.
