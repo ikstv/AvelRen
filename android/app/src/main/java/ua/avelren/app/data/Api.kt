@@ -99,6 +99,16 @@ object Api {
         val time: String? = null,
     )
 
+    // Public health, read by every client (no auth). `reboot_required` lets the
+    // header badge tell the truth about a planned server update instead of
+    // guessing from data staleness. Extra fields are ignored, missing ones default.
+    @Serializable
+    data class Health(
+        val status: String = "ok",
+        val reboot_required: Boolean = false,
+        val reboot_pending_days: Int? = null,
+    )
+
     @Serializable
     data class Subscription(
         val id: Long,
@@ -372,6 +382,9 @@ object Api {
     suspend fun checkpoints(): List<Checkpoint> = client.get("$base/checkpoints").body()
 
     suspend fun workload(): List<Workload> = client.get("$base/workload").body()
+
+    /** Public, no auth. Carries the reboot signal for the header badge. */
+    suspend fun health(): Health = client.get("$base/health").body()
 
     /** Telemetry is available only to admin devices; for the rest the server returns 403. */
     suspend fun telemetry(creds: DeviceStore.Credentials): Telemetry =

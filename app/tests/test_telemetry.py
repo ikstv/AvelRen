@@ -173,3 +173,34 @@ def test_snapshot_survives_partial_json(tmp_path, monkeypatch):
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", path)
     assert telemetry.system()["stale"] is True
     assert telemetry.network() == {"rx_total_gb": 0.0, "tx_total_gb": 0.0}
+
+
+# /health carries the reboot signal publicly (no auth) so every client — not only
+# admins — can show a truthful "server is updating" badge instead of guessing from
+# data staleness. The full telemetry stays admin-only; /health exposes only the
+# safe boolean + day count.
+def test_health_exposes_reboot_required(api_client, snapshot):
+    snapshot(
+        {"system": {"reboot_required": True, "reboot_pending_days": 2}},
+        collected_at=datetime.now(UTC),
+    )
+    r = api_client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reboot_required"] is True
+    assert body["reboot_pending_days"] == 2
+
+
+def test_health_reboot_required_defaults_false_without_flag(api_client, snapshot):
+    snapshot({"system": {}}, collected_at=datetime.now(UTC))
+    body = api_client.get("/health").json()
+    assert body["reboot_required"] is False
+    assert body["reboot_pending_days"] is None
+
+
+def test_health_reboot_required_false_when_snapshot_absent(api_client, monkeypatch, tmp_path):
+    # A missing/stale snapshot must never light the "restarting" badge: absent
+    # signal is not "restarting", it is "unknown" → false.
+    monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
+    body = api_client.get("/health").json()
+    assert body["reboot_required"] is False
