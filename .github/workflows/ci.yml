@@ -76,6 +76,27 @@ jobs:
             exit 1
           fi
 
+      # AGENTS.md rule 11: every binary asset (image/font/audio/video) committed
+      # to the app must carry a provenance row in docs/ASSETS.md (file, source,
+      # license, date). An asset with unknown origin is an IP/licensing risk in
+      # the store — this gate refuses a new binary that nobody documented.
+      # Matches by file name, so the row may reference the path or just the name.
+      - name: Binary assets have provenance in docs/ASSETS.md
+        run: |
+          set -e
+          missing=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            base=$(basename "$f")
+            grep -qF "$base" docs/ASSETS.md || { echo "NO PROVENANCE (add a row to docs/ASSETS.md): $f"; missing=1; }
+          done <<EOF
+          $(git ls-files -- 'android/app/src/main/res/drawable*' 'android/app/src/main/res/mipmap*' 'android/app/src/main/res/font/*' 'android/app/src/main/assets/*' | grep -iE '\.(png|jpg|jpeg|webp|gif|ttf|otf|mp3|wav|ogg|mp4)$' || true)
+          EOF
+          if [ "$missing" != 0 ]; then
+            echo "AGENTS.md rule 11: every binary asset needs a provenance row in docs/ASSETS.md."
+            exit 1
+          fi
+
   # Supply-chain gate (issue #23, audit F4): a CycloneDX SBOM of the whole tree
   # (python deps from app/pyproject.toml, gradle catalog, pinned images) on every
   # push to main, kept as a build artifact. This is the inventory half of #23 —
