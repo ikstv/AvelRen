@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
-from . import forecast
+from . import forecast, telemetry
 from .config import settings
 from .db import get_pool
 from .limits import BodySizeLimitMiddleware, ConcurrencyGate
@@ -75,10 +75,21 @@ async def health() -> dict:
     age = (datetime.now(UTC) - last).total_seconds() if last else None
     fresh = age is not None and age < settings.poll_interval_seconds * 3
 
+    # Public reboot signal: every client (not only admins) can then show a truthful
+    # "server is updating" badge instead of inferring it from data staleness — a
+    # phone network blip and a real host reboot look identical from freshness alone.
+    # Only the safe boolean + day count leak here; full telemetry stays admin-only.
+    # A stale/absent snapshot is "unknown", never "restarting" → false.
+    host = telemetry.system()
+    reboot_required = bool(host.get("reboot_required")) and not host.get("stale")
+    reboot_pending_days = None if host.get("stale") else host.get("reboot_pending_days")
+
     return {
         "status": "ok" if fresh else "stale",
         "last_observation": last,
         "age_seconds": int(age) if age is not None else None,
+        "reboot_required": reboot_required,
+        "reboot_pending_days": reboot_pending_days,
     }
 
 

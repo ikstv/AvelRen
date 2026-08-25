@@ -86,6 +86,8 @@ import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.LiveRefresh
 import ua.avelren.app.data.NetworkAvailability
+import ua.avelren.app.data.ServerState
+import ua.avelren.app.data.serverState
 import ua.avelren.app.ui.theme.HeroNumberStyle
 import ua.avelren.app.ui.theme.RoadSignShape
 import ua.avelren.app.ui.theme.TabularNumberFeature
@@ -148,6 +150,8 @@ fun AvelRenScreen(
     var selected by remember { mutableStateOf(DeviceStore.selectedCheckpoint(context)) }
     var loading by remember { mutableStateOf(true) }
     var refreshError by remember { mutableStateOf(false) }
+    // Реальний серверний сигнал про заплановане оновлення (публічний /health).
+    var rebootRequired by remember { mutableStateOf(false) }
     // Оновлюється КОЖЕН poll (навіть якщо payload не змінився), щоб freshness
     // рухалась і UI переходив у stale, коли collector завис, а API віддає той
     // самий snapshot (B2).
@@ -246,6 +250,9 @@ fun AvelRenScreen(
         wlRes
             .onSuccess { refreshError = false }
             .onFailure { refreshError = true }
+        // Найкраще-зусилля: збій /health не має ламати оновлення черги. Якщо
+        // сервер недосяжний, refreshError вже дасть червону плашку, тож тут false.
+        rebootRequired = runCatching { Api.health().reboot_required }.getOrDefault(false)
         // Моніторинг оновлюємо тим самим тілом, що й чергу. Інакше після
         // відновлення мережі черга оживала, а секція «Ваш моніторинг» лишалась
         // порожньою до випадкового перемикання вкладки (#107).
@@ -353,7 +360,7 @@ fun AvelRenScreen(
                 .padding(bottom = 84.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            HeaderRow(freshness = freshness, hasError = refreshError)
+            HeaderRow(freshness = freshness, hasError = refreshError, rebootRequired = rebootRequired)
             if (notificationsSilent) {
                 NotificationSilentBanner(onOpenNotificationSettings)
             }
@@ -397,7 +404,7 @@ fun AvelRenScreen(
             contentPadding = PaddingValues(bottom = 84.dp),
         ) {
             item {
-                HeaderRow(freshness = freshness, hasError = refreshError)
+                HeaderRow(freshness = freshness, hasError = refreshError, rebootRequired = rebootRequired)
             }
             if (notificationsSilent) {
                 item { NotificationSilentBanner(onOpenNotificationSettings) }
@@ -599,6 +606,7 @@ fun AvelRenScreen(
 private fun HeaderRow(
     freshness: LiveRefresh.Freshness?,
     hasError: Boolean,
+    rebootRequired: Boolean,
 ) {
     val avelren = MaterialTheme.avelren
     // Стан сервера виводимо з реальних сигналів, а не з перемикача-заглушки
@@ -607,10 +615,15 @@ private fun HeaderRow(
     // padding:5px 10px; font:700 10px; letter-spacing:1px` (→ 0.1em),
     // крапка 8×8.
     // Рядки й кольори крапки — точно з SERVER_STATES макета.
-    val (dot, label) = when {
-        hasError -> Color(0xFFD5382C) to "НЕМАЄ ІНТЕРНЕТУ"
-        freshness?.stale == true -> Color(0xFFC9A100) to "СЕРВЕР ПЕРЕЗАПУСКАЄТЬСЯ"
-        else -> Color(0xFF0E7A4E) to "СЕРВЕР ОНЛАЙН"
+    // Стан — з чистої serverState(): «перезапуск» лише від реального серверного
+    // reboot_required, застарілі дані — окремий чесний стан, а не «перезапуск».
+    val (dot, label) = when (
+        serverState(hasError = hasError, stale = freshness?.stale == true, rebootRequired = rebootRequired)
+    ) {
+        ServerState.OFFLINE -> Color(0xFFD5382C) to "НЕМАЄ ІНТЕРНЕТУ"
+        ServerState.RESTARTING -> Color(0xFFC9A100) to "СЕРВЕР ПЕРЕЗАПУСКАЄТЬСЯ"
+        ServerState.STALE -> Color(0xFFC9A100) to "ДАНІ ЗАСТАРІЛІ"
+        ServerState.ONLINE -> Color(0xFF0E7A4E) to "СЕРВЕР ОНЛАЙН"
     }
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 26.dp),
