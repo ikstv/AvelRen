@@ -1687,9 +1687,14 @@ private fun CheckpointPickerSheet(
                     modifier = Modifier.tapNoRipple(onClick = onDismiss).padding(4.dp),
                 )
             }
+            // Атрибуція джерела — під заголовком, ПОЗА списком: саме цей екран
+            // (повноекранний Dialog) флагнув Google. Угорі, а не в підвалі: у
+            // Dialog вікно wrap-height, тож прибити рядок до низу надійно не
+            // виходить (виходив 0×0), а тут він гарантовано видимий і не скролиться.
+            AttributionBar(Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
 
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Макет: `flex-wrap:wrap; gap:8px` — пігулки переносяться в рядок,
                 // а не стоять колонкою; знизу відступ ~16 до списку.
                 item {
@@ -1721,10 +1726,6 @@ private fun CheckpointPickerSheet(
                 }
                 item { Spacer(Modifier.height(14.dp)) }
             }
-            // Атрибуція джерела прибита до низу аркуша списку — саме цей екран
-            // (повноекранний Dialog) флагнув Google, тож рядок має бути ТУТ, а
-            // не лише на головному Box під діалогом. Поза LazyColumn → не скролиться.
-            AttributionBar(Modifier.padding(top = 8.dp))
         }
     }
 }
