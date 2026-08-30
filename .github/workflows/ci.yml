@@ -61,17 +61,22 @@ jobs:
       # AGENTS.md rule 1: only the `collector` service talks to echerha.gov.ua —
       # never the mobile app, web front-end or user's browser. If a client lacks
       # data we extend our own API, we do not let the client reach eCherha
-      # directly. Enforce it: the Android app's production sources must contain no
-      # string literal naming echerha / *.gov.ua (a hard-coded upstream URL or
-      # host). Matches quoted literals only, so the documenting comment in
-      # Api.kt — which names the host in prose to state the rule — does not trip
-      # it; test sources are excluded because they legitimately deserialize the
-      # server's telemetry, which reports the collector's upstream URL as data.
+      # directly. The threat this guards is a NETWORK CALL from the client to the
+      # source — and those live in the data layer (Api.kt, base URLs, the HTTP
+      # client). So the scan is scoped to `.../app/data/`, NOT all of src/main.
+      #
+      # Do NOT widen this back to src/main. Since the Play "Misleading Claims"
+      # fix, the UI legitimately DISPLAYS the source for attribution — a visible
+      # "єЧерга (echerha.gov.ua)" line with a browser link (ui/Attribution.kt).
+      # That is required text + an ACTION_VIEW to the official site, not a client
+      # fetch of the data API; widening the scan would fail CI on that legal text.
+      # Test sources are excluded too — they deserialize server telemetry that
+      # reports the collector's upstream URL as data.
       - name: The mobile app does not reach eCherha
         run: |
           set -e
-          if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main --include='*.kt'; then
-            echo "VIOLATION of AGENTS.md rule 1: a direct reference to eCherha/gov.ua found in the app."
+          if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main/java/ua/avelren/app/data --include='*.kt'; then
+            echo "VIOLATION of AGENTS.md rule 1: the app's network layer names eCherha/gov.ua directly."
             echo "The client must talk EXCLUSIVELY to our API (BuildConfig.API_BASE_URL). Extend the API, do not let the phone reach out."
             exit 1
           fi
