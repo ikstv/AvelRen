@@ -350,7 +350,8 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 84.dp),
+                // 104 = навпанель (84) + рядок атрибуції над нею.
+                .padding(bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HeaderRow(freshness = freshness, hasError = refreshError)
@@ -393,8 +394,9 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp),
-            // Нижній відступ, щоб останню плитку не ховала плавуча навпанель.
-            contentPadding = PaddingValues(bottom = 84.dp),
+            // Нижній відступ, щоб останню плитку не ховали навпанель + рядок
+            // атрибуції над нею (84 + ~20).
+            contentPadding = PaddingValues(bottom = 104.dp),
         ) {
             item {
                 HeaderRow(freshness = freshness, hasError = refreshError)
@@ -439,6 +441,16 @@ fun AvelRenScreen(
             .windowInsetsPadding(WindowInsets.systemBars)
             .padding(horizontal = 12.dp)
             .padding(bottom = 12.dp),
+    )
+    // Атрибуція джерела (вимога Google): закріплена внизу, НАД навпанеллю
+    // (nav: bottom 12 + height 60 → відступ 80), не їде зі скролом. Списки
+    // мають нижній contentPadding 104, щоб останній елемент її не ховав.
+    AttributionBar(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 80.dp),
     )
     }
 
@@ -1677,7 +1689,7 @@ private fun CheckpointPickerSheet(
             }
             Spacer(Modifier.height(12.dp))
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Макет: `flex-wrap:wrap; gap:8px` — пігулки переносяться в рядок,
                 // а не стоять колонкою; знизу відступ ~16 до списку.
                 item {
@@ -1709,6 +1721,10 @@ private fun CheckpointPickerSheet(
                 }
                 item { Spacer(Modifier.height(14.dp)) }
             }
+            // Атрибуція джерела прибита до низу аркуша списку — саме цей екран
+            // (повноекранний Dialog) флагнув Google, тож рядок має бути ТУТ, а
+            // не лише на головному Box під діалогом. Поза LazyColumn → не скролиться.
+            AttributionBar(Modifier.padding(top = 8.dp))
         }
     }
 }
