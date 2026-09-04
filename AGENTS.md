@@ -49,6 +49,14 @@ A new file `db/migrations/NNN_description.sql`, with a sequential number. The
 **Do not edit an already-applied migration** — the applier compares sha256 and
 will stop with an error. If a fix is needed, write a new migration.
 
+**A migration that creates a table or sequence must `GRANT SELECT` on it to
+`avelren_backup`** — otherwise the nightly `pg_dump -U avelren_backup` fails
+(SQLSTATE 42501) and the loss surfaces ~36h later as `BACKUP_STALE_HOURS`.
+Grant explicitly, per object; do **not** reach for `ALTER DEFAULT PRIVILEGES`
+(that is reserved to 010 — it collides with the adoption inverse-rollback
+contract, issue #144). Enforced by
+`test_backup_can_read_every_public_table_and_sequence` and a CI guard.
+
 ## 6. Secrets never land in git
 
 `.env` is in `.gitignore`. The repository holds only `.env.example` with empty
