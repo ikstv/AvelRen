@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `6b89275`.
+Generated from `main` @ `2e38364`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `ebce449` |
-| `main` ahead by | **11 commit(s)** |
+| `main` ahead by | **12 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -34,13 +34,15 @@ one for 3B.2.
 - `ac19251` fix(android): replace onboarding background, add asset provenance gate (#136)
 - `b9caa61` feat(app): source attribution for єЧerha data (Play Misleading Claims) (#139)
 - `6b89275` fix(ci): three gates that were failing silently, or not running at all (#142)
+- `2e38364` fix(api,tests): full rate-limit coverage + app suite under least-privilege role (#145)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **6**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **7**.
 
 ## Open PRs and issues
 
 ### PRs
 
+- #143 chore(deps): bump the compose-images group with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #141 fix(db,api): backup grants for future objects, full rate-limit coverage — `fix/backup-grants-and-rate-limits`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
 - #138 chore(deps): bump python from `ce40764` to `cae66f2` in /app — `dependabot/docker/app/python-cae66f2`
@@ -51,6 +53,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **6**.
 
 ### Issues
 
+- #144 adoption-контракт відкидає default-ACL, які вводить міграція 011 (backup grants)
 - #127 ETA несе ту саму контамінацію, що й forecast — eta.py фільтрує лише is_paused
 - #122 host: плановий ребут для активації ядра 6.8.0-138 (працює 6.8.0-137)
 - #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
@@ -72,14 +75,16 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **6**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 8 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 2 |
+| `chore/repo-tidy` | 2 | 9 |
+| `chore/state-refresh` | 1 | 1 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 3 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 1 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-professional` | 1 | 63 |
-| `docs/signal-has-a-date` | 1 | 12 |
-| `feat/launcher-road-a` | 1 | 5 |
-| `feat/privacy-page` | 3 | 7 |
-| `feat/truthful-server-badge` | 1 | 2 |
-| `fix/alert-channel-gate-113` | 1 | 9 |
-| `fix/backup-grants-and-rate-limits` | 1 | 1 |
-| `fix/collector-runs-error-91` | 1 | 9 |
+| `docs/readme-professional` | 1 | 64 |
+| `docs/signal-has-a-date` | 1 | 13 |
+| `feat/launcher-road-a` | 1 | 6 |
+| `feat/privacy-page` | 3 | 8 |
+| `feat/truthful-server-badge` | 1 | 3 |
+| `fix/alert-channel-gate-113` | 1 | 10 |
+| `fix/backup-grants-and-rate-limits` | 2 | 1 |
+| `fix/collector-runs-error-91` | 1 | 10 |
