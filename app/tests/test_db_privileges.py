@@ -481,6 +481,53 @@ def test_migrator_default_privileges_isolate_future_objects():
                     migrator.execute(f"DROP TYPE IF EXISTS {enum}")
 
 
+def test_backup_can_read_future_migrator_objects():
+    """The next migration must not silently break the nightly backup.
+
+    010 grants SELECT to avelren_backup through an explicit table list, so a
+    table added by a later migration was unreadable for that role and
+    `pg_dump -U avelren_backup` (deploy/backup.sh) would fail with SQLSTATE
+    42501.  Nothing caught it: avelren_backup had only negative tests plus a
+    frozen-ACL snapshot of the tables that already existed, and the failure
+    surfaces in production only ~36h later via BACKUP_STALE_HOURS.
+    011 fixes it with default privileges; this test is what keeps it fixed.
+
+    The check is SQL-level rather than an actual pg_dump run because the test
+    image (app/Dockerfile.test) carries no postgresql-client.  SELECT on a
+    freshly created migrator-owned table and its sequence is the exact
+    privilege pg_dump needs, so the mechanism under test is the real one.
+    """
+    # A shorter suffix than elsewhere in this file: PostgreSQL truncates
+    # identifiers at 63 bytes, and with a full uuid4 the sequence name no
+    # longer fit.
+    table = f"avelren_ci_backup_future_{uuid.uuid4().hex[:8]}"
+
+    with connect_env("MIGRATOR_DATABASE_URL") as migrator:
+        try:
+            # serial, not integer: pg_dump also reads sequence state, and a new
+            # sequence would break the dump exactly like a new table would.
+            migrator.execute(f"CREATE TABLE {table} (id serial PRIMARY KEY, payload text)")
+            migrator.execute(f"INSERT INTO {table} (payload) VALUES ('backup-visible')")
+
+            # Ask the database for the sequence name instead of building it:
+            # it depends on identifier truncation rules.
+            sequence = scalar(migrator, "SELECT pg_get_serial_sequence(%s, 'id')", (table,))
+            assert sequence, "a serial column must own a sequence"
+
+            with connect_env("BACKUP_DATABASE_URL") as backup:
+                with privilege_path("avelren_backup", "future table SELECT", table):
+                    assert scalar(backup, f"SELECT payload FROM {table}") == "backup-visible"
+                with privilege_path("avelren_backup", "future sequence SELECT", sequence):
+                    scalar(backup, f"SELECT last_value FROM {sequence}")
+
+            # Read-only stays read-only: the fix must not hand the backup role
+            # any write capability on future objects.
+            assert_denied("BACKUP_DATABASE_URL", f"INSERT INTO {table} (payload) VALUES ('no')")
+            assert_denied("BACKUP_DATABASE_URL", f"DELETE FROM {table}")
+        finally:
+            migrator.execute(f"DROP TABLE IF EXISTS {table}")
+
+
 def test_collector_positive_service_paths_commit_without_device_access():
     role = "avelren_collector"
     existing_country_id = synthetic_id()
