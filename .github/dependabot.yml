@@ -87,7 +87,13 @@ updates:
   # caddy). The app image is built locally and is not a registry dependency.
   # A major here means a PostgreSQL/TimescaleDB major — a data-migration event,
   # never a routine bump, so it must arrive alone.
-  - package-ecosystem: docker
+  #
+  # `docker-compose`, not `docker`: the docker ecosystem reads Dockerfiles and
+  # Kubernetes manifests only, so this entry aborted every week with
+  # "No Dockerfiles nor Kubernetes YAML found in /" (job 100890650049) and the
+  # compose pins were never actually watched — a silent hole in the #23 gate,
+  # since a failing updater looks the same as one with nothing to do.
+  - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly

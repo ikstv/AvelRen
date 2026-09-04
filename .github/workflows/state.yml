@@ -22,7 +22,8 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
+  # write, not read: the bot no longer pushes main directly, it opens a PR.
+  pull-requests: write
   issues: read
 
 concurrency:
@@ -46,15 +47,58 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/generate-state.sh
 
-      - name: Commit if changed
+      # Pushing straight to main stopped working once branch protection began
+      # requiring a pull request: every run from 2026-08-31 on died with
+      # `GH006: Protected branch update failed`, and STATE.md quietly went stale
+      # on main — the precise failure this workflow exists to prevent, now with
+      # a red run each morning instead of a wrong file. So the bot proposes the
+      # change rather than pushing it, which needs no protection exemption.
+      #
+      # The branch is reused and committed onto, never force-pushed
+      # (AUTHORIZATION.md permits force-push only for a feature-branch rebase).
+      #
+      # Known cost: a PR opened with GITHUB_TOKEN does not start workflow runs,
+      # so the three required checks stay unreported and the owner merges it
+      # directly. Giving github-actions[bot] a branch-protection bypass would
+      # let this step go back to pushing main outright and drop the PR entirely.
+      - name: Open a PR if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if git diff --quiet -- STATE.md; then
             echo "STATE.md unchanged"
             exit 0
           fi
+
+          branch=chore/state-refresh
+          generated=$(mktemp)
+          cp STATE.md "$generated"
+          # A dirty STATE.md would block the branch checkout below.
+          git checkout -- STATE.md
+
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch"
+            git checkout -B "$branch" "origin/$branch"
+          else
+            git checkout -B "$branch"
+          fi
+
+          cp "$generated" STATE.md
+          if git diff --quiet -- STATE.md; then
+            echo "$branch already carries this STATE.md"
+            exit 0
+          fi
+
           git add STATE.md
           git commit -m 'chore(state): regenerate STATE.md'
-          git push
+          git push origin "$branch"
+
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --head "$branch" --base main \
+              --title 'chore(state): regenerate STATE.md' \
+              --body 'Opened by the `state` workflow. STATE.md is generated from git and gh by scripts/generate-state.sh — never edit it by hand.'
+          fi
