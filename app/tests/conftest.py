@@ -1,6 +1,6 @@
 """Shared groundwork for the DB tests.
 
-Two requirements whose violation would cost more than the tests themselves.
+Three requirements whose violation would cost more than the tests themselves.
 
 1. **A test must not touch the live DB.** Previously `test_alerts.py` began with
    `DELETE FROM alerts WHERE threshold = 50` — in prod that would delete live
@@ -8,7 +8,11 @@ Two requirements whose violation would cost more than the tests themselves.
    `AVELREN_TEST_DB=1` and without a test DB name, pytest exits BEFORE the first
    query, rather than "almost safely" deleting something.
 
-2. **A clean DB is the normal test environment.** The point reference list is
+2. **The application under test uses the least-privilege role.** `api_client`
+   swaps the DSN for `API_DATABASE_URL` when it is set. Without that, a
+   privileged run would hide a missing GRANT until production.
+
+3. **A clean DB is the normal test environment.** The point reference list is
    filled by the collector, so on fresh migrations no checkpoint exists. Tests no
    longer rely on id 1 or 5: each creates its own synthetic point and removes
    only its own records.
@@ -125,10 +129,26 @@ def api_client():
 
     from avelren import db
     from avelren.api import app
+    from avelren.config import settings
 
+    # The application under test talks to the database as `avelren_api`, not as
+    # an admin. Otherwise the whole application suite would pass even when the
+    # production role is missing a GRANT: scripts/backend-test.sh hands pytest
+    # an admin DATABASE_URL, and least privilege was verified only by the
+    # hand-maintained matrix in test_db_privileges.py.
+    # Scaffolding fixtures (`conn`) deliberately stay on the admin DSN: creating
+    # and removing synthetic rows is the test's job, not the application's.
+    role_dsn = os.environ.get("API_DATABASE_URL")
+    previous_url = settings.database_url
+    if role_dsn:
+        settings.database_url = role_dsn
     db._pool = None
-    with TestClient(app) as client:
-        yield client
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        settings.database_url = previous_url
+        db._pool = None
 
 
 @pytest.fixture()
