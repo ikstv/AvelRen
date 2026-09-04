@@ -481,6 +481,61 @@ def test_migrator_default_privileges_isolate_future_objects():
                     migrator.execute(f"DROP TYPE IF EXISTS {enum}")
 
 
+def test_backup_can_read_every_public_table_and_sequence():
+    """The nightly backup must be able to read the whole application schema.
+
+    010 grants avelren_backup SELECT by an explicit list, so the first later
+    migration that adds a table or sequence without its own GRANT makes
+    `pg_dump -U avelren_backup` (deploy/backup.sh) fail with SQLSTATE 42501 --
+    a failure that surfaces in production only ~36h later via BACKUP_STALE_HOURS.
+
+    This is an end-state contract, not a mechanism test: it asks the migrated
+    database whether a single public table or sequence exists that the backup
+    role cannot SELECT. Any future migration that forgets the grant fails here,
+    on its own PR, rather than silently in production. AGENTS.md rule 5 states
+    the obligation; this test enforces it.
+
+    Scope is `public` deliberately. Objects in `_timescaledb_internal` belong to
+    the extension (e.g. bgw_job_stat_history) -- the backup role has never read
+    them and the production nightly dump works regardless, so pulling them in
+    would assert a privilege pg_dump does not need. Application data lives in the
+    public parent of each hypertable; its chunks are dumped through that parent.
+    """
+    # Default-privilege machinery is deliberately NOT used to keep future
+    # objects readable (see #144): ALTER DEFAULT PRIVILEGES for avelren_backup
+    # collides with the adoption inverse-rollback contract. The grant is instead
+    # an explicit line in each migration, and this query is what keeps that
+    # honest.
+    #
+    # has_table_privilege errors on a sequence and has_sequence_privilege on a
+    # table, so the two relkinds are checked with their own function.
+    with connect_env("MIGRATOR_DATABASE_URL") as conn:
+        unreadable = scalar(
+            conn,
+            """
+            SELECT string_agg(relkind || ' ' || relname, ', ' ORDER BY relname)
+            FROM (
+                SELECT c.relkind::text AS relkind, c.relname
+                FROM pg_class AS c
+                JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public'
+                  AND (
+                    (c.relkind IN ('r', 'p', 'm')
+                     AND NOT has_table_privilege('avelren_backup', c.oid, 'SELECT'))
+                    OR
+                    (c.relkind = 'S'
+                     AND NOT has_sequence_privilege('avelren_backup', c.oid, 'SELECT'))
+                  )
+            ) AS missing
+            """,
+        )
+    assert unreadable is None, (
+        "avelren_backup cannot SELECT these public objects, so the nightly "
+        f"pg_dump would fail: {unreadable}. Add an explicit GRANT SELECT to "
+        "avelren_backup in the migration that created them (AGENTS.md rule 5)."
+    )
+
+
 def test_collector_positive_service_paths_commit_without_device_access():
     role = "avelren_collector"
     existing_country_id = synthetic_id()
