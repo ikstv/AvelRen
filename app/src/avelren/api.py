@@ -66,8 +66,9 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
     """A live service with stale data is also a problem, so we measure freshness."""
+    rate_check(request, "read")
     async with get_pool().connection() as conn:
         row = await (await conn.execute("SELECT max(time) AS last FROM observations")).fetchone()
 

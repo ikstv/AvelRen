@@ -113,7 +113,8 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
 
 
 @router.get("/thresholds")
-async def thresholds() -> dict:
+async def thresholds(request: Request) -> dict:
+    rate_check(request, "read")
     return {"thresholds": THRESHOLDS}
 
 
@@ -182,9 +183,11 @@ async def update_token(
 
 @router.get("/subscriptions")
 async def list_subscriptions(
+    request: Request,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> list[dict]:
+    rate_check(request, "read")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         rows = await (
@@ -311,6 +314,7 @@ async def acknowledge_alert(
 
 @router.get("/active-alerts")
 async def active_alerts(
+    request: Request,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict[str, list[int]]:
@@ -322,6 +326,7 @@ async def active_alerts(
     The server remains the single source of truth; the phone only brings its
     local state in line with it.
     """
+    rate_check(request, "read")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         return await cancels.active_alert_keys(conn, device_id)
@@ -332,9 +337,11 @@ async def active_alerts(
 
 @router.get("/eta-targets")
 async def list_eta_targets(
+    request: Request,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> list[dict]:
+    rate_check(request, "read")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         rows = await (
@@ -467,6 +474,7 @@ async def acknowledge_eta_alert(
 
 @router.get("/admin/telemetry")
 async def admin_telemetry(
+    request: Request,
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict:
@@ -476,6 +484,10 @@ async def admin_telemetry(
     workings — versions, volumes, backup freshness. Outsiders do not need it, and
     an attacker finds it useful.
     """
+    # The "write" bucket, not "read": telemetry.pipeline counts rows across
+    # observations, a sequential scan over millions of them. A 300/min read
+    # allowance would be a permission, not a limit.
+    rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
 
     async with get_pool().connection() as conn:
