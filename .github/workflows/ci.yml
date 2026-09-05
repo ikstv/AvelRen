@@ -166,15 +166,23 @@ jobs:
           #
           # Confirmed by experiment, not by reading docs: pinning anyio back to
           # 4.15.0 in the preference file and recompiling left it at 4.15.0.
+          # --python-platform matters as much as --python-version, and for the
+          # same reason: resolve for what ships, not for what you are standing
+          # on. Markers are platform-dependent — psycopg pulls tzdata on Windows,
+          # uvicorn[standard] pulls uvloop only on Unix — so a lock generated on
+          # a developer's Windows box describes an environment production never
+          # runs. That is exactly how the first version of this file failed here.
           cp app/requirements.lock /tmp/requirements.lock.check
           uv pip compile app/pyproject.toml \
-            --python-version 3.14 --generate-hashes --no-header \
+            --python-version 3.14 --python-platform x86_64-unknown-linux-gnu \
+            --generate-hashes --no-header \
             -o /tmp/requirements.lock.check >/dev/null 2>&1
 
           if ! diff -q app/requirements.lock /tmp/requirements.lock.check >/dev/null; then
             echo "app/requirements.lock no longer matches app/pyproject.toml."
             echo "Regenerate it with the same command:"
             echo "  uv pip compile app/pyproject.toml --python-version 3.14 \\"
+            echo "    --python-platform x86_64-unknown-linux-gnu \\"
             echo "    --generate-hashes --no-header -o app/requirements.lock"
             echo
             diff app/requirements.lock /tmp/requirements.lock.check | head -40 || true
