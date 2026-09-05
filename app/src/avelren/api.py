@@ -117,8 +117,9 @@ async def workload(request: Request) -> list[dict]:
 
     `entry_eta` is the approximate entry time for someone joining the queue now.
     The formula is verified against eCherha: the measurement moment plus
-    `wait_time`. For a paused queue with zero wait there is no forecast, rather
-    than "entry right now", so it is `null` there.
+    `wait_time`. A zero wait is `null` rather than "entry right now" in both
+    shapes that mean "no estimate": a paused queue, and cars still queued while
+    the source reports zero (#111/#127).
     """
     rate_check(request, "read")
     async with get_pool().connection() as conn:
@@ -129,7 +130,12 @@ async def workload(request: Request) -> list[dict]:
                     o.checkpoint_id, c.title, c.country_id, c.country_name,
                     c.flag_emoji, c.lat, c.lng,
                     o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused,
-                    CASE WHEN o.is_paused AND o.wait_time_seconds = 0 THEN NULL
+                    -- Same rule as eta.py and forecast.py (#127): a zero wait is
+                    -- "no estimate", not "enter now", both when the queue is
+                    -- paused and when cars are still queued (#111 writes a
+                    -- missing estimate as 0). Null beats a confident wrong time.
+                    CASE WHEN o.wait_time_seconds = 0
+                              AND (o.is_paused OR o.vehicles_in_queue > 0) THEN NULL
                          ELSE o.time + (o.wait_time_seconds * INTERVAL '1 second')
                     END AS entry_eta
                 FROM observations o
