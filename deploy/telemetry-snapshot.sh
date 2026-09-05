@@ -27,6 +27,27 @@ NET_DEV=${AVELREN_NET_DEV:-/proc/1/net/dev}
 # Overridden only in CI, to exercise the apt-check logic itself (null /
 # valid output / nonzero exit) against a synthetic probe.
 APT_CHECK=${AVELREN_APT_CHECK:-/usr/lib/update-notifier/apt-check}
+# The compose stack and the migration pin the override is expected to mount
+# (issue #160). Both overridable so the check can be exercised in CI against a
+# synthetic stack instead of the real one.
+STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
+MIGRATE_PIN_PATH=${AVELREN_MIGRATE_PIN_PATH:-/var/lib/avelren-migrate-pin-009}
+
+# This script does not run from the checkout: the systemd unit executes an
+# installed copy at /usr/local/sbin/avelren-telemetry-snapshot. That copy drifted
+# 125 lines behind the repository and nobody noticed for weeks — the `docker` and
+# `services` sections were simply absent from the live snapshot, and an absent
+# section renders as a dash (#164, and #93 before it for the backup script).
+#
+# So the snapshot reports the hash of the file that is actually running. The
+# expected value lives in the Python that ships in the image, where a stale host
+# copy cannot influence it, and CI keeps the two in step. A self-check written
+# INSIDE the drifting artifact could never work: the stale copy would not contain
+# it — which is also why an ABSENT hash is itself the alarm, unlike the nulls
+# elsewhere in this file that merely mean "could not look".
+self_sha=$(sha256sum "$0" 2>/dev/null | cut -d' ' -f1)
+script_sha256=null
+[ -n "$self_sha" ] && script_sha256="\"$self_sha\""
 
 mkdir -p "$OUT_DIR"
 
@@ -144,6 +165,33 @@ if command -v docker >/dev/null 2>&1; then
     fi
 fi
 
+# --- migrate pin still mounted? (issue #160) ---
+# The 001-009 pin that keeps `migrate` from seeing 010 lives in
+# docker-compose.override.yml on the host — machine-local, outside git. It fell
+# out silently during the #88 window, and nothing noticed: the runbook's
+# precondition catches it, but that is only ever run during a deploy, so the
+# guard was unprotected exactly between the windows where it matters.
+#
+# `false` here means the model resolves /migrations to something other than the
+# pin, which is the state where any profiled `up` stamps 010 out of the 3D order.
+# `null` means we could not tell (no docker, no stack dir) — deliberately NOT
+# `false`: a snapshot that cannot look must not raise an alarm it has not earned.
+#
+# Cost is one `docker compose config` per snapshot. It parses two small local
+# files; the alternative — grepping the override by hand — would answer about
+# the file rather than about the model compose actually uses, and the model is
+# what stamps migrations.
+migrate_pin_active=null
+if command -v docker >/dev/null 2>&1 && [ -d "$STACK_DIR" ]; then
+    if model=$(cd "$STACK_DIR" && docker compose --profile migrate config 2>/dev/null); then
+        if printf '%s' "$model" | grep -qF "$MIGRATE_PIN_PATH"; then
+            migrate_pin_active=true
+        else
+            migrate_pin_active=false
+        fi
+    fi
+fi
+
 # --- services (per-container status) ---
 # `docker inspect --format` pulls ONLY the whitelisted fields. We do not use
 # `docker inspect ... | jq`: jq on a live snapshot could accidentally pull out
@@ -245,6 +293,7 @@ collected_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cat > "$TMP" <<JSON
 {
   "collected_at": "$collected_at",
+  "script_sha256": $script_sha256,
   "system": {
     "uptime_seconds": $uptime_seconds,
     "load_1m": $load1,
@@ -274,7 +323,8 @@ cat > "$TMP" <<JSON
   },
   "docker": {
     "daemon_version": $docker_daemon_version,
-    "compose_version": $docker_compose_version
+    "compose_version": $docker_compose_version,
+    "migrate_pin_active": $migrate_pin_active
   },
   "services": [
 $services_json_parts

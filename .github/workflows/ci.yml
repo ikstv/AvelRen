@@ -7,6 +7,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Needed so the state workflow can get its own PR checked (#159). A pull
+  # request opened with GITHUB_TOKEN does not start workflow runs — that is
+  # GitHub's recursion guard — so the three required contexts were never
+  # reported and the PR could not be merged by anyone, bot or owner, with
+  # enforce_admins on. workflow_dispatch is exempt from that guard, so the bot
+  # asks for the run explicitly right after opening the PR.
+  workflow_dispatch:
 
 jobs:
   # Way to break #1 (already happened): critical files did not make it into git,
@@ -134,6 +141,25 @@ jobs:
           done < <(git grep -n 'pg_isready' -- 'deploy/*.sh' 'docker-compose*.yml' || true)
           if [ -n "$bad" ]; then
             echo "Add -h 127.0.0.1 so the probe fails while only the init server is up."
+            exit 1
+          fi
+
+      - name: watchdog knows the hash of the snapshot script it expects (#164)
+        run: |
+          set -e
+          # The snapshot script does not run from the checkout — systemd executes
+          # an installed copy — so the image carries the hash it was built against
+          # and alerts when the host runs something else. That only works while the
+          # constant tracks the file: a stale constant would either cry drift on a
+          # correct host, or stay silent on the stale one this gate exists for.
+          want=$(sha256sum deploy/telemetry-snapshot.sh | cut -d' ' -f1)
+          have=$(grep -oE 'EXPECTED_SNAPSHOT_SHA = "[0-9a-f]{64}"' \
+                   app/src/avelren/watchdog.py | grep -oE '[0-9a-f]{64}' || true)
+          if [ "$want" != "$have" ]; then
+            echo "deploy/telemetry-snapshot.sh changed but EXPECTED_SNAPSHOT_SHA did not."
+            echo "  script:   $want"
+            echo "  watchdog: ${have:-<not found>}"
+            echo "Update the constant in app/src/avelren/watchdog.py to the first value."
             exit 1
           fi
 
@@ -343,6 +369,71 @@ jobs:
             assert d['system']['cpu_count'] > 0; \
             assert 'network' in d and 'backups' in d and 'certificate' in d; \
             print('snapshot ok:', d['system']['cpu_count'], 'CPUs')"
+
+      - name: Snapshot script — migrate pin detection (#160)
+        # The pin lives in the host's compose override, outside git, and it fell
+        # out silently during the #88 window: the deploy runbook catches it, but
+        # only during a deploy, so between windows nothing watched the guard.
+        # The snapshot now reports it, and this proves the report distinguishes
+        # all three states — present, absent, and "could not look".
+        #
+        # The script is run against a synthetic stack rather than reimplemented
+        # here: a copy of the logic in the workflow would pass while the script
+        # rots, which is the failure this whole suite exists to prevent.
+        run: |
+          set -euo pipefail
+          pin=/tmp/fake-migrate-pin
+          mkdir -p "$pin" /tmp/stack-pinned /tmp/stack-unpinned
+
+          cat > /tmp/stack-pinned/docker-compose.yml <<PINNED
+          services:
+            migrate:
+              image: busybox
+              profiles: ["migrate"]
+              volumes:
+                - type: bind
+                  source: $pin
+                  target: /migrations
+                  read_only: true
+          PINNED
+
+          # The regression shape exactly: same service, same target, mounted from
+          # the repository instead of the pin.
+          cat > /tmp/stack-unpinned/docker-compose.yml <<'UNPINNED'
+          services:
+            migrate:
+              image: busybox
+              profiles: ["migrate"]
+              volumes:
+                - ./db/migrations:/migrations:ro
+          UNPINNED
+
+          # Run as the runner user, not under sudo, for the same reason the step
+          # above does: the `docker compose` CLI plugin is installed for the
+          # runner user, so under root it is simply not found and the snapshot
+          # reports null — "could not look" — which would make this test pass or
+          # fail for a reason that has nothing to do with the pin.
+          sudo mkdir -p /var/lib/avelren-telemetry
+          sudo chown "$USER" /var/lib/avelren-telemetry
+
+          run_snapshot() {
+            AVELREN_STACK_DIR="$1" AVELREN_MIGRATE_PIN_PATH="$pin" \
+              AVELREN_FS_PROBE=/ \
+              bash deploy/telemetry-snapshot.sh
+            python3 -c 'import json,sys; print(json.load(open("/var/lib/avelren-telemetry/host.json"))["docker"]["migrate_pin_active"])'
+          }
+
+          got=$(run_snapshot /tmp/stack-pinned)
+          [ "$got" = True ] || { echo "pinned stack reported $got, expected True"; exit 1; }
+
+          got=$(run_snapshot /tmp/stack-unpinned)
+          [ "$got" = False ] || { echo "unpinned stack reported $got, expected False"; exit 1; }
+
+          # A stack directory that does not exist: the snapshot must say "unknown",
+          # not "broken". A watchdog that treats an unreadable host as a lost pin
+          # gets muted within a week.
+          got=$(run_snapshot /tmp/definitely-absent)
+          [ "$got" = None ] || { echo "absent stack reported $got, expected None"; exit 1; }
 
       - name: Snapshot script — network interface filtering
         # Regression from review of PR #3: in /proc/net/dev the names are aligned

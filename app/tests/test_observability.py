@@ -248,3 +248,83 @@ def test_backup_stale_surfaces_in_checks(conn, monkeypatch, tmp_path):
 
     _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 0.0}})
     assert "backup_stale" not in _run(watchdog._checks)
+
+
+# --- #160: the migration pin is a guard nobody was watching --------------------
+
+
+def test_migrate_pin_lost_only_on_an_explicit_false(monkeypatch, tmp_path):
+    """The three states are not two.
+
+    The pin fell out of the host override during the #88 window and nothing
+    noticed for weeks, so the watchdog now watches it. But a watchdog that treats
+    "could not look" as "broken" gets muted within a week, and then the real
+    signal arrives to an audience that has learned to ignore it.
+    """
+    monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", tmp_path / "absent.json")
+    assert watchdog._migrate_pin_lost() is False, "no snapshot is not evidence of a lost pin"
+
+    # null — the snapshot ran but could not inspect the compose model (no docker,
+    # no stack dir). Unknown, not broken.
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": None}})
+    assert watchdog._migrate_pin_lost() is False
+
+    # An older snapshot written before this field existed.
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {}})
+    assert watchdog._migrate_pin_lost() is False
+
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": True}})
+    assert watchdog._migrate_pin_lost() is False
+
+    # The measured bad state: /migrations resolves somewhere other than the pin.
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": False}})
+    assert watchdog._migrate_pin_lost() is True
+
+
+def test_migrate_pin_lost_surfaces_in_checks(conn, monkeypatch, tmp_path):
+    """The problem reaches the alert channel, and clears when the pin returns."""
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": False}})
+    problems = _run(watchdog._checks)
+    assert "migrate_pin_lost" in problems
+    assert "010" in problems["migrate_pin_lost"], "the message must name what gets stamped"
+
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": True}})
+    assert "migrate_pin_lost" not in _run(watchdog._checks)
+
+
+# --- #164: the installed snapshot script is not the deployed one --------------
+
+
+def test_snapshot_script_drift_is_silent_only_on_an_exact_match(monkeypatch, tmp_path):
+    """The installed copy drifted 125 lines behind the repo and nothing said so.
+
+    Note the deliberate asymmetry with the migrate pin above: there, a missing
+    value means "the probe could not look" and must stay quiet. Here a missing
+    value means the installed script predates the field itself — which is the
+    drift. Same shape, opposite reading, and the difference is whether the absence
+    has an innocent explanation.
+    """
+    monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", tmp_path / "absent.json")
+    assert watchdog._snapshot_script_drift() is None, "no snapshot at all is not drift"
+
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": watchdog.EXPECTED_SNAPSHOT_SHA})
+    assert watchdog._snapshot_script_drift() is None
+
+    # Today's production state: a script old enough not to know the field.
+    _write_snapshot(monkeypatch, tmp_path, {"system": {}})
+    reason = watchdog._snapshot_script_drift()
+    assert reason is not None and "older than the field" in reason
+
+    # A different script — installed by hand, or an install that did not happen.
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": "0" * 64})
+    reason = watchdog._snapshot_script_drift()
+    assert reason is not None
+    assert "000000000000" in reason and watchdog.EXPECTED_SNAPSHOT_SHA[:12] in reason
+
+
+def test_snapshot_script_drift_surfaces_in_checks(conn, monkeypatch, tmp_path):
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": "0" * 64})
+    assert "snapshot_script_drift" in _run(watchdog._checks)
+
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": watchdog.EXPECTED_SNAPSHOT_SHA})
+    assert "snapshot_script_drift" not in _run(watchdog._checks)
