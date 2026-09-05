@@ -135,6 +135,26 @@ def test_source_non_200_is_reported_not_raised(monkeypatch: pytest.MonkeyPatch) 
     assert res.response is None
 
 
+def test_empty_exception_message_still_records_class(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A timeout often stringifies to '' — the recorded error must still carry the
+    exception class, otherwise collector_runs.error is a blank and the incident
+    post-mortem loses the reason (#91). repr() would give ReadTimeout('') — a
+    wrapper around the same emptiness; the class name is the diagnostic content."""
+    monkeypatch.setattr(echerha, "settings", _settings())
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("", request=request)
+
+    async def run() -> echerha.FetchResult:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await echerha.fetch_workload(client)
+
+    res = asyncio.run(run())
+    assert res.response is None
+    assert res.error
+    assert "ReadTimeout" in res.error
+
+
 # --- Device ID: fail-closed, no request ------------------------------------
 
 
