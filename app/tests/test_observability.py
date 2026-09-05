@@ -248,3 +248,45 @@ def test_backup_stale_surfaces_in_checks(conn, monkeypatch, tmp_path):
 
     _write_snapshot(monkeypatch, tmp_path, {"backups": {"age_hours": 0.0}})
     assert "backup_stale" not in _run(watchdog._checks)
+
+
+# --- #160: the migration pin is a guard nobody was watching --------------------
+
+
+def test_migrate_pin_lost_only_on_an_explicit_false(monkeypatch, tmp_path):
+    """The three states are not two.
+
+    The pin fell out of the host override during the #88 window and nothing
+    noticed for weeks, so the watchdog now watches it. But a watchdog that treats
+    "could not look" as "broken" gets muted within a week, and then the real
+    signal arrives to an audience that has learned to ignore it.
+    """
+    monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", tmp_path / "absent.json")
+    assert watchdog._migrate_pin_lost() is False, "no snapshot is not evidence of a lost pin"
+
+    # null — the snapshot ran but could not inspect the compose model (no docker,
+    # no stack dir). Unknown, not broken.
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": None}})
+    assert watchdog._migrate_pin_lost() is False
+
+    # An older snapshot written before this field existed.
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {}})
+    assert watchdog._migrate_pin_lost() is False
+
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": True}})
+    assert watchdog._migrate_pin_lost() is False
+
+    # The measured bad state: /migrations resolves somewhere other than the pin.
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": False}})
+    assert watchdog._migrate_pin_lost() is True
+
+
+def test_migrate_pin_lost_surfaces_in_checks(conn, monkeypatch, tmp_path):
+    """The problem reaches the alert channel, and clears when the pin returns."""
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": False}})
+    problems = _run(watchdog._checks)
+    assert "migrate_pin_lost" in problems
+    assert "010" in problems["migrate_pin_lost"], "the message must name what gets stamped"
+
+    _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": True}})
+    assert "migrate_pin_lost" not in _run(watchdog._checks)

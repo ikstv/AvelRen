@@ -258,6 +258,12 @@ def docker() -> dict:
     return {
         "daemon_version": raw.get("daemon_version"),
         "compose_version": raw.get("compose_version"),
+        # #160: whether the compose model still mounts the 001-009 migration pin.
+        # A plain boolean carrying no host detail, and worth surfacing next to the
+        # versions: the watchdog alerts on it, but an alert says "it broke now"
+        # while the dashboard answers "is it right at this moment" — which is the
+        # question anyone asks before touching migrations.
+        "migrate_pin_active": raw.get("migrate_pin_active"),
     }
 
 

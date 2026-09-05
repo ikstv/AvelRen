@@ -344,6 +344,64 @@ jobs:
             assert 'network' in d and 'backups' in d and 'certificate' in d; \
             print('snapshot ok:', d['system']['cpu_count'], 'CPUs')"
 
+      - name: Snapshot script — migrate pin detection (#160)
+        # The pin lives in the host's compose override, outside git, and it fell
+        # out silently during the #88 window: the deploy runbook catches it, but
+        # only during a deploy, so between windows nothing watched the guard.
+        # The snapshot now reports it, and this proves the report distinguishes
+        # all three states — present, absent, and "could not look".
+        #
+        # The script is run against a synthetic stack rather than reimplemented
+        # here: a copy of the logic in the workflow would pass while the script
+        # rots, which is the failure this whole suite exists to prevent.
+        run: |
+          set -euo pipefail
+          pin=/tmp/fake-migrate-pin
+          mkdir -p "$pin" /tmp/stack-pinned /tmp/stack-unpinned
+
+          cat > /tmp/stack-pinned/docker-compose.yml <<PINNED
+          services:
+            migrate:
+              image: busybox
+              profiles: ["migrate"]
+              volumes:
+                - type: bind
+                  source: $pin
+                  target: /migrations
+                  read_only: true
+          PINNED
+
+          # The regression shape exactly: same service, same target, mounted from
+          # the repository instead of the pin.
+          cat > /tmp/stack-unpinned/docker-compose.yml <<'UNPINNED'
+          services:
+            migrate:
+              image: busybox
+              profiles: ["migrate"]
+              volumes:
+                - ./db/migrations:/migrations:ro
+          UNPINNED
+
+          run_snapshot() {
+            sudo env AVELREN_STACK_DIR="$1" AVELREN_MIGRATE_PIN_PATH="$pin" \
+              AVELREN_NET_DEV=/proc/net/dev \
+              bash deploy/telemetry-snapshot.sh
+            sudo cat /var/lib/avelren-telemetry/host.json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["docker"]["migrate_pin_active"])'
+          }
+
+          got=$(run_snapshot /tmp/stack-pinned)
+          [ "$got" = True ] || { echo "pinned stack reported $got, expected True"; exit 1; }
+
+          got=$(run_snapshot /tmp/stack-unpinned)
+          [ "$got" = False ] || { echo "unpinned stack reported $got, expected False"; exit 1; }
+
+          # A stack directory that does not exist: the snapshot must say "unknown",
+          # not "broken". A watchdog that treats an unreadable host as a lost pin
+          # gets muted within a week.
+          got=$(run_snapshot /tmp/definitely-absent)
+          [ "$got" = None ] || { echo "absent stack reported $got, expected None"; exit 1; }
+
       - name: Snapshot script — network interface filtering
         # Regression from review of PR #3: in /proc/net/dev the names are aligned
         # with spaces ("    lo:"), and the bash form ${name## } trimmed only one
