@@ -22,7 +22,7 @@ services:
     # legibility, and Dependabot's docker ecosystem watches the digest and opens
     # a PR when the upstream image is re-published. Digests captured from the
     # images the production host is already running (2026-08-15).
-    image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
+    image: timescale/timescaledb:2.29.2-pg16@sha256:289d55704b1b3ee8263cd3805c6930f9cd54506835a8f19f9b85dad17d5c5a8a
     restart: unless-stopped
     # Resource ceilings so no single container can starve the host and take
     # PostgreSQL down with it (audit MED). db gets the largest share.
@@ -196,7 +196,7 @@ services:
         required: false
 
   caddy:
-    image: caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.5
