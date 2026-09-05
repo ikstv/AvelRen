@@ -10,6 +10,18 @@ from .models import WorkloadResponse
 
 log = logging.getLogger(__name__)
 
+
+def describe_exception(exc: BaseException) -> str:
+    """A never-empty description of an exception (#91).
+
+    Timeouts and some transport errors stringify to '' — recording that leaves
+    collector_runs.error blank, and an incident post-mortem a month later reads
+    the DB, not the logs (which may be gone). repr() would only wrap the same
+    emptiness (ReadTimeout('')), so we lead with the class name: 'ReadTimeout'
+    already answers "what happened". When a message exists we keep it.
+    """
+    return f"{type(exc).__name__}: {exc}".rstrip(": ")
+
 # Guest contract of the official web client (v5). X-User-Agent and device headers
 # are added dynamically in fetch_workload from the config.
 REQUIRED_HEADERS = {
@@ -110,8 +122,9 @@ async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
         request.headers.pop("Cookie", None)
         r = await client.send(request, auth=None)
     except httpx.HTTPError as exc:
-        log.warning("request to eCherha failed: %s", exc)
-        return FetchResult(None, None, 0, None, str(exc))
+        detail = describe_exception(exc)
+        log.warning("request to eCherha failed: %s", detail)
+        return FetchResult(None, None, 0, None, detail)
     duration_ms = int((time.monotonic() - started) * 1000)
 
     if r.status_code != 200:
