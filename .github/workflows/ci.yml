@@ -42,6 +42,7 @@ jobs:
             android/app/src/main/java/ua/avelren/app/notify/AlertReconciliation.kt \
             android/app/src/test/java/ua/avelren/app/notify/AlertReconciliationTest.kt \
             app/src/avelren/schema_verify.py \
+            app/src/avelren/admin_enroll.py \
             app/src/avelren/restore_smoke.py \
             deploy/restore-verify.sh \
             app/Dockerfile.test \
