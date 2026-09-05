@@ -137,6 +137,25 @@ jobs:
             exit 1
           fi
 
+      - name: watchdog knows the hash of the snapshot script it expects (#164)
+        run: |
+          set -e
+          # The snapshot script does not run from the checkout — systemd executes
+          # an installed copy — so the image carries the hash it was built against
+          # and alerts when the host runs something else. That only works while the
+          # constant tracks the file: a stale constant would either cry drift on a
+          # correct host, or stay silent on the stale one this gate exists for.
+          want=$(sha256sum deploy/telemetry-snapshot.sh | cut -d' ' -f1)
+          have=$(grep -oE 'EXPECTED_SNAPSHOT_SHA = "[0-9a-f]{64}"' \
+                   app/src/avelren/watchdog.py | grep -oE '[0-9a-f]{64}' || true)
+          if [ "$want" != "$have" ]; then
+            echo "deploy/telemetry-snapshot.sh changed but EXPECTED_SNAPSHOT_SHA did not."
+            echo "  script:   $want"
+            echo "  watchdog: ${have:-<not found>}"
+            echo "Update the constant in app/src/avelren/watchdog.py to the first value."
+            exit 1
+          fi
+
       # AGENTS.md rule 11: every binary asset (image/font/audio/video) committed
       # to the app must carry a provenance row in docs/ASSETS.md (file, source,
       # license, date). An asset with unknown origin is an IP/licensing risk in

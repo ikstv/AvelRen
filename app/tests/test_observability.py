@@ -290,3 +290,41 @@ def test_migrate_pin_lost_surfaces_in_checks(conn, monkeypatch, tmp_path):
 
     _write_snapshot(monkeypatch, tmp_path, {"docker": {"migrate_pin_active": True}})
     assert "migrate_pin_lost" not in _run(watchdog._checks)
+
+
+# --- #164: the installed snapshot script is not the deployed one --------------
+
+
+def test_snapshot_script_drift_is_silent_only_on_an_exact_match(monkeypatch, tmp_path):
+    """The installed copy drifted 125 lines behind the repo and nothing said so.
+
+    Note the deliberate asymmetry with the migrate pin above: there, a missing
+    value means "the probe could not look" and must stay quiet. Here a missing
+    value means the installed script predates the field itself — which is the
+    drift. Same shape, opposite reading, and the difference is whether the absence
+    has an innocent explanation.
+    """
+    monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", tmp_path / "absent.json")
+    assert watchdog._snapshot_script_drift() is None, "no snapshot at all is not drift"
+
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": watchdog.EXPECTED_SNAPSHOT_SHA})
+    assert watchdog._snapshot_script_drift() is None
+
+    # Today's production state: a script old enough not to know the field.
+    _write_snapshot(monkeypatch, tmp_path, {"system": {}})
+    reason = watchdog._snapshot_script_drift()
+    assert reason is not None and "older than the field" in reason
+
+    # A different script — installed by hand, or an install that did not happen.
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": "0" * 64})
+    reason = watchdog._snapshot_script_drift()
+    assert reason is not None
+    assert "000000000000" in reason and watchdog.EXPECTED_SNAPSHOT_SHA[:12] in reason
+
+
+def test_snapshot_script_drift_surfaces_in_checks(conn, monkeypatch, tmp_path):
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": "0" * 64})
+    assert "snapshot_script_drift" in _run(watchdog._checks)
+
+    _write_snapshot(monkeypatch, tmp_path, {"script_sha256": watchdog.EXPECTED_SNAPSHOT_SHA})
+    assert "snapshot_script_drift" not in _run(watchdog._checks)
