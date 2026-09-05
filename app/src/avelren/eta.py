@@ -27,12 +27,17 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
     if not items:
         return 0
 
-    # A paused queue with zero wait does not mean "entry right now" — it means
-    # there is no forecast. Do not wake the user over missing data.
+    # A zero wait is not "entry right now" whenever it means "no estimate".
+    # Two shapes say that, and until #127 only the first was filtered:
+    #   paused with zero wait      — the queue is stopped, there is no forecast;
+    #   zero wait, cars still queued — the source writes a missing estimate as 0
+    #                                  (#111), which forecast.py already discards.
+    # This path feeds notifier.py, so an unfiltered zero becomes a push telling a
+    # driver to register now. Do not wake the user over missing data.
     eta_by_checkpoint = {
         i.id: entry_eta(at, i.wait_time)
         for i in items
-        if not (i.is_paused and i.wait_time == 0)
+        if not (i.wait_time == 0 and (i.is_paused or i.vehicles_in_queue > 0))
     }
     if not eta_by_checkpoint:
         return 0

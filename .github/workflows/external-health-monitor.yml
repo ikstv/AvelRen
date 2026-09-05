@@ -20,6 +20,7 @@ permissions:
 env:
   HEALTH_URL: https://api.bordersignal.pp.ua/api/health
   OUTAGE_LABEL: monitor:outage
+  ALERT_CHANNEL_LABEL: monitor:alert-channel
 
 jobs:
   check:
@@ -103,4 +104,85 @@ jobs:
         run: |
           gh issue comment "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY" \
             --body "Recovered: $(date -u +%FT%TZ). HTTP 200, status ok."
+          gh issue close "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY"
+
+  # Separate gate (#113): the watchdog cannot alert that its OWN alert channel is
+  # empty — it would have to deliver that through the very channel that is empty.
+  # So we read the public /health `alert_channel` bit from outside and raise here.
+  # It reuses the same dead-man's-switch (open one issue, close on recovery) with
+  # a DIFFERENT label, so a day-long empty channel does not spam an issue per poll.
+  # This gate catches "empty" (no admin with a live token), NOT "dead" (an expired
+  # token) — the latter is #19.
+  alert-channel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure alert-channel label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "$ALERT_CHANNEL_LABEL" --repo "$GITHUB_REPOSITORY" \
+            --color d73a4a \
+            --description "External gate: the watchdog alert channel is empty (#113); closes on recovery" \
+            --force
+
+      - name: Probe alert_channel a few times and classify
+        id: gate
+        run: |
+          # empty → raise immediately; unknown → only if stably blind (all N in a
+          # row); a transient unknown must not cry wolf. Thresholds live in the
+          # unit-tested classifier, not here.
+          probes=()
+          for i in 1 2 3; do
+            v=$(curl -sS --connect-timeout 10 --max-time 15 "$HEALTH_URL" \
+                  | jq -r '.alert_channel // "unknown"' 2>/dev/null || echo unknown)
+            probes+=("$v")
+            [ "$i" -lt 3 ] && sleep 5 || true
+          done
+
+          set +e
+          decision=$(python3 deploy/classify_alert_channel.py "${probes[@]}")
+          outage=$?
+          set -e
+
+          {
+            echo "decision=$decision"
+            echo "outage=$outage"
+            echo "probes=${probes[*]}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find open alert-channel issue
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label "$ALERT_CHANNEL_LABEL" --state open --json number -q '.[0].number // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Open alert-channel issue
+        if: steps.gate.outputs.outage == '1' && steps.existing.outputs.number == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "🔴 external monitor: watchdog alert channel is ${{ steps.gate.outputs.decision }}" \
+            --label "$ALERT_CHANNEL_LABEL" \
+            --body "The public \`/health\` alert-channel bit read from GitHub Actions (outside the AvelRen host) reports an unhealthy channel.
+
+            - decision: \`${{ steps.gate.outputs.decision }}\` (empty = no admin with a live FCM token; blind = /health probe stably unreadable)
+            - probes: \`${{ steps.gate.outputs.probes }}\`
+            - first detected: $(date -u +%FT%TZ)
+
+            The watchdog physically cannot deliver this alarm itself — the channel it would use is the one that is empty. This gate catches \"empty\", NOT \"dead\" (an admin whose token is present but expired passes green — that is an ack concern, #19). Closes automatically when the next probe reports \`ok\`."
+
+      - name: Close resolved alert-channel issue
+        if: steps.gate.outputs.outage == '0' && steps.existing.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY" \
+            --body "Recovered: $(date -u +%FT%TZ). alert_channel=ok."
           gh issue close "${{ steps.existing.outputs.number }}" --repo "$GITHUB_REPOSITORY"
