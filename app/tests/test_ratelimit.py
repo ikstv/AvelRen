@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, Request
@@ -82,3 +83,84 @@ def test_stale_queues_are_pruned_to_bound_memory():
 
     assert len(ratelimit._hits) < 100  # stale ones cleaned out
     assert "read:203.0.113.50" in ratelimit._hits  # the fresh one remained
+
+
+# --- Coverage contract ------------------------------------------------------
+
+
+def _route_handlers():
+    """Every HTTP handler of both routers, paired with its AST body."""
+    import ast
+
+    from avelren import api, subscriptions_api
+
+    for module in (api, subscriptions_api):
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+            routes = [
+                decorator
+                for decorator in node.decorator_list
+                if isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr in {"get", "post", "put", "delete"}
+            ]
+            if not routes:
+                continue
+            yield f"{routes[0].func.attr.upper()} {routes[0].args[0].value}", node
+
+
+def test_every_route_is_rate_limited():
+    """No path may be left without a limit.
+
+    Six routes were unlimited before this contract: /health, /thresholds,
+    GET /subscriptions, /active-alerts, GET /eta-targets and /admin/telemetry.
+    Each of them spends a pool connection (max_size=5) BEFORE credentials are
+    checked, so an unauthenticated client could exhaust the pool with garbage
+    headers alone.
+
+    The check is static rather than request-driven on purpose: otherwise it
+    would need a database and would stay silent exactly where it is needed —
+    on a newly added endpoint whose author forgot the limit.
+    """
+    import ast
+
+    unlimited = [
+        name
+        for name, node in _route_handlers()
+        if not any(
+            isinstance(call.func, ast.Name) and call.func.id == "rate_check"
+            for call in ast.walk(node)
+            if isinstance(call, ast.Call)
+        )
+    ]
+    assert not unlimited, "endpoints without rate_check: " + ", ".join(unlimited)
+
+
+def test_route_coverage_check_sees_all_routes():
+    """Guard for the guard above.
+
+    If `_route_handlers` ever stopped finding handlers — a change in decorator
+    style, a move to another module — `test_every_route_is_rate_limited` would
+    pass over an empty list and become decoration.
+    """
+    from avelren.api import app
+
+    # The OpenAPI schema, not `app.routes`: FastAPI 0.115 flattened
+    # include_router straight into `app.routes`, while newer versions wrap the
+    # included router in a private object, and a flat walk would silently lose
+    # every subscription endpoint. The schema is a public contract on both, and
+    # carries no /docs, /redoc or /openapi.json of its own.
+    schema = app.openapi()
+    declared = {
+        f"{method.upper()} {path}"
+        for path, operations in schema["paths"].items()
+        for method in operations
+        if method.upper() not in {"HEAD", "OPTIONS"}
+    }
+    discovered = {name for name, _ in _route_handlers()}
+    assert declared == discovered, (
+        f"registered paths and AST-discovered paths diverge: "
+        f"only in app {declared - discovered}, only in AST {discovered - declared}"
+    )

@@ -9,7 +9,7 @@ Forecast the load of a **specific checkpoint** from accumulated history:
 not "3 days of waiting right now", but "usually on Tuesday morning the wait here is
 half of what it is on Friday evening".
 
-This is something eCherha fundamentally lacks: it shows only the current snapshot and
+This is something the upstream source fundamentally lacks: it shows only the current snapshot and
 does not store the past. Our advantage is not a better interface, but the fact that we
 have history and the original source does not.
 

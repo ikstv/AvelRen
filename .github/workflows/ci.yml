@@ -61,18 +61,74 @@ jobs:
       # AGENTS.md rule 1: only the `collector` service talks to echerha.gov.ua —
       # never the mobile app, web front-end or user's browser. If a client lacks
       # data we extend our own API, we do not let the client reach eCherha
-      # directly. Enforce it: the Android app's production sources must contain no
-      # string literal naming echerha / *.gov.ua (a hard-coded upstream URL or
-      # host). Matches quoted literals only, so the documenting comment in
-      # Api.kt — which names the host in prose to state the rule — does not trip
-      # it; test sources are excluded because they legitimately deserialize the
-      # server's telemetry, which reports the collector's upstream URL as data.
+      # directly. The threat this guards is a NETWORK CALL from the client to the
+      # source — and those live in the data layer (Api.kt, base URLs, the HTTP
+      # client). So the scan is scoped to `.../app/data/`, NOT all of src/main.
+      #
+      # Do NOT widen this back to src/main. Since the Play "Misleading Claims"
+      # fix, the UI legitimately DISPLAYS the source for attribution — a visible
+      # "єЧерга (echerha.gov.ua)" line with a browser link (ui/Attribution.kt).
+      # That is required text + an ACTION_VIEW to the official site, not a client
+      # fetch of the data API; widening the scan would fail CI on that legal text.
+      # Test sources are excluded too — they deserialize server telemetry that
+      # reports the collector's upstream URL as data.
       - name: The mobile app does not reach eCherha
         run: |
           set -e
-          if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main --include='*.kt'; then
-            echo "VIOLATION of AGENTS.md rule 1: a direct reference to eCherha/gov.ua found in the app."
+          if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main/java/ua/avelren/app/data --include='*.kt'; then
+            echo "VIOLATION of AGENTS.md rule 1: the app's network layer names eCherha/gov.ua directly."
             echo "The client must talk EXCLUSIVELY to our API (BuildConfig.API_BASE_URL). Extend the API, do not let the phone reach out."
+            exit 1
+          fi
+
+      # AGENTS.md rule 5: a migration must not use ALTER DEFAULT PRIVILEGES,
+      # except 010 (which sets the schema-wide least-privilege posture). A later
+      # migration that grants avelren_backup via default privileges silently
+      # breaks the adoption inverse-rollback contract: the inverse plan restores
+      # to a manifest captured before the migrate gate and reverts only 010's two
+      # hand-written default-ACL lines, so anything else is left over and the
+      # `Cold adoption integration` scenario fails with an exact-manifest
+      # mismatch (issue #144). Future objects stay backup-readable via an
+      # explicit GRANT SELECT in the migration instead, enforced by
+      # test_backup_can_read_every_public_table_and_sequence.
+      - name: Migrations do not use ALTER DEFAULT PRIVILEGES outside 010
+        run: |
+          set -e
+          # Flatten newlines per file before matching: a line-oriented grep would
+          # miss `ALTER DEFAULT\n  PRIVILEGES`, which is exactly the silent hole a
+          # gate against a recurring class must not have.
+          bad=
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if tr '\n' ' ' < "$f" | grep -qiE 'alter[[:space:]]+default[[:space:]]+privileges'; then
+              echo "VIOLATION of AGENTS.md rule 5: $f uses ALTER DEFAULT PRIVILEGES."
+              bad=1
+            fi
+          done < <(git ls-files -- 'db/migrations/*.sql' | grep -v '^db/migrations/010_')
+          if [ -n "$bad" ]; then
+            echo "This collides with the adoption inverse-rollback contract (issue #144)."
+            echo "Grant future objects with an explicit GRANT SELECT to avelren_backup instead."
+            exit 1
+          fi
+
+      # AGENTS.md rule 11: every binary asset (image/font/audio/video) committed
+      # to the app must carry a provenance row in docs/ASSETS.md (file, source,
+      # license, date). An asset with unknown origin is an IP/licensing risk in
+      # the store — this gate refuses a new binary that nobody documented.
+      # Matches by file name, so the row may reference the path or just the name.
+      - name: Binary assets have provenance in docs/ASSETS.md
+        run: |
+          set -e
+          missing=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            base=$(basename "$f")
+            grep -qF "$base" docs/ASSETS.md || { echo "NO PROVENANCE (add a row to docs/ASSETS.md): $f"; missing=1; }
+          done <<EOF
+          $(git ls-files -- 'android/app/src/main/res/drawable*' 'android/app/src/main/res/mipmap*' 'android/app/src/main/res/font/*' 'android/app/src/main/assets/*' | grep -iE '\.(png|jpg|jpeg|webp|gif|ttf|otf|mp3|wav|ogg|mp4)$' || true)
+          EOF
+          if [ "$missing" != 0 ]; then
+            echo "AGENTS.md rule 11: every binary asset needs a provenance row in docs/ASSETS.md."
             exit 1
           fi
 

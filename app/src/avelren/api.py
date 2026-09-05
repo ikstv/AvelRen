@@ -66,7 +66,7 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
     """A live service with stale data is also a problem, so we measure freshness.
 
     `status` is about LIVENESS only (ok/stale) — it is a deploy-acceptance gate
@@ -78,6 +78,7 @@ async def health() -> dict:
     Otherwise liveness would start depending on the `devices` table it has no
     business touching.
     """
+    rate_check(request, "read")
     async with get_pool().connection() as conn:
         row = await (await conn.execute("SELECT max(time) AS last FROM observations")).fetchone()
         try:

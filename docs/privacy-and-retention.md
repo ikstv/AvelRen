@@ -15,7 +15,7 @@ named person without external correlation the system neither performs nor
 enables.
 
 The one hard architectural rule (see README) keeps the blast radius small: only
-the server talks to `echerha.gov.ua`; clients only ever read AvelRen's own API.
+the server talks to the upstream source; clients only ever read AvelRen's own API.
 
 ## Data inventory
 
@@ -24,7 +24,7 @@ the server talks to `echerha.gov.ua`; clients only ever read AvelRen's own API.
 | `devices` | `id` (uuid), `fcm_token`, `secret_hash`, `platform`, `is_admin`, `last_seen` | **Pseudonymous** — push token + device secret hash; no real-world identity | Deliver notifications; authenticate the device on state-changing requests | While active; stale devices are **not** yet auto-purged (see #19) |
 | `subscriptions` / `eta_targets` | `device_id` → checkpoint + threshold/target | Linked to a device (pseudonymous) | What the device asked to be alerted about | Until deleted by the device; cascades on device delete |
 | `alerts` / `eta_alerts` / `subscription_state` | delivery lifecycle | Linked to a subscription | Fire-once + cancel bookkeeping | Lifecycle-bound; cascades |
-| `observations` | queue wait time, vehicles in queue, `time` | **Not personal** — public eCherha queue data | The core product: queue history | Compressed after 7 days; **kept indefinitely** (historical value) |
+| `observations` | queue wait time, vehicles in queue, `time` | **Not personal** — public upstream queue data | The core product: queue history | Compressed after 7 days; **kept indefinitely** (historical value) |
 | `observations_hourly` | hourly rollups | Not personal | Forecast/readiness inputs | Continuous aggregate over `observations` |
 | `checkpoints` / `countries` | reference data + `last_seen` | Not personal | Catalogue of border points | Stale entries drop off via `last_seen` |
 | `collector_runs` / `health_alerts` | ingestion + health bookkeeping | Not personal | Operability | Operational |
@@ -66,8 +66,10 @@ and `deploy/postgres-adoption-runbook.md`.
 
 ## Related runbooks
 
-- `docs/backup-key-escrow.md` — off-host encrypted backup key handling.
-- `docs/disaster-recovery.md` — restore procedure and verification.
+- Off-host encrypted backup key handling and the disaster-recovery runbook
+  (restore procedure and verification) live in the private ops repo
+  `AvelRen-ops` (`docs/backup-key-escrow.md`, `docs/disaster-recovery.md`) —
+  they name production and key-handling specifics that stay out of a public repo.
 - `docs/trusted-proxy.md` — how the real client IP is derived (and not stored).
 
 ## Known gaps (honestly)

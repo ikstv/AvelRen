@@ -304,7 +304,19 @@ prefix_marker=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD 
 latest_migration=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -At \
     -c 'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1;')
-[ "$latest_migration" = 010_postgresql_least_privilege ]
+# The N-1 dump carries recorded history through 009, so the controlled
+# restart's migrate gate must apply everything the repository holds after it.
+# Pinning that to a literal turned this line into a tripwire on the migration
+# COUNT rather than on the restore: adding 011 made it a bare `[ ]` that failed
+# under `set -e` with no message at all, and the job log ended on the restore's
+# own success line (PR #141, CI run 33631449842). Derive it from the tree, and
+# say so out loud when it does not hold.
+expected_latest_migration=$(basename \
+    "$(printf '%s\n' "$ROOT"/db/migrations/*.sql | sort | tail -1)" .sql)
+if [ "$latest_migration" != "$expected_latest_migration" ]; then
+    echo "post-restore migrate gate stopped at ${latest_migration:-<none>}, expected $expected_latest_migration" >&2
+    exit 1
+fi
 prefix_collector_access_after_restore=$(PGPASSWORD="$ADMIN_PASSWORD" real_compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -At \
     -c "SELECT has_table_privilege('avelren_collector', 'checkpoints', 'SELECT');")
