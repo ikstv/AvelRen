@@ -1,0 +1,84 @@
+# Supply-chain track of issue #23: the audit half.
+#
+# The repo already pins what it uses — container digests, every action by SHA —
+# and Dependabot proposes the bumps. Pinning answers "did this change without us
+# noticing". It does not answer "is what we pinned known-vulnerable today", and
+# that question has a different shape: the answer changes while the pin stays
+# still. So this runs on a schedule as well as on change.
+#
+# No new third-party action. Every action in this repository is pinned by commit
+# SHA, and adding a scanner action would be a supply-chain decision of its own —
+# on a supply-chain workflow. pip-audit comes from PyPI, the index we already
+# trust for the dependencies being audited, so the trust set does not grow.
+#
+# Container image scanning is deliberately NOT here; see the issue. It needs a
+# scanner action, which is the decision above, and it belongs to the repository
+# owner rather than to whoever happens to be closing this task.
+name: Dependency audit
+
+on:
+  # A pull request that does not touch the dependency set cannot introduce a
+  # vulnerable dependency, so the gate follows the file that defines it.
+  pull_request:
+    paths:
+      - "app/pyproject.toml"
+      - ".github/workflows/dependency-audit.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/pyproject.toml"
+      - ".github/workflows/dependency-audit.yml"
+  # The reason this exists at all: an advisory published tomorrow makes today's
+  # unchanged dependency set vulnerable, and no push will tell us.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # The version the image actually ships (app/Dockerfile: python:3.14-slim),
+          # not the floor in pyproject. Resolving under a different interpreter can
+          # pick different versions, and then the audit answers about a set nobody
+          # runs.
+          python-version: "3.14"
+
+      - name: Resolve the dependency set the image would install
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/appenv
+          /tmp/appenv/bin/pip install --quiet --upgrade pip
+          # Same install the Dockerfile performs, so the resolved versions are
+          # the ones that would ship.
+          /tmp/appenv/bin/pip install --quiet ./app
+          # `avelren` itself is dropped: it is this repository, it is not on any
+          # index, and --strict would fail on "could not be audited" — turning the
+          # gate red for the one package the audit has nothing to say about.
+          /tmp/appenv/bin/pip freeze --exclude-editable \
+            | grep -viE '^avelren([=@ ]|$)' > resolved-requirements.txt
+          # A resolution step that silently produced nothing would make the audit
+          # below pass on an empty set — the failure mode this job exists to avoid.
+          [ -s resolved-requirements.txt ] || { echo "resolved nothing — aborting"; exit 1; }
+          echo "resolved $(wc -l < resolved-requirements.txt) packages"
+          cat resolved-requirements.txt
+
+      - name: Audit that set against known advisories
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pip-audit
+          # Audit the resolved FILE, not the current environment: auditing the
+          # environment would also audit pip-audit's own dependencies, and a red
+          # run about the scanner rather than the app is the fastest way to teach
+          # everyone to ignore this job.
+          #
+          # --strict fails on packages that could not be audited instead of
+          # skipping them quietly, which is the whole point of running it.
+          pip-audit --strict --progress-spinner=off -r resolved-requirements.txt
