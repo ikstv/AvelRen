@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `ae4cb4d`.
+Generated from `main` @ `4660b8f`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `5b79d17` |
-| `main` ahead by | **2 commit(s)** |
+| `main` ahead by | **4 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -25,6 +25,8 @@ one for 3B.2.
 
 - `3a6314d` chore(deploy): pin prod to 5b79d17 after installing the snapshot script (#166)
 - `ae4cb4d` ci: let the state workflow start the checks its own PR cannot (#159) (#167)
+- `ca1f60d` chore(state): regenerate STATE.md (#162)
+- `4660b8f` ci(state): bring the reused branch up to date, or the PR still cannot merge (#168)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
@@ -32,7 +34,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### PRs
 
-- #162 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
 - #138 chore(deps): bump python from `ce40764` to `cae66f2` in /app — `dependabot/docker/app/python-cae66f2`
@@ -56,14 +57,13 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 27 |
-| `chore/state-refresh` | 4 | 4 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 21 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 11 |
+| `chore/repo-tidy` | 2 | 29 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 23 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 13 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
-| `docs/readme-professional` | 1 | 82 |
-| `docs/signal-has-a-date` | 1 | 31 |
-| `feat/launcher-road-a` | 1 | 24 |
-| `feat/privacy-page` | 3 | 26 |
-| `feat/truthful-server-badge` | 1 | 21 |
-| `fix/backup-grants-and-rate-limits` | 1 | 18 |
+| `docs/readme-professional` | 1 | 84 |
+| `docs/signal-has-a-date` | 1 | 33 |
+| `feat/launcher-road-a` | 1 | 26 |
+| `feat/privacy-page` | 3 | 28 |
+| `feat/truthful-server-badge` | 1 | 23 |
+| `fix/backup-grants-and-rate-limits` | 1 | 20 |
