@@ -204,3 +204,51 @@ def test_contamination_pulls_the_old_median_below_the_clean_one(conn, checkpoint
     assert new[0]["p50"] > old[0]["p50"], (
         f"clean median {new[0]['p50']} must exceed contaminated {old[0]['p50']}"
     )
+
+
+def _hourly_points(api_client, checkpoint_id: int) -> list[dict]:
+    """/history above 48 hours — the aggregated path, where #111 survived."""
+    response = api_client.get(f"/history/{checkpoint_id}?hours=72")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["resolution"] == "hourly", "72 hours must take the aggregated path"
+    return body["points"]
+
+
+def test_history_hourly_excludes_contaminated_rows(conn, checkpoint, api_client):
+    """The third surface of #111.
+
+    forecast.py stopped reading observations_hourly because the aggregate averages
+    every row, contaminated ones included. /history kept reading it, so the same
+    understated numbers were still served — just from a different endpoint. One
+    real reading of an hour plus one "no estimate" zero: averaged together they
+    halve the hour, which is precisely the defect.
+    """
+    at = _bucket(1, 5, 0)
+    _seed(conn, checkpoint, [
+        (at, 3600, 50),                              # a genuine hour of waiting
+        (at + timedelta(minutes=1), 0, 50),          # queue present, wait "0" — no estimate
+    ])
+
+    hour = at.strftime("%Y-%m-%dT%H")
+    point = next(p for p in _hourly_points(api_client, checkpoint) if p["time"].startswith(hour))
+
+    # Averaging both rows would give 1800 — the understatement this fixes.
+    assert point["avg_wait_seconds"] == 3600
+    assert point["samples"] == 1
+
+
+def test_history_hourly_drops_a_fully_contaminated_hour(conn, checkpoint, api_client):
+    """An hour we know nothing about must be absent, not drawn as zero.
+
+    A gap in the series says "no data"; a zero claims the queue was empty, which
+    is the same lie the raw reading told in the first place.
+    """
+    at = _bucket(1, 7, 0)
+    _seed(conn, checkpoint, [
+        (at, 0, 50),
+        (at + timedelta(minutes=1), 0, 60),
+    ])
+
+    hours = {p["time"][:13] for p in _hourly_points(api_client, checkpoint)}
+    assert at.strftime("%Y-%m-%dT%H") not in hours

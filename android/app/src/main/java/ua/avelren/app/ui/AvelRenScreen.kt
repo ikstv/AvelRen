@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
+import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -77,11 +78,15 @@ import androidx.compose.ui.window.DialogProperties
 import ua.avelren.app.data.NotificationPermissionState
 import ua.avelren.app.ui.theme.SignClosed
 import ua.avelren.app.ui.theme.SignOnClosed
+import ua.avelren.app.ui.theme.SignWarn
+import ua.avelren.app.ui.theme.SignOnWarn
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import ua.avelren.app.R
+import ua.avelren.app.data.BackgroundDelivery
+import ua.avelren.app.data.BackgroundDeliveryHint
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.LiveRefresh
@@ -137,6 +142,10 @@ private fun countryLabel(flag: String?): String {
 fun AvelRenScreen(
     permissionState: NotificationPermissionState,
     onOpenNotificationSettings: () -> Unit,
+    ignoringBatteryOptimizations: Boolean = true,
+    backgroundHintDismissed: Boolean = false,
+    onOpenBatterySettings: () -> Unit = {},
+    onDismissBackgroundHint: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -200,6 +209,17 @@ fun AvelRenScreen(
     }
     val reloadSubs: () -> Unit = { scope.launch { loadMonitors() } }
     val reloadTargets: () -> Unit = { scope.launch { loadMonitors() } }
+    // #117: дозвіл наданий, а пуш однаково може не прийти — систему цікавить не
+    // дозвіл, а чи живий процес. Рахуємо тут, бо тільки тут відомо, чи користувач
+    // узагалі просив його будити: підказка про фон без жодної підписки — шум.
+    val backgroundHint = BackgroundDelivery.evaluate(
+        permissionGranted = !notificationsSilent,
+        ignoringBatteryOptimizations = ignoringBatteryOptimizations,
+        manufacturer = Build.MANUFACTURER,
+        brand = Build.BRAND,
+        hasActiveSubscriptions = subscriptions.isNotEmpty() || etaTargets.isNotEmpty(),
+        dismissed = backgroundHintDismissed,
+    )
     // Спільний список моніторингу — пороги + час в'їзду. Показується і на 04, і
     // (дублем) на головній. Поле `current` — живий стан цього КПП зараз (черга
     // для порога / час в'їзду для eta) з workload. Прибирання знає тип DELETE.
@@ -358,6 +378,11 @@ fun AvelRenScreen(
             if (notificationsSilent) {
                 NotificationSilentBanner(onOpenNotificationSettings)
             }
+            BackgroundDeliveryHintRow(
+                hint = backgroundHint,
+                onOpenSettings = onOpenBatterySettings,
+                onDismiss = onDismissBackgroundHint,
+            )
             ActionTile(
                 title = "Пороги",
                 subtitle = "Сповістити, коли черга сягне певної кількості авто",
@@ -403,6 +428,15 @@ fun AvelRenScreen(
             }
             if (notificationsSilent) {
                 item { NotificationSilentBanner(onOpenNotificationSettings) }
+            }
+            if (backgroundHint !is BackgroundDeliveryHint.None) {
+                item {
+                    BackgroundDeliveryHintRow(
+                        hint = backgroundHint,
+                        onOpenSettings = onOpenBatterySettings,
+                        onDismiss = onDismissBackgroundHint,
+                    )
+                }
             }
             if (current != null) {
                 item { HeroPanel(current) { showPicker = true } }
@@ -993,6 +1027,81 @@ private fun NotificationSilentBanner(onOpenSettings: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+    }
+}
+
+/**
+ * Підказка про фонову доставку (#117): дозвіл є, а пуш однаково може не прийти.
+ *
+ * Жовтий, а не червоний: банер вище — блокер («сповіщень не буде взагалі»), а це
+ * порада («можуть запізнитись»). Один колір на два різні за вагою стани зробив би
+ * обидва однаково невиразними.
+ *
+ * Формулювання розділяє виміряне й припущене. Про оптимізацію батареї ми знаємо
+ * від системи, тож кажемо прямо. Список автозапуску не читається жодним API —
+ * там лише «перевірте», бо єдиний наш сигнал це виробник, а не сам телефон.
+ * Видавати здогад за факт — найкоротший шлях до того, щоб наступну підказку
+ * гортали не читаючи.
+ *
+ * Закривається назавжди: людина, яка вже сходила в налаштування (або свідомо
+ * вирішила не йти), не має бачити ту саму пораду щодня.
+ */
+@Composable
+private fun BackgroundDeliveryHintRow(
+    hint: BackgroundDeliveryHint,
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (hint is BackgroundDeliveryHint.None) return
+
+    val (title, body) = when (hint) {
+        is BackgroundDeliveryHint.BatteryOptimised ->
+            "Сповіщення можуть запізнюватись" to
+                "Система економить батарею й присипляє застосунок. Натисніть, щоб зняти обмеження."
+        is BackgroundDeliveryHint.OemAutostart ->
+            "Перевірте автозапуск" to
+                "На телефонах цього виробника фонову роботу вимикає окремий список. Знайдіть у ньому AvelRen."
+        is BackgroundDeliveryHint.BatteryAndAutostart ->
+            "Сповіщення можуть не прийти" to
+                "Зніміть обмеження батареї, а також перевірте автозапуск — на цьому телефоні це різні налаштування."
+        is BackgroundDeliveryHint.None -> return
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(SignWarn)
+            .clickable { onOpenSettings() }
+            .padding(start = 14.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("⏱", fontSize = 18.sp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = SignOnWarn,
+                fontWeight = FontWeight.Black,
+                fontSize = 12.5.sp,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                body,
+                color = SignOnWarn,
+                fontSize = 11.5.sp,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        // Окремий таргет: тап по рядку веде в налаштування, тап по хрестику —
+        // ховає. Без цього закрити підказку можна було б лише сходивши туди.
+        Text(
+            "✕",
+            color = SignOnWarn,
+            fontSize = 15.sp,
+            modifier = Modifier.tapNoRipple(onClick = onDismiss).padding(8.dp),
+        )
     }
 }
 
