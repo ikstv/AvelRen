@@ -137,6 +137,58 @@ jobs:
             exit 1
           fi
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: The dependency lock matches pyproject (#23)
+        run: |
+          set -euo pipefail
+          # Placed in `completeness` because this is a REQUIRED check: in the
+          # dependency-audit workflow the same test would only glow, not block,
+          # and a lock that silently stops matching pyproject is a lock that
+          # stopped meaning anything.
+          #
+          # uv from PyPI rather than a setup action, for the same reason as
+          # pip-audit: this repository pins every action by SHA, so adding one
+          # more is a supply-chain decision — taken here, inside a supply-chain
+          # gate. It also resolves for a target Python version without needing
+          # that interpreter, which matters: the image ships 3.14 and a lock
+          # resolved under anything else describes a set nobody runs.
+          python -m pip install --quiet uv
+          # Compiled INTO A COPY of the committed lock, not into an empty file.
+          # uv treats an existing output file as preferences, so the check asks
+          # "does this lock still satisfy pyproject" rather than "is this the
+          # newest possible resolution". Compiling into an empty path would turn
+          # the gate red every time any transitive dependency publishes a
+          # release — verified while writing this: anyio went 4.15.0 -> 4.15.1
+          # within four hours, which would have blocked unrelated PRs.
+          #
+          # Confirmed by experiment, not by reading docs: pinning anyio back to
+          # 4.15.0 in the preference file and recompiling left it at 4.15.0.
+          # --python-platform matters as much as --python-version, and for the
+          # same reason: resolve for what ships, not for what you are standing
+          # on. Markers are platform-dependent — psycopg pulls tzdata on Windows,
+          # uvicorn[standard] pulls uvloop only on Unix — so a lock generated on
+          # a developer's Windows box describes an environment production never
+          # runs. That is exactly how the first version of this file failed here.
+          cp app/requirements.lock /tmp/requirements.lock.check
+          uv pip compile app/pyproject.toml \
+            --python-version 3.14 --python-platform x86_64-unknown-linux-gnu \
+            --generate-hashes --no-header \
+            -o /tmp/requirements.lock.check >/dev/null 2>&1
+
+          if ! diff -q app/requirements.lock /tmp/requirements.lock.check >/dev/null; then
+            echo "app/requirements.lock no longer matches app/pyproject.toml."
+            echo "Regenerate it with the same command:"
+            echo "  uv pip compile app/pyproject.toml --python-version 3.14 \\"
+            echo "    --python-platform x86_64-unknown-linux-gnu \\"
+            echo "    --generate-hashes --no-header -o app/requirements.lock"
+            echo
+            diff app/requirements.lock /tmp/requirements.lock.check | head -40 || true
+            exit 1
+          fi
+
       - name: watchdog knows the hash of the snapshot script it expects (#164)
         run: |
           set -e
