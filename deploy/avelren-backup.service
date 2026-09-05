@@ -16,13 +16,20 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-# rclone must persist the OAuth token it refreshes, but ProtectHome makes /root
-# read-only, so every run logs "Failed to save config ... read-only file system".
-# The upload still succeeds — the refresh happens in memory — and that is what
-# makes it dangerous: the errors print on healthy runs and train the eye to skip
-# them, while the stored token only ever gets updated when a human happens to run
-# rclone as root. A point exception keeps the rest of /root closed.
-ReadWritePaths=/root/.config/rclone
+# rclone must persist the OAuth token it refreshes. Left at its default the config
+# lives under /root, which ProtectHome= makes read-only, so every run logs
+# "Failed to save config ... read-only file system". The upload still succeeds —
+# the refresh happens in memory — and that is what makes it dangerous: the errors
+# print on healthy runs and train the eye to skip them, while the stored token is
+# only ever updated when a human happens to run rclone as root.
+#
+# The config moves next to backup.env instead of opening a hole in /root: same
+# owner, same 0600, one directory that already holds this job's secret. backup.sh
+# reads AVELREN_RCLONE_CONFIG (line 10) and passes it to every rclone call, so no
+# script change is needed. ProtectSystem=full makes /etc read-only, hence the
+# explicit ReadWritePaths= for that one directory.
+Environment=AVELREN_RCLONE_CONFIG=/etc/avelren/rclone.conf
+ReadWritePaths=/etc/avelren
 # The backup isn't time-critical, but the dump loads the DB — stay out of the collector's way.
 Nice=10
 IOSchedulingClass=idle
