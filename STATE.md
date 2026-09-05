@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `5b45e3e`.
+Generated from `main` @ `21e5ad9`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `5b79d17` |
-| `main` ahead by | **6 commit(s)** |
+| `main` ahead by | **8 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -29,8 +29,15 @@ one for 3B.2.
 - `4660b8f` ci(state): bring the reused branch up to date, or the PR still cannot merge (#168)
 - `3b6c916` chore(state): regenerate STATE.md (#169)
 - `5b45e3e` Revert "ci: let the state workflow start the checks its own PR cannot (#159)" (#170)
+- `ed90ffe` chore(state): regenerate STATE.md (#171)
+- `21e5ad9` feat(supply-chain): hash-pinned dependency lock for the runtime image (#23) (#172)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
+
+> ⚠ `app/Dockerfile` changed — the runtime base image. Currently:
+> `FROM python:3.14-slim`.
+> A language-version bump of the live image deserves its own window, not one
+> combined with adoption.
 
 ## Open PRs and issues
 
@@ -44,7 +51,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### Issues
 
-- #159 state workflow: the PR it opens can never be merged (GITHUB_TOKEN starts no checks)
 - #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
 - #117 Відсутній дозвіл на сповіщення робить застосунок беззвучним — ні користувач, ні сервер цього не бачать
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
@@ -59,13 +65,13 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 31 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 25 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 15 |
+| `chore/repo-tidy` | 2 | 33 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 27 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 17 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
-| `docs/readme-professional` | 1 | 86 |
-| `docs/signal-has-a-date` | 1 | 35 |
-| `feat/launcher-road-a` | 1 | 28 |
-| `feat/privacy-page` | 3 | 30 |
-| `feat/truthful-server-badge` | 1 | 25 |
-| `fix/backup-grants-and-rate-limits` | 1 | 22 |
+| `docs/readme-professional` | 1 | 88 |
+| `docs/signal-has-a-date` | 1 | 37 |
+| `feat/launcher-road-a` | 1 | 30 |
+| `feat/privacy-page` | 3 | 32 |
+| `feat/truthful-server-badge` | 1 | 27 |
+| `fix/backup-grants-and-rate-limits` | 1 | 24 |
