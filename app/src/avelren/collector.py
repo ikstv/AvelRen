@@ -15,7 +15,7 @@ from .db import (
     upsert_checkpoints,
     upsert_countries,
 )
-from .echerha import fetch_workload
+from .echerha import describe_exception, fetch_workload
 from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.collector")
@@ -85,7 +85,7 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
         # on a clean connection so the watchdog sees exactly the derived error.
         try:
             async with get_pool().connection() as conn:
-                await record_derived(conn, at, error=str(exc)[:500])
+                await record_derived(conn, at, error=describe_exception(exc)[:500])
         except Exception as exc2:
             log.error("failed to record derived error for cycle %s: %s", at.isoformat(), exc2)
 
