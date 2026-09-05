@@ -149,7 +149,14 @@ async def history(
     hours: int = Query(24, ge=1, le=24 * 90),
 ) -> dict:
     """A point's history. For long periods we serve hourly aggregates — a raw
-    series over 90 days is 130 thousand points, which the client has nowhere to put."""
+    series over 90 days is 130 thousand points, which the client has nowhere to put.
+
+    The hourly buckets are recomputed from `observations` rather than read from the
+    `observations_hourly` continuous aggregate: the aggregate averages every row,
+    including the zero-wait-with-cars-queued readings that mean "no estimate"
+    (#111). Cost measured on production: 40 ms for a full 12-week window on the
+    busiest checkpoint, against a 5 s statement_timeout.
+    """
     rate_check(request, "read")
     since = datetime.now(UTC) - timedelta(hours=hours)
 
@@ -177,11 +184,32 @@ async def history(
             rows = await (
                 await conn.execute(
                     """
-                    SELECT bucket AS time, avg_wait_seconds, max_wait_seconds,
-                           avg_vehicles, max_vehicles, samples
-                    FROM observations_hourly
-                    WHERE checkpoint_id = %s AND bucket >= %s
-                    ORDER BY bucket
+                    -- Same clean_hourly as forecast.py (#111): observations_hourly
+                    -- recomputed inline with one added filter. The continuous
+                    -- aggregate averages wait_time_seconds over every row, and a
+                    -- row reporting zero wait while cars are still queued is a
+                    -- missing source estimate written as a measured 0 — it drags
+                    -- the hourly average down. forecast.py stopped reading the
+                    -- aggregate for exactly this reason; this endpoint kept doing
+                    -- it, so the same contamination survived on a third surface.
+                    -- Everything else is copied verbatim from the aggregate's
+                    -- definition (db/migrations/001_init.sql), so on uncontaminated
+                    -- data the result is identical to what it replaced.
+                    --
+                    -- An hour whose every sample was contaminated disappears rather
+                    -- than being drawn at zero: a gap says "we do not know", a zero
+                    -- claims the queue was empty.
+                    SELECT time_bucket(INTERVAL '1 hour', time) AS time,
+                           avg(wait_time_seconds)::integer AS avg_wait_seconds,
+                           max(wait_time_seconds)          AS max_wait_seconds,
+                           avg(vehicles_in_queue)::integer AS avg_vehicles,
+                           max(vehicles_in_queue)          AS max_vehicles,
+                           count(*)                        AS samples
+                    FROM observations
+                    WHERE checkpoint_id = %s AND time >= %s
+                      AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
+                    GROUP BY 1
+                    ORDER BY 1
                     """,
                     (checkpoint_id, since),
                 )
