@@ -86,6 +86,25 @@ jobs:
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
             git fetch origin "$branch"
             git checkout -B "$branch" "origin/$branch"
+            # `main` is protected with strict:true, so a branch that has fallen
+            # behind cannot be merged at all — and this one falls behind on every
+            # unrelated merge, because it is reused rather than recreated. Without
+            # this the PR gets its checks (see the dispatch below) and still sits
+            # unmergeable, which is half a fix.
+            #
+            # A merge, not a reset: AUTHORIZATION.md rule 2 forbids force-pushing
+            # a shared branch, and this branch is shared with an open PR.
+            #
+            # `-X ours` is safe here precisely because of how narrow the branch
+            # is: STATE.md is the only file it ever touches, so it is the only
+            # file that can conflict, and the copy below overwrites it with the
+            # freshly generated content anyway. No other file can be silently
+            # resolved in the branch's favour, because no other file differs.
+            # Refetched rather than trusting the ref from job start: main can
+            # move while this job runs, and merging a stale main would leave the
+            # branch behind again — failing at exactly the thing being fixed.
+            git fetch origin main
+            git merge --no-edit -X ours FETCH_HEAD
           else
             git checkout -B "$branch"
           fi
