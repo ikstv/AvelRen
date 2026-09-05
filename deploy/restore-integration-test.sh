@@ -59,7 +59,14 @@ services:
     volumes:
       - '$ROOT_FOR_COMPOSE:/workspace:ro'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U avelren_admin -d postgres"]
+      # -h 127.0.0.1 forces the probe onto TCP, the transport the clients use
+      # (#146). Without it pg_isready falls back to the unix socket and answers
+      # for the temporary server initdb runs during first-time setup, which
+      # listens on the socket only. The container then reports Healthy while the
+      # real server has not started accepting TCP, and the first psql loses the
+      # race. Measured in run 33898304081: Healthy at 17:03:12.0, connection
+      # refused at 17:03:12.2. The other disposable suites already probe on TCP.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U avelren_admin -d postgres"]
       interval: 2s
       timeout: 2s
       retries: 30

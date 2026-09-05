@@ -1,5 +1,11 @@
 # AvelRen
 
+[![CI](https://github.com/ikstv/AvelRen/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ikstv/AvelRen/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL%2016-TimescaleDB-336791?logo=postgresql&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
+![Android](https://img.shields.io/badge/Android-Kotlin%20%2B%20Compose-3DDC84?logo=android&logoColor=white)
+
 History of border-checkpoint load at Ukraine's border — for trucks.
 
 The official source of border-checkpoint workload data shows only the current
@@ -28,19 +34,28 @@ is missing data, we extend our API rather than let it reach out.
 
 ## How it works
 
-```
-upstream API ──(1 request / 60 s)──> collector ──> PostgreSQL + TimescaleDB
-                                                        │
-                                       Caddy ──> api ───┘ ──> clients
+```mermaid
+flowchart LR
+    E["upstream API"] -->|"1 request / 60 s"| C[collector]
+    C --> DB[("PostgreSQL 16<br/>TimescaleDB")]
+    M[migrate] -.->|"schema before startup"| DB
+    DB --> API["api · FastAPI"] --> CADDY["caddy · HTTPS"] --> CL["Android client"]
+    DB --> N[notifier] --> FCM["FCM push"]
+    DB --> W[watchdog] --> FCM
 ```
 
 - **collector** — polls the upstream source exactly once every 60 seconds,
   records observations;
 - **api** — FastAPI, serves data **only from our DB**, never proxies a request;
+- **notifier** — turns threshold and entry-time alerts into FCM pushes;
+- **watchdog** — watches the system itself (stale data, a stale backup) and warns
+  the admin devices through the same FCM path;
+- **migrate** — applies the schema and exits; the services start behind it;
 - **db** — PostgreSQL 16 + TimescaleDB, a time series with compression;
 - **caddy** — HTTPS and reverse proxy.
 
-`collector` and `api` are one Docker image with two different startup commands.
+`migrate`, `collector`, `notifier`, `watchdog` and `api` are one Docker image
+with five different startup commands.
 
 ## Operational authorization boundary
 
@@ -108,6 +123,22 @@ configuration, not an application DSN.
 | `avelren_notifier` | Runtime SQL for `pending notification`, `delivery` state, and clearing invalid `FCM` tokens; no writing of observations or health state. |
 | `avelren_watchdog` | Runtime SQL to read `observations` and `collector_runs`, write only `health_alerts`, and SELECT only `devices.id`, `devices.is_admin`, `devices.fcm_token` for health notifications; `devices.secret_hash`, all other unrelated device fields, and any device writes are forbidden. |
 | `avelren_api` | Only endpoint-authorized `registration`, `authentication`, `subscription`, `ETA`, `history`, and `telemetry` SQL; no DDL and no collector writes. |
+
+### Admin devices
+
+`devices.is_admin` decides who the watchdog can reach with a health alert. It is
+set from the host, never by hand in SQL:
+
+```bash
+python -m avelren.admin_enroll --list          # devices, and the reachable channel
+python -m avelren.admin_enroll <device-id>     # promote
+python -m avelren.admin_enroll <device-id> --revoke
+```
+
+It reports the number of admins that carry an FCM token, not the number flagged
+`is_admin` — an admin without a token is a subscriber to nothing, and counting it
+is what let the channel look armed while it was empty (issue #112). The DSN must
+be allowed to write `devices`, so this is an admin/migrator operation.
 
 The empty `AVELREN_*_PASSWORD` and `AVELREN_*_DSN` variables are listed in
 `.env.example`. Real values belong only in the authorized secret store and host
@@ -201,6 +232,25 @@ cd AvelRen/android
 | `GET` | `/checkpoints` | directory of checkpoints |
 | `GET` | `/workload` | latest snapshot across all queues |
 | `GET` | `/history/{checkpoint_id}` | a checkpoint's history over a period |
+
+## Documentation
+
+| Document | What it answers |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | The rules an agent or developer works under — the numbered ones the CI gates enforce |
+| [AUTHORIZATION.md](AUTHORIZATION.md) | What may be changed in production without asking, and what may not |
+| [STATE.md](STATE.md) | Current state of the system, generated — never edited by hand |
+| [docs/design.md](docs/design.md) | ROAD SIGN: the canonical design of the Android app |
+| [docs/backend-testing.md](docs/backend-testing.md) | How to run the backend checks, and which one is the fast canonical gate |
+| [docs/forecast.md](docs/forecast.md) | Queue forecasting — a note about a future feature, not a plan for tomorrow |
+| [docs/privacy-and-retention.md](docs/privacy-and-retention.md) | What data is kept, for how long, and why |
+| [docs/release-signing.md](docs/release-signing.md) | Signing an Android release for a Play Console upload |
+| [docs/trusted-proxy.md](docs/trusted-proxy.md) | The `Internet → Caddy → API` boundary and what the API may trust |
+| [docs/ASSETS.md](docs/ASSETS.md) | Provenance of every binary asset committed to the repo |
+
+Operational runbooks — disaster recovery, restore rehearsals, key escrow, rollout
+windows — live in a separate private repository, because they name production
+endpoints and procedures. See AGENTS.md for the boundary.
 
 ## Future work
 
