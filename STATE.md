@@ -78,14 +78,32 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **15**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
+| `chore/neutralize-public` | 2 | 17 |
 | `chore/repo-tidy` | 2 | 21 |
-| `chore/state-refresh` | 13 | 13 |
+| `chore/state-refresh` | 14 | 13 |
+| `chore/state-refresh-live` | 1 | 11 |
+| `ci/dependency-audit-23` | 1 | 11 |
 | `dependabot/docker/app/python-cae66f2` | 1 | 15 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 5 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 4 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 13 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 13 |
+| `dependabot/github_actions/actions-a10aefb1c3` | 1 | 15 |
+| `docs/readme-badges-index-diagram-119` | 1 | 11 |
 | `docs/readme-professional` | 1 | 76 |
 | `docs/signal-has-a-date` | 1 | 25 |
+| `feat/admin-enroll-112` | 5 | 5 |
 | `feat/launcher-road-a` | 1 | 18 |
 | `feat/privacy-page` | 3 | 20 |
+| `feat/ratelimit-coverage-and-least-privilege-role-tests` | 1 | 13 |
+| `feat/source-attribution` | 2 | 15 |
 | `feat/truthful-server-badge` | 1 | 15 |
+| `fix/alert-channel-gate-113` | 2 | 11 |
+| `fix/background-delivery-hint-117` | 1 | 11 |
+| `fix/backup-future-objects-end-state-contract` | 1 | 12 |
 | `fix/backup-grants-and-rate-limits` | 1 | 12 |
+| `fix/backup-rclone-token-write` | 3 | 1 |
+| `fix/ci-silent-gates` | 1 | 14 |
+| `fix/collector-runs-error-91` | 1 | 22 |
+| `fix/db-readiness-tcp-probe-146` | 1 | 11 |
+| `fix/eta-contamination-127` | 1 | 11 |
+| `fix/history-clean-hourly-111` | 1 | 11 |
+| `fix/onboarding-bg-and-asset-provenance` | 1 | 16 |

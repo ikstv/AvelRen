@@ -35,6 +35,15 @@ class MainActivity : ComponentActivity() {
         NotificationPermissionState.Granted
     )
 
+    /**
+     * #117: measured facts about background delivery, refreshed with the
+     * permission on every onResume — a battery exemption can be granted or
+     * revoked in system settings while we are in the background, exactly like the
+     * permission itself.
+     */
+    private var ignoringBatteryOptimizations by mutableStateOf(true)
+    private var backgroundHintDismissed by mutableStateOf(false)
+
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             // An empty callback previously meant no one saw the denial.
@@ -87,6 +96,13 @@ class MainActivity : ComponentActivity() {
                         AvelRenScreen(
                             permissionState = permissionState,
                             onOpenNotificationSettings = { openNotificationSettings() },
+                            ignoringBatteryOptimizations = ignoringBatteryOptimizations,
+                            backgroundHintDismissed = backgroundHintDismissed,
+                            onOpenBatterySettings = { openBatterySettings() },
+                            onDismissBackgroundHint = {
+                                DeviceStore.markBackgroundHintDismissed(this@MainActivity)
+                                backgroundHintDismissed = true
+                            },
                         )
                     }
                 }
@@ -138,6 +154,15 @@ class MainActivity : ComponentActivity() {
         )
         if (history != stored) DeviceStore.saveNotificationHistory(this, history)
 
+        // #117. Measured, not guessed: this is a real API answer about this
+        // installation. A failure to read it must not invent a problem, so the
+        // fallback is "exempt" — the hint stays silent rather than crying wolf.
+        ignoringBatteryOptimizations = runCatching {
+            (getSystemService(POWER_SERVICE) as android.os.PowerManager)
+                .isIgnoringBatteryOptimizations(packageName)
+        }.getOrDefault(true)
+        backgroundHintDismissed = DeviceStore.backgroundHintDismissed(this)
+
         permissionState = NotificationPermission.evaluate(
             sdkInt = Build.VERSION.SDK_INT,
             runtimeGranted = runtimeGranted,
@@ -177,14 +202,34 @@ class MainActivity : ComponentActivity() {
         }
         runCatching { startActivity(intent) }.onFailure {
             // Rare firmware without this screen — open the app details page.
-            runCatching {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        Uri.fromParts("package", packageName, null),
-                    )
-                )
-            }
+            runCatching { startActivity(appDetailsIntent()) }
         }
     }
+
+    /**
+     * #117: the battery-optimisation list.
+     *
+     * Deliberately ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS (the list) and not
+     * ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (the one-tap dialog): the latter
+     * needs the REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission, which Google Play
+     * only allows for a narrow set of app categories. This app is mid-review after
+     * two policy rejections — a permission we would have to argue for is not a
+     * trade worth making for one saved tap.
+     *
+     * On MIUI and its relatives the autostart list lives somewhere else entirely
+     * and no documented intent opens it, so there the app details page is the
+     * closest honest destination; the hint text names the setting to look for.
+     */
+    private fun openBatterySettings() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }.onFailure {
+            runCatching { startActivity(appDetailsIntent()) }
+        }
+    }
+
+    private fun appDetailsIntent(): Intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", packageName, null),
+    )
 }

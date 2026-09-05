@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
-from . import forecast
+from . import forecast, telemetry
 from .config import settings
 from .db import get_pool
 from .limits import BodySizeLimitMiddleware, ConcurrencyGate
@@ -66,10 +66,26 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
 
 
 @app.get("/health")
-async def health() -> dict:
-    """A live service with stale data is also a problem, so we measure freshness."""
+async def health(request: Request) -> dict:
+    """A live service with stale data is also a problem, so we measure freshness.
+
+    `status` is about LIVENESS only (ok/stale) — it is a deploy-acceptance gate
+    and a container/LB healthcheck, so nothing unrelated may lower it. The
+    separate `alert_channel` key is about DELIVERY: whether the watchdog's alert
+    channel can reach anyone (#113). It is read by the external monitor and MUST
+    NOT affect `status` — its probe is wrapped so that a failure to compute it
+    degrades to "unknown" and still returns 200 with a valid liveness reading.
+    Otherwise liveness would start depending on the `devices` table it has no
+    business touching.
+    """
+    rate_check(request, "read")
     async with get_pool().connection() as conn:
         row = await (await conn.execute("SELECT max(time) AS last FROM observations")).fetchone()
+        try:
+            channel = await telemetry.alert_channel(conn)
+        except Exception as exc:
+            log.warning("alert_channel probe failed, reporting unknown: %s", exc)
+            channel = "unknown"
 
     last = row["last"] if row else None
     age = (datetime.now(UTC) - last).total_seconds() if last else None
@@ -79,6 +95,7 @@ async def health() -> dict:
         "status": "ok" if fresh else "stale",
         "last_observation": last,
         "age_seconds": int(age) if age is not None else None,
+        "alert_channel": channel,
     }
 
 
@@ -116,8 +133,9 @@ async def workload(request: Request) -> list[dict]:
 
     `entry_eta` is the approximate entry time for someone joining the queue now.
     The formula is verified against eCherha: the measurement moment plus
-    `wait_time`. For a paused queue with zero wait there is no forecast, rather
-    than "entry right now", so it is `null` there.
+    `wait_time`. A zero wait is `null` rather than "entry right now" in both
+    shapes that mean "no estimate": a paused queue, and cars still queued while
+    the source reports zero (#111/#127).
     """
     rate_check(request, "read")
     async with get_pool().connection() as conn:
@@ -128,7 +146,12 @@ async def workload(request: Request) -> list[dict]:
                     o.checkpoint_id, c.title, c.country_id, c.country_name,
                     c.flag_emoji, c.lat, c.lng,
                     o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused,
-                    CASE WHEN o.is_paused AND o.wait_time_seconds = 0 THEN NULL
+                    -- Same rule as eta.py and forecast.py (#127): a zero wait is
+                    -- "no estimate", not "enter now", both when the queue is
+                    -- paused and when cars are still queued (#111 writes a
+                    -- missing estimate as 0). Null beats a confident wrong time.
+                    CASE WHEN o.wait_time_seconds = 0
+                              AND (o.is_paused OR o.vehicles_in_queue > 0) THEN NULL
                          ELSE o.time + (o.wait_time_seconds * INTERVAL '1 second')
                     END AS entry_eta
                 FROM observations o
@@ -148,7 +171,14 @@ async def history(
     hours: int = Query(24, ge=1, le=24 * 90),
 ) -> dict:
     """A point's history. For long periods we serve hourly aggregates — a raw
-    series over 90 days is 130 thousand points, which the client has nowhere to put."""
+    series over 90 days is 130 thousand points, which the client has nowhere to put.
+
+    The hourly buckets are recomputed from `observations` rather than read from the
+    `observations_hourly` continuous aggregate: the aggregate averages every row,
+    including the zero-wait-with-cars-queued readings that mean "no estimate"
+    (#111). Cost measured on production: 40 ms for a full 12-week window on the
+    busiest checkpoint, against a 5 s statement_timeout.
+    """
     rate_check(request, "read")
     since = datetime.now(UTC) - timedelta(hours=hours)
 
@@ -176,11 +206,32 @@ async def history(
             rows = await (
                 await conn.execute(
                     """
-                    SELECT bucket AS time, avg_wait_seconds, max_wait_seconds,
-                           avg_vehicles, max_vehicles, samples
-                    FROM observations_hourly
-                    WHERE checkpoint_id = %s AND bucket >= %s
-                    ORDER BY bucket
+                    -- Same clean_hourly as forecast.py (#111): observations_hourly
+                    -- recomputed inline with one added filter. The continuous
+                    -- aggregate averages wait_time_seconds over every row, and a
+                    -- row reporting zero wait while cars are still queued is a
+                    -- missing source estimate written as a measured 0 — it drags
+                    -- the hourly average down. forecast.py stopped reading the
+                    -- aggregate for exactly this reason; this endpoint kept doing
+                    -- it, so the same contamination survived on a third surface.
+                    -- Everything else is copied verbatim from the aggregate's
+                    -- definition (db/migrations/001_init.sql), so on uncontaminated
+                    -- data the result is identical to what it replaced.
+                    --
+                    -- An hour whose every sample was contaminated disappears rather
+                    -- than being drawn at zero: a gap says "we do not know", a zero
+                    -- claims the queue was empty.
+                    SELECT time_bucket(INTERVAL '1 hour', time) AS time,
+                           avg(wait_time_seconds)::integer AS avg_wait_seconds,
+                           max(wait_time_seconds)          AS max_wait_seconds,
+                           avg(vehicles_in_queue)::integer AS avg_vehicles,
+                           max(vehicles_in_queue)          AS max_vehicles,
+                           count(*)                        AS samples
+                    FROM observations
+                    WHERE checkpoint_id = %s AND time >= %s
+                      AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
+                    GROUP BY 1
+                    ORDER BY 1
                     """,
                     (checkpoint_id, since),
                 )

@@ -42,6 +42,7 @@ jobs:
             android/app/src/main/java/ua/avelren/app/notify/AlertReconciliation.kt \
             android/app/src/test/java/ua/avelren/app/notify/AlertReconciliationTest.kt \
             app/src/avelren/schema_verify.py \
+            app/src/avelren/admin_enroll.py \
             app/src/avelren/restore_smoke.py \
             deploy/restore-verify.sh \
             app/Dockerfile.test \
@@ -78,6 +79,61 @@ jobs:
           if grep -rnE '"[^"]*(echerha|gov\.ua)' android/app/src/main/java/ua/avelren/app/data --include='*.kt'; then
             echo "VIOLATION of AGENTS.md rule 1: the app's network layer names eCherha/gov.ua directly."
             echo "The client must talk EXCLUSIVELY to our API (BuildConfig.API_BASE_URL). Extend the API, do not let the phone reach out."
+            exit 1
+          fi
+
+      # AGENTS.md rule 5: a migration must not use ALTER DEFAULT PRIVILEGES,
+      # except 010 (which sets the schema-wide least-privilege posture). A later
+      # migration that grants avelren_backup via default privileges silently
+      # breaks the adoption inverse-rollback contract: the inverse plan restores
+      # to a manifest captured before the migrate gate and reverts only 010's two
+      # hand-written default-ACL lines, so anything else is left over and the
+      # `Cold adoption integration` scenario fails with an exact-manifest
+      # mismatch (issue #144). Future objects stay backup-readable via an
+      # explicit GRANT SELECT in the migration instead, enforced by
+      # test_backup_can_read_every_public_table_and_sequence.
+      - name: Migrations do not use ALTER DEFAULT PRIVILEGES outside 010
+        run: |
+          set -e
+          # Flatten newlines per file before matching: a line-oriented grep would
+          # miss `ALTER DEFAULT\n  PRIVILEGES`, which is exactly the silent hole a
+          # gate against a recurring class must not have.
+          bad=
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if tr '\n' ' ' < "$f" | grep -qiE 'alter[[:space:]]+default[[:space:]]+privileges'; then
+              echo "VIOLATION of AGENTS.md rule 5: $f uses ALTER DEFAULT PRIVILEGES."
+              bad=1
+            fi
+          done < <(git ls-files -- 'db/migrations/*.sql' | grep -v '^db/migrations/010_')
+          if [ -n "$bad" ]; then
+            echo "This collides with the adoption inverse-rollback contract (issue #144)."
+            echo "Grant future objects with an explicit GRANT SELECT to avelren_backup instead."
+            exit 1
+          fi
+
+      - name: Every pg_isready probe answers for TCP, not the unix socket
+        run: |
+          set -e
+          # A probe on the unix socket answers for the temporary server initdb
+          # runs during first-time setup — that server listens on the socket
+          # only. The container reports Healthy, `condition: service_healthy`
+          # releases, and the first client hits a TCP port nobody is listening on
+          # yet (#146: Healthy at 17:03:12.0, connection refused at 17:03:12.2).
+          # The readiness probe must use the same transport as the clients.
+          bad=
+          while IFS= read -r hit; do
+            # Strip the `file:line:` prefix and skip comment lines — otherwise a
+            # comment explaining this very rule counts as a violation of it.
+            body=$(printf '%s' "${hit#*:*:}" | sed 's/^[[:space:]]*//')
+            case "$body" in \#*) continue ;; esac
+            case "$body" in
+              *"pg_isready -h "*) ;;
+              *) echo "VIOLATION: probe does not force TCP: $hit"; bad=1 ;;
+            esac
+          done < <(git grep -n 'pg_isready' -- 'deploy/*.sh' 'docker-compose*.yml' || true)
+          if [ -n "$bad" ]; then
+            echo "Add -h 127.0.0.1 so the probe fails while only the init server is up."
             exit 1
           fi
 
