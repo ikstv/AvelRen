@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
-from . import forecast
+from . import forecast, telemetry
 from .config import settings
 from .db import get_pool
 from .limits import BodySizeLimitMiddleware, ConcurrencyGate
@@ -67,10 +67,25 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
 
 @app.get("/health")
 async def health(request: Request) -> dict:
-    """A live service with stale data is also a problem, so we measure freshness."""
+    """A live service with stale data is also a problem, so we measure freshness.
+
+    `status` is about LIVENESS only (ok/stale) — it is a deploy-acceptance gate
+    and a container/LB healthcheck, so nothing unrelated may lower it. The
+    separate `alert_channel` key is about DELIVERY: whether the watchdog's alert
+    channel can reach anyone (#113). It is read by the external monitor and MUST
+    NOT affect `status` — its probe is wrapped so that a failure to compute it
+    degrades to "unknown" and still returns 200 with a valid liveness reading.
+    Otherwise liveness would start depending on the `devices` table it has no
+    business touching.
+    """
     rate_check(request, "read")
     async with get_pool().connection() as conn:
         row = await (await conn.execute("SELECT max(time) AS last FROM observations")).fetchone()
+        try:
+            channel = await telemetry.alert_channel(conn)
+        except Exception as exc:
+            log.warning("alert_channel probe failed, reporting unknown: %s", exc)
+            channel = "unknown"
 
     last = row["last"] if row else None
     age = (datetime.now(UTC) - last).total_seconds() if last else None
@@ -80,6 +95,7 @@ async def health(request: Request) -> dict:
         "status": "ok" if fresh else "stale",
         "last_observation": last,
         "age_seconds": int(age) if age is not None else None,
+        "alert_channel": channel,
     }
 
 
@@ -117,8 +133,9 @@ async def workload(request: Request) -> list[dict]:
 
     `entry_eta` is the approximate entry time for someone joining the queue now.
     The formula is verified against eCherha: the measurement moment plus
-    `wait_time`. For a paused queue with zero wait there is no forecast, rather
-    than "entry right now", so it is `null` there.
+    `wait_time`. A zero wait is `null` rather than "entry right now" in both
+    shapes that mean "no estimate": a paused queue, and cars still queued while
+    the source reports zero (#111/#127).
     """
     rate_check(request, "read")
     async with get_pool().connection() as conn:
@@ -129,7 +146,12 @@ async def workload(request: Request) -> list[dict]:
                     o.checkpoint_id, c.title, c.country_id, c.country_name,
                     c.flag_emoji, c.lat, c.lng,
                     o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused,
-                    CASE WHEN o.is_paused AND o.wait_time_seconds = 0 THEN NULL
+                    -- Same rule as eta.py and forecast.py (#127): a zero wait is
+                    -- "no estimate", not "enter now", both when the queue is
+                    -- paused and when cars are still queued (#111 writes a
+                    -- missing estimate as 0). Null beats a confident wrong time.
+                    CASE WHEN o.wait_time_seconds = 0
+                              AND (o.is_paused OR o.vehicles_in_queue > 0) THEN NULL
                          ELSE o.time + (o.wait_time_seconds * INTERVAL '1 second')
                     END AS entry_eta
                 FROM observations o
