@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `3a6314d`.
+Generated from `main` @ `ae4cb4d`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `5b79d17` |
-| `main` ahead by | **1 commit(s)** |
+| `main` ahead by | **2 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -24,6 +24,7 @@ consider splitting: first a re-prep and deploy without adoption, then a separate
 one for 3B.2.
 
 - `3a6314d` chore(deploy): pin prod to 5b79d17 after installing the snapshot script (#166)
+- `ae4cb4d` ci: let the state workflow start the checks its own PR cannot (#159) (#167)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
@@ -40,8 +41,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### Issues
 
-- #164 prod: встановлений telemetry-snapshot розійшовся з репо на 125 рядків — секції docker/services немає в живому знімку
-- #160 prod: міграційний пін 009 випав з активного override — /migrations монтується з репозиторію
 - #159 state workflow: the PR it opens can never be merged (GITHUB_TOKEN starts no checks)
 - #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
 - #117 Відсутній дозвіл на сповіщення робить застосунок беззвучним — ні користувач, ні сервер цього не бачать
@@ -57,14 +56,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 26 |
-| `chore/state-refresh` | 3 | 3 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 20 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 10 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-professional` | 1 | 81 |
-| `docs/signal-has-a-date` | 1 | 30 |
-| `feat/launcher-road-a` | 1 | 23 |
-| `feat/privacy-page` | 3 | 25 |
-| `feat/truthful-server-badge` | 1 | 20 |
-| `fix/backup-grants-and-rate-limits` | 1 | 17 |
+| `chore/repo-tidy` | 2 | 27 |
+| `chore/state-refresh` | 4 | 4 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 21 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 11 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
+| `docs/readme-professional` | 1 | 82 |
+| `docs/signal-has-a-date` | 1 | 31 |
+| `feat/launcher-road-a` | 1 | 24 |
+| `feat/privacy-page` | 3 | 26 |
+| `feat/truthful-server-badge` | 1 | 21 |
+| `fix/backup-grants-and-rate-limits` | 1 | 18 |
