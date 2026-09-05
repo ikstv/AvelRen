@@ -228,18 +228,44 @@ def test_services_stopped_container(snapshot):
 
 def test_docker_reads_from_snapshot(snapshot):
     snapshot(
-        {"docker": {"daemon_version": "27.0.3", "compose_version": "2.29.1"}},
+        {
+            "docker": {
+                "daemon_version": "27.0.3",
+                "compose_version": "2.29.1",
+                "migrate_pin_active": True,
+            }
+        },
         collected_at=datetime.now(UTC),
     )
     assert telemetry.docker() == {
         "daemon_version": "27.0.3",
         "compose_version": "2.29.1",
+        "migrate_pin_active": True,
     }
 
 
 def test_docker_null_when_snapshot_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(telemetry, "SNAPSHOT_PATH", tmp_path / "missing.json")
-    assert telemetry.docker() == {"daemon_version": None, "compose_version": None}
+    assert telemetry.docker() == {
+        "daemon_version": None,
+        "compose_version": None,
+        "migrate_pin_active": None,
+    }
+
+
+def test_docker_omits_fields_the_snapshot_does_not_carry(snapshot):
+    """The whitelist answers for every key it declares, including on old data.
+
+    A snapshot written before #160 has no `migrate_pin_active`, and the dashboard
+    must read None there — not raise, and not inherit a stale value. This is also
+    what keeps the equality assertions above honest: they are a gate on the
+    whitelist, and the next person to add a field has to come here and mean it.
+    """
+    snapshot(
+        {"docker": {"daemon_version": "27.0.3", "compose_version": "2.29.1"}},
+        collected_at=datetime.now(UTC),
+    )
+    assert telemetry.docker()["migrate_pin_active"] is None
 
 
 def test_inodes_reads_from_snapshot(snapshot):
