@@ -44,6 +44,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **9**.
 
 ### PRs
 
+- #157 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #156 ci: audit the resolved Python dependency set against known advisories (#23) — `ci/dependency-audit-23`
 - #155 feat(ops): a supported way to mark a device admin, instead of a hand UPDATE (#112) — `feat/admin-enroll-112`
 - #154 chore(state): regenerate STATE.md and unblock the red run on main — `chore/state-refresh-live`
@@ -82,23 +83,23 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **9**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 11 |
-| `chore/state-refresh` | 3 | 3 |
-| `chore/state-refresh-live` | 1 | 1 |
-| `ci/dependency-audit-23` | 1 | 1 |
+| `chore/state-refresh` | 4 | 3 |
+| `chore/state-refresh-live` | 2 | 0 |
+| `ci/dependency-audit-23` | 2 | 0 |
 | `dependabot/docker/app/python-cae66f2` | 1 | 5 |
 | `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 3 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-badges-index-diagram-119` | 1 | 1 |
+| `docs/readme-badges-index-diagram-119` | 2 | 0 |
 | `docs/readme-professional` | 1 | 66 |
 | `docs/signal-has-a-date` | 1 | 15 |
-| `feat/admin-enroll-112` | 2 | 1 |
+| `feat/admin-enroll-112` | 3 | 0 |
 | `feat/launcher-road-a` | 1 | 8 |
 | `feat/privacy-page` | 3 | 10 |
 | `feat/truthful-server-badge` | 1 | 5 |
-| `fix/alert-channel-gate-113` | 2 | 1 |
-| `fix/background-delivery-hint-117` | 1 | 1 |
+| `fix/alert-channel-gate-113` | 3 | 0 |
+| `fix/background-delivery-hint-117` | 2 | 0 |
 | `fix/backup-grants-and-rate-limits` | 1 | 2 |
 | `fix/backup-rclone-token-write` | 2 | 1 |
-| `fix/db-readiness-tcp-probe-146` | 1 | 1 |
-| `fix/eta-contamination-127` | 1 | 1 |
-| `fix/history-clean-hourly-111` | 1 | 1 |
+| `fix/db-readiness-tcp-probe-146` | 2 | 0 |
+| `fix/eta-contamination-127` | 2 | 0 |
+| `fix/history-clean-hourly-111` | 2 | 0 |
