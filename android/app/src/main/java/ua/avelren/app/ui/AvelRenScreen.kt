@@ -350,7 +350,8 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 84.dp),
+                // 104 = навпанель (84) + рядок атрибуції над нею.
+                .padding(bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HeaderRow(freshness = freshness, hasError = refreshError)
@@ -393,8 +394,9 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp),
-            // Нижній відступ, щоб останню плитку не ховала плавуча навпанель.
-            contentPadding = PaddingValues(bottom = 84.dp),
+            // Нижній відступ, щоб останню плитку не ховали навпанель + рядок
+            // атрибуції над нею (84 + ~20).
+            contentPadding = PaddingValues(bottom = 104.dp),
         ) {
             item {
                 HeaderRow(freshness = freshness, hasError = refreshError)
@@ -439,6 +441,16 @@ fun AvelRenScreen(
             .windowInsetsPadding(WindowInsets.systemBars)
             .padding(horizontal = 12.dp)
             .padding(bottom = 12.dp),
+    )
+    // Атрибуція джерела (вимога Google): закріплена внизу, НАД навпанеллю
+    // (nav: bottom 12 + height 60 → відступ 80), не їде зі скролом. Списки
+    // мають нижній contentPadding 104, щоб останній елемент її не ховав.
+    AttributionBar(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 80.dp),
     )
     }
 
@@ -1675,6 +1687,11 @@ private fun CheckpointPickerSheet(
                     modifier = Modifier.tapNoRipple(onClick = onDismiss).padding(4.dp),
                 )
             }
+            // Атрибуція джерела — під заголовком, ПОЗА списком: саме цей екран
+            // (повноекранний Dialog) флагнув Google. Угорі, а не в підвалі: у
+            // Dialog вікно wrap-height, тож прибити рядок до низу надійно не
+            // виходить (виходив 0×0), а тут він гарантовано видимий і не скролиться.
+            AttributionBar(Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -1,0 +1,50 @@
+<!-- AvelRen "Road-A" launcher foreground. Converted from _architect/road-a.svg
+     (canonical geometry — do not redraw by eye). The letter's rounded corners
+     come from strokeLineJoin="round" with fill and stroke the same colour.
+     Paths keep their original 512-space coordinates; the group scales them
+     (~0.124) into the 108dp adaptive safe zone (Ø66 centre circle) and lifts
+     the mark ~2dp so it reads optically centred. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.124"
+        android:scaleY="0.124"
+        android:translateX="-202"
+        android:translateY="-205.5">
+        <path
+            android:pathData="M256 84 L430 452 L318 452 L256 162 L194 452 L82 452 Z"
+            android:fillColor="#F5C400"
+            android:strokeColor="#F5C400"
+            android:strokeWidth="26"
+            android:strokeLineJoin="round"/>
+        <path
+            android:pathData="M253 196 L259 196 L260 216 L252 216 Z"
+            android:fillColor="#F5C400"
+            android:strokeColor="#F5C400"
+            android:strokeWidth="2"
+            android:strokeLineJoin="round"/>
+        <path
+            android:pathData="M251.5 240 L260.5 240 L262 266 L250 266 Z"
+            android:fillColor="#F5C400"
+            android:strokeColor="#F5C400"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"/>
+        <path
+            android:pathData="M249 292 L263 292 L265.5 328 L246.5 328 Z"
+            android:fillColor="#F5C400"
+            android:strokeColor="#F5C400"
+            android:strokeWidth="4"
+            android:strokeLineJoin="round"/>
+        <path
+            android:pathData="M245.5 356 L266.5 356 L271 424 L241 424 Z"
+            android:fillColor="#F5C400"
+            android:strokeColor="#F5C400"
+            android:strokeWidth="4"
+            android:strokeLineJoin="round"/>
+    </group>
+</vector>

@@ -18,6 +18,17 @@ https://api.bordersignal.pp.ua {
 		}
 	}
 
+	# Static privacy policy for the Play Console listing. Served from a
+	# read-only bind mount (see docker-compose.yml). No API involvement.
+	# Placed after handle /api/* on purpose: handle blocks are matched by
+	# matcher specificity, not source order, and the setup contract greps a
+	# fixed window after the site opener for `reverse_proxy api:8000`.
+	handle /privacy {
+		root * /srv/static
+		try_files /privacy-policy.html
+		file_server
+	}
+
 	handle {
 		respond "AvelRen API" 200
 	}
