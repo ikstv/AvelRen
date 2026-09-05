@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `7ba9692`.
+Generated from `main` @ `3b9c042`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `ebce449` |
-| `main` ahead by | **21 commit(s)** |
+| `main` ahead by | **22 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -44,6 +44,7 @@ one for 3B.2.
 - `f46d5e1` fix(ci,compose): probe database readiness over TCP, the transport clients use (#146) (#153)
 - `39ee23a` feat(ops): a supported way to mark a device admin, instead of a hand UPDATE (#112) (#155)
 - `7ba9692` docs(readme): badges, a documentation index, and an architecture diagram (#119) (#152)
+- `3b9c042` ci: audit the resolved Python dependency set against known advisories (#23) (#156)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 
@@ -52,7 +53,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 ### PRs
 
 - #157 chore(state): regenerate STATE.md — `chore/state-refresh`
-- #156 ci: audit the resolved Python dependency set against known advisories (#23) — `ci/dependency-audit-23`
 - #154 chore(state): regenerate STATE.md and unblock the red run on main — `chore/state-refresh-live`
 - #148 fix(backup): persist rclone's refreshed OAuth token (issue #121) — `fix/backup-rclone-token-write`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
@@ -82,17 +82,16 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 18 |
-| `chore/state-refresh` | 11 | 10 |
-| `chore/state-refresh-live` | 2 | 7 |
-| `ci/dependency-audit-23` | 3 | 0 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 12 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 2 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-professional` | 1 | 73 |
-| `docs/signal-has-a-date` | 1 | 22 |
-| `feat/launcher-road-a` | 1 | 15 |
-| `feat/privacy-page` | 3 | 17 |
-| `feat/truthful-server-badge` | 1 | 12 |
-| `fix/backup-grants-and-rate-limits` | 1 | 9 |
-| `fix/backup-rclone-token-write` | 2 | 8 |
+| `chore/repo-tidy` | 2 | 19 |
+| `chore/state-refresh` | 12 | 11 |
+| `chore/state-refresh-live` | 3 | 0 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 13 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 3 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
+| `docs/readme-professional` | 1 | 74 |
+| `docs/signal-has-a-date` | 1 | 23 |
+| `feat/launcher-road-a` | 1 | 16 |
+| `feat/privacy-page` | 3 | 18 |
+| `feat/truthful-server-badge` | 1 | 13 |
+| `fix/backup-grants-and-rate-limits` | 1 | 10 |
+| `fix/backup-rclone-token-write` | 2 | 9 |
