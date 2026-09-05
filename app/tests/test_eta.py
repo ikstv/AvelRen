@@ -36,7 +36,13 @@ def _pending(conn, target_id: int) -> int:
     ).fetchone()["n"]
 
 
-def _observe(checkpoint_id: int, at: datetime, wait_seconds: int, is_paused: bool = False) -> None:
+def _observe(
+    checkpoint_id: int,
+    at: datetime,
+    wait_seconds: int,
+    is_paused: bool = False,
+    vehicles: int = 100,
+) -> None:
     """Runs a single measurement through the same logic as the collector."""
 
     async def run() -> None:
@@ -48,7 +54,7 @@ def _observe(checkpoint_id: int, at: datetime, wait_seconds: int, is_paused: boo
                 for_vehicle_type=1,
                 wait_time=wait_seconds,
                 is_paused=is_paused,
-                vehicle_in_active_queues_counts=100,
+                vehicle_in_active_queues_counts=vehicles,
             )
             await eta.evaluate(ac, at, [item])
 
@@ -105,6 +111,68 @@ def test_paused_queue_does_not_fire(conn, device, checkpoint):
 
     _observe(checkpoint, now, wait_seconds=0, is_paused=True)
     assert _pending(conn, tid) == 0
+
+
+def test_zero_wait_with_cars_queued_does_not_fire(conn, device, checkpoint):
+    """The #127 defect: a zero wait while cars are still queued is a missing
+    estimate the source writes as 0 (#111), not "entry right now". forecast.py
+    has discarded exactly this shape since #126; eta.py filtered only the paused
+    variant, so this one reached the driver as a push telling them to register.
+
+    Measured on production before the fix: over 30 days, 256272 of 1570388
+    observations carried this shape and 203894 of them were NOT paused — four
+    fifths of the contamination went straight through the old filter.
+    """
+    now = datetime.now(UTC)
+    tid = _target(conn, device.device_id, checkpoint, now, tolerance=900)
+
+    _observe(checkpoint, now, wait_seconds=0, is_paused=False, vehicles=100)
+    assert _pending(conn, tid) == 0
+
+
+def test_zero_wait_with_empty_queue_still_fires(conn, device, checkpoint):
+    """The boundary of the fix, in the opposite direction.
+
+    Zero wait with an empty queue is a real reading — nobody is waiting, so entry
+    now is the correct answer. Filtering on the wait alone would silence it and
+    turn a defect about wrong notifications into one about missing them.
+    """
+    now = datetime.now(UTC)
+    tid = _target(conn, device.device_id, checkpoint, now, tolerance=900)
+
+    _observe(checkpoint, now, wait_seconds=0, is_paused=False, vehicles=0)
+    assert _pending(conn, tid) == 1
+
+
+def _workload_eta(api_client, checkpoint_id: int):
+    rows = api_client.get("/workload").json()
+    return next(r for r in rows if r["checkpoint_id"] == checkpoint_id)["entry_eta"]
+
+
+def test_workload_entry_eta_null_when_cars_queued_at_zero_wait(conn, checkpoint, api_client):
+    """The same rule on the second path, which is where #127 was hiding.
+
+    /workload computes entry_eta in SQL and carried the identical half-filter, so
+    every device on the main screen — not just the few with an ETA target — was
+    shown "enter now" for a queue that is merely missing its estimate. Tested next
+    to the notifier rule on purpose: the defect was the two paths drifting apart.
+    """
+    conn.execute(
+        "INSERT INTO observations (time, checkpoint_id, wait_time_seconds, "
+        "vehicles_in_queue, is_paused) VALUES (now(), %s, 0, 100, false)",
+        (checkpoint,),
+    )
+    assert _workload_eta(api_client, checkpoint) is None
+
+
+def test_workload_entry_eta_present_when_queue_is_empty(conn, checkpoint, api_client):
+    """Boundary: zero wait with nobody queued is a real "enter now"."""
+    conn.execute(
+        "INSERT INTO observations (time, checkpoint_id, wait_time_seconds, "
+        "vehicles_in_queue, is_paused) VALUES (now(), %s, 0, 0, false)",
+        (checkpoint,),
+    )
+    assert _workload_eta(api_client, checkpoint) is not None
 
 
 def test_no_refire_after_ack_in_same_window(conn, device, checkpoint, api_client):
