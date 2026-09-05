@@ -25,6 +25,9 @@ permissions:
   # write, not read: the bot no longer pushes main directly, it opens a PR.
   pull-requests: write
   issues: read
+  # To dispatch CI on the branch it just pushed (#159). Not a secret and not a
+  # branch-protection change — the two costs the other candidate fixes carried.
+  actions: write
 
 concurrency:
   group: state
@@ -102,3 +105,20 @@ jobs:
               --title 'chore(state): regenerate STATE.md' \
               --body 'Opened by the `state` workflow. STATE.md is generated from git and gh by scripts/generate-state.sh — never edit it by hand.'
           fi
+
+          # Ask for the run the PR itself cannot start (#159). GitHub does not
+          # trigger workflows from events made with GITHUB_TOKEN, so this PR was
+          # born with zero check runs on its head — and `main` requires three,
+          # with enforce_admins on, so nobody could merge it. workflow_dispatch is
+          # exempt from that guard, and the run it starts reports the same three
+          # contexts against the same commit, which is what protection looks at.
+          #
+          # Deliberately after `git push`, so the run is dispatched against the
+          # commit the PR actually points at.
+          #
+          # A failure here must not fail the workflow: the regenerated STATE.md is
+          # already pushed and the PR is already open, so the useful work is done.
+          # Losing that to a dispatch hiccup would turn a green run into a red one
+          # for no gain — and the missing checks are visible on the PR anyway.
+          gh workflow run ci.yml --ref "$branch" \
+            || echo "WARNING: could not dispatch CI for $branch; the PR will need a manual run"
