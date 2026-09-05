@@ -163,6 +163,13 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
             "(≥2 daily runs in a row did not finish)"
         )
 
+    if _migrate_pin_lost():
+        problems["migrate_pin_lost"] = (
+            "the 001-009 migration pin is not mounted: /migrations resolves to "
+            "the repository, where 010 already exists. Any profiled `up` would "
+            "stamp it out of the 3D order (issue #160)"
+        )
+
     return problems
 
 
@@ -201,6 +208,24 @@ def _reboot_pending() -> int | None:
     if not isinstance(days, int):
         return None
     return days
+
+
+def _migrate_pin_lost() -> bool:
+    """True only when the host snapshot says the migration pin is NOT mounted.
+
+    The pin keeps `migrate` seeing 001-009 while the 3D gate (#15) is still
+    unauthorised. It lives in the host's compose override — outside git — and it
+    fell out silently during the #88 window (#160). The deploy runbook checks it,
+    but only during a deploy, so between windows nothing watched the guard.
+
+    Missing or null is deliberately NOT an alarm. The snapshot reports null when
+    it could not look at all (no docker, no stack directory), and a watchdog that
+    treats "unknown" as "broken" earns exactly one week of being believed.
+    """
+    snapshot = _read_snapshot()
+    if snapshot is None:
+        return False
+    return snapshot.get("docker", {}).get("migrate_pin_active") is False
 
 
 async def _open_alerts(conn: AsyncConnection) -> dict[str, dict]:
