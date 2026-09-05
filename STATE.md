@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `3b9c042`.
+Generated from `main` @ `01914f5`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `ebce449` |
-| `main` ahead by | **22 commit(s)** |
+| `main` ahead by | **24 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -45,16 +45,16 @@ one for 3B.2.
 - `39ee23a` feat(ops): a supported way to mark a device admin, instead of a hand UPDATE (#112) (#155)
 - `7ba9692` docs(readme): badges, a documentation index, and an architecture diagram (#119) (#152)
 - `3b9c042` ci: audit the resolved Python dependency set against known advisories (#23) (#156)
+- `46f6862` chore(state): regenerate STATE.md and unblock the red run on main (#154)
+- `01914f5` fix(backup): persist rclone's refreshed OAuth token (issue #121) (#148)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **15**.
 
 ## Open PRs and issues
 
 ### PRs
 
 - #157 chore(state): regenerate STATE.md — `chore/state-refresh`
-- #154 chore(state): regenerate STATE.md and unblock the red run on main — `chore/state-refresh-live`
-- #148 fix(backup): persist rclone's refreshed OAuth token (issue #121) — `fix/backup-rclone-token-write`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
 - #138 chore(deps): bump python from `ce40764` to `cae66f2` in /app — `dependabot/docker/app/python-cae66f2`
@@ -64,12 +64,8 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 ### Issues
 
 - #158 🔴 external monitor: watchdog alert channel is blind
-- #146 backend-tests: кроки, що залежать від готовності БД, не чекають на неї (флейк startup-гонки)
-- #127 ETA несе ту саму контамінацію, що й forecast — eta.py фільтрує лише is_paused
 - #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
-- #119 README: port badges + docs-index + (redraw) architecture diagram onto English README
 - #117 Відсутній дозвіл на сповіщення робить застосунок беззвучним — ні користувач, ні сервер цього не бачать
-- #112 Немає способу призначити is_admin, окрім ручного UPDATE devices — канал алертів висихає тихо
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
 - #110 Робота на двох ПК (десктоп + ноутбук): доступи, синхрон, стан дошки
 - #26 audit: Production hardening після аудиту 7e110306 / Production hardening after the 7e110306 audit
@@ -82,16 +78,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 19 |
-| `chore/state-refresh` | 12 | 11 |
-| `chore/state-refresh-live` | 3 | 0 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 13 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 3 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
-| `docs/readme-professional` | 1 | 74 |
-| `docs/signal-has-a-date` | 1 | 23 |
-| `feat/launcher-road-a` | 1 | 16 |
-| `feat/privacy-page` | 3 | 18 |
-| `feat/truthful-server-badge` | 1 | 13 |
-| `fix/backup-grants-and-rate-limits` | 1 | 10 |
-| `fix/backup-rclone-token-write` | 2 | 9 |
+| `chore/repo-tidy` | 2 | 21 |
+| `chore/state-refresh` | 13 | 13 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 15 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 5 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 4 |
+| `docs/readme-professional` | 1 | 76 |
+| `docs/signal-has-a-date` | 1 | 25 |
+| `feat/launcher-road-a` | 1 | 18 |
+| `feat/privacy-page` | 3 | 20 |
+| `feat/truthful-server-badge` | 1 | 15 |
+| `fix/backup-grants-and-rate-limits` | 1 | 12 |
