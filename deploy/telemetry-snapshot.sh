@@ -33,6 +33,22 @@ APT_CHECK=${AVELREN_APT_CHECK:-/usr/lib/update-notifier/apt-check}
 STACK_DIR=${AVELREN_STACK_DIR:-/opt/avelren}
 MIGRATE_PIN_PATH=${AVELREN_MIGRATE_PIN_PATH:-/var/lib/avelren-migrate-pin-009}
 
+# This script does not run from the checkout: the systemd unit executes an
+# installed copy at /usr/local/sbin/avelren-telemetry-snapshot. That copy drifted
+# 125 lines behind the repository and nobody noticed for weeks — the `docker` and
+# `services` sections were simply absent from the live snapshot, and an absent
+# section renders as a dash (#164, and #93 before it for the backup script).
+#
+# So the snapshot reports the hash of the file that is actually running. The
+# expected value lives in the Python that ships in the image, where a stale host
+# copy cannot influence it, and CI keeps the two in step. A self-check written
+# INSIDE the drifting artifact could never work: the stale copy would not contain
+# it — which is also why an ABSENT hash is itself the alarm, unlike the nulls
+# elsewhere in this file that merely mean "could not look".
+self_sha=$(sha256sum "$0" 2>/dev/null | cut -d' ' -f1)
+script_sha256=null
+[ -n "$self_sha" ] && script_sha256="\"$self_sha\""
+
 mkdir -p "$OUT_DIR"
 
 # --- system ---
@@ -277,6 +293,7 @@ collected_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cat > "$TMP" <<JSON
 {
   "collected_at": "$collected_at",
+  "script_sha256": $script_sha256,
   "system": {
     "uptime_seconds": $uptime_seconds,
     "load_1m": $load1,

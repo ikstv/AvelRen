@@ -163,6 +163,14 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
             "(≥2 daily runs in a row did not finish)"
         )
 
+    drift = _snapshot_script_drift()
+    if drift is not None:
+        problems["snapshot_script_drift"] = (
+            f"the installed telemetry snapshot script is not the deployed one: {drift}. "
+            "Sections it does not know about are absent from the snapshot, and an "
+            "absent section reads as an empty dashboard, not as an error (issue #164)"
+        )
+
     if _migrate_pin_lost():
         problems["migrate_pin_lost"] = (
             "the 001-009 migration pin is not mounted: /migrations resolves to "
@@ -208,6 +216,41 @@ def _reboot_pending() -> int | None:
     if not isinstance(days, int):
         return None
     return days
+
+
+# sha256 of deploy/telemetry-snapshot.sh as it stands in this commit (#164).
+# The snapshot script does NOT run from the checkout — systemd executes an
+# installed copy — so this constant is how the image states which copy it was
+# built against. A CI step keeps it equal to the file; it cannot drift silently
+# the way the installed copy did.
+EXPECTED_SNAPSHOT_SHA = "2bbf37aab74a10ab686b2c53696916161eda9b087aafca0fba935583e61ff9b3"
+
+
+def _snapshot_script_drift() -> str | None:
+    """Why the running snapshot script is not the one this image expects, or None.
+
+    The installed copy sat 125 lines behind the repository for weeks: the whole
+    `docker` section was missing from the live snapshot, and a missing section
+    renders as a dash, so the dashboard looked merely empty rather than wrong
+    (#164; #93 was the same story for the backup script).
+
+    An ABSENT hash is an alarm here, unlike the nulls elsewhere in the snapshot.
+    Those mean "the probe could not look" and have innocent explanations; this one
+    means the installed script predates the field itself, which is precisely the
+    drift being detected. That is also why the check cannot live in the script.
+    """
+    snapshot = _read_snapshot()
+    if snapshot is None:
+        return None
+    got = snapshot.get("script_sha256")
+    if got == EXPECTED_SNAPSHOT_SHA:
+        return None
+    if not isinstance(got, str):
+        return (
+            "the host snapshot does not report a script hash at all — the installed "
+            "copy is older than the field itself"
+        )
+    return f"installed {got[:12]}, this image expects {EXPECTED_SNAPSHOT_SHA[:12]}"
 
 
 def _migrate_pin_lost() -> bool:
