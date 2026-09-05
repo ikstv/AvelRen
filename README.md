@@ -124,6 +124,22 @@ configuration, not an application DSN.
 | `avelren_watchdog` | Runtime SQL to read `observations` and `collector_runs`, write only `health_alerts`, and SELECT only `devices.id`, `devices.is_admin`, `devices.fcm_token` for health notifications; `devices.secret_hash`, all other unrelated device fields, and any device writes are forbidden. |
 | `avelren_api` | Only endpoint-authorized `registration`, `authentication`, `subscription`, `ETA`, `history`, and `telemetry` SQL; no DDL and no collector writes. |
 
+### Admin devices
+
+`devices.is_admin` decides who the watchdog can reach with a health alert. It is
+set from the host, never by hand in SQL:
+
+```bash
+python -m avelren.admin_enroll --list          # devices, and the reachable channel
+python -m avelren.admin_enroll <device-id>     # promote
+python -m avelren.admin_enroll <device-id> --revoke
+```
+
+It reports the number of admins that carry an FCM token, not the number flagged
+`is_admin` — an admin without a token is a subscriber to nothing, and counting it
+is what let the channel look armed while it was empty (issue #112). The DSN must
+be allowed to write `devices`, so this is an admin/migrator operation.
+
 The empty `AVELREN_*_PASSWORD` and `AVELREN_*_DSN` variables are listed in
 `.env.example`. Real values belong only in the authorized secret store and host
 configuration and never land in Git, documentation, logs, or evidence.
