@@ -7,6 +7,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Needed so the state workflow can get its own PR checked (#159). A pull
+  # request opened with GITHUB_TOKEN does not start workflow runs — that is
+  # GitHub's recursion guard — so the three required contexts were never
+  # reported and the PR could not be merged by anyone, bot or owner, with
+  # enforce_admins on. workflow_dispatch is exempt from that guard, so the bot
+  # asks for the run explicitly right after opening the PR.
+  workflow_dispatch:
 
 jobs:
   # Way to break #1 (already happened): critical files did not make it into git,
