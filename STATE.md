@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `5b79d17`.
+Generated from `main` @ `3a6314d`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
-| Prod pinned to | `6df3610` |
-| `main` ahead by | **3 commit(s)** |
+| Prod pinned to | `5b79d17` |
+| `main` ahead by | **1 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -23,11 +23,9 @@ the riskiest operation. The list below is exactly that payload; if it is large,
 consider splitting: first a re-prep and deploy without adoption, then a separate
 one for 3B.2.
 
-- `59077b6` chore(deploy): pin prod to 6df3610 after the 2026-09-05 deploy (#161)
-- `b50fc8e` feat(telemetry,watchdog): watch the migration pin between deploy windows (#160) (#163)
-- `5b79d17` feat(watchdog): alert when the installed snapshot script is not the deployed one (#164) (#165)
+- `3a6314d` chore(deploy): pin prod to 5b79d17 after installing the snapshot script (#166)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **3**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ## Open PRs and issues
 
@@ -59,14 +57,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **3**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 25 |
-| `chore/state-refresh` | 2 | 2 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 19 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 9 |
+| `chore/repo-tidy` | 2 | 26 |
+| `chore/state-refresh` | 3 | 3 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 20 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 10 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-professional` | 1 | 80 |
-| `docs/signal-has-a-date` | 1 | 29 |
-| `feat/launcher-road-a` | 1 | 22 |
-| `feat/privacy-page` | 3 | 24 |
-| `feat/truthful-server-badge` | 1 | 19 |
-| `fix/backup-grants-and-rate-limits` | 1 | 16 |
+| `docs/readme-professional` | 1 | 81 |
+| `docs/signal-has-a-date` | 1 | 30 |
+| `feat/launcher-road-a` | 1 | 23 |
+| `feat/privacy-page` | 3 | 25 |
+| `feat/truthful-server-badge` | 1 | 20 |
+| `fix/backup-grants-and-rate-limits` | 1 | 17 |
