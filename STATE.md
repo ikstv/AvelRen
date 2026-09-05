@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `39ee23a`.
+Generated from `main` @ `7ba9692`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `ebce449` |
-| `main` ahead by | **20 commit(s)** |
+| `main` ahead by | **21 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -43,6 +43,7 @@ one for 3B.2.
 - `8a91095` feat(android): warn when a granted permission still cannot wake the driver (#117) (#150)
 - `f46d5e1` fix(ci,compose): probe database readiness over TCP, the transport clients use (#146) (#153)
 - `39ee23a` feat(ops): a supported way to mark a device admin, instead of a hand UPDATE (#112) (#155)
+- `7ba9692` docs(readme): badges, a documentation index, and an architecture diagram (#119) (#152)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 
@@ -53,7 +54,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 - #157 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #156 ci: audit the resolved Python dependency set against known advisories (#23) — `ci/dependency-audit-23`
 - #154 chore(state): regenerate STATE.md and unblock the red run on main — `chore/state-refresh-live`
-- #152 docs(readme): badges, a documentation index, and an architecture diagram (#119) — `docs/readme-badges-index-diagram-119`
 - #148 fix(backup): persist rclone's refreshed OAuth token (issue #121) — `fix/backup-rclone-token-write`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
@@ -82,18 +82,17 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 17 |
-| `chore/state-refresh` | 10 | 9 |
-| `chore/state-refresh-live` | 2 | 6 |
-| `ci/dependency-audit-23` | 2 | 6 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 11 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 1 |
+| `chore/repo-tidy` | 2 | 18 |
+| `chore/state-refresh` | 11 | 10 |
+| `chore/state-refresh-live` | 2 | 7 |
+| `ci/dependency-audit-23` | 3 | 0 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 12 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 2 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-badges-index-diagram-119` | 3 | 0 |
-| `docs/readme-professional` | 1 | 72 |
-| `docs/signal-has-a-date` | 1 | 21 |
-| `feat/launcher-road-a` | 1 | 14 |
-| `feat/privacy-page` | 3 | 16 |
-| `feat/truthful-server-badge` | 1 | 11 |
-| `fix/backup-grants-and-rate-limits` | 1 | 8 |
-| `fix/backup-rclone-token-write` | 2 | 7 |
+| `docs/readme-professional` | 1 | 73 |
+| `docs/signal-has-a-date` | 1 | 22 |
+| `feat/launcher-road-a` | 1 | 15 |
+| `feat/privacy-page` | 3 | 17 |
+| `feat/truthful-server-badge` | 1 | 12 |
+| `fix/backup-grants-and-rate-limits` | 1 | 9 |
+| `fix/backup-rclone-token-write` | 2 | 8 |
