@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `6828dec`.
+Generated from `main` @ `f2b300e`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `ebce449` |
-| `main` ahead by | **15 commit(s)** |
+| `main` ahead by | **16 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -38,8 +38,9 @@ one for 3B.2.
 - `aaa0838` fix(backup,ci): keep future objects backup-readable without a migration (#144) (#147)
 - `73a8d14` fix(collector): never record an empty collector_runs.error (#91) (#128)
 - `6828dec` feat(health): external gate for an empty watchdog alert channel (#113) (#129)
+- `f2b300e` fix(eta,api): a zero wait with cars queued is no estimate, not "enter now" (#149)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **10**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **11**.
 
 ## Open PRs and issues
 
@@ -53,7 +54,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **10**.
 - #152 docs(readme): badges, a documentation index, and an architecture diagram (#119) — `docs/readme-badges-index-diagram-119`
 - #151 fix(api): serve /history from clean hourly buckets, not the contaminated aggregate (#111) — `fix/history-clean-hourly-111`
 - #150 feat(android): warn when a granted permission still cannot wake the driver (#117) — `fix/background-delivery-hint-117`
-- #149 fix(eta,api): a zero wait with cars queued is no estimate, not "enter now" (#127) — `fix/eta-contamination-127`
 - #148 fix(backup): persist rclone's refreshed OAuth token (issue #121) — `fix/backup-rclone-token-write`
 - #143 chore(deps): bump the compose-images group with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
@@ -81,23 +81,22 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **10**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 12 |
-| `chore/state-refresh` | 5 | 4 |
-| `chore/state-refresh-live` | 2 | 1 |
-| `ci/dependency-audit-23` | 2 | 1 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 6 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 4 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
-| `docs/readme-badges-index-diagram-119` | 2 | 1 |
-| `docs/readme-professional` | 1 | 67 |
-| `docs/signal-has-a-date` | 1 | 16 |
-| `feat/admin-enroll-112` | 3 | 1 |
-| `feat/launcher-road-a` | 1 | 9 |
-| `feat/privacy-page` | 3 | 11 |
-| `feat/truthful-server-badge` | 1 | 6 |
-| `fix/background-delivery-hint-117` | 2 | 1 |
-| `fix/backup-grants-and-rate-limits` | 1 | 3 |
-| `fix/backup-rclone-token-write` | 2 | 2 |
-| `fix/db-readiness-tcp-probe-146` | 2 | 1 |
-| `fix/eta-contamination-127` | 3 | 0 |
-| `fix/history-clean-hourly-111` | 2 | 1 |
+| `chore/repo-tidy` | 2 | 13 |
+| `chore/state-refresh` | 6 | 5 |
+| `chore/state-refresh-live` | 2 | 2 |
+| `ci/dependency-audit-23` | 2 | 2 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 7 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 5 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
+| `docs/readme-badges-index-diagram-119` | 2 | 2 |
+| `docs/readme-professional` | 1 | 68 |
+| `docs/signal-has-a-date` | 1 | 17 |
+| `feat/admin-enroll-112` | 3 | 2 |
+| `feat/launcher-road-a` | 1 | 10 |
+| `feat/privacy-page` | 3 | 12 |
+| `feat/truthful-server-badge` | 1 | 7 |
+| `fix/background-delivery-hint-117` | 2 | 2 |
+| `fix/backup-grants-and-rate-limits` | 1 | 4 |
+| `fix/backup-rclone-token-write` | 2 | 3 |
+| `fix/db-readiness-tcp-probe-146` | 2 | 2 |
+| `fix/history-clean-hourly-111` | 3 | 0 |
