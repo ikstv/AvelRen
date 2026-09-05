@@ -382,12 +382,19 @@ jobs:
                 - ./db/migrations:/migrations:ro
           UNPINNED
 
+          # Run as the runner user, not under sudo, for the same reason the step
+          # above does: the `docker compose` CLI plugin is installed for the
+          # runner user, so under root it is simply not found and the snapshot
+          # reports null — "could not look" — which would make this test pass or
+          # fail for a reason that has nothing to do with the pin.
+          sudo mkdir -p /var/lib/avelren-telemetry
+          sudo chown "$USER" /var/lib/avelren-telemetry
+
           run_snapshot() {
-            sudo env AVELREN_STACK_DIR="$1" AVELREN_MIGRATE_PIN_PATH="$pin" \
-              AVELREN_NET_DEV=/proc/net/dev \
+            AVELREN_STACK_DIR="$1" AVELREN_MIGRATE_PIN_PATH="$pin" \
+              AVELREN_FS_PROBE=/ \
               bash deploy/telemetry-snapshot.sh
-            sudo cat /var/lib/avelren-telemetry/host.json \
-              | python3 -c 'import json,sys; print(json.load(sys.stdin)["docker"]["migrate_pin_active"])'
+            python3 -c 'import json,sys; print(json.load(open("/var/lib/avelren-telemetry/host.json"))["docker"]["migrate_pin_active"])'
           }
 
           got=$(run_snapshot /tmp/stack-pinned)
