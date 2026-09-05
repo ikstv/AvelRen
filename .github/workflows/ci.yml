@@ -111,6 +111,31 @@ jobs:
             exit 1
           fi
 
+      - name: Every pg_isready probe answers for TCP, not the unix socket
+        run: |
+          set -e
+          # A probe on the unix socket answers for the temporary server initdb
+          # runs during first-time setup — that server listens on the socket
+          # only. The container reports Healthy, `condition: service_healthy`
+          # releases, and the first client hits a TCP port nobody is listening on
+          # yet (#146: Healthy at 17:03:12.0, connection refused at 17:03:12.2).
+          # The readiness probe must use the same transport as the clients.
+          bad=
+          while IFS= read -r hit; do
+            # Strip the `file:line:` prefix and skip comment lines — otherwise a
+            # comment explaining this very rule counts as a violation of it.
+            body=$(printf '%s' "${hit#*:*:}" | sed 's/^[[:space:]]*//')
+            case "$body" in \#*) continue ;; esac
+            case "$body" in
+              *"pg_isready -h "*) ;;
+              *) echo "VIOLATION: probe does not force TCP: $hit"; bad=1 ;;
+            esac
+          done < <(git grep -n 'pg_isready' -- 'deploy/*.sh' 'docker-compose*.yml' || true)
+          if [ -n "$bad" ]; then
+            echo "Add -h 127.0.0.1 so the probe fails while only the init server is up."
+            exit 1
+          fi
+
       # AGENTS.md rule 11: every binary asset (image/font/audio/video) committed
       # to the app must carry a provenance row in docs/ASSETS.md (file, source,
       # license, date). An asset with unknown origin is an IP/licensing risk in

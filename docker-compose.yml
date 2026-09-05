@@ -35,7 +35,13 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      # -h 127.0.0.1 for the same reason as in the disposable suites (#146): the
+      # services wait on `condition: service_healthy` and then connect to db:5432
+      # over TCP, so the probe has to answer for TCP too. Left on the unix socket
+      # it reports ready for the temporary server initdb runs on first bring-up,
+      # and the runtime starts against a port nobody is listening on yet. Costs
+      # nothing on an already-initialised volume, which is why it went unnoticed.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
