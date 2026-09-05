@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `f46d5e1`.
+Generated from `main` @ `39ee23a`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `ebce449` |
-| `main` ahead by | **19 commit(s)** |
+| `main` ahead by | **20 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -42,8 +42,9 @@ one for 3B.2.
 - `108bfac` fix(api): serve /history from clean hourly buckets, not the contaminated aggregate (#151)
 - `8a91095` feat(android): warn when a granted permission still cannot wake the driver (#117) (#150)
 - `f46d5e1` fix(ci,compose): probe database readiness over TCP, the transport clients use (#146) (#153)
+- `39ee23a` feat(ops): a supported way to mark a device admin, instead of a hand UPDATE (#112) (#155)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **13**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **14**.
 
 ## Open PRs and issues
 
@@ -51,11 +52,10 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **13**.
 
 - #157 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #156 ci: audit the resolved Python dependency set against known advisories (#23) — `ci/dependency-audit-23`
-- #155 feat(ops): a supported way to mark a device admin, instead of a hand UPDATE (#112) — `feat/admin-enroll-112`
 - #154 chore(state): regenerate STATE.md and unblock the red run on main — `chore/state-refresh-live`
 - #152 docs(readme): badges, a documentation index, and an architecture diagram (#119) — `docs/readme-badges-index-diagram-119`
 - #148 fix(backup): persist rclone's refreshed OAuth token (issue #121) — `fix/backup-rclone-token-write`
-- #143 chore(deps): bump the compose-images group with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
+- #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
 - #138 chore(deps): bump python from `ce40764` to `cae66f2` in /app — `dependabot/docker/app/python-cae66f2`
 - #137 feat(app): truthful server-status badge for all users — `feat/truthful-server-badge`
@@ -63,6 +63,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **13**.
 
 ### Issues
 
+- #158 🔴 external monitor: watchdog alert channel is blind
 - #146 backend-tests: кроки, що залежать від готовності БД, не чекають на неї (флейк startup-гонки)
 - #127 ETA несе ту саму контамінацію, що й forecast — eta.py фільтрує лише is_paused
 - #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
@@ -81,19 +82,18 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **13**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 16 |
-| `chore/state-refresh` | 9 | 8 |
-| `chore/state-refresh-live` | 2 | 5 |
-| `ci/dependency-audit-23` | 2 | 5 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 10 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 8 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 4 |
-| `docs/readme-badges-index-diagram-119` | 2 | 5 |
-| `docs/readme-professional` | 1 | 71 |
-| `docs/signal-has-a-date` | 1 | 20 |
-| `feat/admin-enroll-112` | 4 | 0 |
-| `feat/launcher-road-a` | 1 | 13 |
-| `feat/privacy-page` | 3 | 15 |
-| `feat/truthful-server-badge` | 1 | 10 |
-| `fix/backup-grants-and-rate-limits` | 1 | 7 |
-| `fix/backup-rclone-token-write` | 2 | 6 |
+| `chore/repo-tidy` | 2 | 17 |
+| `chore/state-refresh` | 10 | 9 |
+| `chore/state-refresh-live` | 2 | 6 |
+| `ci/dependency-audit-23` | 2 | 6 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 11 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 1 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
+| `docs/readme-badges-index-diagram-119` | 3 | 0 |
+| `docs/readme-professional` | 1 | 72 |
+| `docs/signal-has-a-date` | 1 | 21 |
+| `feat/launcher-road-a` | 1 | 14 |
+| `feat/privacy-page` | 3 | 16 |
+| `feat/truthful-server-badge` | 1 | 11 |
+| `fix/backup-grants-and-rate-limits` | 1 | 8 |
+| `fix/backup-rclone-token-write` | 2 | 7 |
