@@ -9,7 +9,8 @@ services:
     volumes:
       - .:/workspace:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U avelren_admin -d postgres"]
+      # TCP, like every other probe in the repo (#146) — see docker-compose.yml.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U avelren_admin -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 20

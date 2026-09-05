@@ -36,6 +36,11 @@ object DeviceStore {
     // once per installation, regardless of a 401 re-registration.
     private const val KEY_NOTIF_MIGRATED = "notif_legacy_migrated"
 
+    // #117: the user has read the background-delivery hint and closed it. Also NOT
+    // touched by clearCredentials(): re-registering after a 401 is not a reason to
+    // show someone the same advice about their phone's battery settings again.
+    private const val KEY_BG_HINT_DISMISSED = "bg_delivery_hint_dismissed"
+
     @Volatile
     private var prefs: SharedPreferences? = null
 
@@ -112,6 +117,14 @@ object DeviceStore {
 
     fun markNotificationLegacyMigrated(context: Context) {
         prefs(context).edit().putBoolean(KEY_NOTIF_MIGRATED, true).apply()
+    }
+
+    /** #117: whether the background-delivery hint was dismissed by the user. */
+    fun backgroundHintDismissed(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_BG_HINT_DISMISSED, false)
+
+    fun markBackgroundHintDismissed(context: Context) {
+        prefs(context).edit().putBoolean(KEY_BG_HINT_DISMISSED, true).apply()
     }
 
     fun selectedCheckpoint(context: Context): Int =
