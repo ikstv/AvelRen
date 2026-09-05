@@ -120,7 +120,9 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(prog="avelren.admin_enroll", description=__doc__)
     parser.add_argument("device_id", nargs="?", help="device UUID to promote")
-    parser.add_argument("--revoke", action="store_true", help="clear is_admin instead of setting it")
+    parser.add_argument(
+        "--revoke", action="store_true", help="clear is_admin instead of setting it"
+    )
     parser.add_argument("--list", action="store_true", help="show devices and the channel size")
     parser.add_argument("--limit", type=int, default=20, help="rows for --list (default 20)")
     args = parser.parse_args(argv)
