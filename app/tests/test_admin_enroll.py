@@ -75,7 +75,7 @@ def test_promotion_without_a_token_warns(conn, caplog):
     try:
         with caplog.at_level("WARNING"):
             assert admin_enroll.set_admin(conn, tokenless, admin=True) == 0
-        assert any("NO fcm_token" in r.message % r.args for r in caplog.records)
+        assert any("NO fcm_token" in r.getMessage() for r in caplog.records)
     finally:
         conn.execute("DELETE FROM devices WHERE id = %s", (tokenless,))
 
