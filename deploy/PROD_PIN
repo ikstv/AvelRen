@@ -8,4 +8,4 @@
 # lag behind this pin: after phase 1 of re-prep prod is on the new commit, while
 # evidence and the gate-runner are still bound to the previous one — adopt.sh
 # fail-closes on this and refuses to start until phase 2 updates them atomically.
-6df36108c379db83202925b7c364c282e02ffe97
+5b79d17a3233f359f4e05d34f5f1dd142aaf8032
