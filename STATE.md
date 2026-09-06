@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `beda7ea`.
+Generated from `main` @ `be8100e`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `5b79d17` |
-| `main` ahead by | **9 commit(s)** |
+| `main` ahead by | **10 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -32,6 +32,7 @@ one for 3B.2.
 - `ed90ffe` chore(state): regenerate STATE.md (#171)
 - `21e5ad9` feat(supply-chain): hash-pinned dependency lock for the runtime image (#23) (#172)
 - `beda7ea` feat(health): external gate for alerts that fire and reach nobody (#174) (#175)
+- `be8100e` feat(supply-chain): lock the Gradle dependency graph (#23) (#176)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **3**.
 
@@ -68,14 +69,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **3**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 34 |
-| `chore/state-refresh` | 1 | 1 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 1 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 18 |
+| `chore/repo-tidy` | 2 | 35 |
+| `chore/state-refresh` | 3 | 1 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 2 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 19 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-professional` | 1 | 89 |
-| `docs/signal-has-a-date` | 1 | 38 |
-| `feat/launcher-road-a` | 1 | 31 |
-| `feat/privacy-page` | 3 | 33 |
-| `feat/truthful-server-badge` | 1 | 28 |
-| `fix/backup-grants-and-rate-limits` | 1 | 25 |
+| `docs/readme-professional` | 1 | 90 |
+| `docs/signal-has-a-date` | 1 | 39 |
+| `feat/launcher-road-a` | 1 | 32 |
+| `feat/privacy-page` | 3 | 34 |
+| `feat/truthful-server-badge` | 1 | 29 |
+| `fix/backup-grants-and-rate-limits` | 1 | 26 |
