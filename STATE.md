@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `33f21cf`.
+Generated from `main` @ `254fd17`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `be8100e` |
-| `main` ahead by | **2 commit(s)** |
+| `main` ahead by | **3 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -25,8 +25,9 @@ one for 3B.2.
 
 - `1631ed3` chore(deploy): pin prod to be8100e after the hashed-lock deploy (#177)
 - `33f21cf` chore(gitignore): ignore play-assets/ in the repo, not just locally (#179)
+- `254fd17` feat(telemetry): count devices FCM accepts pushes for that never answer (#117) (#180)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 
 ## Open PRs and issues
 
@@ -55,14 +56,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 37 |
-| `chore/state-refresh` | 7 | 1 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 4 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 21 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 3 |
-| `docs/readme-professional` | 1 | 92 |
-| `docs/signal-has-a-date` | 1 | 41 |
-| `feat/launcher-road-a` | 1 | 34 |
-| `feat/privacy-page` | 3 | 36 |
-| `feat/truthful-server-badge` | 1 | 31 |
-| `fix/backup-grants-and-rate-limits` | 1 | 28 |
+| `chore/repo-tidy` | 2 | 38 |
+| `chore/state-refresh` | 9 | 1 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 5 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 22 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 4 |
+| `docs/readme-professional` | 1 | 93 |
+| `docs/signal-has-a-date` | 1 | 42 |
+| `feat/launcher-road-a` | 1 | 35 |
+| `feat/privacy-page` | 3 | 37 |
+| `feat/truthful-server-badge` | 1 | 32 |
+| `fix/backup-grants-and-rate-limits` | 1 | 29 |
