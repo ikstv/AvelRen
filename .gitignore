@@ -69,6 +69,13 @@ docker-compose.override.yml
 # never a build artifact the repo should track.
 dist/
 
+# Матеріали вітрини Play (скріншоти, feature-графіка, іконка), зібрані вручну для
+# консолі. Правило свідомо НЕ якорене — покриває теку з такою назвою на будь-якій
+# глибині: копія під dist/ уже покрита правилом dist/ вище, а коренева до 2026-09-04
+# трималася лише на .git/info/exclude, який не переїжджає на іншу машину. Якорити як
+# /play-assets/ не варто — це лишило б без захисту копію, що з'явиться в підтеці.
+play-assets/
+
 # Zipped export staged for Claude Design (DesignSync). Derived from
 # design-system/ — that directory IS tracked: it is the ROAD SIGN source of
 # truth the Compose code is written against, and it must survive this machine.
