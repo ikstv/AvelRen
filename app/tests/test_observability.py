@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 from psycopg.rows import dict_row
 
-from avelren import db, watchdog
+from avelren import db, telemetry, watchdog
 
 DSN = os.environ["DATABASE_URL"]
 
@@ -328,3 +328,48 @@ def test_snapshot_script_drift_surfaces_in_checks(conn, monkeypatch, tmp_path):
 
     _write_snapshot(monkeypatch, tmp_path, {"script_sha256": watchdog.EXPECTED_SNAPSHOT_SHA})
     assert "snapshot_script_drift" not in _run(watchdog._checks)
+
+
+# --- #174: an alert that fired and reached nobody --------------------------
+
+
+def _pending_alert(conn, device_id, checkpoint_id: int, *, minutes_ago: int, sent: int) -> int:
+    """A subscription plus one alert on it, aged and delivered to order."""
+    sub = conn.execute(
+        "INSERT INTO subscriptions (device_id, checkpoint_id, threshold) "
+        "VALUES (%s, %s, 100) RETURNING id",
+        (device_id, checkpoint_id),
+    ).fetchone()["id"]
+    return conn.execute(
+        "INSERT INTO alerts (subscription_id, checkpoint_id, threshold, "
+        "vehicles_at_trigger, triggered_at, status, send_count) "
+        "VALUES (%s, %s, 100, 108, now() - %s * INTERVAL '1 minute', 'pending', %s) "
+        "RETURNING id",
+        (sub, checkpoint_id, minutes_ago, sent),
+    ).fetchone()["id"]
+
+
+def test_undelivered_alerts_reports_ok_when_nothing_is_stuck(conn, device, checkpoint):
+    """A fresh alert is not yet evidence of anything — the notifier polls on the
+    collector's interval, so the young ones must stay quiet or every cycle alarms."""
+    _pending_alert(conn, device.device_id, checkpoint, minutes_ago=1, sent=0)
+    assert _run(telemetry.undelivered_alerts) == "ok"
+
+
+def test_undelivered_alerts_reports_ok_for_an_old_alert_that_was_sent(conn, device, checkpoint):
+    """Delivered is delivered. The alert stays pending until the driver acks it or
+    the queue drops, and that is not a delivery failure."""
+    _pending_alert(conn, device.device_id, checkpoint, minutes_ago=120, sent=1)
+    assert _run(telemetry.undelivered_alerts) == "ok"
+
+
+def test_undelivered_alerts_catches_the_shape_that_cost_a_queue_window(conn, device, checkpoint):
+    """Production, 2026-09-06: fired at 04:49, send_count 0, five hours of silence.
+
+    The subscription pointed at a device row abandoned when the app re-registered,
+    so there was no token to send to. This check is deliberately blind to that
+    cause — a downed notifier or a token FCM rejected reads the same, because the
+    thing worth alarming about is that something fired and nobody got it.
+    """
+    _pending_alert(conn, device.device_id, checkpoint, minutes_ago=300, sent=0)
+    assert _run(telemetry.undelivered_alerts) == "stalled"
