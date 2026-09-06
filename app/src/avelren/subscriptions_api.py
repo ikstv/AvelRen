@@ -118,6 +118,57 @@ async def thresholds(request: Request) -> dict:
     return {"thresholds": THRESHOLDS}
 
 
+async def _adopt_orphan_rows(conn, orphan_id, device_id: str) -> None:
+    """Move what the driver set up from a re-registered installation to the new one.
+
+    An installation presenting a token another row already holds IS the same
+    phone: the app re-registered (reinstall, cleared data, restore) and got a new
+    device_id while Firebase handed back the same token. That link exists for
+    exactly one request and nowhere else.
+
+    Both entry points used to see it and use it only to avoid violating
+    UNIQUE(fcm_token) — one of them even called the old row "orphaned" in a
+    comment — and left the subscriptions behind on a row nothing would ever read
+    again.
+
+    What that cost, measured (#174): a threshold subscription stayed on a device
+    row abandoned on 2026-08-25. It kept firing alerts nobody could receive — five
+    of six over three weeks — and the app never showed it, because the app lists
+    the subscriptions of the CURRENT device_id. Invisible to the user, a success
+    to the server, and on 2026-09-06 it cost a real queue window at the border.
+
+    Rows that would collide are left behind rather than merged. Both tables carry
+    a UNIQUE on (device_id, ...), and a duplicate would abort the transaction and
+    take the token update with it — turning a quiet data problem into a loud
+    delivery one. The new installation already has that subscription, so nothing
+    is lost by leaving the old copy where it lies.
+    """
+    await conn.execute(
+        """
+        UPDATE subscriptions s SET device_id = %s
+         WHERE s.device_id = %s
+           AND NOT EXISTS (
+                 SELECT 1 FROM subscriptions t
+                  WHERE t.device_id = %s
+                    AND t.checkpoint_id = s.checkpoint_id
+                    AND t.threshold = s.threshold)
+        """,
+        (device_id, orphan_id, device_id),
+    )
+    await conn.execute(
+        """
+        UPDATE eta_targets e SET device_id = %s
+         WHERE e.device_id = %s
+           AND NOT EXISTS (
+                 SELECT 1 FROM eta_targets t
+                  WHERE t.device_id = %s
+                    AND t.checkpoint_id = e.checkpoint_id
+                    AND t.target_at = e.target_at)
+        """,
+        (device_id, orphan_id, device_id),
+    )
+
+
 @router.post("/devices", status_code=201)
 async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
     """Creating an installation.
@@ -134,7 +185,16 @@ async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
             # UNIQUE(fcm_token) will not allow the token to stay on two rows.
             # First we strip it from the old installation (if any), then insert
             # the new one with this same token.
+            orphan = None
             if body.fcm_token:
+                # Read before stripping: after the UPDATE the token no longer
+                # points anywhere, and the only evidence that this phone had a
+                # previous installation is gone (#174).
+                orphan = await (
+                    await conn.execute(
+                        "SELECT id FROM devices WHERE fcm_token = %s", (body.fcm_token,)
+                    )
+                ).fetchone()
                 await conn.execute(
                     "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s",
                     (body.fcm_token,),
@@ -149,6 +209,9 @@ async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
                     (body.fcm_token, body.platform, _hash_secret(secret)),
                 )
             ).fetchone()
+            # After the INSERT, because the destination did not exist before it.
+            if orphan is not None:
+                await _adopt_orphan_rows(conn, orphan["id"], row["id"])
     # The secret is returned exactly once. Only the hash is in the DB —
     # recovery is impossible, only creating a new installation.
     return DeviceOut(device_id=str(row["id"]), device_secret=secret)
@@ -165,8 +228,20 @@ async def update_token(
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # The same token may "migrate" from an orphaned installation:
-            # we strip it so as not to violate UNIQUE(fcm_token).
+            # The second entry point into the same orphaning (#174) — see
+            # _adopt_orphan_rows. A phone can arrive here rather than through
+            # POST /devices when it keeps its identity but Firebase rotates the
+            # token onto it from an installation that is gone.
+            orphan = await (
+                await conn.execute(
+                    "SELECT id FROM devices WHERE fcm_token = %s AND id != %s",
+                    (body.fcm_token, device_id),
+                )
+            ).fetchone()
+
+            if orphan is not None:
+                await _adopt_orphan_rows(conn, orphan["id"], device_id)
+
             await conn.execute(
                 "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s AND id != %s",
                 (body.fcm_token, device_id),
