@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `21e5ad9`.
+Generated from `main` @ `beda7ea`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `5b79d17` |
-| `main` ahead by | **8 commit(s)** |
+| `main` ahead by | **9 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -31,8 +31,9 @@ one for 3B.2.
 - `5b45e3e` Revert "ci: let the state workflow start the checks its own PR cannot (#159)" (#170)
 - `ed90ffe` chore(state): regenerate STATE.md (#171)
 - `21e5ad9` feat(supply-chain): hash-pinned dependency lock for the runtime image (#23) (#172)
+- `beda7ea` feat(health): external gate for alerts that fire and reach nobody (#174) (#175)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **3**.
 
 > ⚠ `app/Dockerfile` changed — the runtime base image. Currently:
 > `FROM python:3.14-slim`.
@@ -43,14 +44,16 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 
 ### PRs
 
+- #173 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
-- #138 chore(deps): bump python from `ce40764` to `cae66f2` in /app — `dependabot/docker/app/python-cae66f2`
+- #138 chore(deps): bump python from `ce40764` to `cad9a2c` in /app — `dependabot/docker/app/python-cae66f2`
 - #137 feat(app): truthful server-status badge for all users — `feat/truthful-server-badge`
 - #123 docs: "a signal has a date" — three staleness rules — `docs/signal-has-a-date`
 
 ### Issues
 
+- #174 Перереєстрація застосунку осиротює підписки — 5 з 6 порогових тривог не доставлено, і цього не видно ні клієнту, ні серверу
 - #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
 - #117 Відсутній дозвіл на сповіщення робить застосунок беззвучним — ні користувач, ні сервер цього не бачать
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
@@ -65,13 +68,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 33 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 27 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 17 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
-| `docs/readme-professional` | 1 | 88 |
-| `docs/signal-has-a-date` | 1 | 37 |
-| `feat/launcher-road-a` | 1 | 30 |
-| `feat/privacy-page` | 3 | 32 |
-| `feat/truthful-server-badge` | 1 | 27 |
-| `fix/backup-grants-and-rate-limits` | 1 | 24 |
+| `chore/repo-tidy` | 2 | 34 |
+| `chore/state-refresh` | 1 | 1 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 1 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 18 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
+| `docs/readme-professional` | 1 | 89 |
+| `docs/signal-has-a-date` | 1 | 38 |
+| `feat/launcher-road-a` | 1 | 31 |
+| `feat/privacy-page` | 3 | 33 |
+| `feat/truthful-server-badge` | 1 | 28 |
+| `fix/backup-grants-and-rate-limits` | 1 | 25 |
