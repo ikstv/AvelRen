@@ -178,11 +178,20 @@ async def undelivered_alerts(conn: AsyncConnection) -> str:
 # who could see it would have tapped "OK" to stop it.
 SILENT_DEVICE_MIN_PUSHES = 10
 
-# ...and only once the row is old enough to have had a fair chance. Without this
-# the detector would fire on newcomers: a fresh installation has acknowledged
-# nothing not because it is deaf but because it is new. This is the third
-# condition the #117 plan insisted on, and the reason it is not a pair.
-SILENT_DEVICE_MIN_AGE_DAYS = 7
+# ...and only once we have been TRYING for this long. Measured from the device's
+# first alert, not from the device row: what earns the verdict is the length of
+# the delivery history, and a month-old installation whose first alert fired this
+# morning has had no more of a chance than a fresh one. Without this condition the
+# detector fires on newcomers, which have acknowledged nothing because they are
+# new. This is the third condition the #117 plan insisted on, and the reason it is
+# not a pair.
+#
+# It also has to be derived this way: `avelren_api` holds column-level SELECT on
+# `devices` — (id, fcm_token, platform, secret_hash, is_admin, last_seen) — and
+# `created_at` is not in it. Reading it would need an ACL migration, and those are
+# pinned to 010 by the adoption contract. The better proxy was also the permitted
+# one.
+SILENT_DEVICE_MIN_HISTORY_DAYS = 7
 
 
 async def silent_devices(conn: AsyncConnection) -> int:
@@ -229,11 +238,11 @@ async def silent_devices(conn: AsyncConnection) -> int:
         await conn.execute(
             """
             WITH per_alert AS (
-                SELECT s.device_id, a.send_count, a.acknowledged_at
+                SELECT s.device_id, a.send_count, a.acknowledged_at, a.triggered_at
                   FROM alerts a
                   JOIN subscriptions s ON s.id = a.subscription_id
                 UNION ALL
-                SELECT t.device_id, a.send_count, a.acknowledged_at
+                SELECT t.device_id, a.send_count, a.acknowledged_at, a.triggered_at
                   FROM eta_alerts a
                   JOIN eta_targets t ON t.id = a.target_id
             )
@@ -242,13 +251,13 @@ async def silent_devices(conn: AsyncConnection) -> int:
                   FROM devices d
                   JOIN per_alert p ON p.device_id = d.id
                  WHERE d.fcm_token IS NOT NULL
-                   AND d.created_at < now() - %s * INTERVAL '1 day'
                  GROUP BY d.id
                 HAVING sum(p.send_count) >= %s
                    AND count(p.acknowledged_at) = 0
+                   AND min(p.triggered_at) < now() - %s * INTERVAL '1 day'
             ) q
             """,
-            (SILENT_DEVICE_MIN_AGE_DAYS, SILENT_DEVICE_MIN_PUSHES),
+            (SILENT_DEVICE_MIN_PUSHES, SILENT_DEVICE_MIN_HISTORY_DAYS),
         )
     ).fetchone()
     return int(row["silent"]) if row else 0
