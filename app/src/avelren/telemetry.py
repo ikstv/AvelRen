@@ -172,6 +172,88 @@ async def undelivered_alerts(conn: AsyncConnection) -> str:
     return "stalled" if row and row["stalled"] else "ok"
 
 
+# A device is called silent once FCM has ACCEPTED this many pushes for it without
+# a single acknowledgement ever coming back. Ten is roughly fifty minutes of an
+# ongoing notification repeating every five — long past the point where a driver
+# who could see it would have tapped "OK" to stop it.
+SILENT_DEVICE_MIN_PUSHES = 10
+
+# ...and only once the row is old enough to have had a fair chance. Without this
+# the detector would fire on newcomers: a fresh installation has acknowledged
+# nothing not because it is deaf but because it is new. This is the third
+# condition the #117 plan insisted on, and the reason it is not a pair.
+SILENT_DEVICE_MIN_AGE_DAYS = 7
+
+
+async def silent_devices(conn: AsyncConnection) -> int:
+    """Devices FCM keeps accepting pushes for, from which nothing ever comes back (#117).
+
+    `send_count` means "FCM took the message", which is not "the driver saw it".
+    Between the two sit the failures #117 was opened for: POST_NOTIFICATIONS
+    revoked after install, and — the common case among this app's audience —
+    a MIUI/Xiaomi device that kills the background even with the permission
+    granted. In both, the server's view is unbroken success while the app is a
+    no-op. That was the whole point: silence on both sides.
+
+    This does NOT overlap with `undelivered_alerts` (#174), which catches
+    `send_count = 0` — alerts never handed to FCM at all. Here FCM accepted every
+    one of them.
+
+    WHY THIS NEEDS NO NEW COLUMN. The #117 plan specified a delivery ack written
+    to `devices.last_ack_at`, which meant a migration — blocked behind #15, since
+    prod is pinned at 009 and the startup gate derives its requirement from the
+    schema contract. But an acknowledgement signal already exists and always has:
+    the driver taps "OK" and `/alerts/{id}/ack` stamps `acknowledged_at`. It is
+    weaker than a delivery ack in one direction (it proves the driver ACTED, not
+    merely that the push arrived) and stronger in another (an ack here is proof a
+    human saw it, which a silent auto-ack from a background handler is not).
+
+    WHAT IT IS NOT. This is a measurement, not an alarm, and the difference is
+    deliberate. "At least one silent device exists" is the normal state of any
+    real fleet — someone always has notifications off — so wiring it to an alarm
+    would produce a light that is permanently on, which is worse than no light.
+    The count is what is actionable: it is compared against `devices`, and the
+    ratio is the thing that means something.
+
+    Known false positive, stated rather than hidden: a driver whose alerts always
+    expire before they tap looks identical to a deaf one. Requiring
+    SILENT_DEVICE_MIN_PUSHES accepted pushes narrows it — an alert repeats every
+    five minutes while it is pending — but does not eliminate it. The honest
+    reading is "no evidence anything was ever received", not "proven deaf".
+
+    Devices without a token are excluded: we are not trying to reach them at all,
+    so they are not silent, they are abandoned — that is retention, and it
+    belongs to #19.
+    """
+    row = await (
+        await conn.execute(
+            """
+            WITH per_alert AS (
+                SELECT s.device_id, a.send_count, a.acknowledged_at
+                  FROM alerts a
+                  JOIN subscriptions s ON s.id = a.subscription_id
+                UNION ALL
+                SELECT t.device_id, a.send_count, a.acknowledged_at
+                  FROM eta_alerts a
+                  JOIN eta_targets t ON t.id = a.target_id
+            )
+            SELECT count(*) AS silent FROM (
+                SELECT d.id
+                  FROM devices d
+                  JOIN per_alert p ON p.device_id = d.id
+                 WHERE d.fcm_token IS NOT NULL
+                   AND d.created_at < now() - %s * INTERVAL '1 day'
+                 GROUP BY d.id
+                HAVING sum(p.send_count) >= %s
+                   AND count(p.acknowledged_at) = 0
+            ) q
+            """,
+            (SILENT_DEVICE_MIN_AGE_DAYS, SILENT_DEVICE_MIN_PUSHES),
+        )
+    ).fetchone()
+    return int(row["silent"]) if row else 0
+
+
 async def pipeline(conn: AsyncConnection) -> dict:
     """State of the data pipeline: the thing the server exists for."""
     row = await (
@@ -215,6 +297,13 @@ async def pipeline(conn: AsyncConnection) -> dict:
     successful = data.get("successful_runs_last_hour") or 0
     data["cycles_expected_per_hour"] = 60
     data["completeness_percent"] = min(100, round(successful / 60 * 100))
+
+    # A separate round trip rather than another scalar subquery above: this one
+    # groups over alerts+subscriptions and reads far better on its own, and the
+    # cost is nothing next to the count(*) over observations it travels with.
+    # Meaningful only against `devices` — see silent_devices for why the ratio,
+    # not the count, is the part that says something (#117).
+    data["devices_silent"] = await silent_devices(conn)
 
     return data
 
