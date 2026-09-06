@@ -119,6 +119,59 @@ async def alert_channel(conn: AsyncConnection) -> str:
     return "ok" if row and row["n"] > 0 else "empty"
 
 
+# An alert the notifier has never sent is normal for a minute and a symptom after
+# ten. The notifier polls on the collector's interval, so ten minutes is roughly
+# ten missed chances — long enough that a restart or one slow cycle cannot trip
+# it, short enough that a driver has not yet lost the window it was about.
+UNDELIVERED_AFTER_MINUTES = 10
+
+
+async def undelivered_alerts(conn: AsyncConnection) -> str:
+    """Did anything fire and never reach a phone? (#174)
+
+    The failure this exists for looked like success from both ends. A threshold
+    alert fired at 04:49, the row was written, no error was logged — and it went
+    nowhere, because the subscription still pointed at a device row abandoned when
+    the app re-registered and left without an FCM token. Five of six alerts on
+    that subscription had died the same way over three weeks, and the sixth cost a
+    real queue window at the border.
+
+    Nothing watched it. The watchdog covers the collector, the backup and the
+    admin channel — the paths the SERVER needs. This is the path the DRIVER needs,
+    and it was the only one with no observer at all.
+
+    Deliberately blind to the cause: a missing token, a notifier that is down, a
+    token FCM rejected — all read as `stalled` here. The point is that something
+    fired and nobody got it; which link broke is a question for the logs, and a
+    check that enumerated causes would miss the next one.
+
+    A word, not a count, for the same reason as alert_channel: the exact number
+    would leak how many alerts this service delivers to anyone who curls /health.
+
+    Read by the external monitor rather than the watchdog: `avelren_watchdog` has
+    no SELECT on `alerts` (migration 010), and granting it would need an ACL
+    migration, which the adoption contract blocks until #15. `avelren_api` already
+    holds that grant, so this rides the same external path that #113 established.
+    """
+    row = await (
+        await conn.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM alerts
+                 WHERE status = 'pending' AND send_count = 0
+                   AND triggered_at < now() - %s * INTERVAL '1 minute'
+                UNION ALL
+                SELECT 1 FROM eta_alerts
+                 WHERE status = 'pending' AND send_count = 0
+                   AND triggered_at < now() - %s * INTERVAL '1 minute'
+            ) AS stalled
+            """,
+            (UNDELIVERED_AFTER_MINUTES, UNDELIVERED_AFTER_MINUTES),
+        )
+    ).fetchone()
+    return "stalled" if row and row["stalled"] else "ok"
+
+
 async def pipeline(conn: AsyncConnection) -> dict:
     """State of the data pipeline: the thing the server exists for."""
     row = await (
