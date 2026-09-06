@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `be8100e`.
+Generated from `main` @ `1631ed3`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
-| Prod pinned to | `5b79d17` |
-| `main` ahead by | **10 commit(s)** |
+| Prod pinned to | `be8100e` |
+| `main` ahead by | **1 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -23,23 +23,9 @@ the riskiest operation. The list below is exactly that payload; if it is large,
 consider splitting: first a re-prep and deploy without adoption, then a separate
 one for 3B.2.
 
-- `3a6314d` chore(deploy): pin prod to 5b79d17 after installing the snapshot script (#166)
-- `ae4cb4d` ci: let the state workflow start the checks its own PR cannot (#159) (#167)
-- `ca1f60d` chore(state): regenerate STATE.md (#162)
-- `4660b8f` ci(state): bring the reused branch up to date, or the PR still cannot merge (#168)
-- `3b6c916` chore(state): regenerate STATE.md (#169)
-- `5b45e3e` Revert "ci: let the state workflow start the checks its own PR cannot (#159)" (#170)
-- `ed90ffe` chore(state): regenerate STATE.md (#171)
-- `21e5ad9` feat(supply-chain): hash-pinned dependency lock for the runtime image (#23) (#172)
-- `beda7ea` feat(health): external gate for alerts that fire and reach nobody (#174) (#175)
-- `be8100e` feat(supply-chain): lock the Gradle dependency graph (#23) (#176)
+- `1631ed3` chore(deploy): pin prod to be8100e after the hashed-lock deploy (#177)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **3**.
-
-> ⚠ `app/Dockerfile` changed — the runtime base image. Currently:
-> `FROM python:3.14-slim`.
-> A language-version bump of the live image deserves its own window, not one
-> combined with adoption.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ## Open PRs and issues
 
@@ -69,14 +55,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **3**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 35 |
-| `chore/state-refresh` | 3 | 1 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 2 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 19 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
-| `docs/readme-professional` | 1 | 90 |
-| `docs/signal-has-a-date` | 1 | 39 |
-| `feat/launcher-road-a` | 1 | 32 |
-| `feat/privacy-page` | 3 | 34 |
-| `feat/truthful-server-badge` | 1 | 29 |
-| `fix/backup-grants-and-rate-limits` | 1 | 26 |
+| `chore/repo-tidy` | 2 | 36 |
+| `chore/state-refresh` | 5 | 1 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 3 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 20 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
+| `docs/readme-professional` | 1 | 91 |
+| `docs/signal-has-a-date` | 1 | 40 |
+| `feat/launcher-road-a` | 1 | 33 |
+| `feat/privacy-page` | 3 | 35 |
+| `feat/truthful-server-badge` | 1 | 30 |
+| `fix/backup-grants-and-rate-limits` | 1 | 27 |
