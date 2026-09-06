@@ -86,6 +86,15 @@ async def health(request: Request) -> dict:
         except Exception as exc:
             log.warning("alert_channel probe failed, reporting unknown: %s", exc)
             channel = "unknown"
+        # Same contract as alert_channel: a DELIVERY fact, wrapped so it can never
+        # lower `status`, which is liveness only. #174 — an alert that fired and
+        # reached nobody looked like success from both ends until it cost a driver
+        # a queue window.
+        try:
+            undelivered = await telemetry.undelivered_alerts(conn)
+        except Exception as exc:
+            log.warning("undelivered_alerts probe failed, reporting unknown: %s", exc)
+            undelivered = "unknown"
 
     last = row["last"] if row else None
     age = (datetime.now(UTC) - last).total_seconds() if last else None
@@ -96,6 +105,7 @@ async def health(request: Request) -> dict:
         "last_observation": last,
         "age_seconds": int(age) if age is not None else None,
         "alert_channel": channel,
+        "undelivered_alerts": undelivered,
     }
 
 

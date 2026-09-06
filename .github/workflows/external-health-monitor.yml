@@ -21,6 +21,7 @@ env:
   HEALTH_URL: https://api.bordersignal.pp.ua/api/health
   OUTAGE_LABEL: monitor:outage
   ALERT_CHANNEL_LABEL: monitor:alert-channel
+  UNDELIVERED_LABEL: monitor:undelivered-alerts
 
 jobs:
   check:
@@ -177,6 +178,60 @@ jobs:
             - first detected: $(date -u +%FT%TZ)
 
             The watchdog physically cannot deliver this alarm itself — the channel it would use is the one that is empty. This gate catches \"empty\", NOT \"dead\" (an admin whose token is present but expired passes green — that is an ack concern, #19). Closes automatically when the next probe reports \`ok\`."
+
+      - name: Ensure undelivered-alerts label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "$UNDELIVERED_LABEL" --repo "$GITHUB_REPOSITORY"             --color d73a4a             --description "External gate: alerts fired but were never delivered (#174); closes on recovery"             --force
+
+      # --- #174: something fired and nobody got it --------------------------
+      #
+      # A different question from alert_channel. That one asks whether the ADMIN
+      # channel can reach anyone; this asks whether an alert a DRIVER subscribed
+      # to actually left the building. On 2026-09-06 a threshold alert fired at
+      # 04:49, was written without error, and reached nobody for five hours —
+      # the subscription still pointed at a device row abandoned when the app
+      # re-registered. Both ends read it as success.
+      #
+      # Read from outside for the same reason as alert_channel: `avelren_watchdog`
+      # has no SELECT on `alerts`, and granting it needs an ACL migration the
+      # adoption contract blocks until #15.
+      - name: Probe undelivered_alerts
+        id: undelivered
+        run: |
+          v=$(curl -sS --connect-timeout 10 --max-time 15 "$HEALTH_URL"                 | jq -r '.undelivered_alerts // "unknown"' 2>/dev/null || echo unknown)
+          # Only `stalled` raises. `unknown` is left alone on purpose: an
+          # unreadable /health is already the alert-channel gate's business above,
+          # and two gates shouting about one outage teach people to mute both.
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Find open undelivered-alerts issue
+        id: undelivered_existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY"             --label "$UNDELIVERED_LABEL" --state open --json number -q '.[0].number // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Open undelivered-alerts issue
+        if: steps.undelivered.outputs.value == 'stalled' && steps.undelivered_existing.outputs.number == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY"             --title "🔴 external monitor: alerts are firing and not being delivered"             --label "$UNDELIVERED_LABEL"             --body "\`/health\` reports \`undelivered_alerts=stalled\`: at least one alert has been pending with \`send_count=0\` for over ten minutes.
+
+            - first detected: $(date -u +%FT%TZ)
+
+            The alert row exists and no error was logged — that is what this failure looks like from the server, and why nothing caught it before #174. Likely causes: the subscription points at a device with no FCM token, the notifier is not running, or FCM rejected the token. Closes automatically when the next probe reports \`ok\`."
+
+      - name: Close resolved undelivered-alerts issue
+        if: steps.undelivered.outputs.value == 'ok' && steps.undelivered_existing.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ steps.undelivered_existing.outputs.number }}" --repo "$GITHUB_REPOSITORY"             --body "Recovered: $(date -u +%FT%TZ). undelivered_alerts=ok."
+          gh issue close "${{ steps.undelivered_existing.outputs.number }}" --repo "$GITHUB_REPOSITORY"
 
       - name: Close resolved alert-channel issue
         if: steps.gate.outputs.outage == '0' && steps.existing.outputs.number != ''
