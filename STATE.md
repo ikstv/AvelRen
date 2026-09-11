@@ -54,10 +54,10 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 39 |
-| `chore/state-refresh` | 17 | 0 |
+| `chore/state-refresh` | 18 | 0 |
 | `dependabot/docker/app/python-cae66f2` | 1 | 6 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 23 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 5 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 0 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 0 |
 | `docs/readme-professional` | 1 | 94 |
 | `docs/signal-has-a-date` | 1 | 43 |
 | `feat/launcher-road-a` | 1 | 36 |
