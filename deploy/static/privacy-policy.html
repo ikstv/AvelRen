@@ -49,7 +49,7 @@
 
 <h2>Як дані використовуються</h2>
 <p>Єдина мета — робота застосунку: показ історії черг і доставлення сповіщень.
-Дані не продаються й не передаються третім сторонам. Для доставлення сповіщень
+Дані не продаються та не передаються третім сторонам для їхніх власних цілей. Для доставлення сповіщень
 використовується сервіс Firebase Cloud Messaging (Google) як технічний
 посередник.</p>
 
@@ -59,10 +59,11 @@
 Резервні копії шифруються.</p>
 
 <h2>Видалення даних</h2>
-<p>Видалення застосунку розриває зв'язок пристрою із сервісом; недійсні
-push-токени видаляються автоматично. Щоб видалити записи пристрою з сервера,
-напишіть на <a href="mailto:vtanko2019@gmail.com">vtanko2019@gmail.com</a>,
-вказавши приблизну дату встановлення — ми видалимо дані впродовж 30 днів.</p>
+<p>Після видалення застосунку нові дані з пристрою не надходять. Якщо пристрій
+не активний 90 днів, його технічні дані, підписки та сповіщення видаляються
+автоматично. Історія загальних даних про черги зберігається. Щоб знову
+користуватися сервісом, достатньо встановити застосунок, відкрити його,
+дозволити сповіщення за потреби та налаштувати підписки заново.</p>
 
 <h2>Діти</h2>
 <p>Застосунок призначений для загальної аудиторії (водіїв вантажівок) і не
@@ -100,7 +101,7 @@ and no third-party trackers.</p>
 
 <h2>How data is used</h2>
 <p>The single purpose is app functionality: showing queue history and
-delivering alerts. Data is never sold or shared with third parties. Firebase
+delivering alerts. Data is not sold or shared with third parties for their own purposes. Firebase
 Cloud Messaging (Google) is used as a technical delivery intermediary.</p>
 
 <h2>Storage and security</h2>
@@ -108,10 +109,11 @@ Cloud Messaging (Google) is used as a technical delivery intermediary.</p>
 is stored only as a cryptographic hash. Backups are encrypted.</p>
 
 <h2>Data deletion</h2>
-<p>Uninstalling the app severs the device's link to the service; invalid push
-tokens are removed automatically. To have your device records deleted from the
-server, e-mail <a href="mailto:vtanko2019@gmail.com">vtanko2019@gmail.com</a> —
-we delete the data within 30 days.</p>
+<p>After uninstalling the app, no new data is sent from the device. If a device
+is inactive for 90 days, its technical data, subscriptions, and alerts are
+deleted automatically. Public queue history is retained. To use the service
+again, reinstall and open the app, allow notifications if needed, and configure
+your subscriptions again.</p>
 
 <h2>Children</h2>
 <p>The app targets a general audience (truck drivers) and does not knowingly
