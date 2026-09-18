@@ -40,9 +40,9 @@ to. No message content, no contacts.
   indefinitely, compressed after 7 days (`add_compression_policy`). They contain
   no personal data, so indefinite retention carries no privacy cost.
 - **Device / subscription data** is kept while the device is in use. `last_seen`
-  is updated on activity, which makes stale-device purging *possible*; an
-  automatic retention job for inactive devices is **not yet implemented** —
-  tracked as part of #19 (FCM token ownership & installation retention).
+  is updated on activity. A daily cleanup job deletes non-admin installations
+  after 90 days without activity; device-owned rows are removed by cascade.
+  Public queue history is kept.
 
 ## Deletion
 
@@ -74,6 +74,5 @@ and `deploy/postgres-adoption-runbook.md`.
 
 ## Known gaps (honestly)
 
-- Automatic retention/purge of inactive devices — #19.
 - Self-service delete-installation endpoint + audit trail — #19.
 - Release-signing runbook (Android keystore custody) — remaining part of #25.
