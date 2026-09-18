@@ -91,6 +91,9 @@ EXPECTED_TABLE_PRIVILEGES = {
         "schema_migrations": {"SELECT"},
     },
     "WATCHDOG_DATABASE_URL": {
+        # Migration 011 lets the watchdog remove inactive device records as
+        # part of the automatic retention policy.
+        "devices": {"DELETE"},
         "observations": {"SELECT"},
         "collector_runs": {"SELECT"},
         "health_alerts": {"SELECT", "INSERT", "UPDATE"},
@@ -147,9 +150,6 @@ EXPECTED_DEVICE_COLUMN_PRIVILEGES = {
     "COLLECTOR_DATABASE_URL": {},
     "NOTIFIER_DATABASE_URL": {"id": {"SELECT"}, "fcm_token": {"SELECT", "UPDATE"}},
     "WATCHDOG_DATABASE_URL": {
-        # Migration 011 lets the watchdog remove inactive device records as
-        # part of the automatic retention policy.
-        "devices": {"DELETE"},
         "id": {"SELECT"},
         "is_admin": {"SELECT"},
         # UPDATE is needed to clear a dead admin FCM token
