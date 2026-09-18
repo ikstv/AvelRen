@@ -1796,11 +1796,6 @@ private fun CheckpointPickerSheet(
                     modifier = Modifier.tapNoRipple(onClick = onDismiss).padding(4.dp),
                 )
             }
-            // Атрибуція джерела — під заголовком, ПОЗА списком: саме цей екран
-            // (повноекранний Dialog) флагнув Google. Угорі, а не в підвалі: у
-            // Dialog вікно wrap-height, тож прибити рядок до низу надійно не
-            // виходить (виходив 0×0), а тут він гарантовано видимий і не скролиться.
-            AttributionBar(Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {

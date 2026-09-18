@@ -46,6 +46,11 @@ android {
     }
 
     buildTypes {
+        create("preview") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".preview"
+        }
+
         release {
             // First release ships unminified on purpose: minify + resource
             // shrinking need a ProGuard pass verified on-device (ktor +
