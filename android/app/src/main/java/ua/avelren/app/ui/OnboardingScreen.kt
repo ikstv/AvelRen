@@ -449,6 +449,17 @@ private fun ColumnScope.InstructionsBody() {
             fontSize = 13.sp,
             lineHeight = 19.sp,
         )
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "У майбутніх релізах більшість розширених функцій буде доступна " +
+                "у платній Premium-підписці. У версії 0.1.0 усі доступні функції " +
+                "безкоштовні.",
+            color = Color(0xCCFFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
     }
 }
 
