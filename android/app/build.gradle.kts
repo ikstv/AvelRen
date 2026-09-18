@@ -49,7 +49,6 @@ android {
         create("preview") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".preview"
-            versionNameSuffix = "-preview"
         }
 
         release {
