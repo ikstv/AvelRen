@@ -23,12 +23,6 @@
             android:strokeWidth="26"
             android:strokeLineJoin="round"/>
         <path
-            android:pathData="M251.5 240 L260.5 240 L262 266 L250 266 Z"
-            android:fillColor="#F5C400"
-            android:strokeColor="#F5C400"
-            android:strokeWidth="3"
-            android:strokeLineJoin="round"/>
-        <path
             android:pathData="M249 292 L263 292 L265.5 328 L246.5 328 Z"
             android:fillColor="#F5C400"
             android:strokeColor="#F5C400"
