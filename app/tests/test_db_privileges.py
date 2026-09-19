@@ -151,6 +151,7 @@ EXPECTED_DEVICE_COLUMN_PRIVILEGES = {
     "NOTIFIER_DATABASE_URL": {"id": {"SELECT"}, "fcm_token": {"SELECT", "UPDATE"}},
     "WATCHDOG_DATABASE_URL": {
         "id": {"SELECT"},
+        "last_seen": {"SELECT"},
         "is_admin": {"SELECT"},
         # UPDATE is needed to clear a dead admin FCM token
         # (watchdog._notify → UPDATE devices SET fcm_token=NULL). Previously only
@@ -820,6 +821,35 @@ def test_notifier_positive_service_paths_cover_delivery_and_cancel_lifecycle():
                 (live_device, dead_device, retry_device, empty_device),
             )
             admin.execute("DELETE FROM checkpoints WHERE id = %s", (checkpoint_id,))
+
+
+def test_watchdog_retention_deletes_only_inactive_non_admin_devices():
+    stale, active, admin_id = (str(uuid.uuid4()) for _ in range(3))
+    ids = [stale, active, admin_id]
+    with connect_env("ADMIN_DATABASE_URL") as admin:
+        admin.execute(
+            "INSERT INTO devices (id, last_seen, is_admin) VALUES "
+            "(%s, now() - interval '365 days', false), "
+            "(%s, now(), false), (%s, now() - interval '365 days', true)",
+            ids,
+        )
+
+    async def exercise(pool):
+        async with pool.connection() as conn:
+            await watchdog._cleanup_inactive_devices(conn)
+
+    try:
+        asyncio.run(run_with_role_pool("WATCHDOG_DATABASE_URL", exercise))
+        with connect_env("ADMIN_DATABASE_URL") as admin:
+            remaining = {
+                str(row[0]) for row in admin.execute(
+                    "SELECT id FROM devices WHERE id = ANY(%s)", (ids,)
+                )
+            }
+        assert remaining == {active, admin_id}
+    finally:
+        with connect_env("ADMIN_DATABASE_URL") as admin:
+            admin.execute("DELETE FROM devices WHERE id = ANY(%s)", (ids,))
 
 
 def test_watchdog_positive_service_paths_cover_health_and_recovery(monkeypatch):

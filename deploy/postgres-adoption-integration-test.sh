@@ -1915,6 +1915,7 @@ reset_runtime_containers
             echo "$gate did not run exactly the preceding real gate callbacks" >&2
             echo "ran: [$(tr '\n' ',' <"$WORK/gates.log")] expected: [$(tr '\n' ',' <"$WORK/expected-preceding-gates")]" >&2
             dump_gate_errs
+            tail -n 160 "$output" >&2
             exit 1
         }
         expected_privilege=NOT_RUN
