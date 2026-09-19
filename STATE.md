@@ -31,6 +31,9 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### PRs
 
+- #185 Fix forecast quality evaluation — `codex/held-out-forecast`
+- #184 Explain upcoming Premium features — `codex/premium-instructions`
+- #183 Automate inactive-device retention — `codex/fix-launcher-icon`
 - #173 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
@@ -40,6 +43,8 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### Issues
 
+- #187 🔴 external monitor: alerts are firing and not being delivered
+- #186 🔴 external monitor: watchdog alert channel is empty
 - #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
 - #110 Робота на двох ПК (десктоп + ноутбук): доступи, синхрон, стан дошки
@@ -54,7 +59,10 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 39 |
-| `chore/state-refresh` | 25 | 0 |
+| `chore/state-refresh` | 26 | 0 |
+| `codex/fix-launcher-icon` | 6 | 0 |
+| `codex/held-out-forecast` | 13 | 0 |
+| `codex/premium-instructions` | 7 | 0 |
 | `dependabot/docker/app/python-cae66f2` | 1 | 6 |
 | `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 0 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 0 |
