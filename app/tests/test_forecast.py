@@ -98,16 +98,16 @@ def test_unknown_checkpoint_does_not_crash():
     assert result["points"] == []
 
 
-def test_evaluate_returns_honest_note(checkpoint):
-    """Error computed on the same data is always optimistic — and that must be
-    visible to whoever reads the number."""
+def test_evaluate_returns_held_out_note(checkpoint):
+    """The quality response must identify its held-out validation window."""
 
     async def check(conn):
         return await forecast.evaluate(conn, checkpoint)
 
     result = _run(check)
     assert result["method"] == "seasonal_naive"
-    assert "optimistic" in result["note"]
+    assert "held-out" in result["note"]
+    assert "validation" in result["note"]
 
 
 @pytest.mark.parametrize(

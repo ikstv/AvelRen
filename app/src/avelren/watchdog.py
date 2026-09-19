@@ -28,6 +28,8 @@ from .schema_gate import assert_schema_at_least
 log = logging.getLogger("avelren.watchdog")
 
 CHECK_INTERVAL = 300
+DEVICE_RETENTION_DAYS = 90
+DEVICE_CLEANUP_INTERVAL = 24 * 60 * 60
 # A reboot is a planned matter, not an urgent one: we allow a few days for a
 # convenient moment.
 REBOOT_GRACE_DAYS = 3
@@ -63,6 +65,7 @@ def _read_snapshot() -> dict | None:
         return None
 
 _stop = asyncio.Event()
+_last_device_cleanup = 0.0
 
 
 def _request_stop(*_: object) -> None:
@@ -289,8 +292,29 @@ async def _admin_tokens(conn: AsyncConnection) -> list[str]:
     return [r["fcm_token"] for r in rows]
 
 
+async def _cleanup_inactive_devices(conn: AsyncConnection) -> int:
+    """Remove non-admin installations inactive for the published retention period."""
+    result = await conn.execute(
+        """
+        DELETE FROM devices
+        WHERE last_seen < now() - (%s * INTERVAL '1 day')
+        AND NOT is_admin
+        """,
+        (DEVICE_RETENTION_DAYS,),
+    )
+    deleted = result.rowcount or 0
+    if deleted:
+        log.info("removed %s inactive device installation(s)", deleted)
+    return deleted
+
+
 async def run_cycle(client: httpx.AsyncClient) -> None:
+    global _last_device_cleanup
     async with get_pool().connection() as conn:
+        now = asyncio.get_running_loop().time()
+        if now - _last_device_cleanup >= DEVICE_CLEANUP_INTERVAL:
+            await _cleanup_inactive_devices(conn)
+            _last_device_cleanup = now
         problems = await _checks(conn)
         open_alerts = await _open_alerts(conn)
 

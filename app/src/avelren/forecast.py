@@ -174,48 +174,55 @@ async def forecast(
 
 
 async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
-    """Error of the base model on the available history.
+    """Measure baseline error on a held-out final week.
 
-    Without this number it is impossible to say whether a future more complex
-    model improved anything at all. We measure the mean absolute error in hours.
+    The final seven days are never used to build the seasonal medians. This is
+    the first honest baseline for comparing future models.
     """
-    # Server-owned lower bound: the evaluation takes the same LOOKBACK_WEEKS as
-    # the forecast, not the point's entire history. Otherwise every public call
-    # to /forecast/{id}/quality would scan a time-unbounded series (with years of
-    # data — a DoS vector, audit #16).
+    # Server-owned bounds keep the quality endpoint finite and prevent leakage
+    # from the validation week into the training medians.
     since = datetime.now(UTC) - timedelta(weeks=LOOKBACK_WEEKS)
+    validation_since = datetime.now(UTC) - timedelta(days=7)
     row = await (
         await conn.execute(
             """
-            -- Same clean_hourly as forecast(): observations_hourly recomputed with
-            -- the #111 contamination filter. The server-owned lower bound now sits
-            -- on the raw `time` column (audit #16 intent unchanged — still finite
-            -- and server-set), because the aggregate is built here rather than read.
             WITH clean_hourly AS (
                 SELECT
                     time_bucket(INTERVAL '1 hour', time) AS bucket,
                     avg(wait_time_seconds)::integer AS avg_wait_seconds
                 FROM observations
-                WHERE checkpoint_id = %s AND time >= %s
+                WHERE checkpoint_id = %s AND time >= %s AND time < %s
                   AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
                 GROUP BY bucket
             ),
-            actual AS (
+            validation_hourly AS (
                 SELECT bucket, avg_wait_seconds,
                        EXTRACT(dow  FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
                        EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour
-                FROM clean_hourly
+                FROM (
+                    SELECT time_bucket(INTERVAL '1 hour', time) AS bucket,
+                           avg(wait_time_seconds)::integer AS avg_wait_seconds
+                    FROM observations
+                    WHERE checkpoint_id = %s AND time >= %s
+                      AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
+                    GROUP BY bucket
+                ) validation
             ),
             predicted AS (
-                SELECT dow, hour,
+                SELECT EXTRACT(dow FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
+                       EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour,
                        percentile_cont(0.5) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p50
-                FROM actual GROUP BY dow, hour
+                FROM clean_hourly
+                GROUP BY 1, 2
             )
             SELECT count(*) AS n,
-                   avg(abs(a.avg_wait_seconds - p.p50)) / 3600.0 AS mae_hours
-            FROM actual a JOIN predicted p ON p.dow = a.dow AND p.hour = a.hour
+                   count(p.p50) AS matched,
+                   avg(abs(v.avg_wait_seconds - p.p50)) / 3600.0 AS mae_hours
+            FROM validation_hourly v
+            LEFT JOIN predicted p
+              ON p.dow = v.dow AND p.hour = v.hour
             """,
-            (checkpoint_id, since),
+            (checkpoint_id, since, validation_since, checkpoint_id, validation_since),
         )
     ).fetchone()
 
@@ -223,9 +230,7 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
         "checkpoint_id": checkpoint_id,
         "method": "seasonal_naive",
         "samples": row["n"] if row else 0,
+        "matched_samples": row.get("matched", 0) if row else 0,
         "mae_hours": round(float(row["mae_hours"]), 2) if row and row["mae_hours"] else None,
-        # Error computed on the same data the model was built on is always
-        # optimistic. An honest estimate will appear once there is enough history
-        # to separate training and validation.
-        "note": "estimate on the same data, optimistic",
+        "note": "held-out final 7 days; training and validation are separate",
     }
