@@ -1172,8 +1172,6 @@ _canonical_target_acl_rows() {
     # watchdog clears a dead admin FCM token (UPDATE devices SET fcm_token=NULL);
     # mirrors GRANT UPDATE (fcm_token) ON devices TO avelren_watchdog in migration 010.
     _emit_target_relation_acl devices fcm_token avelren_watchdog UPDATE
-    # Migration 011 removes inactive device records as part of retention.
-    _emit_target_relation_acl devices object avelren_watchdog DELETE
     _emit_target_relation_acl health_alerts object avelren_watchdog INSERT UPDATE
     _emit_target_relation_acl health_alerts_id_seq object avelren_watchdog USAGE
 
