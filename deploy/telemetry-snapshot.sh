@@ -129,12 +129,13 @@ fi
 compose_errors_24h=null
 if command -v docker >/dev/null 2>&1 && [ -d "$STACK_DIR" ]; then
     if logs=$(cd "$STACK_DIR" && docker compose logs --since 24h --no-color 2>/dev/null); then
-        if n=$(printf '%s\n' "$logs" | grep -Eic 'ERROR|CRITICAL|Traceback|Exception'); then
-            compose_errors_24h=$n
-        else
-            # grep exits 1 when it found nothing; that is a real zero, not unknown.
-            compose_errors_24h=0
-        fi
+        n=$(printf '%s\n' "$logs" | awk '
+            /Traceback|Exception|CRITICAL/ { n++; next }
+            /(^|[^[:alpha:]])ERROR([^[:alpha:]]|$)/ { n++; next }
+            tolower($0) ~ /"level":"(error|critical|fatal|panic)"/ { n++; next }
+            END { print n + 0 }
+        ')
+        case "$n" in ''|*[!0-9]*) compose_errors_24h=null ;; *) compose_errors_24h=$n ;; esac
     fi
 fi
 

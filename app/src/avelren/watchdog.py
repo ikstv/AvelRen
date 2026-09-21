@@ -227,7 +227,7 @@ def _reboot_pending() -> int | None:
 # installed copy — so this constant is how the image states which copy it was
 # built against. A CI step keeps it equal to the file; it cannot drift silently
 # the way the installed copy did.
-EXPECTED_SNAPSHOT_SHA = "04c9e774d154377223da17f7af8743e052daafcf009a72217a983775a141008b"
+EXPECTED_SNAPSHOT_SHA = "baa011938e8319f865a0705a983ac296afbae256194f8463201b9292cb624ccf"
 
 
 def _snapshot_script_drift() -> str | None:
