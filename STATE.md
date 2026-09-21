@@ -31,6 +31,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### PRs
 
+- #188 Sync production daily status and telemetry cleanup — `fix/prod-observability-cleanup`
 - #185 Fix forecast quality evaluation — `codex/held-out-forecast`
 - #184 Explain upcoming Premium features — `codex/premium-instructions`
 - #183 Automate inactive-device retention — `codex/fix-launcher-icon`
@@ -43,9 +44,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### Issues
 
-- #187 🔴 external monitor: alerts are firing and not being delivered
-- #186 🔴 external monitor: watchdog alert channel is empty
-- #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
 - #110 Робота на двох ПК (десктоп + ноутбук): доступи, синхрон, стан дошки
 - #26 audit: Production hardening після аудиту 7e110306 / Production hardening after the 7e110306 audit
@@ -59,7 +57,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 39 |
-| `chore/state-refresh` | 27 | 0 |
+| `chore/state-refresh` | 28 | 0 |
 | `codex/fix-launcher-icon` | 6 | 0 |
 | `codex/held-out-forecast` | 13 | 0 |
 | `codex/premium-instructions` | 7 | 0 |
@@ -72,3 +70,4 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 | `feat/privacy-page` | 3 | 38 |
 | `feat/truthful-server-badge` | 1 | 33 |
 | `fix/backup-grants-and-rate-limits` | 1 | 30 |
+| `fix/prod-observability-cleanup` | 4 | 0 |
