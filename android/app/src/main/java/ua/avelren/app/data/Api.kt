@@ -377,6 +377,36 @@ object Api {
     suspend fun telemetry(creds: DeviceStore.Credentials): Telemetry =
         client.get("$base/admin/telemetry") { auth(creds) }.body()
 
+    @Serializable
+    data class AdminAccess(
+        val state: String,
+        val attempts_remaining: Int = 0,
+        val locked_until: String? = null,
+    )
+
+    @Serializable
+    private data class AdminPin(val pin: String)
+
+    suspend fun adminAccess(creds: DeviceStore.Credentials): AdminAccess =
+        adminAccessWith(client, creds)
+
+    suspend fun unlockAdmin(creds: DeviceStore.Credentials, pin: String): AdminAccess =
+        adminAccessWith(client, creds, pin)
+
+    internal suspend fun adminAccessWith(
+        httpClient: HttpClient,
+        creds: DeviceStore.Credentials,
+        pin: String? = null,
+    ): AdminAccess = if (pin == null) {
+        httpClient.get("$base/admin/access") { auth(creds) }.body()
+    } else {
+        httpClient.post("$base/admin/access") {
+            auth(creds)
+            contentType(ContentType.Application.Json)
+            setBody(AdminPin(pin))
+        }.body()
+    }
+
     suspend fun forecast(checkpointId: Int, hours: Int = 24): Forecast =
         client.get("$base/forecast/$checkpointId?hours=$hours").body()
 

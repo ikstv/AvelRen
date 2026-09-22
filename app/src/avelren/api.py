@@ -14,6 +14,7 @@ from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
 from . import forecast, telemetry
+from .admin_access_api import router as admin_access_router
 from .config import settings
 from .db import get_pool
 from .limits import BodySizeLimitMiddleware, ConcurrencyGate
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AvelRen", version="0.1.0", lifespan=lifespan)
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.api_max_body_bytes)
 app.include_router(subscriptions_router)
+app.include_router(admin_access_router)
 
 
 @app.exception_handler(OperationalError)

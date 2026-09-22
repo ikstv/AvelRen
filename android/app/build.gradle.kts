@@ -6,7 +6,17 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.google.services)
+    alias(libs.plugins.google.services) apply false
+}
+
+val uiPreview = providers.gradleProperty("avelrenUiPreview").orNull == "true"
+if (!uiPreview) apply(plugin = "com.google.gms.google-services")
+if (uiPreview) {
+    gradle.taskGraph.whenReady {
+        check(allTasks.none { it.name.contains("release", ignoreCase = true) }) {
+            "UI preview is debug-only"
+        }
+    }
 }
 
 // Signing config is loaded from a gitignored keystore.properties (see
@@ -46,6 +56,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (uiPreview) {
+                applicationIdSuffix = ".preview"
+                versionNameSuffix = "-test"
+            }
+        }
         release {
             // First release ships unminified on purpose: minify + resource
             // shrinking need a ProGuard pass verified on-device (ktor +
@@ -59,6 +75,13 @@ android {
             if (keystorePropsFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
+        }
+    }
+
+    if (uiPreview) {
+        sourceSets.getByName("debug") {
+            manifest.srcFile("src/preview/AndroidManifest.xml")
+            java.srcDir("src/preview/java")
         }
     }
 

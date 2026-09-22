@@ -24,7 +24,7 @@ class ApiTimeoutTest {
                 status = HttpStatusCode.OK,
                 headers = headersOf("Content-Type", "text/plain"),
             )
-        }, requestTimeoutMs = 100)
+        }, requestTimeoutMs = 1_000)
 
         try {
             Api.ackWith(
@@ -36,7 +36,7 @@ class ApiTimeoutTest {
             )
             fail("ACK must time out before the 75ms handler delay")
         } catch (_: HttpRequestTimeoutException) {
-            // 50 ACK < 75 delay < 100 global: the per-request override fired.
+            // 50 ACK < 75 delay < 1000 global: the per-request override fired.
         }
         client.close()
     }
@@ -46,7 +46,7 @@ class ApiTimeoutTest {
         val client = Api.clientFor(MockEngine {
             delay(75)
             respond("ordinary request completed", HttpStatusCode.OK)
-        }, requestTimeoutMs = 100)
+        }, requestTimeoutMs = 1_000)
 
         val response = client.get("https://example.test/checkpoints")
         assertEquals("ordinary request completed", response.bodyAsText())

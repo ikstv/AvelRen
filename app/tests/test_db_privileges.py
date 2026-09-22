@@ -29,6 +29,7 @@ RUNTIME_ROLES = {
     "API_DATABASE_URL": "avelren_api",
 }
 APPLICATION_TABLES = (
+    "admin_access",
     "countries",
     "checkpoints",
     "observations",
@@ -99,6 +100,7 @@ EXPECTED_TABLE_PRIVILEGES = {
         "schema_migrations": {"SELECT"},
     },
     "API_DATABASE_URL": {
+        "admin_access": {"SELECT"},
         "countries": {"SELECT"},
         "checkpoints": {"SELECT"},
         "observations": {"SELECT"},
@@ -309,6 +311,12 @@ def test_table_privileges_match_frozen_acl(dsn_name):
     expected = EXPECTED_TABLE_PRIVILEGES[dsn_name]
     with connect_env(dsn_name) as conn:
         for table in APPLICATION_TABLES:
+            if table == "admin_access" and not scalar(
+                conn, "SELECT EXISTS (SELECT 1 FROM schema_migrations "
+                "WHERE version='011_admin_access')",
+            ):
+                # The adoption gate also runs against the explicitly older 010 prefix.
+                continue
             actual = {
                 privilege
                 for privilege in TABLE_PRIVILEGES
@@ -422,6 +430,11 @@ def test_notification_cancel_conflict_target_positive_select_is_allowed(dsn_name
 def test_public_has_no_existing_application_object_privileges():
     with connect_env("ADMIN_DATABASE_URL") as admin:
         for table in APPLICATION_TABLES:
+            if table == "admin_access" and not scalar(
+                admin, "SELECT EXISTS (SELECT 1 FROM schema_migrations "
+                "WHERE version='011_admin_access')",
+            ):
+                continue
             for privilege in TABLE_PRIVILEGES:
                 assert scalar(
                     admin,

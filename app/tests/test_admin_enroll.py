@@ -51,19 +51,18 @@ def test_channel_counts_only_admins_that_can_be_reached(conn):
     Production today has one admin and zero admins with a token: `is_admin` alone
     reports a healthy channel in exactly the state where nothing can be delivered.
     """
-    before = admin_enroll._channel_size(conn)
-
     tokenless = _plain_device(conn, token=None)
     with_token = _plain_device(conn, token=f"tok-{uuid.uuid4()}")
     try:
         admin_enroll.set_admin(conn, tokenless, admin=True)
-        assert admin_enroll._channel_size(conn) == before, (
+        assert admin_enroll._channel_size(conn) == 0, (
             "an admin without a token is a subscriber to nothing and must not "
             "count towards the channel"
         )
 
         admin_enroll.set_admin(conn, with_token, admin=True)
-        assert admin_enroll._channel_size(conn) == before + 1
+        assert admin_enroll._channel_size(conn) == 1
+        assert _is_admin(conn, tokenless) is False
     finally:
         conn.execute("DELETE FROM devices WHERE id = ANY(%s)", ([tokenless, with_token],))
 
