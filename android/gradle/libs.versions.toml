@@ -11,6 +11,7 @@ ktor = "3.0.2"
 securityCrypto = "1.1.0-alpha06"
 datastore = "1.1.1"
 coroutinesPlayServices = "1.9.0"
+playAppUpdate = "2.1.0"
 junit = "4.13.2"
 work = "2.11.2"
 # androidx.activity 1.9 transitively pulls in an old fragment; lint complains about
@@ -44,6 +45,8 @@ kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "ko
 # in sync, otherwise a runtime-vs-test version conflict is possible.
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesPlayServices" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+play-app-update = { group = "com.google.android.play", name = "app-update", version.ref = "playAppUpdate" }
+play-app-update-ktx = { group = "com.google.android.play", name = "app-update-ktx", version.ref = "playAppUpdate" }
 
 ktor-client-android = { group = "io.ktor", name = "ktor-client-android", version.ref = "ktor" }
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }

@@ -26,8 +26,8 @@ android {
         applicationId = "ua.avelren.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.0"
+        versionCode = 4
+        versionName = "0.1.1"
 
         // The domain is moved into config: the app has no mention of
         // echerha.gov.ua — the client talks only to us (AGENTS.md, rule 1).
@@ -97,6 +97,8 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.play.app.update)
+    implementation(libs.play.app.update.ktx)
 
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.content.negotiation)
