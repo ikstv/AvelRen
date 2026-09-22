@@ -14,6 +14,9 @@ local.properties
 
 # Локальні результати роботи
 dist/
+.gradle/
+.kotlin/
+build/
 .venv/
 __pycache__/
 *.egg-info/

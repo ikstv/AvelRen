@@ -4,6 +4,7 @@ Data is served EXCLUSIVELY from our DB. No endpoint reaches out to
 echerha.gov.ua — see AGENTS.md, rule 1.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -13,7 +14,7 @@ from fastapi.responses import JSONResponse
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
-from . import forecast, telemetry
+from . import forecast, maintenance, telemetry
 from .admin_access_api import router as admin_access_router
 from .config import settings
 from .db import get_pool
@@ -64,6 +65,15 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
         status_code=503,
         content={"detail": "Service temporarily unavailable, please try again later"},
         headers={"Retry-After": "5"},
+    )
+
+
+@app.get("/status")
+async def server_status(request: Request) -> JSONResponse:
+    rate_check(request, "read")
+    return JSONResponse(
+        {"maintenance": await asyncio.to_thread(maintenance.read_window, datetime.now(UTC))},
+        headers={"Cache-Control": "no-store"},
     )
 
 

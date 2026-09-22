@@ -1,0 +1,42 @@
+name: Android
+on:
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - 'docs/ANDROID-PROVENANCE.json'
+      - 'docs/ASSETS.md'
+      - 'scripts/verify_android.py'
+      - '.github/workflows/android.yml'
+      - '.gitattributes'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - 'docs/ANDROID-PROVENANCE.json'
+      - 'docs/ASSETS.md'
+      - 'scripts/verify_android.py'
+      - '.github/workflows/android.yml'
+      - '.gitattributes'
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Походження та ресурси
+        run: python3 scripts/verify_android.py
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Компіляція та JVM-тести без ключів
+        working-directory: apps/android
+        run: bash gradlew -PavelrenUiPreview=true :app:testDebugUnitTest :app:compileDebugKotlin --no-daemon --max-workers=2
