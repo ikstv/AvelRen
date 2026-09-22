@@ -1,0 +1,14 @@
+# Локальні конфігурації та секрети
+.env
+.env.*
+!.env.example
+google-services.json
+*service-account*.json
+*.jks
+*.keystore
+local.properties
+
+# Локальні результати роботи
+dist/
+.DS_Store
+Thumbs.db
