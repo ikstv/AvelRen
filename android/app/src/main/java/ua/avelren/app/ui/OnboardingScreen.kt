@@ -260,7 +260,10 @@ private fun ColumnScope.DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) 
             Text(
                 "Використовуйте застосунок як допоміжний інструмент. Не " +
                     "плануйте перетин кордону, покладаючись лише на його дані, — " +
-                    "звіряйтеся з офіційними джерелами. Розробник не несе " +
+                    "звіряйтеся з офіційним державним сервісом єЧерга " +
+                    "(echerha.gov.ua). AvelRen — незалежний неофіційний " +
+                    "застосунок і не представляє жодну державну установу. " +
+                    "Розробник не несе " +
                     "відповідальності за рішення, ухвалені виключно на підставі " +
                     "показників застосунку.",
                 color = OnInk,
@@ -438,6 +441,17 @@ private fun ColumnScope.InstructionsBody() {
         Text(
             "Можна обрати будь-яку комбінацію цих налаштувань і навіть " +
                 "слідкувати одразу за кількома пунктами пропуску",
+            color = Color(0xCCFFFFFF),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "У майбутніх релізах більшість розширених функцій буде доступна " +
+                "у платній Premium-підписці. У версії 0.1.0 усі доступні функції " +
+                "безкоштовні.",
             color = Color(0xCCFFFFFF),
             fontSize = 13.sp,
             lineHeight = 19.sp,
