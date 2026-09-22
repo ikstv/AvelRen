@@ -689,8 +689,24 @@ compose() {
 
 case "$gate" in
     migrate)
+        # Ownership adoption rolls back only 010. Feature migrations must run
+        # after that transition commits, never inside its rollback boundary.
         DATABASE_URL="$AVELREN_MIGRATOR_DSN" compose run --rm --no-deps -T \
-            -e DATABASE_URL test python -m avelren.migrate db/migrations
+            -e DATABASE_URL test python - <<'PY'
+import shutil
+import tempfile
+from pathlib import Path
+from avelren import migrate
+
+with tempfile.TemporaryDirectory() as directory:
+    prefix = Path(directory)
+    source = Path("db/migrations")
+    files = sorted(source.glob("00[1-9]_*.sql")) + list(source.glob("010_*.sql"))
+    assert len(files) == 10, "adoption requires the exact 001-010 prefix"
+    for path in files:
+        shutil.copyfile(path, prefix / path.name)
+    raise SystemExit(migrate.run(prefix))
+PY
         DATABASE_URL="$AVELREN_MIGRATOR_DSN" compose run --rm --no-deps -T \
             -e DATABASE_URL test python - <<'PY'
 import os
@@ -698,7 +714,8 @@ import psycopg
 
 with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as connection:
     role = connection.execute("SELECT current_user").fetchone()[0]
-    connection.execute("SELECT count(*) FROM schema_migrations").fetchone()
+    count = connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0]
+    assert count == 10, "feature migrations escaped into ownership adoption"
 print(f"schema_verification_role={role}")
 PY
         ;;

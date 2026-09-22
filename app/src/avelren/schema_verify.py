@@ -34,12 +34,17 @@ from .restore_identity import connection_identity_problems
 
 log = logging.getLogger("avelren.schema_verify")
 
+# Optional features enforce their exact migration at their own entry point.
+# Their absence must not stop collector/notifier or the existing public API.
+FEATURE_MIGRATIONS = frozenset({"011_admin_access"})
+
 # --- Version-annotated physical contract ------------------------------------
 # Format: (since_version | None, ...object details)
 # since=None → always required (schema_migrations).
 # The prefix gate in migrate.py filters by recorded_versions.
 
 _TABLES_V: list[tuple[str | None, str]] = [
+    ("011_admin_access", "admin_access"),
     ("001_init", "checkpoints"),
     ("001_init", "observations"),
     ("001_init", "collector_runs"),
@@ -57,6 +62,10 @@ _TABLES_V: list[tuple[str | None, str]] = [
 ]
 
 _COLUMNS_V: list[tuple[str | None, str, str]] = [
+    ("011_admin_access", "admin_access", "approved_device_id"),
+    ("011_admin_access", "admin_access", "pin_hash"),
+    ("011_admin_access", "admin_access", "failures"),
+    ("011_admin_access", "admin_access", "locked_until"),
     ("002_countries", "checkpoints", "country_name"),
     ("002_countries", "checkpoints", "flag_emoji"),
     ("004_alerts", "devices", "fcm_token"),
@@ -83,6 +92,7 @@ _COLUMNS_V: list[tuple[str | None, str, str]] = [
 # guaranteed).
 # (version, index_name, table, columns, predicate_expr_normalized)
 _UNIQUE_PARTIAL_INDEXES_V: list[tuple[str, str, str, tuple[str, ...], str]] = [
+    ("011_admin_access", "devices_one_admin", "devices", ("is_admin",), "is_admin"),
     ("004_alerts", "alerts_one_pending_per_subscription", "alerts",
      ("subscription_id",), "(status = 'pending'::text)"),
     ("005_eta_targets", "eta_alerts_one_pending_per_target", "eta_alerts",
@@ -307,6 +317,16 @@ def verify_contract(
         ).fetchone()
         if not row:
             problems.append(f"missing continuous aggregate {cagg}")
+
+    if want("011_admin_access"):
+        row = conn.execute(
+            "SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig "
+            "FROM pg_proc p WHERE p.oid=to_regprocedure('public.activate_approved_admin(uuid)')"
+        ).fetchone()
+        if not row or not row[0] or row[1] != "avelren_migrator" or (
+            "search_path=pg_catalog, pg_temp" not in (row[2] or [])
+        ):
+            problems.append("admin activation function missing or unsafe owner/search_path")
 
     return problems
 

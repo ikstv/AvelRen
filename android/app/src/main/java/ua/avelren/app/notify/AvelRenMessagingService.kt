@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import ua.avelren.app.AvelRenApp
+import ua.avelren.app.BuildConfig
 
 /**
  * Receives pushes from the server.
@@ -40,6 +41,12 @@ class AvelRenMessagingService : FirebaseMessagingService() {
         // Health — information, not an alert with acknowledgement: no ongoing,
         // no OK button, dismissible like an ordinary notification.
         if (type == "health") {
+            if (data["subtype"] == "app_update") {
+                if (shouldShowReleaseNotice(data, BuildConfig.VERSION_CODE)) {
+                    Notifications.showInfo(applicationContext, title, body, openStore = true)
+                }
+                return
+            }
             Log.i(TAG, "отримано health-повідомлення")
             Notifications.showInfo(applicationContext, title, body)
             return

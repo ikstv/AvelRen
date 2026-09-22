@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
@@ -185,7 +186,7 @@ object Notifications {
      * ongoing, which the OK button did not dismiss at all (audit R-03).
      */
     @SuppressLint("MissingPermission")
-    fun showInfo(context: Context, title: String, body: String) {
+    fun showInfo(context: Context, title: String, body: String, openStore: Boolean = false) {
         ensureChannel(context)
         val channel = NotificationChannel(
             INFO_CHANNEL_ID,
@@ -195,13 +196,22 @@ object Notifications {
         context.getSystemService(NotificationManager::class.java)
             .createNotificationChannel(channel)
 
-        val notification = NotificationCompat.Builder(context, INFO_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, INFO_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
-            .build()
+        if (openStore) {
+            val intent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://play.google.com/store/apps/details?id=ua.avelren.app"))
+            val pending = PendingIntent.getActivity(
+                context, 40_000_001, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder.setContentIntent(pending).addAction(0, "Оновити", pending)
+        }
+        val notification = builder.build()
 
         if (canPostNotifications(context)) {
             // A stable ID by title: "problem" and "recovered" are different,
