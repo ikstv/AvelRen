@@ -338,6 +338,7 @@ fun AvelRenScreen(
     val freshness = if (workload.isNotEmpty()) LiveRefresh.freshness(obsTime, freshnessNow) else null
 
     val onMonitor = activeTab == "monitor"
+    val bottomChromePadding = 136.dp
 
     // Головна — фото на всю площу з `filter:grayscale(100%)` + затемнення згори
     // (190px) і знизу (170px). Екран «Моніторинг» — суцільний темний фон
@@ -370,8 +371,7 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                // 104 = навпанель (84) + рядок атрибуції над нею.
-                .padding(bottom = 104.dp),
+                .padding(bottom = bottomChromePadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HeaderRow(freshness = freshness, hasError = refreshError)
@@ -419,9 +419,7 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp),
-            // Нижній відступ, щоб останню плитку не ховали навпанель + рядок
-            // атрибуції над нею (84 + ~20).
-            contentPadding = PaddingValues(bottom = 104.dp),
+            contentPadding = PaddingValues(bottom = bottomChromePadding),
         ) {
             item {
                 HeaderRow(freshness = freshness, hasError = refreshError)
@@ -484,7 +482,10 @@ fun AvelRenScreen(
             .align(Alignment.BottomCenter)
             .windowInsetsPadding(WindowInsets.systemBars)
             .padding(horizontal = 20.dp)
-            .padding(bottom = 80.dp),
+            .padding(bottom = 80.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xCC0A0A0A))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     )
     }
 
