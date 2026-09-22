@@ -85,6 +85,37 @@ def list_devices(conn, limit: int) -> int:
 
 
 def set_admin(conn, device_id: str, admin: bool) -> int:
+    # Serialize host-side enrollment with the approval/PIN flow.
+    with conn.transaction():
+        installed = conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE version='011_admin_access'"
+        ).fetchone()
+        if installed:
+            conn.execute("SELECT singleton FROM admin_access WHERE singleton FOR UPDATE")
+        else:
+            conn.execute("LOCK TABLE devices IN SHARE ROW EXCLUSIVE MODE")
+        exists = conn.execute("SELECT id FROM devices WHERE id=%s", (device_id,)).fetchone()
+        if exists is None:
+            log.error("unknown installation")
+            return 1
+        if installed:
+            if admin:
+                conn.execute(
+                    "UPDATE admin_access SET approved_device_id=%s WHERE singleton", (device_id,),
+                )
+            else:
+                conn.execute(
+                    "UPDATE admin_access SET approved_device_id=NULL "
+                    "WHERE singleton AND approved_device_id=%s", (device_id,),
+                )
+        if admin:
+            conn.execute(
+                "UPDATE devices SET is_admin=false WHERE is_admin AND id<>%s", (device_id,),
+            )
+        return _set_admin_locked(conn, device_id, admin)
+
+
+def _set_admin_locked(conn, device_id: str, admin: bool) -> int:
     row = conn.execute(
         """
         UPDATE devices SET is_admin = %s

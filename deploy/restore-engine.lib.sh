@@ -65,6 +65,7 @@ BEGIN
             ('public', 'observations_hourly', 'v'),
             ('public', 'collector_runs', 'r'),
             ('public', 'devices', 'r'),
+            ('public', 'admin_access', 'r'),
             ('public', 'subscriptions', 'r'),
             ('public', 'subscription_state', 'r'),
             ('public', 'alerts', 'r'),
@@ -165,6 +166,7 @@ WITH expected(schema_name, relation_name, relation_kind) AS (
         ('public', 'observations_hourly', 'v'),
         ('public', 'collector_runs', 'r'),
         ('public', 'devices', 'r'),
+        ('public', 'admin_access', 'r'),
         ('public', 'subscriptions', 'r'),
         ('public', 'subscription_state', 'r'),
         ('public', 'alerts', 'r'),
@@ -200,6 +202,10 @@ JOIN expected
  AND expected.relation_kind = relation.relkind::text
 ORDER BY CASE relation.relkind WHEN 'S' THEN 2 ELSE 1 END, relation.relname
 \gexec
+
+-- pg_dump --no-owner otherwise leaves this SECURITY DEFINER routine owned by
+-- the restore superuser. Keep its authority at the application owner only.
+ALTER FUNCTION public.activate_approved_admin(uuid) OWNER TO avelren_migrator;
 
 DO $$
 BEGIN

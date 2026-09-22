@@ -9,12 +9,29 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.scope.outputs.backend }}
+      android: ${{ steps.scope.outputs.android }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python scripts/ci_scope.py "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
+
   # Way to break #1 (already happened): critical files did not make it into git,
   # the local build works but the repository does not.
   completeness:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: CI component routing tests
+        run: python -m unittest discover -s scripts/tests
       - name: Critical files present in the git tree
         run: |
           set -e
@@ -251,6 +268,8 @@ jobs:
           artifact-name: avelren-sbom.cdx.json
 
   backend-tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -544,7 +563,71 @@ jobs:
             || { echo "a non-zero probe must not fail the snapshot; the field stays null"; exit 1; }
           echo "updates semantics ok"
 
+  admin-access-tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
+        env:
+          POSTGRES_USER: admin_test
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: avelren_admin_test_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U admin_test -d avelren_admin_test_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      ADMIN_ACCESS_TEST_DSN: postgresql://admin_test:ci-only@127.0.0.1:5432/avelren_admin_test_ci
+      AVELREN_ADMIN_TEST_DB: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install locked runtime and test runner
+        run: |
+          pip install --require-hashes -r app/requirements.lock
+          pip install --no-deps ./app
+          pip install pytest
+      - name: PIN policy and PostgreSQL access tests
+        run: |
+          python -m unittest discover -s app/unit_tests
+          python -m pytest app/admin_tests -q
+
+  checks:
+    if: always()
+    needs: [changes, completeness, backend-tests, admin-access-tests, android-build, sbom]
+    runs-on: ubuntu-latest
+    env:
+      CHANGES: ${{ needs.changes.result }}
+      COMPLETENESS: ${{ needs.completeness.result }}
+      BACKEND_REQUIRED: ${{ needs.changes.outputs.backend }}
+      ANDROID_REQUIRED: ${{ needs.changes.outputs.android }}
+      BACKEND: ${{ needs.backend-tests.result }}
+      ADMIN: ${{ needs.admin-access-tests.result }}
+      ANDROID: ${{ needs.android-build.result }}
+      SBOM: ${{ needs.sbom.result }}
+    steps:
+      - name: Require every selected check to pass
+        run: |
+          test "$CHANGES" = success
+          test "$COMPLETENESS" = success
+          for result in "$BACKEND" "$ADMIN" "$ANDROID" "$SBOM"; do
+            case "$result" in success|skipped) ;; *) exit 1 ;; esac
+          done
+          if [ "$BACKEND_REQUIRED" = true ]; then
+            test "$BACKEND" = success
+            test "$ADMIN" = success
+          fi
+          if [ "$ANDROID_REQUIRED" = true ]; then test "$ANDROID" = success; fi
+
   android-build:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

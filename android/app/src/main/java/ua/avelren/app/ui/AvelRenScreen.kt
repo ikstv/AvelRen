@@ -1662,7 +1662,7 @@ private fun SettingsScreen(
             hasError = false,
             showServerStatus = false,
         )
-        Spacer(Modifier.weight(1f))
+        AdministrationSettings(Modifier.fillMaxWidth().weight(1f))
     }
 }
 

@@ -28,6 +28,10 @@ A consequence worth understanding: migrations that do NOT introduce new objects
 (for example `010_postgresql_least_privilege` — grants only) do not raise the
 requirement. This is deliberate: the code does not structurally rely on them,
 and a service must not refuse to start over an unapplied ACL layer.
+
+Optional feature schemas listed in schema_verify.FEATURE_MIGRATIONS are checked
+at their own entry point instead. Admin access checks for its exact migration
+before reading its tables; its absence must not stop the collector or public API.
 """
 
 import logging
@@ -67,7 +71,7 @@ def required_schema_version() -> str:
             schema_verify._CONTINUOUS_AGGREGATES_V,
         )
         for since in (entry[0] for entry in group)
-        if since is not None
+        if since is not None and since not in schema_verify.FEATURE_MIGRATIONS
     }
     if not versions:
         raise RuntimeError("schema contract is empty — the requirement cannot be derived")
