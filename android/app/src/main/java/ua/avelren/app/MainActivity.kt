@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.android.play.core.appupdate.AppUpdateInfo
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
 import kotlinx.coroutines.launch
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.NotificationPermission
@@ -43,6 +50,8 @@ class MainActivity : ComponentActivity() {
      */
     private var ignoringBatteryOptimizations by mutableStateOf(true)
     private var backgroundHintDismissed by mutableStateOf(false)
+    private lateinit var appUpdateManager: AppUpdateManager
+    private var availableUpdateInfo by mutableStateOf<AppUpdateInfo?>(null)
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -61,8 +70,14 @@ class MainActivity : ComponentActivity() {
             refreshPermissionState()
         }
 
+    private val requestAppUpdate =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+            refreshAppUpdateState()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appUpdateManager = AppUpdateManagerFactory.create(this)
 
         // Must run BEFORE refreshPermissionState/auto-request: for an upgrade from
         // a pre-AND-2 version it records the fact of the denial, otherwise onCreate
@@ -103,6 +118,8 @@ class MainActivity : ComponentActivity() {
                                 DeviceStore.markBackgroundHintDismissed(this@MainActivity)
                                 backgroundHintDismissed = true
                             },
+                            updateAvailable = availableUpdateInfo != null,
+                            onStartUpdate = { startAvailableUpdate() },
                         )
                     }
                 }
@@ -115,6 +132,43 @@ class MainActivity : ComponentActivity() {
         // The permission may have been enabled in system settings or revoked —
         // the banner must disappear/appear without restarting the app.
         refreshPermissionState()
+        refreshAppUpdateState()
+    }
+
+    private fun refreshAppUpdateState() {
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                availableUpdateInfo = info.takeIf { canStartUpdate(it) }
+            }
+            .addOnFailureListener {
+                availableUpdateInfo = null
+            }
+    }
+
+    private fun canStartUpdate(info: AppUpdateInfo): Boolean {
+        val available = info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE ||
+            info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS
+        return available &&
+            (info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE) ||
+                info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE))
+    }
+
+    private fun startAvailableUpdate() {
+        val info = availableUpdateInfo ?: return
+        val type = if (info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
+            AppUpdateType.IMMEDIATE
+        } else {
+            AppUpdateType.FLEXIBLE
+        }
+        runCatching {
+            appUpdateManager.startUpdateFlowForResult(
+                info,
+                requestAppUpdate,
+                AppUpdateOptions.newBuilder(type).build(),
+            )
+        }.onFailure {
+            availableUpdateInfo = null
+        }
     }
 
     /**

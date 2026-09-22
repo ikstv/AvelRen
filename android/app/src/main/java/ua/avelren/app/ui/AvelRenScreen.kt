@@ -146,6 +146,8 @@ fun AvelRenScreen(
     backgroundHintDismissed: Boolean = false,
     onOpenBatterySettings: () -> Unit = {},
     onDismissBackgroundHint: () -> Unit = {},
+    updateAvailable: Boolean = false,
+    onStartUpdate: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -370,8 +372,7 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                // 104 = навпанель (84) + рядок атрибуції над нею.
-                .padding(bottom = 104.dp),
+                .padding(bottom = if (updateAvailable) 150.dp else 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HeaderRow(freshness = freshness, hasError = refreshError)
@@ -421,7 +422,7 @@ fun AvelRenScreen(
                 .padding(horizontal = 20.dp),
             // Нижній відступ, щоб останню плитку не ховали навпанель + рядок
             // атрибуції над нею (84 + ~20).
-            contentPadding = PaddingValues(bottom = 104.dp),
+            contentPadding = PaddingValues(bottom = if (updateAvailable) 150.dp else 104.dp),
         ) {
             item {
                 HeaderRow(freshness = freshness, hasError = refreshError)
@@ -486,6 +487,16 @@ fun AvelRenScreen(
             .padding(horizontal = 20.dp)
             .padding(bottom = 80.dp),
     )
+    if (updateAvailable) {
+        AppUpdatePill(
+            onStartUpdate = onStartUpdate,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 104.dp),
+        )
+    }
     }
 
     if (showPicker) {
@@ -991,6 +1002,38 @@ private fun ActionTile(
 @Composable
 private fun TileIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Icon(icon, contentDescription = null, tint = HeroYellow, modifier = Modifier.size(26.dp))
+}
+
+/** Play Core reports an update only after Google Play can serve it to this install. */
+@Composable
+private fun AppUpdatePill(onStartUpdate: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(SignWarn)
+            .clickable { onStartUpdate() }
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("↻", color = SignOnWarn, fontWeight = FontWeight.Black, fontSize = 18.sp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Доступна нова версія",
+                color = SignOnWarn,
+                fontWeight = FontWeight.Black,
+                fontSize = 12.5.sp,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "Натисніть, щоб оновити через Google Play.",
+                color = SignOnWarn,
+                fontSize = 11.5.sp,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
 }
 
 /**
