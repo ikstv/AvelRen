@@ -1,0 +1,39 @@
+name: API та адміністрування
+on:
+  pull_request:
+    paths:
+      - 'services/backend/**'
+      - 'db/**'
+      - 'ops/**'
+      - 'scripts/test_database.sh'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/*PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/api.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/backend/**'
+      - 'db/**'
+      - 'ops/**'
+      - 'scripts/test_database.sh'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/*PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/api.yml'
+permissions:
+  contents: read
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Незмінність вихідних файлів
+        run: python scripts/verify_core_provenance.py
+      - name: Синтаксис сценаріїв
+        run: bash -n scripts/test_database.sh ops/postgres-bootstrap.sh
+      - name: API на повній схемі під обмеженою роллю
+        run: bash scripts/test_database.sh api

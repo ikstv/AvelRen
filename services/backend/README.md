@@ -1,4 +1,4 @@
-# Серверне ядро: перший етап
+# Серверне ядро
 
 Перенесено collector, notifier та їхні спільні модулі. Усі 19 вихідних
 файлів, включно з трьома наборами тестів, pyproject і lock, незмінні
@@ -7,7 +7,8 @@
 й пояснення українською.
 
 Додано [міграції та ізольовані інтеграційні тести БД](../../db/README.md).
-Це частина майбутнього сервера. API, watchdog, production Docker-збірка
+Також перенесено [API та Admin із перевірками](../../docs/API-TRANSFER.md).
+Це частина майбутнього сервера. Watchdog, production Docker-збірка
 та повні експлуатаційні сценарії ще не перенесені.
 Не запускати collector або notifier проти єЧерги чи робочої БД з цієї копії.
 
@@ -36,7 +37,7 @@ python -m pip check
 
 ```sh
 python scripts/verify_core_provenance.py
-python -m ruff check services/backend/src services/backend/tests/unit
+python -m ruff check services/backend/src services/backend/tests scripts/*.py
 python -m pytest -c services/backend/pytest.ini services/backend/tests/unit -q
 ```
 

@@ -16,7 +16,8 @@ import pytest
         ("1", "postgresql://avelren_migrator:ci-only@test-db:5432/avelren"),
     ],
 )
-def test_database_collection_refuses_unapproved_target(marker, dsn):
+@pytest.mark.parametrize("suite", ["database", "database/api"])
+def test_database_collection_refuses_unapproved_target(marker, dsn, suite):
     root = Path(__file__).resolve().parents[4]
     env = dict(os.environ, AVELREN_DATABASE_TEST=marker, DATABASE_URL=dsn)
     result = subprocess.run(
@@ -26,7 +27,7 @@ def test_database_collection_refuses_unapproved_target(marker, dsn):
             "pytest",
             "-c",
             str(root / "services/backend/pytest.ini"),
-            str(root / "services/backend/tests/database"),
+            str(root / "services/backend/tests" / suite),
             "--collect-only",
             "-q",
         ],

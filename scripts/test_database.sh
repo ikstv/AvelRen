@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SUITE=${1:-database}
+case "$SUITE" in
+    database|api) ;;
+    *) echo 'Expected database or api' >&2; exit 2 ;;
+esac
+
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PROJECT="avelren-db-test-${RANDOM}-${RANDOM}"
 ENV_FILE=$(mktemp)
@@ -33,7 +39,15 @@ compose exec -T \
     -e AVELREN_API_PASSWORD=ci-only \
     test-db bash /workspace/ops/postgres-bootstrap.sh fresh </dev/null
 compose run --rm --no-deps -T test python -m avelren.migrate db/migrations </dev/null
-compose run --rm --no-deps -T test </dev/null
+if [ "$SUITE" = api ]; then
+    compose run --rm --no-deps -T test python -m pytest \
+        -c services/backend/pytest.ini services/backend/tests/database/api \
+        -q -p no:cacheprovider </dev/null
+else
+    compose run --rm --no-deps -T test python -m pytest \
+        -c services/backend/pytest.ini services/backend/tests/database \
+        --ignore=services/backend/tests/database/api -q -p no:cacheprovider </dev/null
+fi
 # Перевірка справжнього pg_dump під обмеженою backup-роллю; дані синтетичні.
 compose exec -T -e PGPASSWORD=ci-only test-db \
     pg_dump -h 127.0.0.1 -U avelren_backup -d avelren_database_test \

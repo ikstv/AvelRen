@@ -70,10 +70,11 @@ def database(monkeypatch, request, tmp_path):
                 target.execute("GRANT CREATE ON SCHEMA public TO avelren_migrator")
             monkeypatch.setattr(settings, "database_url", dsn("migrator", name))
             migration_directory = MIGRATIONS
-            if getattr(request, "param", 11) == 9:
+            version = getattr(request, "param", 11)
+            if version in (9, 10):
                 migration_directory = tmp_path / "prefix"
                 migration_directory.mkdir()
-                for file in sorted(MIGRATIONS.glob("*.sql"))[:9]:
+                for file in sorted(MIGRATIONS.glob("*.sql"))[:version]:
                     (migration_directory / file.name).write_bytes(file.read_bytes())
             assert migrate.run(migration_directory) == 0
             yield lambda role: dsn(role, name)
