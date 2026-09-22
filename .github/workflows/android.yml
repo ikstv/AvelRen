@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'apps/android/**'
+      - 'services/backend/src/avelren/api.py'
+      - 'services/backend/src/avelren/schemas.py'
+      - 'services/backend/src/avelren/subscriptions_api.py'
+      - 'services/backend/src/avelren/admin_access_api.py'
+      - 'services/backend/src/avelren/maintenance.py'
       - 'docs/ANDROID-PROVENANCE.json'
       - 'docs/ASSETS.md'
       - 'scripts/verify_android.py'
@@ -12,6 +17,11 @@ on:
     branches: [main]
     paths:
       - 'apps/android/**'
+      - 'services/backend/src/avelren/api.py'
+      - 'services/backend/src/avelren/schemas.py'
+      - 'services/backend/src/avelren/subscriptions_api.py'
+      - 'services/backend/src/avelren/admin_access_api.py'
+      - 'services/backend/src/avelren/maintenance.py'
       - 'docs/ANDROID-PROVENANCE.json'
       - 'docs/ASSETS.md'
       - 'scripts/verify_android.py'
@@ -37,6 +47,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
       - name: Компіляція та JVM-тести без ключів
         working-directory: apps/android
         run: bash gradlew -PavelrenUiPreview=true :app:testDebugUnitTest :app:compileDebugKotlin --no-daemon --max-workers=2
