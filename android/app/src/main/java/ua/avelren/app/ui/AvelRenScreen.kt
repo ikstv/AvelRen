@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -340,12 +341,13 @@ fun AvelRenScreen(
     val freshness = if (workload.isNotEmpty()) LiveRefresh.freshness(obsTime, freshnessNow) else null
 
     val onMonitor = activeTab == "monitor"
+    val onSettings = activeTab == "settings"
 
     // Головна — фото на всю площу з `filter:grayscale(100%)` + затемнення згори
     // (190px) і знизу (170px). Екран «Моніторинг» — суцільний темний фон
     // (#0A0A0A), без фото й градієнтів.
-    Box(Modifier.fillMaxSize().background(if (onMonitor) MonitorBg else Color.Black)) {
-        if (!onMonitor) {
+    Box(Modifier.fillMaxSize().background(if (onMonitor || onSettings) MonitorBg else Color.Black)) {
+        if (!onMonitor && !onSettings) {
             Image(
                 painter = painterResource(R.drawable.onboarding_truck),
                 contentDescription = null,
@@ -414,6 +416,16 @@ fun AvelRenScreen(
                 notificationsSilent = notificationsSilent,
             )
         }
+    } else if (onSettings) {
+        SettingsScreen(
+            freshness = freshness,
+            hasError = refreshError,
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = if (updateAvailable) 150.dp else 104.dp),
+        )
     } else {
         LazyColumn(
             modifier = Modifier
@@ -1580,10 +1592,44 @@ private fun ConfirmRemoveDialog(
     }
 }
 
+@Composable
+private fun SettingsScreen(
+    freshness: LiveRefresh.Freshness?,
+    hasError: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        HeaderRow(freshness = freshness, hasError = hasError)
+        Spacer(Modifier.height(34.dp))
+        Text(
+            "Налаштування",
+            color = HeroYellow,
+            fontWeight = FontWeight.Black,
+            fontSize = 30.sp,
+            lineHeight = 34.sp,
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        Spacer(Modifier.height(14.dp))
+        Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0x59FFFFFF)))
+        Spacer(Modifier.weight(1f))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "DEVELOPER · TANKO VIKTOR",
+            color = Color(0x99FFFFFF),
+            fontWeight = FontWeight.Black,
+            fontSize = 10.sp,
+            letterSpacing = 1.6.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
 // --- Нижня навігація (з Design) -------------------------------------------
 // Плавуча закруглена панель поверх вмісту: `bottom:12; height:60; radius:20;
-// bg rgba(10,10,10,.72); border rgba(255,255,255,.14); shadow`. Дві вкладки —
-// Головна / Моніторинг; активна жовта (#F5C400), неактивна rgba(255,255,255,.45).
+// bg rgba(10,10,10,.72); border rgba(255,255,255,.14); shadow`. Активна
+// вкладка жовта (#F5C400), неактивна rgba(255,255,255,.45).
 private val MonitorBg = Color(0xFF0A0A0A)    // суцільний фон екрана «Моніторинг»
 private val NavGlass = Color(0xB80A0A0A)     // rgba(10,10,10,.72)
 private val NavBorder = Color(0x24FFFFFF)    // rgba(255,255,255,.14)
@@ -1605,6 +1651,7 @@ private fun BottomNavBar(
     ) {
         NavTab("Головна", activeTab == "home", { onSelect("home") }, Modifier.weight(1f)) { HomeIcon(it) }
         NavTab("Моніторинг", activeTab == "monitor", { onSelect("monitor") }, Modifier.weight(1f)) { MonitorIcon(it) }
+        NavTab("Налашт.", activeTab == "settings", { onSelect("settings") }, Modifier.weight(1f)) { SettingsIcon(it) }
     }
 }
 
@@ -1667,6 +1714,11 @@ private fun MonitorIcon(color: Color) {
         drawPath(p, color, style = Stroke(width = 1.8f * s, join = StrokeJoin.Round, cap = StrokeCap.Round))
         drawCircle(color, radius = 1.6f * s, center = Offset(20f * s, 11f * s))
     }
+}
+
+@Composable
+private fun SettingsIcon(color: Color) {
+    Icon(Icons.Filled.Settings, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
 }
 
 // Жовтий контент-колір hero — #F5C400 (той самий --warn, але тут це колір
