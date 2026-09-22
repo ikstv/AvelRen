@@ -342,6 +342,7 @@ fun AvelRenScreen(
 
     val onMonitor = activeTab == "monitor"
     val onSettings = activeTab == "settings"
+    val bottomChromePadding = if (updateAvailable) 182.dp else 136.dp
 
     // Головна — фото на всю площу з `filter:grayscale(100%)` + затемнення згори
     // (190px) і знизу (170px). Екран «Моніторинг» — суцільний темний фон
@@ -374,7 +375,7 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = if (updateAvailable) 150.dp else 104.dp),
+                .padding(bottom = bottomChromePadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HeaderRow(freshness = freshness, hasError = refreshError)
@@ -424,7 +425,7 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = if (updateAvailable) 150.dp else 104.dp),
+                .padding(bottom = bottomChromePadding),
         )
     } else {
         LazyColumn(
@@ -432,9 +433,7 @@ fun AvelRenScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp),
-            // Нижній відступ, щоб останню плитку не ховали навпанель + рядок
-            // атрибуції над нею (84 + ~20).
-            contentPadding = PaddingValues(bottom = if (updateAvailable) 150.dp else 104.dp),
+            contentPadding = PaddingValues(bottom = bottomChromePadding),
         ) {
             item {
                 HeaderRow(freshness = freshness, hasError = refreshError)
@@ -491,13 +490,16 @@ fun AvelRenScreen(
     )
     // Атрибуція джерела (вимога Google): закріплена внизу, НАД навпанеллю
     // (nav: bottom 12 + height 60 → відступ 80), не їде зі скролом. Списки
-    // мають нижній contentPadding 104, щоб останній елемент її не ховав.
+    // мають додатковий нижній відступ під навпанель, attribution і update pill.
     AttributionBar(
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .windowInsetsPadding(WindowInsets.systemBars)
             .padding(horizontal = 20.dp)
-            .padding(bottom = 80.dp),
+            .padding(bottom = 80.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xCC0A0A0A))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     )
     if (updateAvailable) {
         AppUpdatePill(
