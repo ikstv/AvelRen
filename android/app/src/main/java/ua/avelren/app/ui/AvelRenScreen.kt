@@ -167,6 +167,7 @@ fun AvelRenScreen(
     var freshnessNow by remember { mutableStateOf(Instant.now()) }
     var countryFilter by remember { mutableStateOf<String?>(null) }
     var showPicker by remember { mutableStateOf(false) }
+    var showUpdatePrompt by remember { mutableStateOf(updateAvailable) }
     // Активна вкладка нижньої навігації. Окремого екрана «Моніторинг» ще нема
     // (у макеті теж лише підсвітка), тож поки це тільки стан підсвітки.
     var activeTab by remember { mutableStateOf("home") }
@@ -324,6 +325,10 @@ fun AvelRenScreen(
     // Мовчить, коли креденшалів ще нема.
     LaunchedEffect(activeTab, creds) {
         loadMonitors()
+    }
+
+    LaunchedEffect(updateAvailable) {
+        if (updateAvailable) showUpdatePrompt = true
     }
 
     if (loading) {
@@ -494,7 +499,15 @@ fun AvelRenScreen(
     // Атрибуція джерела (вимога Google): закріплена внизу, НАД навпанеллю
     // (nav: bottom 12 + height 60 → відступ 80), не їде зі скролом. Списки
     // мають додатковий нижній відступ під навпанель, attribution і update pill.
-    if (!onSettings) {
+    if (onSettings) {
+        SettingsDeveloperFooter(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 80.dp),
+        )
+    } else {
         AttributionBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -513,9 +526,19 @@ fun AvelRenScreen(
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 104.dp),
+                .padding(bottom = if (onSettings) 116.dp else 104.dp),
         )
     }
+    }
+
+    if (showUpdatePrompt) {
+        AppUpdateDialog(
+            onUpdate = {
+                showUpdatePrompt = false
+                onStartUpdate()
+            },
+            onDismiss = { showUpdatePrompt = false },
+        )
     }
 
     if (showPicker) {
@@ -726,19 +749,13 @@ private fun HeaderRow(
 
 @Composable
 private fun VersionHeader() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.height(20.dp), contentAlignment = Alignment.BottomCenter) {
-            Text(
-                "ВЕРСІЯ ${BuildConfig.VERSION_NAME}",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 10.sp,
-                letterSpacing = 2.sp,
-            )
-        }
-        Spacer(Modifier.height(7.dp))
-        FadingHairline(Modifier.width(96.dp))
-    }
+    Text(
+        "ВЕРСІЯ ${BuildConfig.VERSION_NAME}",
+        color = Color.White,
+        fontWeight = FontWeight.Bold,
+        fontSize = 10.sp,
+        letterSpacing = 2.sp,
+    )
 }
 
 @Composable
@@ -1646,6 +1663,86 @@ private fun SettingsScreen(
             showServerStatus = false,
         )
         Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun AppUpdateDialog(
+    onUpdate: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0xCC000000))
+                .padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 420.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MonitorBg)
+                    .border(1.dp, SignWarn, RoundedCornerShape(16.dp))
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "ДОСТУПНА НОВА ВЕРСІЯ",
+                    color = HeroYellow,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 19.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Оновіть AvelRen через Google Play, щоб отримати останні зміни.",
+                    color = Color(0xCCFFFFFF),
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "ОНОВИТИ",
+                    color = SignOnWarn,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SignWarn)
+                        .clickable { onUpdate() }
+                        .padding(vertical = 13.dp),
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "ПІЗНІШЕ",
+                    color = Color(0xB3FFFFFF),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.clickable { onDismiss() },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsDeveloperFooter(
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         FadingHairline()
         Spacer(Modifier.height(8.dp))
         Text(
