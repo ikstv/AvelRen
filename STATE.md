@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `b766b2f`.
+Generated from `main` @ `676a9f4`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `254fd17` |
-| `main` ahead by | **3 commit(s)** |
+| `main` ahead by | **4 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -26,6 +26,7 @@ one for 3B.2.
 - `fb89075` chore(deploy): pin prod to 254fd17 after the silent-device deploy (#181)
 - `dfcde7a` Clarify onboarding Premium and source copy (#189)
 - `b766b2f` Show Google Play in-app update prompt (#191)
+- `676a9f4` Refine settings and onboarding copy (#192)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
@@ -59,19 +60,19 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 41 |
-| `chore/state-refresh` | 32 | 1 |
-| `codex/device-retention-cleanup` | 2 | 2 |
-| `codex/fix-launcher-icon` | 6 | 2 |
-| `codex/held-out-forecast` | 13 | 2 |
-| `codex/premium-instructions` | 7 | 2 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 8 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 2 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
-| `docs/readme-professional` | 1 | 96 |
-| `docs/signal-has-a-date` | 1 | 45 |
-| `feat/launcher-road-a` | 1 | 38 |
-| `feat/privacy-page` | 3 | 40 |
-| `feat/truthful-server-badge` | 1 | 35 |
-| `fix/backup-grants-and-rate-limits` | 1 | 32 |
-| `fix/prod-observability-cleanup` | 4 | 2 |
+| `chore/repo-tidy` | 2 | 42 |
+| `chore/state-refresh` | 34 | 1 |
+| `codex/device-retention-cleanup` | 2 | 3 |
+| `codex/fix-launcher-icon` | 6 | 3 |
+| `codex/held-out-forecast` | 13 | 3 |
+| `codex/premium-instructions` | 7 | 3 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 9 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 3 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 3 |
+| `docs/readme-professional` | 1 | 97 |
+| `docs/signal-has-a-date` | 1 | 46 |
+| `feat/launcher-road-a` | 1 | 39 |
+| `feat/privacy-page` | 3 | 41 |
+| `feat/truthful-server-badge` | 1 | 36 |
+| `fix/backup-grants-and-rate-limits` | 1 | 33 |
+| `fix/prod-observability-cleanup` | 4 | 3 |
