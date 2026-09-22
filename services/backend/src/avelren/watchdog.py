@@ -32,6 +32,11 @@ KYIV = ZoneInfo("Europe/Kyiv")
 
 CHECK_INTERVAL = 300
 DAILY_REPORT_HOUR_KYIV = 12
+DAILY_REPORT_TTL_SECONDS = 86400
+SNAPSHOT_MAX_AGE_SECONDS = 300
+SNAPSHOT_FUTURE_TOLERANCE_SECONDS = 60
+# Один цикл watchdog на БД; блокування живе до commit/rollback циклу.
+WATCHDOG_LOCK_ID = 0x4156454C57415443
 # A reboot is a planned matter, not an urgent one: we allow a few days for a
 # convenient moment.
 REBOOT_GRACE_DAYS = 3
@@ -62,7 +67,8 @@ def _read_snapshot() -> dict | None:
     None behaves as "unknown" — better not to alert based on missing data than
     to cry falsely (the same fail-safe that existed for a missing stamp)."""
     try:
-        return json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+        snapshot = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+        return snapshot if isinstance(snapshot, dict) else None
     except (OSError, ValueError):
         return None
 
@@ -185,6 +191,11 @@ async def _checks(conn: AsyncConnection) -> dict[str, str]:
     return problems
 
 
+def _section(snapshot: dict, name: str) -> dict:
+    value = snapshot.get(name)
+    return value if isinstance(value, dict) else {}
+
+
 def _backup_age_hours() -> float | None:
     """How many hours ago deploy/backup.sh last finished successfully, or None.
 
@@ -196,7 +207,7 @@ def _backup_age_hours() -> float | None:
     snapshot = _read_snapshot()
     if snapshot is None:
         return None
-    age = snapshot.get("backups", {}).get("age_hours")
+    age = _section(snapshot, "backups").get("age_hours")
     if not isinstance(age, (int, float)):
         return None
     return float(age)
@@ -213,7 +224,7 @@ def _reboot_pending() -> int | None:
     snapshot = _read_snapshot()
     if snapshot is None:
         return None
-    system = snapshot.get("system", {})
+    system = _section(snapshot, "system")
     if not system.get("reboot_required"):
         return None
     days = system.get("reboot_pending_days")
@@ -272,24 +283,47 @@ def _migrate_pin_lost() -> bool:
     snapshot = _read_snapshot()
     if snapshot is None:
         return False
-    return snapshot.get("docker", {}).get("migrate_pin_active") is False
+    return _section(snapshot, "docker").get("migrate_pin_active") is False
 
 
 def _int_or_unknown(value: object) -> str:
-    return str(value) if isinstance(value, int) else "невідомо"
+    return str(value) if type(value) is int and value >= 0 else "невідомо"
 
 
-def _daily_report_body(snapshot: dict | None) -> str:
-    if snapshot is None:
+def _bool_or_unknown(value: object) -> str:
+    if value is True:
+        return "так"
+    return "ні" if value is False else "невідомо"
+
+
+def _snapshot_problem(snapshot: dict | None, now: datetime) -> str | None:
+    if not isinstance(snapshot, dict):
+        return "телеметрія сервера недоступна"
+    value = snapshot.get("collected_at")
+    try:
+        collected = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        collected = None
+    if collected is None or collected.tzinfo is None:
+        return "час телеметрії невідомий"
+    age = (now - collected).total_seconds()
+    if age < -SNAPSHOT_FUTURE_TOLERANCE_SECONDS:
+        return "час телеметрії некоректний"
+    if age > SNAPSHOT_MAX_AGE_SECONDS:
+        return "телеметрія застаріла"
+    return None
+
+
+def _daily_report_body(snapshot: dict | None, *, now: datetime | None = None) -> str:
+    problem = _snapshot_problem(snapshot, now or datetime.now(UTC))
+    if problem is not None:
         return (
-            "Щоденний звіт AvelRen: телеметрія сервера недоступна. "
+            f"Щоденний звіт AvelRen: {problem}. "
             "Оновлення: невідомо. Перезавантаження: невідомо. "
-            "Помилки за 24 год: невідомо."
+            "Ресурси: невідомо. Помилки за 24 год: невідомо."
         )
 
-    system = snapshot.get("system", {})
-    if not isinstance(system, dict):
-        system = {}
+    system = _section(snapshot, "system")
 
     updates = _int_or_unknown(system.get("updates_upgradable"))
     if updates == "невідомо":
@@ -297,9 +331,9 @@ def _daily_report_body(snapshot: dict | None) -> str:
     security = _int_or_unknown(system.get("updates_security"))
     installed = _int_or_unknown(system.get("updates_installed_24h"))
     update_failures = _int_or_unknown(system.get("update_failures_24h"))
-    rebooted = "так" if system.get("rebooted_24h") is True else "ні"
+    rebooted = _bool_or_unknown(system.get("rebooted_24h"))
     reboot_required = system.get("reboot_required") is True
-    reboot_text = "так" if reboot_required else "ні"
+    reboot_text = _bool_or_unknown(system.get("reboot_required"))
 
     pkgs = system.get("reboot_required_pkgs")
     reboot_pkgs = ""
@@ -315,13 +349,16 @@ def _daily_report_body(snapshot: dict | None) -> str:
     compose_errors = _int_or_unknown(system.get("compose_errors_24h"))
 
     disk_used = system.get("disk_used_percent")
+    if type(disk_used) is not int or not 0 <= disk_used <= 100:
+        disk_used = None
     memory_total = system.get("memory_total_mb")
     memory_used = system.get("memory_used_mb")
     memory_percent: int | None = None
     if (
-        isinstance(memory_total, int)
+        type(memory_total) is int
         and memory_total > 0
-        and isinstance(memory_used, int)
+        and type(memory_used) is int
+        and 0 <= memory_used <= memory_total
     ):
         memory_percent = round(memory_used * 100 / memory_total)
 
@@ -336,6 +373,8 @@ def _daily_report_body(snapshot: dict | None) -> str:
         and memory_percent >= 90
     ):
         resource_status = "УВАГА"
+    elif disk_used is None or memory_percent is None:
+        resource_status = "дані неповні"
     else:
         resource_status = "норма"
 
@@ -382,10 +421,10 @@ async def _deliver_daily_report(conn: AsyncConnection, client: httpx.AsyncClient
         return
 
     snapshot = _read_snapshot()
-    body = _daily_report_body(snapshot)
+    body = f"Звіт за {report_date}. " + _daily_report_body(snapshot, now=now)
     if await _notify(conn, client, "AvelRen: щоденний звіт", body, f"daily:{report_date}"):
         await _record_daily_report_sent(conn, report_date, body)
-        log.info("delivered daily status report for %s", report_date)
+        log.info("FCM accepted daily status report for %s", report_date)
 
 
 async def _open_alerts(conn: AsyncConnection) -> dict[str, dict]:
@@ -408,6 +447,14 @@ async def _admin_tokens(conn: AsyncConnection) -> list[str]:
 
 async def run_cycle(client: httpx.AsyncClient) -> None:
     async with get_pool().connection() as conn:
+        row = await (
+            await conn.execute(
+                "SELECT pg_try_advisory_xact_lock(%s) AS acquired", (WATCHDOG_LOCK_ID,)
+            )
+        ).fetchone()
+        if not row or not row["acquired"]:
+            log.info("another watchdog cycle is active; skipping")
+            return
         problems = await _checks(conn)
         open_alerts = await _open_alerts(conn)
 
@@ -494,17 +541,19 @@ async def _notify(
         return False
 
     delivered = False
+    daily = kind.startswith("daily:")
+    payload = {"type": "health", "title": title, "body": body}
+    if daily:
+        payload["report_id"] = kind
     for token in tokens:
         try:
             await fcm.send(
                 client,
                 token,
-                {"type": "health", "title": title, "body": body},
-                # A separate key per problem type, otherwise on an offline device
-                # a newer alert (e.g. db_size) silently evicts one not yet shown
-                # (e.g. collector_silent) — audit M-10.
-                collapse_key=f"health:{kind}",
-                ttl_seconds=1800,
+                payload,
+                # Офлайн-пристрій чекає останній звіт, не чергу старих дат.
+                collapse_key="health:daily" if daily else f"health:{kind}",
+                ttl_seconds=DAILY_REPORT_TTL_SECONDS if daily else 1800,
             )
             delivered = True
         except fcm.FcmError as exc:

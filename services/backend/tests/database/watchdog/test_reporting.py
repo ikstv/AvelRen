@@ -17,7 +17,7 @@ from avelren.schema_gate import assert_schema_at_least
 def report(database, monkeypatch):
     state = {"now": datetime(2026, 9, 22, 11, tzinfo=watchdog.KYIV)}
 
-    class Clock:
+    class Clock(datetime):
         @staticmethod
         def now(tz):
             return state["now"].astimezone(tz)
@@ -27,6 +27,7 @@ def report(database, monkeypatch):
         watchdog,
         "_read_snapshot",
         lambda: {
+            "collected_at": state["now"].isoformat(),
             "script_sha256": watchdog.EXPECTED_SNAPSHOT_SHA,
             "system": {"reboot_required": False},
             "backups": {"age_hours": 1},
@@ -76,8 +77,10 @@ def test_daily_only_and_restart_deduplication(report):
     assert send.await_args.args[1] == "synthetic-admin"
     payload = send.await_args.args[2]
     assert payload["title"] == "AvelRen: щоденний звіт"
-    assert send.await_args.kwargs["collapse_key"] == "health:daily:2026-09-22"
-    assert send.await_args.kwargs["ttl_seconds"] == 1800
+    assert payload["report_id"] == "daily:2026-09-22"
+    assert "Звіт за 2026-09-22." in payload["body"]
+    assert send.await_args.kwargs["collapse_key"] == "health:daily"
+    assert send.await_args.kwargs["ttl_seconds"] == 86400
     rows = admin.execute(
         "SELECT kind,send_count,resolved_at FROM health_alerts WHERE kind LIKE 'daily_status:%'"
     ).fetchall()
@@ -174,3 +177,86 @@ def test_health_checks_remain_active_without_immediate_push(report):
         "SELECT resolved_at,send_count FROM health_alerts WHERE kind='collector_errors'"
     ).fetchone()
     assert row["resolved_at"] is not None and row["send_count"] == 0
+
+
+def test_concurrent_cycles_send_once(database, report, monkeypatch):
+    state, send, admin, owner, run = report
+    state["now"] = state["now"].replace(hour=12)
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def hold_send(*args, **kwargs):
+            entered.set()
+            await release.wait()
+
+        send.side_effect = hold_send
+        async with AsyncConnectionPool(
+            database("watchdog"), open=False, kwargs={"row_factory": dict_row},
+        ) as pool:
+            monkeypatch.setattr(watchdog, "get_pool", lambda: pool)
+            first = asyncio.create_task(watchdog.run_cycle(object()))
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=10)
+                await asyncio.wait_for(watchdog.run_cycle(object()), timeout=5)
+                send.assert_awaited_once()
+            finally:
+                release.set()
+                await asyncio.wait_for(first, timeout=10)
+            await watchdog.run_cycle(object())
+
+    asyncio.run(scenario())
+    send.assert_awaited_once()
+    assert admin.execute(
+        "SELECT count(*) AS n FROM health_alerts WHERE kind LIKE 'daily_status:%'"
+    ).fetchone()["n"] == 1
+
+
+def test_failed_cycle_releases_lock(report, monkeypatch):
+    state, send, admin, owner, run = report
+    state["now"] = state["now"].replace(hour=12)
+    original = watchdog._checks
+    monkeypatch.setattr(watchdog, "_checks", AsyncMock(side_effect=RuntimeError("synthetic")))
+    with pytest.raises(RuntimeError, match="synthetic"):
+        run()
+    send.assert_not_awaited()
+    monkeypatch.setattr(watchdog, "_checks", original)
+    run()
+    send.assert_awaited_once()
+
+
+def test_stale_snapshot_sends_unknown_not_old_normal(report, monkeypatch):
+    state, send, admin, owner, run = report
+    state["now"] = state["now"].replace(hour=12)
+    monkeypatch.setattr(watchdog, "_read_snapshot", lambda: {
+        "collected_at": (state["now"] - timedelta(minutes=6)).isoformat(),
+        "system": {"updates_pending": 999, "reboot_required": False},
+    })
+    run()
+    body = send.await_args.args[2]["body"]
+    assert "телеметрія застаріла" in body
+    assert "999" not in body and "норма" not in body
+    assert admin.execute(
+        "SELECT detail FROM health_alerts WHERE kind LIKE 'daily_status:%'"
+    ).fetchone()["detail"] == body
+
+
+def test_post_fcm_rollback_can_retry_with_same_report_id(report, monkeypatch):
+    state, send, admin, owner, run = report
+    state["now"] = state["now"].replace(hour=12)
+    original = watchdog._record_daily_report_sent
+    monkeypatch.setattr(
+        watchdog, "_record_daily_report_sent", AsyncMock(side_effect=RuntimeError("synthetic")),
+    )
+    with pytest.raises(RuntimeError, match="synthetic"):
+        run()
+    assert admin.execute(
+        "SELECT count(*) AS n FROM health_alerts WHERE kind LIKE 'daily_status:%'"
+    ).fetchone()["n"] == 0
+    monkeypatch.setattr(watchdog, "_record_daily_report_sent", original)
+    run()
+    assert send.await_count == 2  # Відоме вікно повтору, не гарантія exactly-once.
+    assert {call.args[2]["report_id"] for call in send.await_args_list} == {"daily:2026-09-22"}
+    assert admin.execute(
+        "SELECT count(*) AS n FROM health_alerts WHERE kind LIKE 'daily_status:%'"
+    ).fetchone()["n"] == 1
