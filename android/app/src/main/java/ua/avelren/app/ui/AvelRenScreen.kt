@@ -85,6 +85,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
+import ua.avelren.app.BuildConfig
 import ua.avelren.app.R
 import ua.avelren.app.data.BackgroundDelivery
 import ua.avelren.app.data.BackgroundDeliveryHint
@@ -378,7 +379,11 @@ fun AvelRenScreen(
                 .padding(bottom = bottomChromePadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            HeaderRow(freshness = freshness, hasError = refreshError)
+            HeaderRow(
+                freshness = freshness,
+                hasError = refreshError,
+                showServerStatus = false,
+            )
             if (notificationsSilent) {
                 NotificationSilentBanner(onOpenNotificationSettings)
             }
@@ -419,8 +424,6 @@ fun AvelRenScreen(
         }
     } else if (onSettings) {
         SettingsScreen(
-            freshness = freshness,
-            hasError = refreshError,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
@@ -491,16 +494,18 @@ fun AvelRenScreen(
     // Атрибуція джерела (вимога Google): закріплена внизу, НАД навпанеллю
     // (nav: bottom 12 + height 60 → відступ 80), не їде зі скролом. Списки
     // мають додатковий нижній відступ під навпанель, attribution і update pill.
-    AttributionBar(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 80.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xCC0A0A0A))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    )
+    if (!onSettings) {
+        AttributionBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 80.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xCC0A0A0A))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
     if (updateAvailable) {
         AppUpdatePill(
             onStartUpdate = onStartUpdate,
@@ -670,6 +675,7 @@ fun AvelRenScreen(
 private fun HeaderRow(
     freshness: LiveRefresh.Freshness?,
     hasError: Boolean,
+    showServerStatus: Boolean = true,
 ) {
     val avelren = MaterialTheme.avelren
     // Стан сервера виводимо з реальних сигналів, а не з перемикача-заглушки
@@ -678,11 +684,6 @@ private fun HeaderRow(
     // padding:5px 10px; font:700 10px; letter-spacing:1px` (→ 0.1em),
     // крапка 8×8.
     // Рядки й кольори крапки — точно з SERVER_STATES макета.
-    val (dot, label) = when {
-        hasError -> Color(0xFFD5382C) to "НЕМАЄ ІНТЕРНЕТУ"
-        freshness?.stale == true -> Color(0xFFC9A100) to "СЕРВЕР ПЕРЕЗАПУСКАЄТЬСЯ"
-        else -> Color(0xFF0E7A4E) to "СЕРВЕР ОНЛАЙН"
-    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 26.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -693,25 +694,65 @@ private fun HeaderRow(
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White,
         )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .border(2.dp, Color(0x80FFFFFF), RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-        ) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
-            Spacer(Modifier.width(7.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.bodySmall,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.1.em,
-                color = Color.White,
-            )
+        if (showServerStatus) {
+            val (dot, label) = when {
+                hasError -> Color(0xFFD5382C) to "НЕМАЄ ІНТЕРНЕТУ"
+                freshness?.stale == true -> Color(0xFFC9A100) to "СЕРВЕР ПЕРЕЗАПУСКАЄТЬСЯ"
+                else -> Color(0xFF0E7A4E) to "СЕРВЕР ОНЛАЙН"
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(2.dp, Color(0x80FFFFFF), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            ) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.1.em,
+                    color = Color.White,
+                )
+            }
+        } else {
+            VersionHeader()
         }
     }
+}
+
+@Composable
+private fun VersionHeader() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.height(20.dp), contentAlignment = Alignment.BottomCenter) {
+            Text(
+                "ВЕРСІЯ ${BuildConfig.VERSION_NAME}",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                letterSpacing = 2.sp,
+            )
+        }
+        Spacer(Modifier.height(7.dp))
+        FadingHairline(Modifier.width(96.dp))
+    }
+}
+
+@Composable
+private fun FadingHairline(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, Color(0xD9FFFFFF), Color.Transparent)
+                )
+            )
+    )
 }
 
 
@@ -1596,32 +1637,23 @@ private fun ConfirmRemoveDialog(
 
 @Composable
 private fun SettingsScreen(
-    freshness: LiveRefresh.Freshness?,
-    hasError: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier) {
-        HeaderRow(freshness = freshness, hasError = hasError)
-        Spacer(Modifier.height(34.dp))
-        Text(
-            "Налаштування",
-            color = HeroYellow,
-            fontWeight = FontWeight.Black,
-            fontSize = 30.sp,
-            lineHeight = 34.sp,
-            style = MaterialTheme.typography.headlineMedium,
+        HeaderRow(
+            freshness = null,
+            hasError = false,
+            showServerStatus = false,
         )
-        Spacer(Modifier.height(14.dp))
-        Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0x59FFFFFF)))
         Spacer(Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x40FFFFFF)))
-        Spacer(Modifier.height(12.dp))
+        FadingHairline()
+        Spacer(Modifier.height(8.dp))
         Text(
-            "DEVELOPER · TANKO VIKTOR",
-            color = Color(0x99FFFFFF),
-            fontWeight = FontWeight.Black,
-            fontSize = 10.sp,
-            letterSpacing = 1.6.sp,
+            "DEVELOPER — TANKO VIKTOR",
+            color = Color(0x66F3F2F2),
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 9.sp,
+            letterSpacing = 1.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -1653,7 +1685,7 @@ private fun BottomNavBar(
     ) {
         NavTab("Головна", activeTab == "home", { onSelect("home") }, Modifier.weight(1f)) { HomeIcon(it) }
         NavTab("Моніторинг", activeTab == "monitor", { onSelect("monitor") }, Modifier.weight(1f)) { MonitorIcon(it) }
-        NavTab("Налашт.", activeTab == "settings", { onSelect("settings") }, Modifier.weight(1f)) { SettingsIcon(it) }
+        NavTab("Налаштування", activeTab == "settings", { onSelect("settings") }, Modifier.weight(1f)) { SettingsIcon(it) }
     }
 }
 

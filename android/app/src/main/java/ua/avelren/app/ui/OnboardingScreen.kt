@@ -313,9 +313,9 @@ private fun ColumnScope.DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) 
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            "Видалення застосунку розриває зв'язок пристрою із сервісом. Щоб " +
-                "повністю видалити дані пристрою з сервера, напишіть на " +
-                "vtanko2019@gmail.com — видалимо впродовж 30 днів.",
+            "Видалення застосунку розриває зв'язок пристрою із сервісом. " +
+                "Дані неактивного пристрою автоматично видаляються із сервісу " +
+                "через 90 днів.",
             color = Color(0xE6FFFFFF),
             fontSize = 13.sp,
             lineHeight = 19.sp,
@@ -450,8 +450,7 @@ private fun ColumnScope.InstructionsBody() {
         Spacer(Modifier.height(14.dp))
         Text(
             "У майбутніх релізах більшість розширених функцій буде доступна " +
-                "у платній Premium-підписці. У версії 0.1.0 усі доступні функції " +
-                "безкоштовні.",
+                "у платній Premium-підписці.",
             color = Color(0xCCFFFFFF),
             fontSize = 13.sp,
             lineHeight = 19.sp,
