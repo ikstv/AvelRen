@@ -52,6 +52,8 @@ class MainActivity : ComponentActivity() {
     private var backgroundHintDismissed by mutableStateOf(false)
     private lateinit var appUpdateManager: AppUpdateManager
     private var availableUpdateInfo by mutableStateOf<AppUpdateInfo?>(null)
+    private val forceUpdatePreview: Boolean
+        get() = BuildConfig.DEBUG && intent.getBooleanExtra(FORCE_UPDATE_PREVIEW, false)
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -118,8 +120,14 @@ class MainActivity : ComponentActivity() {
                                 DeviceStore.markBackgroundHintDismissed(this@MainActivity)
                                 backgroundHintDismissed = true
                             },
-                            updateAvailable = availableUpdateInfo != null,
-                            onStartUpdate = { startAvailableUpdate() },
+                            updateAvailable = availableUpdateInfo != null || forceUpdatePreview,
+                            onStartUpdate = {
+                                if (availableUpdateInfo != null) {
+                                    startAvailableUpdate()
+                                } else {
+                                    openStoreListing()
+                                }
+                            },
                         )
                     }
                 }
@@ -169,6 +177,22 @@ class MainActivity : ComponentActivity() {
         }.onFailure {
             availableUpdateInfo = null
         }
+    }
+
+    private fun openStoreListing() {
+        val marketIntent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("market://details?id=$packageName"),
+        )
+        runCatching { startActivity(marketIntent) }
+            .onFailure {
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://play.google.com/store/apps/details?id=$packageName"),
+                    )
+                )
+            }
     }
 
     /**
@@ -286,4 +310,8 @@ class MainActivity : ComponentActivity() {
         Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
         Uri.fromParts("package", packageName, null),
     )
+
+    private companion object {
+        const val FORCE_UPDATE_PREVIEW = "force_update_preview"
+    }
 }
