@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `fb89075`.
+Generated from `main` @ `dfcde7a`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `254fd17` |
-| `main` ahead by | **1 commit(s)** |
+| `main` ahead by | **2 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -24,6 +24,7 @@ consider splitting: first a re-prep and deploy without adoption, then a separate
 one for 3B.2.
 
 - `fb89075` chore(deploy): pin prod to 254fd17 after the silent-device deploy (#181)
+- `dfcde7a` Clarify onboarding Premium and source copy (#189)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
@@ -31,6 +32,8 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 ### PRs
 
+- #191 Show Google Play in-app update prompt — `codex/in-app-update-banner`
+- #190 Expire inactive device data after 90 days — `codex/device-retention-cleanup`
 - #188 Sync production daily status and telemetry cleanup — `fix/prod-observability-cleanup`
 - #185 Fix forecast quality evaluation — `codex/held-out-forecast`
 - #184 Explain upcoming Premium features — `codex/premium-instructions`
@@ -56,18 +59,20 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 39 |
-| `chore/state-refresh` | 28 | 0 |
-| `codex/fix-launcher-icon` | 6 | 0 |
-| `codex/held-out-forecast` | 13 | 0 |
-| `codex/premium-instructions` | 7 | 0 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 6 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 0 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 0 |
-| `docs/readme-professional` | 1 | 94 |
-| `docs/signal-has-a-date` | 1 | 43 |
-| `feat/launcher-road-a` | 1 | 36 |
-| `feat/privacy-page` | 3 | 38 |
-| `feat/truthful-server-badge` | 1 | 33 |
-| `fix/backup-grants-and-rate-limits` | 1 | 30 |
-| `fix/prod-observability-cleanup` | 4 | 0 |
+| `chore/repo-tidy` | 2 | 40 |
+| `chore/state-refresh` | 29 | 1 |
+| `codex/device-retention-cleanup` | 2 | 1 |
+| `codex/fix-launcher-icon` | 6 | 1 |
+| `codex/held-out-forecast` | 13 | 1 |
+| `codex/in-app-update-banner` | 2 | 1 |
+| `codex/premium-instructions` | 7 | 1 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 7 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 1 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 1 |
+| `docs/readme-professional` | 1 | 95 |
+| `docs/signal-has-a-date` | 1 | 44 |
+| `feat/launcher-road-a` | 1 | 37 |
+| `feat/privacy-page` | 3 | 39 |
+| `feat/truthful-server-badge` | 1 | 34 |
+| `fix/backup-grants-and-rate-limits` | 1 | 31 |
+| `fix/prod-observability-cleanup` | 4 | 1 |
