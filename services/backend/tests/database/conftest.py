@@ -59,7 +59,7 @@ def database(monkeypatch, request, tmp_path):
                 )
             )
             with psycopg.connect(dsn("admin", name), autocommit=True) as target:
-                target.execute("CREATE EXTENSION timescaledb WITH SCHEMA public")
+                target.execute("CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public")
                 target.execute("ALTER SCHEMA public OWNER TO avelren_admin")
                 target.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC")
                 target.execute(
