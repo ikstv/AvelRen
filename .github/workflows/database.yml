@@ -1,0 +1,39 @@
+name: Тимчасова база даних
+on:
+  pull_request:
+    paths:
+      - 'db/**'
+      - 'ops/**'
+      - 'services/backend/**'
+      - 'scripts/test_database.sh'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/*PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/database.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'db/**'
+      - 'ops/**'
+      - 'services/backend/**'
+      - 'scripts/test_database.sh'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/*PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/database.yml'
+permissions:
+  contents: read
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Незмінність вихідних файлів
+        run: python3 scripts/verify_core_provenance.py
+      - name: Синтаксис сценаріїв
+        run: bash -n scripts/test_database.sh ops/postgres-bootstrap.sh
+      - name: TimescaleDB, міграції, права та запис даних
+        run: bash scripts/test_database.sh

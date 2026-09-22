@@ -1,0 +1,32 @@
+services:
+  test-db:
+    image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
+    environment:
+      POSTGRES_USER: avelren_admin
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: postgres
+    volumes:
+      - ..:/workspace:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U avelren_admin -d postgres']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    networks: [isolated]
+  test:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.database-test
+    environment:
+      AVELREN_DATABASE_TEST: '1'
+      DATABASE_URL: postgresql://avelren_migrator:ci-only@test-db:5432/avelren_database_test
+      PYTHONPATH: /workspace/services/backend/src
+    volumes:
+      - ..:/workspace:ro
+    working_dir: /workspace
+    networks: [isolated]
+networks:
+  isolated:
+    internal: true

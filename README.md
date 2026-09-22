@@ -13,7 +13,7 @@
 ---
 
 > **Етап: оформлення та підготовка до перенесення.**
-> Перенесено [першу частину серверного ядра з ізольованими тестами](services/backend/README.md). Це ще не повний сервер і не версія для розгортання. Робочі джерела: [AvelRen](https://github.com/ikstv/AvelRen) та [AvelRen-ops](https://github.com/ikstv/AvelRen-ops).
+> Перенесено [серверне ядро з unit-тестами](services/backend/README.md) та [міграції з ізольованою перевіркою БД](db/README.md). Це ще не повний сервер і не версія для розгортання. Робочі джерела: [AvelRen](https://github.com/ikstv/AvelRen) та [AvelRen-ops](https://github.com/ikstv/AvelRen-ops).
 
 ## Про проєкт
 
