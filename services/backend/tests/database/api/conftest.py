@@ -77,6 +77,7 @@ def api_client(database, monkeypatch):
     try:
         with TestClient(app) as client:
             yield client
+        assert db._pool is not None and db._pool.closed, "API lifespan must close its pool"
     finally:
         db._pool = None
         ratelimit._hits.clear()

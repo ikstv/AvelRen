@@ -79,4 +79,18 @@ def database(monkeypatch, request, tmp_path):
             assert migrate.run(migration_directory) == 0
             yield lambda role: dsn(role, name)
         finally:
+            # Забороняємо нові фонові підключення до одноразової БД перед видаленням.
+            admin.execute(
+                sql.SQL("ALTER DATABASE {} ALLOW_CONNECTIONS false").format(sql.Identifier(name))
+            )
+            remaining = admin.execute(
+                "SELECT usename, backend_type, application_name FROM pg_stat_activity "
+                "WHERE datname=%s",
+                (name,),
+            ).fetchall()
+            print(f"Test database cleanup: {remaining}")
+            admin.execute(
+                "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname=%s",
+                (name,),
+            )
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
