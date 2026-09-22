@@ -2,7 +2,7 @@
 # docker-compose.yml): a tag can be re-pushed to a different image, the
 # digest cannot. Tag kept alongside for legibility; Dependabot's docker
 # ecosystem for /app watches the digest and opens a PR when it moves.
-FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4
+FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
