@@ -105,6 +105,9 @@ BEGIN
         SELECT 'missing'::text AS issue, missing.*
         FROM (
             SELECT expected.* FROM expected
+            WHERE relation_name <> 'admin_access' OR EXISTS (
+                SELECT 1 FROM public.schema_migrations WHERE version = '011_admin_access'
+            )
             EXCEPT
             SELECT actual.* FROM actual
         ) AS missing
@@ -114,6 +117,9 @@ BEGIN
             SELECT actual.* FROM actual
             EXCEPT
             SELECT expected.* FROM expected
+            WHERE relation_name <> 'admin_access' OR EXISTS (
+                SELECT 1 FROM public.schema_migrations WHERE version = '011_admin_access'
+            )
         ) AS unexpected
     )
     SELECT string_agg(
@@ -205,7 +211,15 @@ ORDER BY CASE relation.relkind WHEN 'S' THEN 2 ELSE 1 END, relation.relname
 
 -- pg_dump --no-owner otherwise leaves this SECURITY DEFINER routine owned by
 -- the restore superuser. Keep its authority at the application owner only.
-ALTER FUNCTION public.activate_approved_admin(uuid) OWNER TO avelren_migrator;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.schema_migrations WHERE version = '011_admin_access') THEN
+        ALTER FUNCTION public.activate_approved_admin(uuid) OWNER TO avelren_migrator;
+    ELSIF to_regprocedure('public.activate_approved_admin(uuid)') IS NOT NULL THEN
+        RAISE EXCEPTION 'admin activation function exists without its migration';
+    END IF;
+END
+$$;
 
 DO $$
 BEGIN
