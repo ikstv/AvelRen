@@ -60,11 +60,11 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 40 |
-| `chore/state-refresh` | 29 | 1 |
+| `chore/state-refresh` | 31 | 0 |
 | `codex/device-retention-cleanup` | 2 | 1 |
 | `codex/fix-launcher-icon` | 6 | 1 |
 | `codex/held-out-forecast` | 13 | 1 |
-| `codex/in-app-update-banner` | 2 | 1 |
+| `codex/in-app-update-banner` | 3 | 0 |
 | `codex/premium-instructions` | 7 | 1 |
 | `dependabot/docker/app/python-cae66f2` | 1 | 7 |
 | `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 1 |
