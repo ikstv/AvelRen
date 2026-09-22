@@ -93,6 +93,7 @@ EXPECTED_TABLE_PRIVILEGES = {
     "WATCHDOG_DATABASE_URL": {
         "observations": {"SELECT"},
         "collector_runs": {"SELECT"},
+        "devices": {"DELETE"},
         "health_alerts": {"SELECT", "INSERT", "UPDATE"},
         # The fail-closed startup schema check (#88) reads max(version) from here;
         # without this SELECT the check would fail with 42501 after the 3C cutover.
@@ -155,6 +156,7 @@ EXPECTED_DEVICE_COLUMN_PRIVILEGES = {
         # prod — see the regression test
         # `test_watchdog_dead_fcm_token_updates_devices_under_watchdog_role`.
         "fcm_token": {"SELECT", "UPDATE"},
+        "last_seen": {"SELECT"},
     },
     "API_DATABASE_URL": {
         "id": {"SELECT"},
