@@ -54,7 +54,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/java/ua/avelren/app/MainActivity.kt",
       "destination": "apps/android/app/src/main/java/ua/avelren/app/MainActivity.kt",
-      "sha256": "189e7c18d611dca378916538556e46b35e8cf17a0afd390062d410a455e7e9ad"
+      "sha256": "189e7c18d611dca378916538556e46b35e8cf17a0afd390062d410a455e7e9ad",
+      "revision": {
+        "sha256": "9efc86faefa9361656205ffe5a9bc4459a08963fd8c2f124322f8db8a3a48c44",
+        "notes": "docs/PLAY-UPDATES.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -197,8 +201,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "897afbbb553a631618cd949fad8e9b6b5f2044ea66efd525207eabc92e3f98d2",
-        "notes": "docs/SERVER-STATUS.md"
+        "sha256": "530294a67e1a01912bfe42bfcc442fcb823d0d84b5f6659db97459d55c76c6b1",
+        "notes": "docs/PLAY-UPDATES.md"
       }
     },
     {

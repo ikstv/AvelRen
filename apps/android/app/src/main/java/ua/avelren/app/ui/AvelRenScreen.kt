@@ -102,6 +102,7 @@ import ua.avelren.app.data.NetworkAvailability
 import ua.avelren.app.data.InternetState
 import ua.avelren.app.data.MaintenanceStore
 import ua.avelren.app.data.ServerStatus
+import ua.avelren.app.data.PlayUpdateState
 import ua.avelren.app.ui.theme.HeroNumberStyle
 import ua.avelren.app.ui.theme.RoadSignShape
 import ua.avelren.app.ui.theme.TabularNumberFeature
@@ -158,6 +159,8 @@ fun AvelRenScreen(
     onOpenBatterySettings: () -> Unit = {},
     onDismissBackgroundHint: () -> Unit = {},
     updateAvailable: Boolean = false,
+    updateState: PlayUpdateState = PlayUpdateState.AVAILABLE,
+    updateActionPending: Boolean = false,
     onStartUpdate: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -371,8 +374,8 @@ fun AvelRenScreen(
         loadMonitors()
     }
 
-    LaunchedEffect(updateAvailable) {
-        if (updateAvailable) showUpdatePrompt = true
+    LaunchedEffect(updateAvailable, updateState) {
+        showUpdatePrompt = updateAvailable && updateState.actionable
     }
 
     // Свіжість за server observation time обраного КПП (без вибору — макс. по
@@ -564,6 +567,8 @@ fun AvelRenScreen(
     }
     if (updateAvailable) {
         AppUpdatePill(
+            state = updateState,
+            actionPending = updateActionPending,
             onStartUpdate = onStartUpdate,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -574,8 +579,10 @@ fun AvelRenScreen(
     }
     }
 
-    if (showUpdatePrompt) {
+    if (showUpdatePrompt && updateAvailable && updateState.actionable) {
         AppUpdateDialog(
+            ready = updateState == PlayUpdateState.READY,
+            actionPending = updateActionPending,
             onUpdate = {
                 showUpdatePrompt = false
                 onStartUpdate()
@@ -1112,13 +1119,18 @@ private fun TileIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
 
 /** Play Core reports an update only after Google Play can serve it to this install. */
 @Composable
-private fun AppUpdatePill(onStartUpdate: () -> Unit, modifier: Modifier = Modifier) {
+private fun AppUpdatePill(
+    state: PlayUpdateState,
+    actionPending: Boolean,
+    onStartUpdate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(SignWarn)
-            .clickable { onStartUpdate() }
+            .clickable(enabled = state.actionable && !actionPending) { onStartUpdate() }
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1126,14 +1138,25 @@ private fun AppUpdatePill(onStartUpdate: () -> Unit, modifier: Modifier = Modifi
         Text("↻", color = SignOnWarn, fontWeight = FontWeight.Black, fontSize = 18.sp)
         Column(Modifier.weight(1f)) {
             Text(
-                "Доступна нова версія",
+                when (state) {
+                    PlayUpdateState.READY -> "Оновлення готове"
+                    PlayUpdateState.DOWNLOADING -> "Оновлення завантажується"
+                    PlayUpdateState.INSTALLING -> "Оновлення встановлюється"
+                    else -> "Доступна нова версія"
+                },
                 color = SignOnWarn,
                 fontWeight = FontWeight.Black,
                 fontSize = 12.5.sp,
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                "Натисніть, щоб оновити через Google Play.",
+                when {
+                    actionPending -> "Зачекайте, будь ласка."
+                    state == PlayUpdateState.READY -> "Натисніть, щоб встановити й перезапустити."
+                    state == PlayUpdateState.DOWNLOADING -> "Можна продовжувати користуватися застосунком."
+                    state == PlayUpdateState.INSTALLING -> "Застосунок буде перезапущено."
+                    else -> "Натисніть, щоб оновити через Google Play."
+                },
                 color = SignOnWarn,
                 fontSize = 11.5.sp,
                 style = MaterialTheme.typography.bodySmall,
@@ -1713,6 +1736,8 @@ internal fun SettingsScreen(
 
 @Composable
 private fun AppUpdateDialog(
+    ready: Boolean,
+    actionPending: Boolean,
     onUpdate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1738,7 +1763,7 @@ private fun AppUpdateDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    "ДОСТУПНА НОВА ВЕРСІЯ",
+                    if (ready) "ОНОВЛЕННЯ ГОТОВЕ" else "ДОСТУПНА НОВА ВЕРСІЯ",
                     color = HeroYellow,
                     fontWeight = FontWeight.Black,
                     fontSize = 19.sp,
@@ -1746,7 +1771,8 @@ private fun AppUpdateDialog(
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Оновіть AvelRen через Google Play, щоб отримати останні зміни.",
+                    if (ready) "Нову версію завантажено. Для встановлення AvelRen буде перезапущено."
+                    else "Оновіть AvelRen через Google Play, щоб отримати останні зміни.",
                     color = Color(0xCCFFFFFF),
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
@@ -1754,7 +1780,7 @@ private fun AppUpdateDialog(
                 )
                 Spacer(Modifier.height(18.dp))
                 Text(
-                    "ОНОВИТИ",
+                    if (ready) "ВСТАНОВИТИ" else "ОНОВИТИ",
                     color = SignOnWarn,
                     fontWeight = FontWeight.Black,
                     fontSize = 13.sp,
@@ -1763,7 +1789,7 @@ private fun AppUpdateDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(SignWarn)
-                        .clickable { onUpdate() }
+                        .clickable(enabled = !actionPending) { onUpdate() }
                         .padding(vertical = 13.dp),
                 )
                 Spacer(Modifier.height(14.dp))

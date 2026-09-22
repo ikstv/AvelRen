@@ -6,8 +6,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,17 +20,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
 import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
 import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.InstallStateUpdatedListener
 import com.google.android.play.core.install.model.UpdateAvailability
 import kotlinx.coroutines.launch
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.NotificationPermission
 import ua.avelren.app.data.NotificationPermissionState
 import ua.avelren.app.data.UiPrefs
+import ua.avelren.app.data.PlayUpdateState
+import ua.avelren.app.data.playUpdateState
 import ua.avelren.app.notify.Notifications
 import ua.avelren.app.ui.AvelRenScreen
 import ua.avelren.app.ui.OnboardingScreen
@@ -51,7 +55,13 @@ class MainActivity : ComponentActivity() {
     private var ignoringBatteryOptimizations by mutableStateOf(true)
     private var backgroundHintDismissed by mutableStateOf(false)
     private lateinit var appUpdateManager: AppUpdateManager
-    private var availableUpdateInfo by mutableStateOf<AppUpdateInfo?>(null)
+    private var updateState by mutableStateOf(PlayUpdateState.NONE)
+    private var updateActionPending by mutableStateOf(false)
+    private var updateGeneration = 0
+    private val installListener = InstallStateUpdatedListener { state ->
+        updateGeneration++
+        updateState = playUpdateState(state.installStatus(), available = true)
+    }
     private val forceUpdatePreview: Boolean
         get() = BuildConfig.DEBUG && intent.getBooleanExtra(FORCE_UPDATE_PREVIEW, false)
 
@@ -74,12 +84,14 @@ class MainActivity : ComponentActivity() {
 
     private val requestAppUpdate =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+            updateActionPending = false
             refreshAppUpdateState()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         appUpdateManager = AppUpdateManagerFactory.create(this)
+        appUpdateManager.registerListener(installListener)
 
         // Must run BEFORE refreshPermissionState/auto-request: for an upgrade from
         // a pre-AND-2 version it records the fact of the denial, otherwise onCreate
@@ -120,9 +132,13 @@ class MainActivity : ComponentActivity() {
                                 DeviceStore.markBackgroundHintDismissed(this@MainActivity)
                                 backgroundHintDismissed = true
                             },
-                            updateAvailable = availableUpdateInfo != null || forceUpdatePreview,
+                            updateAvailable = updateState != PlayUpdateState.NONE || forceUpdatePreview,
+                            updateState = if (forceUpdatePreview && updateState == PlayUpdateState.NONE) {
+                                PlayUpdateState.AVAILABLE
+                            } else updateState,
+                            updateActionPending = updateActionPending,
                             onStartUpdate = {
-                                if (availableUpdateInfo != null) {
+                                if (updateState != PlayUpdateState.NONE) {
                                     startAvailableUpdate()
                                 } else {
                                     openStoreListing()
@@ -140,17 +156,27 @@ class MainActivity : ComponentActivity() {
         // The permission may have been enabled in system settings or revoked —
         // the banner must disappear/appear without restarting the app.
         refreshPermissionState()
-        refreshAppUpdateState()
+        refreshAppUpdateState(resumeImmediate = true)
     }
 
-    private fun refreshAppUpdateState() {
+    private fun refreshAppUpdateState(resumeImmediate: Boolean = false) {
+        val generation = ++updateGeneration
         appUpdateManager.appUpdateInfo
             .addOnSuccessListener { info ->
-                availableUpdateInfo = info.takeIf { canStartUpdate(it) }
+                if (isDestroyed || generation != updateGeneration) return@addOnSuccessListener
+                updateState = playUpdateState(info.installStatus(), canStartUpdate(info))
+                if (resumeImmediate && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+                    info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS &&
+                    info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE) && !updateActionPending
+                ) {
+                    launchUpdate(info, AppUpdateType.IMMEDIATE)
+                }
             }
-            .addOnFailureListener {
-                availableUpdateInfo = null
-            }
+    }
+
+    override fun onDestroy() {
+        appUpdateManager.unregisterListener(installListener)
+        super.onDestroy()
     }
 
     private fun canStartUpdate(info: AppUpdateInfo): Boolean {
@@ -162,21 +188,64 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startAvailableUpdate() {
-        val info = availableUpdateInfo ?: return
-        val type = if (info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
-            AppUpdateType.IMMEDIATE
-        } else {
-            AppUpdateType.FLEXIBLE
+        if (updateActionPending || !updateState.actionable) return
+        if (updateState == PlayUpdateState.READY) {
+            updateGeneration++
+            updateState = PlayUpdateState.INSTALLING
+            updateActionPending = true
+            appUpdateManager.completeUpdate()
+                .addOnFailureListener {
+                    if (!isDestroyed) {
+                        updateState = PlayUpdateState.READY
+                        showUpdateError()
+                    }
+                }
+                .addOnCompleteListener { updateActionPending = false }
+            return
         }
+        // AppUpdateInfo is single-use: every user retry gets a fresh instance.
+        updateActionPending = true
+        val generation = ++updateGeneration
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                if (isDestroyed) return@addOnSuccessListener
+                updateActionPending = false
+                if (generation != updateGeneration) return@addOnSuccessListener
+                updateState = playUpdateState(info.installStatus(), canStartUpdate(info))
+                if (updateState == PlayUpdateState.AVAILABLE) {
+                    if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@addOnSuccessListener
+                    launchUpdate(info, if (info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
+                        AppUpdateType.IMMEDIATE
+                    } else AppUpdateType.FLEXIBLE)
+                }
+            }
+            .addOnFailureListener {
+                updateActionPending = false
+                if (!isDestroyed) showUpdateError()
+            }
+    }
+
+    private fun launchUpdate(info: AppUpdateInfo, type: Int) {
+        updateActionPending = true
         runCatching {
             appUpdateManager.startUpdateFlowForResult(
                 info,
                 requestAppUpdate,
                 AppUpdateOptions.newBuilder(type).build(),
             )
+        }.onSuccess { started ->
+            if (!started) {
+                updateActionPending = false
+                showUpdateError()
+            }
         }.onFailure {
-            availableUpdateInfo = null
+            updateActionPending = false
+            showUpdateError()
         }
+    }
+
+    private fun showUpdateError() {
+        Toast.makeText(this, "Не вдалося оновити. Спробуйте ще раз.", Toast.LENGTH_LONG).show()
     }
 
     private fun openStoreListing() {
