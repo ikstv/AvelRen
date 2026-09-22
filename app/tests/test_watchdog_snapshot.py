@@ -56,3 +56,34 @@ def test_reboot_not_required_is_none(tmp_path, monkeypatch):
 def test_reboot_missing_snapshot_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(watchdog, "SNAPSHOT_PATH", tmp_path / "absent.json")
     assert watchdog._reboot_pending() is None
+
+
+def test_daily_report_body_is_ukrainian_and_includes_host_counts():
+    body = watchdog._daily_report_body(
+        {
+            "system": {
+                "updates_pending": 4,
+                "updates_upgradable": 5,
+                "updates_security": 1,
+                "reboot_required": True,
+                "reboot_required_pkgs": ["linux-image", "libc6"],
+                "journal_errors_24h": 2,
+                "compose_errors_24h": 3,
+            }
+        }
+    )
+
+    assert body == (
+        "Щоденний звіт AvelRen. "
+        "Доступні оновлення: 5, безпекові: 1. "
+        "Перезавантаження: так (linux-image, libc6). "
+        "Помилки за 24 год: systemd 2, сервіси 3."
+    )
+
+
+def test_daily_report_body_handles_missing_snapshot_in_ukrainian():
+    body = watchdog._daily_report_body(None)
+
+    assert "телеметрія сервера недоступна" in body
+    assert "Оновлення: невідомо" in body
+    assert "Помилки за 24 год: невідомо" in body

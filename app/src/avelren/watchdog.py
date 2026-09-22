@@ -16,6 +16,7 @@ import os
 import signal
 from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 from psycopg import AsyncConnection
@@ -27,7 +28,10 @@ from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.watchdog")
 
+KYIV = ZoneInfo("Europe/Kyiv")
+
 CHECK_INTERVAL = 300
+DAILY_REPORT_HOUR_KYIV = 12
 # A reboot is a planned matter, not an urgent one: we allow a few days for a
 # convenient moment.
 REBOOT_GRACE_DAYS = 3
@@ -223,7 +227,7 @@ def _reboot_pending() -> int | None:
 # installed copy — so this constant is how the image states which copy it was
 # built against. A CI step keeps it equal to the file; it cannot drift silently
 # the way the installed copy did.
-EXPECTED_SNAPSHOT_SHA = "2bbf37aab74a10ab686b2c53696916161eda9b087aafca0fba935583e61ff9b3"
+EXPECTED_SNAPSHOT_SHA = "baa011938e8319f865a0705a983ac296afbae256194f8463201b9292cb624ccf"
 
 
 def _snapshot_script_drift() -> str | None:
@@ -271,6 +275,89 @@ def _migrate_pin_lost() -> bool:
     return snapshot.get("docker", {}).get("migrate_pin_active") is False
 
 
+def _int_or_unknown(value: object) -> str:
+    return str(value) if isinstance(value, int) else "невідомо"
+
+
+def _daily_report_body(snapshot: dict | None) -> str:
+    if snapshot is None:
+        return (
+            "Щоденний звіт AvelRen: телеметрія сервера недоступна. "
+            "Оновлення: невідомо. Перезавантаження: невідомо. "
+            "Помилки за 24 год: невідомо."
+        )
+
+    system = snapshot.get("system", {})
+    if not isinstance(system, dict):
+        system = {}
+
+    updates = _int_or_unknown(system.get("updates_upgradable"))
+    if updates == "невідомо":
+        updates = _int_or_unknown(system.get("updates_pending"))
+    security = _int_or_unknown(system.get("updates_security"))
+    reboot_required = system.get("reboot_required") is True
+    reboot_text = "так" if reboot_required else "ні"
+
+    pkgs = system.get("reboot_required_pkgs")
+    reboot_pkgs = ""
+    if reboot_required and isinstance(pkgs, list) and pkgs:
+        names = [p for p in pkgs if isinstance(p, str)]
+        if names:
+            reboot_pkgs = f" ({', '.join(names[:4])}"
+            if len(names) > 4:
+                reboot_pkgs += f" +{len(names) - 4}"
+            reboot_pkgs += ")"
+
+    journal_errors = _int_or_unknown(system.get("journal_errors_24h"))
+    compose_errors = _int_or_unknown(system.get("compose_errors_24h"))
+
+    return (
+        "Щоденний звіт AvelRen. "
+        f"Доступні оновлення: {updates}, безпекові: {security}. "
+        f"Перезавантаження: {reboot_text}{reboot_pkgs}. "
+        f"Помилки за 24 год: systemd {journal_errors}, сервіси {compose_errors}."
+    )
+
+
+async def _daily_report_already_sent(conn: AsyncConnection, report_date: str) -> bool:
+    row = await (
+        await conn.execute(
+            "SELECT 1 FROM health_alerts WHERE kind = %s LIMIT 1",
+            (f"daily_status:{report_date}",),
+        )
+    ).fetchone()
+    return row is not None
+
+
+async def _record_daily_report_sent(
+    conn: AsyncConnection, report_date: str, body: str
+) -> None:
+    await conn.execute(
+        """
+        INSERT INTO health_alerts
+            (kind, detail, resolved_at, recovery_notified_at, last_sent_at, send_count)
+        VALUES (%s, %s, now(), now(), now(), 1)
+        """,
+        (f"daily_status:{report_date}", body),
+    )
+
+
+async def _deliver_daily_report(conn: AsyncConnection, client: httpx.AsyncClient) -> None:
+    now = datetime.now(KYIV)
+    if now.hour < DAILY_REPORT_HOUR_KYIV:
+        return
+
+    report_date = now.date().isoformat()
+    if await _daily_report_already_sent(conn, report_date):
+        return
+
+    snapshot = _read_snapshot()
+    body = _daily_report_body(snapshot)
+    if await _notify(conn, client, "AvelRen: щоденний звіт", body, f"daily:{report_date}"):
+        await _record_daily_report_sent(conn, report_date, body)
+        log.info("delivered daily status report for %s", report_date)
+
+
 async def _open_alerts(conn: AsyncConnection) -> dict[str, dict]:
     rows = await (
         await conn.execute(
@@ -308,6 +395,7 @@ async def run_cycle(client: httpx.AsyncClient) -> None:
                 log.info("problem %s is gone", kind)
 
         await _deliver_recoveries(conn, client)
+        await _deliver_daily_report(conn, client)
 
         for kind, detail in problems.items():
             alert = open_alerts.get(kind)

@@ -68,11 +68,19 @@ read -r _fs disk_total_1k disk_used_1k disk_avail_1k _rest < <(
 
 reboot_required=false
 reboot_pending_days=null
+reboot_required_pkgs_json="[]"
 if [ -e /run/reboot-required ]; then
     reboot_required=true
     now=$(date +%s)
     mtime=$(stat -c %Y /run/reboot-required)
     reboot_pending_days=$(( (now - mtime) / 86400 ))
+    if [ -r /run/reboot-required.pkgs ]; then
+        reboot_required_pkgs_json=$(
+            awk 'NF {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "%s\"%s\"", sep, $0; sep=", "}' \
+                /run/reboot-required.pkgs
+        )
+        reboot_required_pkgs_json="[$reboot_required_pkgs_json]"
+    fi
 fi
 
 # Available package updates. `reboot_required` only reflects the consequence of an
@@ -88,6 +96,7 @@ fi
 # "none" instead of "unknown" would be lying about host state, so the default is null.
 updates_pending=null
 updates_security=null
+updates_upgradable=null
 if [ -x "$APT_CHECK" ]; then
     # apt-check writes "regular;security" to stderr. `|| raw=""` is the same
     # fail-safe as for openssl below: the probe must not be a single point of failure.
@@ -98,6 +107,35 @@ if [ -x "$APT_CHECK" ]; then
     if printf '%s' "$raw" | grep -qE '^[0-9]+;[0-9]+$'; then
         updates_pending=${raw%%;*}
         updates_security=${raw##*;}
+    fi
+fi
+if command -v apt >/dev/null 2>&1; then
+    if n=$(apt list --upgradable 2>/dev/null | awk 'NR > 1 {n++} END {print n + 0}'); then
+        case "$n" in ''|*[!0-9]*) updates_upgradable=null ;; *) updates_upgradable=$n ;; esac
+    fi
+fi
+
+# --- daily operations report inputs ---
+# Counts only: the phone notification must say whether there is smoke, not carry
+# potentially sensitive log lines. All commands are fail-open to null because a
+# broken log probe must not prevent the rest of the host snapshot from updating.
+journal_errors_24h=null
+if command -v journalctl >/dev/null 2>&1; then
+    if n=$(journalctl -p err..alert --since '24 hours ago' --no-pager -q 2>/dev/null | wc -l | tr -d '[:space:]'); then
+        case "$n" in ''|*[!0-9]*) journal_errors_24h=null ;; *) journal_errors_24h=$n ;; esac
+    fi
+fi
+
+compose_errors_24h=null
+if command -v docker >/dev/null 2>&1 && [ -d "$STACK_DIR" ]; then
+    if logs=$(cd "$STACK_DIR" && docker compose logs --since 24h --no-color 2>/dev/null); then
+        n=$(printf '%s\n' "$logs" | awk '
+            /Traceback|Exception|CRITICAL/ { n++; next }
+            /(^|[^[:alpha:]])ERROR([^[:alpha:]]|$)/ { n++; next }
+            tolower($0) ~ /"level":"(error|critical|fatal|panic)"/ { n++; next }
+            END { print n + 0 }
+        ')
+        case "$n" in ''|*[!0-9]*) compose_errors_24h=null ;; *) compose_errors_24h=$n ;; esac
     fi
 fi
 
@@ -309,8 +347,12 @@ cat > "$TMP" <<JSON
         'BEGIN {if (t > 0) printf "%d", (u * 100 + t / 2) / t; else print "null"}'),
     "reboot_required": $reboot_required,
     "reboot_pending_days": $reboot_pending_days,
+    "reboot_required_pkgs": $reboot_required_pkgs_json,
+    "updates_upgradable": $updates_upgradable,
     "updates_pending": $updates_pending,
-    "updates_security": $updates_security
+    "updates_security": $updates_security,
+    "journal_errors_24h": $journal_errors_24h,
+    "compose_errors_24h": $compose_errors_24h
   },
   "network": {
     "rx_total_gb": $(awk -v b=$rx_total 'BEGIN {printf "%.2f", b/1024/1024/1024}'),
