@@ -16,7 +16,7 @@ router = APIRouter(prefix="/admin/access")
 
 class PinIn(BaseModel):
     # A secret field avoids echoing its value in repr/logging.
-    pin: SecretStr = Field(min_length=4, max_length=4)
+    pin: SecretStr = Field(min_length=1, max_length=128)
 
 
 class AccessOut(BaseModel):

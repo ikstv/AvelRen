@@ -1653,16 +1653,29 @@ private fun ConfirmRemoveDialog(
 }
 
 @Composable
-private fun SettingsScreen(
+internal fun SettingsScreen(
     modifier: Modifier = Modifier,
+    adminClient: AdminAccessClient? = null,
 ) {
-    Column(modifier) {
-        HeaderRow(
-            freshness = null,
-            hasError = false,
-            showServerStatus = false,
-        )
-        AdministrationSettings(Modifier.fillMaxWidth().weight(1f))
+    MaterialTheme(colorScheme = ua.avelren.app.ui.theme.DarkColors.copy(
+        primary = SignWarn,
+        onPrimary = ua.avelren.app.ui.theme.SignOnWarn,
+        surface = MonitorBg,
+    )) {
+        androidx.compose.material3.Surface(
+            modifier = modifier,
+            color = MonitorBg,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ) {
+            Column {
+                HeaderRow(
+                    freshness = null,
+                    hasError = false,
+                    showServerStatus = false,
+                )
+                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient)
+            }
+        }
     }
 }
 
@@ -1736,7 +1749,7 @@ private fun AppUpdateDialog(
 }
 
 @Composable
-private fun SettingsDeveloperFooter(
+internal fun SettingsDeveloperFooter(
     modifier: Modifier = Modifier,
 ) {
     Column(

@@ -137,10 +137,16 @@ def test_approval_command_preserves_lock(test_dsn, owner, approved, installation
 
 
 def test_invalid_body_never_echoes_stored_pin_hash(client, approved, owner):
-    response = client.post("/admin/access", headers=approved, json={"pin": "12345"})
+    response = client.post("/admin/access", headers=approved, json={"pin": "x" * 129})
     assert response.status_code == 422
     encoded = owner.execute("SELECT pin_hash FROM admin_access").fetchone()["pin_hash"]
     assert encoded not in response.text
+
+
+def test_wrong_length_and_letters_consume_attempts_without_format_hint(client, approved):
+    assert attempt(client, approved, "a")["attempts_remaining"] == 2
+    assert attempt(client, approved, "abcdef")["attempts_remaining"] == 1
+    assert attempt(client, approved, "12345")["state"] == "blocked"
 
 
 def test_activation_function_has_restricted_owner_and_path(owner):

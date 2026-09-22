@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,7 +17,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -27,8 +31,16 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+internal interface AdminAccessClient {
+    suspend fun status(): Api.AdminAccess
+    suspend fun unlock(password: String): Api.AdminAccess
+}
+
 @Composable
-internal fun AdministrationSettings(modifier: Modifier = Modifier) {
+internal fun AdministrationSettings(
+    modifier: Modifier = Modifier,
+    client: AdminAccessClient? = null,
+) {
     var opened by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(opened) { opened = false }
@@ -39,8 +51,9 @@ internal fun AdministrationSettings(modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(Icons.Default.AdminPanelSettings, contentDescription = null)
-                Text("Адміністрування", Modifier.weight(1f))
+                Icon(Icons.Default.AdminPanelSettings, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary)
+                Text("Адміністрування", Modifier.weight(1f), fontWeight = FontWeight.Bold)
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
             }
         } else {
@@ -50,20 +63,37 @@ internal fun AdministrationSettings(modifier: Modifier = Modifier) {
                 }
                 Text("Адміністрування", style = MaterialTheme.typography.titleMedium)
             }
-            TabRow(selectedTabIndex = tab) {
+            TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary) {
                 listOf("Сервер", "Admin").forEachIndexed { index, label ->
-                    Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) })
+                    Tab(selected = tab == index, onClick = { tab = index },
+                        selectedContentColor = MaterialTheme.colorScheme.primary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = { Text(label, fontWeight = FontWeight.Bold) })
                 }
             }
-            if (tab == 1) AdminAccessForm(Modifier.fillMaxWidth().weight(1f))
+            if (tab == 1) {
+                val application = LocalContext.current.applicationContext
+                val access = client ?: remember(application) {
+                    val installation = (application as AvelRenApp).installation
+                    object : AdminAccessClient {
+                        override suspend fun status() =
+                            installation.authenticatedCall { Api.adminAccess(it) }
+                        override suspend fun unlock(password: String) =
+                            installation.authenticatedCall { Api.unlockAdmin(it, password) }
+                    }
+                }
+                AdminAccessForm(access, Modifier.fillMaxWidth().weight(1f))
+            }
         }
     }
 }
 
 @Composable
-private fun AdminAccessForm(modifier: Modifier = Modifier) {
-    val installation = (LocalContext.current.applicationContext as AvelRenApp).installation
+private fun AdminAccessForm(access: AdminAccessClient, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     var status by remember { mutableStateOf<Api.AdminAccess?>(null) }
     // PIN and authenticated screen state must not survive leaving this screen.
     var pin by remember { mutableStateOf("") }
@@ -74,7 +104,7 @@ private fun AdminAccessForm(modifier: Modifier = Modifier) {
         busy = true
         error = null
         try {
-            status = installation.authenticatedCall { Api.adminAccess(it) }
+            status = access.status()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -93,6 +123,7 @@ private fun AdminAccessForm(modifier: Modifier = Modifier) {
         val current = status
         when (current?.state) {
             "authorized" -> Text("Цей пристрій — єдиний адміністратор.")
+            "preview_authorized" -> Text("Тестовий вхід виконано. Права адміністратора не змінено.")
             "awaiting_approval" -> Text("Ця інсталяція очікує підтвердження адміністратора.")
             "unavailable" -> Text("Адміністрування ще не налаштовано.")
             "blocked" -> {
@@ -102,34 +133,38 @@ private fun AdminAccessForm(modifier: Modifier = Modifier) {
                             .withZone(ZoneId.of("Europe/Kyiv")).format(Instant.parse(it))
                     }.getOrNull()
                 }
-                Text(if (until != null) "Вхід заблоковано до $until (Київ)." else "Вхід тимчасово заблоковано.")
+                Text(if (until != null) "Вхід заблоковано до $until." else "Вхід тимчасово заблоковано.")
             }
             "ready", "invalid_pin" -> {
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { value ->
-                        if (value.length <= 4 && value.all { it in '0'..'9' }) pin = value
+                        if (value.length <= 128) pin = value
                     },
-                    label = { Text("PIN") },
+                    label = { Text("Пароль") },
+                    shape = RoundedCornerShape(8.dp),
                     singleLine = true,
                     enabled = !busy,
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (current.state == "invalid_pin") {
-                    Text("Неправильний PIN. Залишилося спроб: ${current.attempts_remaining}.")
+                    Text("Неправильний пароль. Залишилося спроб: ${current.attempts_remaining}.")
                 }
                 Button(
-                    enabled = !busy && pin.length == 4,
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !busy && pin.isNotEmpty(),
                     onClick = {
+                        focusManager.clearFocus()
+                        keyboard?.hide()
                         val submitted = pin
                         pin = ""
                         busy = true
                         error = null
                         scope.launch {
                             try {
-                                status = installation.authenticatedCall { Api.unlockAdmin(it, submitted) }
+                                status = access.unlock(submitted)
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (_: Exception) {
@@ -141,13 +176,13 @@ private fun AdminAccessForm(modifier: Modifier = Modifier) {
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Увійти") }
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text("Увійти", fontWeight = FontWeight.Black) }
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
-        if (!busy && current?.state !in listOf("ready", "invalid_pin", "authorized")) {
+        if (!busy && current?.state !in listOf("ready", "invalid_pin", "authorized", "preview_authorized")) {
             TextButton(onClick = { scope.launch { load() } }) { Text("Оновити стан") }
         }
     }
