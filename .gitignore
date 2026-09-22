@@ -6,6 +6,10 @@ google-services.json
 *service-account*.json
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.kdbx
+keystore.properties
 local.properties
 
 # Локальні результати роботи
