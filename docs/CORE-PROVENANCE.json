@@ -1,0 +1,137 @@
+{
+  "files": [
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/__init__.py",
+      "destination": "services/backend/src/avelren/__init__.py",
+      "sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/collector.py",
+      "destination": "services/backend/src/avelren/collector.py",
+      "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/notifier.py",
+      "destination": "services/backend/src/avelren/notifier.py",
+      "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/alerts.py",
+      "destination": "services/backend/src/avelren/alerts.py",
+      "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/eta.py",
+      "destination": "services/backend/src/avelren/eta.py",
+      "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/cancels.py",
+      "destination": "services/backend/src/avelren/cancels.py",
+      "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/fcm.py",
+      "destination": "services/backend/src/avelren/fcm.py",
+      "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/config.py",
+      "destination": "services/backend/src/avelren/config.py",
+      "sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/db.py",
+      "destination": "services/backend/src/avelren/db.py",
+      "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/echerha.py",
+      "destination": "services/backend/src/avelren/echerha.py",
+      "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/models.py",
+      "destination": "services/backend/src/avelren/models.py",
+      "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/schema_gate.py",
+      "destination": "services/backend/src/avelren/schema_gate.py",
+      "sha256": "c1aafa6bbf3d4e018045b5bfb7aba0440c93b3aee9eefcd18d5fbf8b4f4b196c"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/schema_verify.py",
+      "destination": "services/backend/src/avelren/schema_verify.py",
+      "sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/restore_identity.py",
+      "destination": "services/backend/src/avelren/restore_identity.py",
+      "sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/pyproject.toml",
+      "destination": "services/backend/pyproject.toml",
+      "sha256": "0c4f149363ee2c0f959a6f7fd3907d2762d35312b41dde076b036076a218c111"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/requirements.lock",
+      "destination": "services/backend/requirements.lock",
+      "sha256": "95c3b247639b3e4e4113963c59a45291757c1a6486ff532e62e0c44ee6409989"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/tests/test_echerha.py",
+      "destination": "services/backend/tests/unit/test_echerha.py",
+      "sha256": "5789b2ba8b9d59874184eb47fdaaa3a8ac17468928a7b2cb588410f3ab505076"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/tests/test_collector_config.py",
+      "destination": "services/backend/tests/unit/test_collector_config.py",
+      "sha256": "f695279f0009387e448c32486faef2c7892e32d223c57dc8edd982babd9411a7"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/tests/test_fcm.py",
+      "destination": "services/backend/tests/unit/test_fcm.py",
+      "sha256": "21b895b9bbb5efab691a99b02d0d4c09d19dd233c0f5aa26d474b41eb6ea3672"
+    }
+  ]
+}

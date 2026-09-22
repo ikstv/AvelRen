@@ -14,5 +14,10 @@ local.properties
 
 # Локальні результати роботи
 dist/
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
 .DS_Store
 Thumbs.db

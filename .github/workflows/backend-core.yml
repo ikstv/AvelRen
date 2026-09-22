@@ -1,0 +1,42 @@
+name: Серверне ядро
+on:
+  pull_request:
+    paths:
+      - 'services/backend/**'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/CORE-PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/backend-core.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/backend/**'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/CORE-PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/backend-core.yml'
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: services/backend/requirements.lock
+      - name: Залежності
+        run: |
+          python -m pip install --require-hashes -r services/backend/requirements.lock
+          python -m pip install pytest==9.1.1 ruff==0.16.8 tzdata==2026.4
+      - name: Походження файлів
+        run: python scripts/verify_core_provenance.py
+      - name: Аналіз коду
+        run: python -m ruff check services/backend/src services/backend/tests/unit
+      - name: Ізольовані тести
+        run: python -m pytest -c services/backend/pytest.ini services/backend/tests/unit -q
