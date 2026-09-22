@@ -35,5 +35,7 @@ BEGIN
     UPDATE public.devices SET is_admin = true WHERE id = candidate;
 END;
 $$;
+-- Bootstrap may run migrations as its operator role; the definer must never be superuser.
+ALTER FUNCTION activate_approved_admin(uuid) OWNER TO avelren_migrator;
 REVOKE ALL ON FUNCTION activate_approved_admin(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION activate_approved_admin(uuid) TO avelren_api;

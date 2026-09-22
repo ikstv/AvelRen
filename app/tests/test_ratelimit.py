@@ -89,12 +89,15 @@ def test_stale_queues_are_pruned_to_bound_memory():
 
 
 def _route_handlers():
-    """Every HTTP handler of both routers, paired with its AST body."""
+    """Every HTTP handler, including prefixed routers, paired with its AST body."""
     import ast
 
-    from avelren import api, subscriptions_api
+    from avelren import admin_access_api, api, subscriptions_api
 
-    for module in (api, subscriptions_api):
+    for module, prefix in (
+        (api, ""), (subscriptions_api, ""),
+        (admin_access_api, admin_access_api.router.prefix),
+    ):
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
         for node in tree.body:
             if not isinstance(node, ast.AsyncFunctionDef):
@@ -108,7 +111,7 @@ def _route_handlers():
             ]
             if not routes:
                 continue
-            yield f"{routes[0].func.attr.upper()} {routes[0].args[0].value}", node
+            yield f"{routes[0].func.attr.upper()} {prefix}{routes[0].args[0].value}", node
 
 
 def test_every_route_is_rate_limited():

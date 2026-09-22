@@ -62,6 +62,17 @@ def test_current_db_applies_nothing(scratch_dsn):
     assert migrate.run(MIGRATIONS) == 0
 
 
+def test_admin_function_has_restricted_owner_after_bootstrap(scratch_dsn):
+    assert migrate.run(MIGRATIONS) == 0
+    with psycopg.connect(scratch_dsn) as conn:
+        row = conn.execute("""
+            SELECT r.rolname, r.rolsuper, p.prosecdef, p.proconfig
+            FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+            WHERE p.oid='public.activate_approved_admin(uuid)'::regprocedure
+        """).fetchone()
+    assert row == ("avelren_migrator", False, True, ["search_path=pg_catalog, pg_temp"])
+
+
 # --- fail-closed (empty directory) ------------------------------------------
 
 
