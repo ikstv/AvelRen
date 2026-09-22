@@ -6,6 +6,8 @@
 у [README серверного ядра](../services/backend/README.md). Решта цього
 документа описує план блоків, а не дозвіл на розгортання.
 Також додано [БД](../db/README.md) та [API/Admin](API-TRANSFER.md).
+Перевірені серверні копії [watchdog і snapshot](WATCHDOG-TRANSFER.md)
+перенесено окремим блоком; відомі недоліки не оголошені виправленими.
 Повний [перелік файлів із SHA-256](SERVER-FILES.csv) обчислено з Git blobs
 коміту `4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27` репозиторію
 `ikstv/AvelRen`. Він відтворюваний незалежно від переносу рядків Windows.

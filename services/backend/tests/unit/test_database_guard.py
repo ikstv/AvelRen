@@ -16,7 +16,7 @@ import pytest
         ("1", "postgresql://avelren_migrator:ci-only@test-db:5432/avelren"),
     ],
 )
-@pytest.mark.parametrize("suite", ["database", "database/api"])
+@pytest.mark.parametrize("suite", ["database", "database/api", "database/watchdog"])
 def test_database_collection_refuses_unapproved_target(marker, dsn, suite):
     root = Path(__file__).resolve().parents[4]
     env = dict(os.environ, AVELREN_DATABASE_TEST=marker, DATABASE_URL=dsn)
@@ -39,3 +39,28 @@ def test_database_collection_refuses_unapproved_target(marker, dsn, suite):
     )
     assert result.returncode == 4
     assert "require the isolated test_database.sh runner" in result.stderr
+
+
+def test_snapshot_collection_refuses_host_execution():
+    root = Path(__file__).resolve().parents[4]
+    env = dict(os.environ)
+    env.pop("AVELREN_SNAPSHOT_TEST", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            str(root / "services/backend/pytest.ini"),
+            str(root / "services/backend/tests/snapshot"),
+            "--collect-only",
+            "-q",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 4
+    assert "require the isolated watchdog runner" in result.stderr

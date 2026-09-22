@@ -3,8 +3,8 @@ set -euo pipefail
 
 SUITE=${1:-database}
 case "$SUITE" in
-    database|api) ;;
-    *) echo 'Expected database or api' >&2; exit 2 ;;
+    database|api|watchdog) ;;
+    *) echo 'Expected database, api or watchdog' >&2; exit 2 ;;
 esac
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -39,14 +39,20 @@ compose exec -T \
     -e AVELREN_API_PASSWORD=ci-only \
     test-db bash /workspace/ops/postgres-bootstrap.sh fresh </dev/null
 compose run --rm --no-deps -T test python -m avelren.migrate db/migrations </dev/null
-if [ "$SUITE" = api ]; then
+if [ "$SUITE" = api ] || [ "$SUITE" = watchdog ]; then
     compose run --rm --no-deps -T test python -m pytest \
-        -c services/backend/pytest.ini services/backend/tests/database/api \
+        -c services/backend/pytest.ini "services/backend/tests/database/$SUITE" \
         -q -p no:cacheprovider </dev/null
 else
     compose run --rm --no-deps -T test python -m pytest \
         -c services/backend/pytest.ini services/backend/tests/database \
-        --ignore=services/backend/tests/database/api -q -p no:cacheprovider </dev/null
+        --ignore=services/backend/tests/database/api \
+        --ignore=services/backend/tests/database/watchdog -q -p no:cacheprovider </dev/null
+fi
+if [ "$SUITE" = watchdog ]; then
+    compose run --rm --no-deps -T -e AVELREN_SNAPSHOT_TEST=1 test python -m pytest \
+        -c services/backend/pytest.ini services/backend/tests/snapshot \
+        -q -p no:cacheprovider </dev/null
 fi
 # Перевірка справжнього pg_dump під обмеженою backup-роллю; дані синтетичні.
 compose exec -T -e PGPASSWORD=ci-only test-db \

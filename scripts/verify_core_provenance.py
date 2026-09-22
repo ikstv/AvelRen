@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-for name in ("CORE-PROVENANCE.json", "DB-PROVENANCE.json", "API-PROVENANCE.json"):
+for name in (
+    "CORE-PROVENANCE.json",
+    "DB-PROVENANCE.json",
+    "API-PROVENANCE.json",
+    "WATCHDOG-PROVENANCE.json",
+):
     manifest = json.loads((root / "docs" / name).read_text(encoding="utf-8"))
     for entry in manifest["files"]:
         file = root / entry["destination"]
