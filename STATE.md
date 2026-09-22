@@ -5,14 +5,14 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `676a9f4`.
+Generated from `main` @ `661b744`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
 | Prod pinned to | `254fd17` |
-| `main` ahead by | **4 commit(s)** |
+| `main` ahead by | **5 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
 
@@ -27,6 +27,7 @@ one for 3B.2.
 - `dfcde7a` Clarify onboarding Premium and source copy (#189)
 - `b766b2f` Show Google Play in-app update prompt (#191)
 - `676a9f4` Refine settings and onboarding copy (#192)
+- `661b744` Polish update prompt and settings footer (#193)
 
 Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
@@ -60,19 +61,19 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 42 |
-| `chore/state-refresh` | 34 | 1 |
-| `codex/device-retention-cleanup` | 2 | 3 |
-| `codex/fix-launcher-icon` | 6 | 3 |
-| `codex/held-out-forecast` | 13 | 3 |
-| `codex/premium-instructions` | 7 | 3 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 9 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 3 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 3 |
-| `docs/readme-professional` | 1 | 97 |
-| `docs/signal-has-a-date` | 1 | 46 |
-| `feat/launcher-road-a` | 1 | 39 |
-| `feat/privacy-page` | 3 | 41 |
-| `feat/truthful-server-badge` | 1 | 36 |
-| `fix/backup-grants-and-rate-limits` | 1 | 33 |
-| `fix/prod-observability-cleanup` | 4 | 3 |
+| `chore/repo-tidy` | 2 | 43 |
+| `chore/state-refresh` | 36 | 1 |
+| `codex/device-retention-cleanup` | 2 | 4 |
+| `codex/fix-launcher-icon` | 6 | 4 |
+| `codex/held-out-forecast` | 13 | 4 |
+| `codex/premium-instructions` | 7 | 4 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 10 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 4 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 4 |
+| `docs/readme-professional` | 1 | 98 |
+| `docs/signal-has-a-date` | 1 | 47 |
+| `feat/launcher-road-a` | 1 | 40 |
+| `feat/privacy-page` | 3 | 42 |
+| `feat/truthful-server-badge` | 1 | 37 |
+| `fix/backup-grants-and-rate-limits` | 1 | 34 |
+| `fix/prod-observability-cleanup` | 4 | 4 |
