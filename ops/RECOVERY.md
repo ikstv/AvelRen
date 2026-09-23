@@ -70,9 +70,9 @@ backup dump і не проходять сценарій rehearsal зі стар�
 23.09.2026. Unit-и перенесено лише як вихідні файли; шляхи й інтеграцію з
 новим monorepo ще не адаптували. Це не інсталяція і не дозвіл запуску.
 
-**Ще не перенесені:** backup-контрактні тести, restore engine, його fail-closed
+**Ще не перенесені:** restore engine, його fail-closed
 CLI, production orchestrator, `restore-verify.sh` та integration-тести
-відновлення. Старі файли очікують `/opt/avelren`, попередні шляхи, Compose
+відновлення. Backup contract harness перенесено як `ops/backup-contract-test.sh`; він використовує фіктивні Docker/rclone команди й тимчасові файли. Його ще не виконували локально; перевірку виконає CI. Старі restore-файли очікують `/opt/avelren`, попередні шляхи, Compose
 services і певну модель ролей; їх не можна механічно підключати до нового
 репозиторію.
 ## Порядок перенесення коду
