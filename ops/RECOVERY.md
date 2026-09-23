@@ -47,9 +47,14 @@ orchestrator: він зупиняє ingress та клієнтів БД, пере
 стан API й новий успішний цикл collector. При невдачі він залишає сервіси
 зупиненими. Це руйнівна операція; опис інтерфейсу не є дозволом запуску.
 
-Тест нового репозиторію наразі не виконує повний restore. Database tests
-застосовують міграції до свіжої тимчасової TimescaleDB, але не завантажують
-backup dump і не проходять сценарій rehearsal зі старого ops.
+У новому репозиторії тепер є окрема повна репетиція restore. Вона створює
+випадковий Compose-проєкт із тимчасовою TimescaleDB, будує synthetic source DB,
+створює dump роллю `avelren_backup` і відновлює його в `restore_test`. Тест
+перевіряє правильне/неправильне ім'я БД і роль для schema/API smoke, відмову
+до зміни ownership при неочікуваній або відсутній relation, успішний API
+запит, а також виклик `timescaledb_post_restore()` після навмисно некоректного
+SQL. Він не завантажує production artifact із Drive і не перевіряє розшифрування
+`rclone crypt`.
 
 ## Що є в новому репозиторії
 
@@ -70,11 +75,35 @@ backup dump і не проходять сценарій rehearsal зі стар�
 23.09.2026. Unit-и перенесено лише як вихідні файли; шляхи й інтеграцію з
 новим monorepo ще не адаптували. Це не інсталяція і не дозвіл запуску.
 
-**Ще не перенесені:** restore engine, його fail-closed
-CLI, production orchestrator, `restore-verify.sh` та integration-тести
-відновлення. Backup contract harness перенесено як `ops/backup-contract-test.sh`; він використовує фіктивні Docker/rclone команди й тимчасові файли. Його ще не виконували локально; перевірку виконає CI. Старі restore-файли очікують `/opt/avelren`, попередні шляхи, Compose
-services і певну модель ролей; їх не можна механічно підключати до нового
-репозиторію.
+**Перенесено як source-only кандидати:** `ops/restore.sh`,
+`ops/restore-engine.lib.sh`, `ops/restore-verify.sh`,
+`services/backend/src/avelren/restore_smoke.py` та контрактні й інтеграційний
+тести під `ops/restore-*.{sh,py}`. Усі шляхи адаптовані до monorepo. Публічний
+CLI та verifier приймають лише `restore_test`; вони вимагають явний Compose
+файл, проєкт, host guard і маркер ізоляції всередині DB-контейнера до першого
+`dropdb`. Production orchestrator навмисно не переносився.
+
+**Походження:** базові restore-файли взято з зафіксованого `origin/main`
+публічного `ikstv/AvelRen`, commit
+`4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27`, після чого назви шляхів та
+сервісів адаптовано до цього monorepo. Пізніший незакомічений source-варіант
+не копіювався, бо він очікував іншу схему (`daily_admin_reports`), якої немає
+у вибраній послідовності ORIGINAL. Контрактні фікстури для цього переносу
+генеруються окремо й не містять production-даних.
+
+**Що реально перевірено локально (23.09.2026):** у Docker Desktop Linux engine
+29.7.2 пройшли 15 CLI-контрактів, 8 engine-контрактів, verification guard suite і статична звірка allowlist
+(15 таблиць/представлень, 6 послідовностей). Повна Docker-репетиція пройшла на
+синтетичному dump у тимчасовому Compose-проєкті; вона також перевірила API
+health/auth/device flow і cleanup TimescaleDB після помилки імпорту. `pg_dump`
+виводив типові попередження про циклічні FK TimescaleDB; Timescale-aware
+відновлення завершилося успішно. Starlette вивів наявне deprecation warning
+для `TestClient`; воно не зірвало smoke test.
+
+Backup contract harness `ops/backup-contract-test.sh` пройшов 18 сценаріїв у
+Linux-контейнері. На Windows Git Bash той тест не підходить для перевірки
+режиму `0700` через відмінну семантику Unix permissions; Linux-контейнер є
+канонічним середовищем цього контракту.
 ## Порядок перенесення коду
 
 1. Перенести backup і restore сценарії зі старого `AvelRen` разом із
@@ -83,9 +112,9 @@ services і певну модель ролей; їх не можна механ�
    orchestrator не запускати.
 2. Узгодити шляхи нового monorepo, назви сервісів, ролі та схему. Застосовані
    міграції не редагувати. Окремо перевірити схему 009 і ролі Timescale jobs.
-3. У CI створити тимчасову БД і синтетичний dump, перевірити backup-контракти,
-   відновити його та виконати schema/API smoke. Заборонити production volumes,
-   `.env`, Drive і запити до єЧерги.
+3. У CI повторно запускати backup-контракти, restore-контракти, static allowlist
+   і повну ізольовану restore-репетицію. Production volumes, `.env`, Drive та
+   запити до єЧерги в цих тестах заборонені.
 4. Підготувати план звірки production `ExecStart`, timer, образу, Compose
    override, міграційного pin та відкату. Це наступний етап перед окремо
    погодженим deployment.

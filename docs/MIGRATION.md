@@ -8,7 +8,7 @@
 
 Станом на 23.09.2026 перший блок collector/notifier зі спільними модулями
 перенесено до `services/backend/`; PR #2 із ядром і міграціями злитий у
-`main` комітом `9dddad1403fcddabb01c5d3a4ed72e617538851f`. PR #3 із
+`main` звичайним merge-комітом. PR #3 із
 [API/Admin](API-TRANSFER.md), [watchdog і телеметрією](WATCHDOG-TRANSFER.md)
 та [щоденним звітом](DAILY-REPORT.md) злитий у `main` комітом
 `68b6871fcc0f36fd0c8dae61c775844fb29e9deb`; чотири перевірки його точного
@@ -19,10 +19,11 @@ head успішні. Аудити API, production-сумісності та ві
 
 PR #4 з Android злитий у `main` звичайним merge-комітом
 `70324cb5d5a17d06dee51547f88522027319afca`; усі шість перевірок його точного
-head успішні. PR #1 із backup source, розкладом і контрактними тестами
-синхронізується з актуальним `main` у draft. Restore engine до ORIGINAL ще не
-перенесений. Ізольована репетиція старого source restore успішна, але не є
-перевіркою відновлення в ORIGINAL.
+head успішні. PR #1 із backup-кодом і контрактними тестами злитий у `main`
+комітом `11e80a6aaab1af03137b2f8d9b0a2042f99ecd05`. Restore engine перенесено
+в окрему гілку; контрактні тести й повна синтетична restore-репетиція в
+тимчасовому Docker-проєкті пройшли. Для цієї гілки ще треба перевірити CI та
+порівняти зміни перед злиттям. Production orchestrator і deployment не виконані.
 
 На production застосовані лише міграції 001–009; нові міграції та зміни
 репозиторію не розгорталися. Production-збірка, restore/rehearsal та будь-яке
