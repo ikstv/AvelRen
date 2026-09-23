@@ -1,0 +1,552 @@
+{
+  "context": [
+    {
+      "current_user": "avelren",
+      "current_database": "avelren",
+      "captured_at": "2026-09-23 13:18:06.466925+00:00"
+    }
+  ],
+  "history": [
+    {
+      "version": "001_init",
+      "sha256": "f4e05e824a8fb6001e1983f2ef30228174a69e0a31706bb3fc91f6e78796659c"
+    },
+    {
+      "version": "002_countries",
+      "sha256": "65bb7e95b27a5041c5a734cafb9fb1ad46a0e7ab92b5ff79e25a789fd3d54d4a"
+    },
+    {
+      "version": "003_checkpoints_sort_index",
+      "sha256": "f00240b6a72b1c727c67b82da53c4ee4562032861f43ba241c50f5c66ef4483e"
+    },
+    {
+      "version": "004_alerts",
+      "sha256": "bb2a352db98ea4dd7b10e84d530a8962e44879f882784c54c246a6be1e1822cf"
+    },
+    {
+      "version": "005_eta_targets",
+      "sha256": "fbe93e33672df1cb7da17cb058b7c7e98227e221c9275bc6dde4d839328a0175"
+    },
+    {
+      "version": "006_admin_devices",
+      "sha256": "6d495412502b3de1848ce40358a278140f577b708a2218f2ff27baadd9fbd0e9"
+    },
+    {
+      "version": "007_device_secret",
+      "sha256": "1e333fa8d2f0e6e6c12293c6f7a1e57d5fab65e36b0c0a6f039abd4bbf2146a4"
+    },
+    {
+      "version": "008_notification_cancels",
+      "sha256": "9e9def778050e3e3a7d4ff3f3b5a598ff66c96188eb9c3e6adc16eb57160425f"
+    },
+    {
+      "version": "009_observability",
+      "sha256": "8ed774face6228300346c49cf49cd81979345a2de4c034b59dd2fd0771e99471"
+    }
+  ],
+  "admin_count": [
+    {
+      "admins": 1
+    }
+  ],
+  "roles": [
+    {
+      "rolname": "avelren",
+      "rolsuper": true,
+      "rolinherit": true,
+      "rolcreaterole": true,
+      "rolcreatedb": true,
+      "rolbypassrls": true
+    },
+    {
+      "rolname": "avelren_admin",
+      "rolsuper": true,
+      "rolinherit": true,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolbypassrls": false
+    },
+    {
+      "rolname": "avelren_api",
+      "rolsuper": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolbypassrls": false
+    },
+    {
+      "rolname": "avelren_backup",
+      "rolsuper": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolbypassrls": false
+    },
+    {
+      "rolname": "avelren_collector",
+      "rolsuper": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolbypassrls": false
+    },
+    {
+      "rolname": "avelren_migrator",
+      "rolsuper": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolbypassrls": false
+    },
+    {
+      "rolname": "avelren_notifier",
+      "rolsuper": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolbypassrls": false
+    },
+    {
+      "rolname": "avelren_watchdog",
+      "rolsuper": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolbypassrls": false
+    }
+  ],
+  "memberships": [],
+  "relations": [
+    {
+      "relname": "alerts",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "alerts_id_seq",
+      "relkind": "S",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "checkpoints",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "collector_runs",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "countries",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "devices",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "eta_alerts",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "eta_alerts_id_seq",
+      "relkind": "S",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "eta_targets",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "eta_targets_id_seq",
+      "relkind": "S",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "health_alerts",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "health_alerts_id_seq",
+      "relkind": "S",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "notification_cancels",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "notification_cancels_id_seq",
+      "relkind": "S",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "observations",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "observations_hourly",
+      "relkind": "v",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "schema_migrations",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "subscription_state",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "subscriptions",
+      "relkind": "r",
+      "owner": "avelren_migrator"
+    },
+    {
+      "relname": "subscriptions_id_seq",
+      "relkind": "S",
+      "owner": "avelren_migrator"
+    }
+  ],
+  "table_grants": [
+    {
+      "relname": "alerts",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "alerts",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "checkpoints",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "checkpoints",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "collector_runs",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "collector_runs",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "countries",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "countries",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "devices",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "eta_alerts",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "eta_alerts",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "eta_targets",
+      "rolname": "avelren_api",
+      "privilege": "DELETE"
+    },
+    {
+      "relname": "eta_targets",
+      "rolname": "avelren_api",
+      "privilege": "INSERT"
+    },
+    {
+      "relname": "eta_targets",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "eta_targets",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "eta_targets",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "health_alerts",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "health_alerts",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "notification_cancels",
+      "rolname": "avelren_api",
+      "privilege": "INSERT"
+    },
+    {
+      "relname": "notification_cancels",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "observations",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "observations",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "observations_hourly",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "observations_hourly",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "schema_migrations",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "schema_migrations",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "subscription_state",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "subscriptions",
+      "rolname": "avelren_api",
+      "privilege": "DELETE"
+    },
+    {
+      "relname": "subscriptions",
+      "rolname": "avelren_api",
+      "privilege": "INSERT"
+    },
+    {
+      "relname": "subscriptions",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "subscriptions",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "subscriptions",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    }
+  ],
+  "column_grants": [
+    {
+      "relname": "alerts",
+      "attname": "acknowledged_at",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "alerts",
+      "attname": "status",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "devices",
+      "attname": "fcm_token",
+      "rolname": "avelren_api",
+      "privilege": "INSERT"
+    },
+    {
+      "relname": "devices",
+      "attname": "fcm_token",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "devices",
+      "attname": "fcm_token",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "devices",
+      "attname": "id",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "devices",
+      "attname": "is_admin",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "devices",
+      "attname": "last_seen",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "devices",
+      "attname": "last_seen",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "devices",
+      "attname": "platform",
+      "rolname": "avelren_api",
+      "privilege": "INSERT"
+    },
+    {
+      "relname": "devices",
+      "attname": "platform",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "devices",
+      "attname": "secret_hash",
+      "rolname": "avelren_api",
+      "privilege": "INSERT"
+    },
+    {
+      "relname": "devices",
+      "attname": "secret_hash",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "eta_alerts",
+      "attname": "acknowledged_at",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "eta_alerts",
+      "attname": "status",
+      "rolname": "avelren_api",
+      "privilege": "UPDATE"
+    },
+    {
+      "relname": "notification_cancels",
+      "attname": "alert_id",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "notification_cancels",
+      "attname": "kind",
+      "rolname": "avelren_api",
+      "privilege": "SELECT"
+    }
+  ],
+  "sequence_grants": [
+    {
+      "relname": "alerts_id_seq",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "eta_alerts_id_seq",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "eta_targets_id_seq",
+      "rolname": "avelren_api",
+      "privilege": "USAGE"
+    },
+    {
+      "relname": "eta_targets_id_seq",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "health_alerts_id_seq",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "notification_cancels_id_seq",
+      "rolname": "avelren_api",
+      "privilege": "USAGE"
+    },
+    {
+      "relname": "notification_cancels_id_seq",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    },
+    {
+      "relname": "subscriptions_id_seq",
+      "rolname": "avelren_api",
+      "privilege": "USAGE"
+    },
+    {
+      "relname": "subscriptions_id_seq",
+      "rolname": "avelren_backup",
+      "privilege": "SELECT"
+    }
+  ],
+  "schema_grants": [
+    {
+      "rolname": "avelren_api",
+      "privilege": "USAGE"
+    },
+    {
+      "rolname": "avelren_backup",
+      "privilege": "USAGE"
+    },
+    {
+      "rolname": "avelren_migrator",
+      "privilege": "CREATE"
+    },
+    {
+      "rolname": "avelren_migrator",
+      "privilege": "USAGE"
+    }
+  ]
+}

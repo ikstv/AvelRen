@@ -1,0 +1,2227 @@
+{
+  "scope": "Read-only server audit; no secrets, device identifiers or production data dump.",
+  "refs": {
+    "new_main": "9dddad1403fcddabb01c5d3a4ed72e617538851f",
+    "pr3_tested": "1418385e7dd1275b79440c185f986379393a8fd0",
+    "pr4": "ca3d60291b53a67625ed3424e29c7fb2b951879a",
+    "pr1": "7860e0c36f1379f9ddbd17a874aa9b7268c38a4c",
+    "old_main": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+    "old_ops_main": "5be9da8b433813a664b4d4e21a0a92bae91c56a0"
+  },
+  "host": {
+    "captured_at": "2026-09-23T13:23:51.070758+00:00",
+    "system": {
+      "uptime": "13:23:51 up 2 days,  7:28,  2 users,  load average: 0.20, 0.18, 0.11",
+      "disk": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        38G  8.6G   28G  24% /",
+      "memory": "total        used        free      shared  buff/cache   available\nMem:            3819         970        1013          91        2221        2848\nSwap:           2047           0        2047",
+      "failed_units": "",
+      "reboot_required": false,
+      "timers": "NEXT                            LEFT LAST                              PASSED UNIT                           ACTIVATES\nWed 2026-09-23 13:24:16 UTC      25s Wed 2026-09-23 13:23:16 UTC      34s ago avelren-telemetry.timer        avelren-telemetry.service\nWed 2026-09-23 13:30:00 UTC     6min Wed 2026-09-23 13:20:00 UTC 3min 50s ago sysstat-collect.timer          sysstat-collect.service\nWed 2026-09-23 18:34:12 UTC 5h 10min Wed 2026-09-23 09:41:56 UTC 3h 41min ago apt-daily.timer                apt-daily.service\nWed 2026-09-23 21:49:42 UTC       8h Wed 2026-09-23 09:42:39 UTC 3h 41min ago motd-news.timer                motd-news.service\nThu 2026-09-24 00:00:00 UTC      10h Wed 2026-09-23 00:00:04 UTC      13h ago dpkg-db-backup.timer           dpkg-db-backup.service\nThu 2026-09-24 00:00:00 UTC      10h Wed 2026-09-23 00:00:04 UTC      13h ago logrotate.timer                logrotate.service\nThu 2026-09-24 00:07:00 UTC      10h Wed 2026-09-23 00:07:04 UTC      13h ago sysstat-summary.timer          sysstat-summary.service\nThu 2026-09-24 03:22:38 UTC      13h Wed 2026-09-23 03:29:56 UTC       9h ago avelren-backup.timer           avelren-backup.service\nThu 2026-09-24 06:00:04 UTC      16h Wed 2026-09-23 06:00:04 UTC       7h ago update-notifier-download.timer update-notifier-download.service\nThu 2026-09-24 06:10:04 UTC      16h Wed 2026-09-23 06:10:04 UTC       7h ago systemd-tmpfiles-clean.timer   systemd-tmpfiles-clean.service\nThu 2026-09-24 06:49:53 UTC      17h Wed 2026-09-23 06:16:04 UTC       7h ago apt-daily-upgrade.timer        apt-daily-upgrade.service\nThu 2026-09-24 09:47:06 UTC      20h Wed 2026-09-23 06:16:27 UTC       7h ago man-db.timer                   man-db.service\nFri 2026-09-25 14:44:39 UTC   2 days Wed 2026-09-16 09:35:01 UTC            - update-notifier-motd.timer     update-notifier-motd.service\nSun 2026-09-27 03:10:55 UTC   3 days Sun 2026-09-20 03:10:50 UTC            - e2scrub_all.timer              e2scrub_all.service\nMon 2026-09-28 00:19:22 UTC   4 days Mon 2026-09-21 00:46:50 UTC            - fstrim.timer                   fstrim.service\n-                                  - -                                      - apport-autoreport.timer        apport-autoreport.service\n-                                  - -                                      - snapd.snap-repair.timer        snapd.snap-repair.service\n-                                  - -                                      - ua-timer.timer                 ua-timer.service\n\n18 timers listed.",
+      "listeners": "State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess\nLISTEN 0      4096         0.0.0.0:22        0.0.0.0:*          \nLISTEN 0      4096         0.0.0.0:80        0.0.0.0:*          \nLISTEN 0      4096         0.0.0.0:443       0.0.0.0:*          \nLISTEN 0      4096      127.0.0.54:53        0.0.0.0:*          \nLISTEN 0      4096   127.0.0.53%lo:53        0.0.0.0:*          \nLISTEN 0      4096            [::]:22           [::]:*          \nLISTEN 0      4096            [::]:80           [::]:*          \nLISTEN 0      4096            [::]:443          [::]:*",
+      "firewall": "Status: active\n\nTo                         Action      From\n--                         ------      ----\n22/tcp                     ALLOW       Anywhere                  \n80/tcp                     ALLOW       Anywhere                  \n443/tcp                    ALLOW       Anywhere                  \n22/tcp (v6)                ALLOW       Anywhere (v6)             \n80/tcp (v6)                ALLOW       Anywhere (v6)             \n443/tcp (v6)               ALLOW       Anywhere (v6)"
+    },
+    "checkout": {
+      "head": "81e5b047f8f18c42ca46a59f86495f71d0681af0",
+      "status": "M app/src/avelren/watchdog.py\n M deploy/telemetry-snapshot.sh\n?? deploy/static/privacy-policy.html.bak-20260824-113543\n?? docker-compose.override.yml.bak-20260905-131812\n?? docker-compose.override.yml.pre-88",
+      "branch": "main"
+    },
+    "files": {
+      "/opt/avelren/app/src/avelren/forecast.py": {
+        "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf"
+      },
+      "/opt/avelren/app/src/avelren/admin_enroll.py": {
+        "sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533"
+      },
+      "/opt/avelren/app/src/avelren/schema_verify.py": {
+        "sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed"
+      },
+      "/opt/avelren/app/src/avelren/__init__.py": {
+        "sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed"
+      },
+      "/opt/avelren/app/src/avelren/migrate.py": {
+        "sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129"
+      },
+      "/opt/avelren/app/src/avelren/watchdog.py": {
+        "sha256": "85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d"
+      },
+      "/opt/avelren/app/src/avelren/restore_smoke.py": {
+        "sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2"
+      },
+      "/opt/avelren/app/src/avelren/api.py": {
+        "sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8"
+      },
+      "/opt/avelren/app/src/avelren/eta.py": {
+        "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740"
+      },
+      "/opt/avelren/app/src/avelren/schemas.py": {
+        "sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821"
+      },
+      "/opt/avelren/app/src/avelren/notifier.py": {
+        "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2"
+      },
+      "/opt/avelren/app/src/avelren/alerts.py": {
+        "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba"
+      },
+      "/opt/avelren/app/src/avelren/cancels.py": {
+        "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2"
+      },
+      "/opt/avelren/app/src/avelren/collector.py": {
+        "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661"
+      },
+      "/opt/avelren/app/src/avelren/fcm.py": {
+        "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4"
+      },
+      "/opt/avelren/app/src/avelren/config.py": {
+        "sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9"
+      },
+      "/opt/avelren/app/src/avelren/telemetry.py": {
+        "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff"
+      },
+      "/opt/avelren/app/src/avelren/echerha.py": {
+        "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f"
+      },
+      "/opt/avelren/app/src/avelren/subscriptions_api.py": {
+        "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402"
+      },
+      "/opt/avelren/app/src/avelren/restore_identity.py": {
+        "sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd"
+      },
+      "/opt/avelren/app/src/avelren/db.py": {
+        "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309"
+      },
+      "/opt/avelren/app/src/avelren/schema_gate.py": {
+        "sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65"
+      },
+      "/opt/avelren/app/src/avelren/ratelimit.py": {
+        "sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0"
+      },
+      "/opt/avelren/app/src/avelren/limits.py": {
+        "sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4"
+      },
+      "/opt/avelren/app/src/avelren/models.py": {
+        "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae"
+      },
+      "/opt/avelren/app/src/avelren/restore_readonly_smoke.py": {
+        "sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722"
+      },
+      "/opt/avelren/deploy/PROD_PIN": {
+        "sha256": "552b5b6fe83f0a86f2ab4a89f56e1c43cfd262c18d7842ba91e3bc7d38997e6e"
+      },
+      "/opt/avelren/deploy/postgres-ownership.lib.sh": {
+        "sha256": "3537d168c02c4457d8e92946cd338dad3b4e1c453c7fbb7bcb655f2686c8e632"
+      },
+      "/opt/avelren/deploy/restore-production-integration-test.sh": {
+        "sha256": "616c62ba0cf50e58d0dab0c16fdcc1665f2f5a2ac4997c28dfcf3a524ddf50a5"
+      },
+      "/opt/avelren/deploy/restore-contract-test.sh": {
+        "sha256": "da08fd481c49fb482cab083cf666af8c09ef2ed71c5bf4764fa4cac8adb63d72"
+      },
+      "/opt/avelren/deploy/restore-integration-test.sh": {
+        "sha256": "f20b2e93e61d56201715840e1f8bbed3923d0db84b4d0d31015dab355737c06a"
+      },
+      "/opt/avelren/deploy/backup-contract-test.sh": {
+        "sha256": "d4bc64deaa06af54d7c226ee9b4eeb1ea261ebc4a50376cef1cd91748c4d7849"
+      },
+      "/opt/avelren/deploy/avelren-backup.service": {
+        "sha256": "dc49dd062523844f3ea433cfc54bb2ae96f7d2735c66d087ecce5f712ef0a240"
+      },
+      "/opt/avelren/deploy/postgres-adopt.sh": {
+        "sha256": "7cbdbcccab2c8a4d73341fe8bfd69abdaae1931ece6f22d0b07508a809ec73f0"
+      },
+      "/opt/avelren/deploy/restore.sh": {
+        "sha256": "d31a4b22b31685ff3e6122caf3338c23384f714bbb907a3c430a687efd7de35b"
+      },
+      "/opt/avelren/deploy/postgres-bootstrap-contract-test.sh": {
+        "sha256": "5883a1189c75b136b91fc2d53f9b68b00ae89995c3857914ee789a44823eddef"
+      },
+      "/opt/avelren/deploy/restore-verify.sh": {
+        "sha256": "98d49a546be35c82e7dde2512f57c18c8f63b9d3b56ed1fad8f6cfc6d065e074"
+      },
+      "/opt/avelren/deploy/restore-engine.lib.sh": {
+        "sha256": "404814b2b7b4a7ea26a46ca5c10cc6eb6333e445bad5eef19a1c0d1bddfd848c"
+      },
+      "/opt/avelren/deploy/postgres-bootstrap.sh": {
+        "sha256": "1367916a31c5e1835d8e12c4b582b4081385d4dbfbf8518c38ce558dd8f992db"
+      },
+      "/opt/avelren/deploy/postgres-roles-integration-test.sh": {
+        "sha256": "064b0cb2dea8d218a22ab4f34353c00e23f4af4bacfac527b4002118cbd9e15b"
+      },
+      "/opt/avelren/deploy/restore-verify-guard-contract-test.sh": {
+        "sha256": "382074078f7f62b940c36a2518e6c9217ebaf8a07f38a83563071587ac161e17"
+      },
+      "/opt/avelren/deploy/avelren-telemetry.timer": {
+        "sha256": "a8bcbe1de98306f6f6df9d6eb9babe343b338522259ad597bf5ec3465d034025"
+      },
+      "/opt/avelren/deploy/postgres-privilege-gate-contract-test.sh": {
+        "sha256": "60a88570a9fbf2d4208fb389b6dc8755a7cbe16258dfc4fed237478ad6d22558"
+      },
+      "/opt/avelren/deploy/telemetry-snapshot.sh": {
+        "sha256": "577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966"
+      },
+      "/opt/avelren/deploy/postgres-adoption-contract-test.sh": {
+        "sha256": "86d8120fd83dadfb883c0a308ecdeb57ba4bb103ffcef3a502aabea5391aac3c"
+      },
+      "/opt/avelren/deploy/restore-engine-contract-test.sh": {
+        "sha256": "079abe63ca9d702780a096350cdcad287f2a2e5ca82fb8b796ae4290da74a812"
+      },
+      "/opt/avelren/deploy/restore-production.sh": {
+        "sha256": "e942086554fcd97c10ac91850d43f6af88f2123b70305ff5429b525e0ce26f5a"
+      },
+      "/opt/avelren/deploy/postgres-adoption-bootstrap-topology-test.sh": {
+        "sha256": "6f83c3fd64c91a87f1ec1193e76b741368b106a3508cd70c8e9804c6ffc94f8d"
+      },
+      "/opt/avelren/deploy/classify_alert_channel.py": {
+        "sha256": "55f857305c9648e42ad659afb38e2c05bbe1e2fb359c4949c9d99fa145260b66"
+      },
+      "/opt/avelren/deploy/restore-allowlist-contract-test.py": {
+        "sha256": "634e90a8fe0c7484cd39abbc2746920bd3aa4ec2e079bdc1594cfb8219c1c761"
+      },
+      "/opt/avelren/deploy/restore-production-contract-test.sh": {
+        "sha256": "be720ba77a43644ef93aec9518146719fbba326b43e5420bab4546445640c749"
+      },
+      "/opt/avelren/deploy/compose-security-contract-test.sh": {
+        "sha256": "b5a846fe1db24c35aeddddcb40848e5fd3ae2b04b3a26be527ffb1b4bdbfc5db"
+      },
+      "/opt/avelren/deploy/postgres-privilege-gate.sh": {
+        "sha256": "71bdd992bbd1d42431abf23177ed55c76864c1bd79f28d3c065fd82391defa2b"
+      },
+      "/opt/avelren/deploy/avelren-backup.timer": {
+        "sha256": "d0c0c11ddcdd306dcec482d999b5df727127cdbc49df3f8d695ac9c644392f87"
+      },
+      "/opt/avelren/deploy/avelren-telemetry.service": {
+        "sha256": "8c7cf118db38fb0de831d52c01dff55331e1153ff7f1f64cc25cfc883074a000"
+      },
+      "/opt/avelren/deploy/backup.sh": {
+        "sha256": "de881a23614d40336cb1a7f51495124e30e152b1762f32fb0e90bae9b86dfae9"
+      },
+      "/opt/avelren/deploy/postgres-adoption-integration-test.sh": {
+        "sha256": "27e6a18f0939886b774563feabd5e307eefed5fef770977d23bbd378a3479589"
+      },
+      "/opt/avelren/db/migrations/008_notification_cancels.sql": {
+        "sha256": "9e9def778050e3e3a7d4ff3f3b5a598ff66c96188eb9c3e6adc16eb57160425f"
+      },
+      "/opt/avelren/db/migrations/007_device_secret.sql": {
+        "sha256": "1e333fa8d2f0e6e6c12293c6f7a1e57d5fab65e36b0c0a6f039abd4bbf2146a4"
+      },
+      "/opt/avelren/db/migrations/010_postgresql_least_privilege.sql": {
+        "sha256": "1bbc6b07b61aea0d78c712c04bb2025fa3f5a5c1a033c24eba7b07a65dd73f29"
+      },
+      "/opt/avelren/db/migrations/006_admin_devices.sql": {
+        "sha256": "6d495412502b3de1848ce40358a278140f577b708a2218f2ff27baadd9fbd0e9"
+      },
+      "/opt/avelren/db/migrations/003_checkpoints_sort_index.sql": {
+        "sha256": "f00240b6a72b1c727c67b82da53c4ee4562032861f43ba241c50f5c66ef4483e"
+      },
+      "/opt/avelren/db/migrations/005_eta_targets.sql": {
+        "sha256": "fbe93e33672df1cb7da17cb058b7c7e98227e221c9275bc6dde4d839328a0175"
+      },
+      "/opt/avelren/db/migrations/002_countries.sql": {
+        "sha256": "65bb7e95b27a5041c5a734cafb9fb1ad46a0e7ab92b5ff79e25a789fd3d54d4a"
+      },
+      "/opt/avelren/db/migrations/001_init.sql": {
+        "sha256": "f4e05e824a8fb6001e1983f2ef30228174a69e0a31706bb3fc91f6e78796659c"
+      },
+      "/opt/avelren/db/migrations/004_alerts.sql": {
+        "sha256": "bb2a352db98ea4dd7b10e84d530a8962e44879f882784c54c246a6be1e1822cf"
+      },
+      "/opt/avelren/db/migrations/009_observability.sql": {
+        "sha256": "8ed774face6228300346c49cf49cd81979345a2de4c034b59dd2fd0771e99471"
+      },
+      "/usr/local/sbin/avelren-backup": {
+        "sha256": "de881a23614d40336cb1a7f51495124e30e152b1762f32fb0e90bae9b86dfae9"
+      },
+      "/usr/local/sbin/avelren-restore": {
+        "sha256": "ad67595bf368d298b072c344572dd3d54c9c64ca5696337e46942eac5365550c"
+      },
+      "/usr/local/sbin/avelren-telemetry-snapshot": {
+        "sha256": "577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966"
+      }
+    },
+    "units": {
+      "avelren-backup.service": "Result=success\nExecMainStartTimestamp=Wed 2026-09-23 03:29:56 UTC\nExecMainExitTimestamp=Wed 2026-09-23 03:34:57 UTC\nExecMainStatus=0\nActiveState=inactive\nSubState=dead\nFragmentPath=/etc/systemd/system/avelren-backup.service",
+      "avelren-backup.timer": "NextElapseUSecRealtime=Thu 2026-09-24 03:22:38 UTC\nLastTriggerUSec=Wed 2026-09-23 03:29:56 UTC\nResult=success\nActiveState=active\nSubState=waiting\nFragmentPath=/etc/systemd/system/avelren-backup.timer",
+      "avelren-telemetry.service": "Result=success\nExecMainStartTimestamp=Wed 2026-09-23 13:23:16 UTC\nExecMainExitTimestamp=Wed 2026-09-23 13:23:20 UTC\nExecMainStatus=0\nActiveState=inactive\nSubState=dead\nFragmentPath=/etc/systemd/system/avelren-telemetry.service",
+      "avelren-telemetry.timer": "NextElapseUSecRealtime=\nLastTriggerUSec=Wed 2026-09-23 13:23:16 UTC\nResult=success\nActiveState=active\nSubState=waiting\nFragmentPath=/etc/systemd/system/avelren-telemetry.timer"
+    },
+    "containers": {
+      "api": {
+        "image_id": "sha256:f52aad81baee447a5949df5d9371231ec62b7f1c095cba78cc3bfc3c633f568e",
+        "image_tag": "avelren-app:latest",
+        "started_at": "2026-09-21T05:55:06.317903687Z",
+        "status": "running",
+        "restart_count": 0,
+        "oom_killed": false,
+        "health": null,
+        "user": "avelren",
+        "memory": 536870912,
+        "pids_limit": null,
+        "privileged": false,
+        "readonly_rootfs": false,
+        "security_opt": null,
+        "cap_drop": null,
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/var/lib/avelren-telemetry",
+            "Destination": "/telemetry",
+            "RW": false
+          }
+        ],
+        "env_names": [
+          "AVELREN_GIT_SHA",
+          "DATABASE_URL",
+          "ECHERHA_VEHICLE_TYPE",
+          "PATH",
+          "PIP_NO_CACHE_DIR",
+          "POLL_INTERVAL_SECONDS",
+          "PYTHONDONTWRITEBYTECODE",
+          "PYTHONUNBUFFERED",
+          "PYTHON_SHA256",
+          "PYTHON_VERSION"
+        ],
+        "safe_env": {
+          "POLL_INTERVAL_SECONDS": "60",
+          "AVELREN_GIT_SHA": "254fd17b2b814d10c5455b9d0b5da823370253e6"
+        },
+        "log_counts": {
+          "traceback": 0,
+          "error_word": 0,
+          "critical_word": 0,
+          "http_429": 0,
+          "permission_denied": 0,
+          "connection_refused": 0,
+          "exception_word": 0
+        },
+        "sources": {
+          "forecast.py": {
+            "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf"
+          },
+          "admin_enroll.py": {
+            "sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533"
+          },
+          "schema_verify.py": {
+            "sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed"
+          },
+          "__init__.py": {
+            "sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed"
+          },
+          "migrate.py": {
+            "sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129"
+          },
+          "watchdog.py": {
+            "sha256": "005300321ac8d90322d7a543d5388355c409c353ae191191596622ea0a7901d2"
+          },
+          "restore_smoke.py": {
+            "sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2"
+          },
+          "api.py": {
+            "sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8"
+          },
+          "eta.py": {
+            "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740"
+          },
+          "schemas.py": {
+            "sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821"
+          },
+          "notifier.py": {
+            "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2"
+          },
+          "alerts.py": {
+            "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba"
+          },
+          "cancels.py": {
+            "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2"
+          },
+          "collector.py": {
+            "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661"
+          },
+          "fcm.py": {
+            "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4"
+          },
+          "config.py": {
+            "sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9"
+          },
+          "telemetry.py": {
+            "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff"
+          },
+          "echerha.py": {
+            "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f"
+          },
+          "subscriptions_api.py": {
+            "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402"
+          },
+          "restore_identity.py": {
+            "sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd"
+          },
+          "db.py": {
+            "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309"
+          },
+          "schema_gate.py": {
+            "sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65"
+          },
+          "ratelimit.py": {
+            "sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0"
+          },
+          "limits.py": {
+            "sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4"
+          },
+          "models.py": {
+            "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae"
+          },
+          "restore_readonly_smoke.py": {
+            "sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722"
+          }
+        }
+      },
+      "collector": {
+        "image_id": "sha256:f52aad81baee447a5949df5d9371231ec62b7f1c095cba78cc3bfc3c633f568e",
+        "image_tag": "avelren-app:latest",
+        "started_at": "2026-09-21T05:55:06.313796336Z",
+        "status": "running",
+        "restart_count": 0,
+        "oom_killed": false,
+        "health": null,
+        "user": "avelren",
+        "memory": 268435456,
+        "pids_limit": null,
+        "privileged": false,
+        "readonly_rootfs": false,
+        "security_opt": null,
+        "cap_drop": null,
+        "mounts": [],
+        "env_names": [
+          "AVELREN_GIT_SHA",
+          "CONTACT_EMAIL",
+          "DATABASE_URL",
+          "ECHERHA_API_VERSION",
+          "ECHERHA_BASE_URL",
+          "ECHERHA_CLIENT_VERSION",
+          "ECHERHA_DEVICE_ID",
+          "ECHERHA_DEVICE_NAME",
+          "ECHERHA_VEHICLE_TYPE",
+          "HTTP_TIMEOUT_SECONDS",
+          "LOG_LEVEL",
+          "PATH",
+          "PIP_NO_CACHE_DIR",
+          "POLL_INTERVAL_SECONDS",
+          "PYTHONDONTWRITEBYTECODE",
+          "PYTHONUNBUFFERED",
+          "PYTHON_SHA256",
+          "PYTHON_VERSION",
+          "REARM_FACTOR"
+        ],
+        "safe_env": {
+          "ECHERHA_API_VERSION": "5",
+          "ECHERHA_CLIENT_VERSION": "3.9.0",
+          "POLL_INTERVAL_SECONDS": "60",
+          "LOG_LEVEL": "INFO",
+          "AVELREN_GIT_SHA": "254fd17b2b814d10c5455b9d0b5da823370253e6"
+        },
+        "log_counts": {
+          "traceback": 0,
+          "error_word": 156,
+          "critical_word": 0,
+          "http_429": 0,
+          "permission_denied": 0,
+          "connection_refused": 0,
+          "exception_word": 0
+        },
+        "sources": {
+          "forecast.py": {
+            "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf"
+          },
+          "admin_enroll.py": {
+            "sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533"
+          },
+          "schema_verify.py": {
+            "sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed"
+          },
+          "__init__.py": {
+            "sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed"
+          },
+          "migrate.py": {
+            "sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129"
+          },
+          "watchdog.py": {
+            "sha256": "005300321ac8d90322d7a543d5388355c409c353ae191191596622ea0a7901d2"
+          },
+          "restore_smoke.py": {
+            "sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2"
+          },
+          "api.py": {
+            "sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8"
+          },
+          "eta.py": {
+            "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740"
+          },
+          "schemas.py": {
+            "sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821"
+          },
+          "notifier.py": {
+            "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2"
+          },
+          "alerts.py": {
+            "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba"
+          },
+          "cancels.py": {
+            "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2"
+          },
+          "collector.py": {
+            "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661"
+          },
+          "fcm.py": {
+            "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4"
+          },
+          "config.py": {
+            "sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9"
+          },
+          "telemetry.py": {
+            "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff"
+          },
+          "echerha.py": {
+            "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f"
+          },
+          "subscriptions_api.py": {
+            "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402"
+          },
+          "restore_identity.py": {
+            "sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd"
+          },
+          "db.py": {
+            "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309"
+          },
+          "schema_gate.py": {
+            "sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65"
+          },
+          "ratelimit.py": {
+            "sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0"
+          },
+          "limits.py": {
+            "sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4"
+          },
+          "models.py": {
+            "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae"
+          },
+          "restore_readonly_smoke.py": {
+            "sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722"
+          }
+        }
+      },
+      "notifier": {
+        "image_id": "sha256:f52aad81baee447a5949df5d9371231ec62b7f1c095cba78cc3bfc3c633f568e",
+        "image_tag": "avelren-app:latest",
+        "started_at": "2026-09-21T05:55:06.29084582Z",
+        "status": "running",
+        "restart_count": 0,
+        "oom_killed": false,
+        "health": null,
+        "user": "avelren",
+        "memory": 268435456,
+        "pids_limit": null,
+        "privileged": false,
+        "readonly_rootfs": false,
+        "security_opt": null,
+        "cap_drop": null,
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/opt/avelren/secrets",
+            "Destination": "/secrets",
+            "RW": false
+          }
+        ],
+        "env_names": [
+          "ALERT_RESEND_SECONDS",
+          "AVELREN_GIT_SHA",
+          "DATABASE_URL",
+          "FCM_CREDENTIALS_PATH",
+          "HTTP_TIMEOUT_SECONDS",
+          "LOG_LEVEL",
+          "PATH",
+          "PIP_NO_CACHE_DIR",
+          "PYTHONDONTWRITEBYTECODE",
+          "PYTHONUNBUFFERED",
+          "PYTHON_SHA256",
+          "PYTHON_VERSION"
+        ],
+        "safe_env": {
+          "LOG_LEVEL": "INFO",
+          "AVELREN_GIT_SHA": "254fd17b2b814d10c5455b9d0b5da823370253e6"
+        },
+        "log_counts": {
+          "traceback": 0,
+          "error_word": 0,
+          "critical_word": 0,
+          "http_429": 0,
+          "permission_denied": 0,
+          "connection_refused": 0,
+          "exception_word": 0
+        },
+        "sources": {
+          "forecast.py": {
+            "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf"
+          },
+          "admin_enroll.py": {
+            "sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533"
+          },
+          "schema_verify.py": {
+            "sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed"
+          },
+          "__init__.py": {
+            "sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed"
+          },
+          "migrate.py": {
+            "sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129"
+          },
+          "watchdog.py": {
+            "sha256": "005300321ac8d90322d7a543d5388355c409c353ae191191596622ea0a7901d2"
+          },
+          "restore_smoke.py": {
+            "sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2"
+          },
+          "api.py": {
+            "sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8"
+          },
+          "eta.py": {
+            "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740"
+          },
+          "schemas.py": {
+            "sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821"
+          },
+          "notifier.py": {
+            "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2"
+          },
+          "alerts.py": {
+            "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba"
+          },
+          "cancels.py": {
+            "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2"
+          },
+          "collector.py": {
+            "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661"
+          },
+          "fcm.py": {
+            "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4"
+          },
+          "config.py": {
+            "sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9"
+          },
+          "telemetry.py": {
+            "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff"
+          },
+          "echerha.py": {
+            "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f"
+          },
+          "subscriptions_api.py": {
+            "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402"
+          },
+          "restore_identity.py": {
+            "sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd"
+          },
+          "db.py": {
+            "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309"
+          },
+          "schema_gate.py": {
+            "sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65"
+          },
+          "ratelimit.py": {
+            "sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0"
+          },
+          "limits.py": {
+            "sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4"
+          },
+          "models.py": {
+            "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae"
+          },
+          "restore_readonly_smoke.py": {
+            "sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722"
+          }
+        }
+      },
+      "watchdog": {
+        "image_id": "sha256:978ec2d927b71b24eeac235742678b12c804f9d06f5b1e21d6254efc0e74f921",
+        "image_tag": "avelren-app:latest",
+        "started_at": "2026-09-22T17:16:55.214481945Z",
+        "status": "running",
+        "restart_count": 0,
+        "oom_killed": false,
+        "health": null,
+        "user": "avelren",
+        "memory": 268435456,
+        "pids_limit": null,
+        "privileged": false,
+        "readonly_rootfs": false,
+        "security_opt": null,
+        "cap_drop": null,
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/opt/avelren/secrets",
+            "Destination": "/secrets",
+            "RW": false
+          },
+          {
+            "Type": "bind",
+            "Source": "/var/lib/avelren-telemetry",
+            "Destination": "/telemetry",
+            "RW": false
+          }
+        ],
+        "env_names": [
+          "AVELREN_GIT_SHA",
+          "DATABASE_URL",
+          "FCM_CREDENTIALS_PATH",
+          "HTTP_TIMEOUT_SECONDS",
+          "LOG_LEVEL",
+          "PATH",
+          "PIP_NO_CACHE_DIR",
+          "POLL_INTERVAL_SECONDS",
+          "PYTHONDONTWRITEBYTECODE",
+          "PYTHONUNBUFFERED",
+          "PYTHON_SHA256",
+          "PYTHON_VERSION"
+        ],
+        "safe_env": {
+          "LOG_LEVEL": "INFO",
+          "POLL_INTERVAL_SECONDS": "60",
+          "AVELREN_GIT_SHA": ""
+        },
+        "log_counts": {
+          "traceback": 0,
+          "error_word": 2,
+          "critical_word": 0,
+          "http_429": 0,
+          "permission_denied": 0,
+          "connection_refused": 0,
+          "exception_word": 0
+        },
+        "sources": {
+          "forecast.py": {
+            "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf"
+          },
+          "admin_enroll.py": {
+            "sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533"
+          },
+          "schema_verify.py": {
+            "sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed"
+          },
+          "__init__.py": {
+            "sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed"
+          },
+          "migrate.py": {
+            "sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129"
+          },
+          "watchdog.py": {
+            "sha256": "85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d"
+          },
+          "restore_smoke.py": {
+            "sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2"
+          },
+          "api.py": {
+            "sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8"
+          },
+          "eta.py": {
+            "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740"
+          },
+          "schemas.py": {
+            "sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821"
+          },
+          "notifier.py": {
+            "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2"
+          },
+          "alerts.py": {
+            "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba"
+          },
+          "cancels.py": {
+            "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2"
+          },
+          "collector.py": {
+            "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661"
+          },
+          "fcm.py": {
+            "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4"
+          },
+          "config.py": {
+            "sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9"
+          },
+          "telemetry.py": {
+            "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff"
+          },
+          "echerha.py": {
+            "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f"
+          },
+          "subscriptions_api.py": {
+            "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402"
+          },
+          "restore_identity.py": {
+            "sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd"
+          },
+          "db.py": {
+            "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309"
+          },
+          "schema_gate.py": {
+            "sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65"
+          },
+          "ratelimit.py": {
+            "sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0"
+          },
+          "limits.py": {
+            "sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4"
+          },
+          "models.py": {
+            "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae"
+          },
+          "restore_readonly_smoke.py": {
+            "sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722"
+          }
+        }
+      },
+      "db": {
+        "image_id": "sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12",
+        "image_tag": "timescale/timescaledb:2.17.2-pg16",
+        "started_at": "2026-09-21T05:55:06.288830145Z",
+        "status": "running",
+        "restart_count": 0,
+        "oom_killed": false,
+        "health": "healthy",
+        "user": "",
+        "memory": 1073741824,
+        "pids_limit": null,
+        "privileged": false,
+        "readonly_rootfs": false,
+        "security_opt": null,
+        "cap_drop": null,
+        "mounts": [
+          {
+            "Type": "volume",
+            "Source": "/var/lib/docker/volumes/avelren_db_data/_data",
+            "Destination": "/var/lib/postgresql/data",
+            "RW": true
+          }
+        ],
+        "env_names": [
+          "DOCKER_PG_LLVM_DEPS",
+          "GOSU_VERSION",
+          "LANG",
+          "PATH",
+          "PGDATA",
+          "PG_MAJOR",
+          "PG_SHA256",
+          "PG_VERSION",
+          "POSTGRES_DB",
+          "POSTGRES_PASSWORD",
+          "POSTGRES_USER"
+        ],
+        "safe_env": {},
+        "log_counts": {
+          "traceback": 0,
+          "error_word": 5,
+          "critical_word": 0,
+          "http_429": 2,
+          "permission_denied": 0,
+          "connection_refused": 0,
+          "exception_word": 0
+        }
+      },
+      "caddy": {
+        "image_id": "sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0",
+        "image_tag": "caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0",
+        "started_at": "2026-09-21T05:55:06.329497248Z",
+        "status": "running",
+        "restart_count": 0,
+        "oom_killed": false,
+        "health": null,
+        "user": "",
+        "memory": 134217728,
+        "pids_limit": null,
+        "privileged": false,
+        "readonly_rootfs": false,
+        "security_opt": null,
+        "cap_drop": null,
+        "mounts": [
+          {
+            "Type": "volume",
+            "Source": "/var/lib/docker/volumes/avelren_caddy_config/_data",
+            "Destination": "/config",
+            "RW": true
+          },
+          {
+            "Type": "volume",
+            "Source": "/var/lib/docker/volumes/avelren_caddy_data/_data",
+            "Destination": "/data",
+            "RW": true
+          },
+          {
+            "Type": "bind",
+            "Source": "/opt/avelren/deploy/static",
+            "Destination": "/srv/static",
+            "RW": false
+          },
+          {
+            "Type": "bind",
+            "Source": "/opt/avelren/deploy/Caddyfile",
+            "Destination": "/etc/caddy/Caddyfile",
+            "RW": false
+          }
+        ],
+        "env_names": [
+          "CADDY_VERSION",
+          "PATH",
+          "XDG_CONFIG_HOME",
+          "XDG_DATA_HOME"
+        ],
+        "safe_env": {},
+        "log_counts": {
+          "traceback": 0,
+          "error_word": 0,
+          "critical_word": 0,
+          "http_429": 0,
+          "permission_denied": 0,
+          "connection_refused": 0,
+          "exception_word": 0
+        }
+      }
+    },
+    "docker_stats": "avelren-watchdog-1 0.00% 50.78MiB / 256MiB\navelren-api-1 0.21% 76.16MiB / 512MiB\navelren-notifier-1 0.00% 50.66MiB / 256MiB\navelren-collector-1 0.00% 57.49MiB / 256MiB\navelren-caddy-1 0.00% 49.92MiB / 128MiB\navelren-db-1 0.03% 149.4MiB / 1GiB",
+    "journal_warning_counts": {
+      "total_lines": 27,
+      "oom": 0,
+      "disk": 0,
+      "ssh_handshake": 16,
+      "cloud_init": 6,
+      "failed": 2
+    },
+    "backup_journal_checks": {
+      "failed": 0,
+      "error": 0,
+      "checksum": 0,
+      "sha256": 0,
+      "uploaded": 0,
+      "verified": 4,
+      "success": 2,
+      "circular": 6
+    }
+  },
+  "effective_config": {
+    "compose": {
+      "api": {
+        "image": "avelren-app:latest",
+        "profiles": null,
+        "depends_on": {
+          "migrate": {
+            "condition": "service_completed_successfully",
+            "required": false
+          }
+        },
+        "build": {
+          "context": "/opt/avelren/app",
+          "dockerfile": "Dockerfile",
+          "args": {
+            "SOURCE_COMMIT": ""
+          }
+        },
+        "env_names": [
+          "DATABASE_URL",
+          "ECHERHA_VEHICLE_TYPE",
+          "POLL_INTERVAL_SECONDS"
+        ],
+        "database_role": "avelren",
+        "command": null
+      },
+      "caddy": {
+        "image": "caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0",
+        "profiles": null,
+        "depends_on": {
+          "api": {
+            "condition": "service_started",
+            "required": true
+          }
+        },
+        "build": null,
+        "env_names": [],
+        "database_role": null,
+        "command": null
+      },
+      "collector": {
+        "image": "avelren-app:latest",
+        "profiles": null,
+        "depends_on": {
+          "migrate": {
+            "condition": "service_completed_successfully",
+            "required": false
+          }
+        },
+        "build": {
+          "context": "/opt/avelren/app",
+          "dockerfile": "Dockerfile",
+          "args": {
+            "SOURCE_COMMIT": ""
+          }
+        },
+        "env_names": [
+          "CONTACT_EMAIL",
+          "DATABASE_URL",
+          "ECHERHA_API_VERSION",
+          "ECHERHA_BASE_URL",
+          "ECHERHA_CLIENT_VERSION",
+          "ECHERHA_DEVICE_ID",
+          "ECHERHA_DEVICE_NAME",
+          "ECHERHA_VEHICLE_TYPE",
+          "HTTP_TIMEOUT_SECONDS",
+          "LOG_LEVEL",
+          "POLL_INTERVAL_SECONDS",
+          "REARM_FACTOR"
+        ],
+        "database_role": "avelren",
+        "command": null
+      },
+      "db": {
+        "image": "timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12",
+        "profiles": null,
+        "depends_on": null,
+        "build": null,
+        "env_names": [
+          "POSTGRES_DB",
+          "POSTGRES_PASSWORD",
+          "POSTGRES_USER"
+        ],
+        "database_role": null,
+        "command": null
+      },
+      "notifier": {
+        "image": "avelren-app:latest",
+        "profiles": null,
+        "depends_on": {
+          "migrate": {
+            "condition": "service_completed_successfully",
+            "required": false
+          }
+        },
+        "build": {
+          "context": "/opt/avelren/app",
+          "dockerfile": "Dockerfile",
+          "args": {
+            "SOURCE_COMMIT": ""
+          }
+        },
+        "env_names": [
+          "ALERT_RESEND_SECONDS",
+          "DATABASE_URL",
+          "FCM_CREDENTIALS_PATH",
+          "HTTP_TIMEOUT_SECONDS",
+          "LOG_LEVEL"
+        ],
+        "database_role": "avelren",
+        "command": null
+      },
+      "watchdog": {
+        "image": "avelren-app:latest",
+        "profiles": null,
+        "depends_on": {
+          "migrate": {
+            "condition": "service_completed_successfully",
+            "required": false
+          }
+        },
+        "build": {
+          "context": "/opt/avelren/app",
+          "dockerfile": "Dockerfile",
+          "args": {
+            "SOURCE_COMMIT": ""
+          }
+        },
+        "env_names": [
+          "DATABASE_URL",
+          "FCM_CREDENTIALS_PATH",
+          "HTTP_TIMEOUT_SECONDS",
+          "LOG_LEVEL",
+          "POLL_INTERVAL_SECONDS"
+        ],
+        "database_role": "avelren",
+        "command": null
+      }
+    },
+    "runtime_roles": {
+      "api": "avelren",
+      "collector": "avelren",
+      "notifier": "avelren",
+      "watchdog": "avelren"
+    },
+    "runtime_entrypoints": {
+      "api": {
+        "entrypoint": null,
+        "cmd": [
+          "uvicorn",
+          "avelren.api:app",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000"
+        ]
+      },
+      "collector": {
+        "entrypoint": null,
+        "cmd": [
+          "python",
+          "-m",
+          "avelren.collector"
+        ]
+      },
+      "notifier": {
+        "entrypoint": null,
+        "cmd": [
+          "python",
+          "-m",
+          "avelren.notifier"
+        ]
+      },
+      "watchdog": {
+        "entrypoint": null,
+        "cmd": [
+          "python",
+          "-m",
+          "avelren.watchdog"
+        ]
+      }
+    },
+    "dependencies": {
+      "api": {
+        "python": "3.14.7",
+        "packages": {
+          "fastapi": "0.141.1",
+          "uvicorn": "0.52.4",
+          "httpx": "0.28.1",
+          "psycopg": "3.3.5",
+          "pydantic": "2.13.5",
+          "pydantic-settings": "2.15.0",
+          "google-auth": "2.57.1",
+          "requests": "2.34.2"
+        }
+      },
+      "collector": {
+        "python": "3.14.7",
+        "packages": {
+          "fastapi": "0.141.1",
+          "uvicorn": "0.52.4",
+          "httpx": "0.28.1",
+          "psycopg": "3.3.5",
+          "pydantic": "2.13.5",
+          "pydantic-settings": "2.15.0",
+          "google-auth": "2.57.1",
+          "requests": "2.34.2"
+        }
+      },
+      "notifier": {
+        "python": "3.14.7",
+        "packages": {
+          "fastapi": "0.141.1",
+          "uvicorn": "0.52.4",
+          "httpx": "0.28.1",
+          "psycopg": "3.3.5",
+          "pydantic": "2.13.5",
+          "pydantic-settings": "2.15.0",
+          "google-auth": "2.57.1",
+          "requests": "2.34.2"
+        }
+      },
+      "watchdog": {
+        "python": "3.14.7",
+        "packages": {
+          "fastapi": "0.141.1",
+          "uvicorn": "0.52.4",
+          "httpx": "0.28.1",
+          "psycopg": "3.3.5",
+          "pydantic": "2.13.5",
+          "pydantic-settings": "2.15.0",
+          "google-auth": "2.57.1",
+          "requests": "2.34.2"
+        }
+      }
+    },
+    "collector_identity_matches_checkout": true,
+    "watchdog_problem_kinds": [
+      "collector_silent",
+      "collector_errors"
+    ],
+    "watchdog_failure_categories": {
+      "check cycle failed": 0,
+      "failed to send alert": 0,
+      "no admin devices": 0,
+      "disabled a dead admin token": 0
+    },
+    "snapshot": {
+      "collected_at": "2026-09-23T13:27:40Z",
+      "system": {
+        "uptime_seconds": 199964,
+        "load_1m": 0.06,
+        "load_5m": 0.13,
+        "cpu_count": 2,
+        "memory_total_mb": 3819,
+        "memory_used_mb": 961,
+        "swap_total_mb": 2047,
+        "swap_used_mb": 0,
+        "disk_total_gb": 37.2,
+        "disk_free_gb": 27.1,
+        "disk_used_percent": 23,
+        "reboot_required": false,
+        "reboot_pending_days": null,
+        "reboot_required_pkgs": [],
+        "updates_upgradable": 0,
+        "updates_pending": 0,
+        "updates_security": 0,
+        "updates_installed_24h": 7,
+        "update_failures_24h": 0,
+        "rebooted_24h": false,
+        "journal_errors_24h": 24,
+        "compose_errors_24h": 7
+      },
+      "backups": {
+        "last_run": 1790134497,
+        "age_hours": 9.9,
+        "stale": false
+      },
+      "certificate": {
+        "days_left": 42,
+        "issuer": "Let's Encrypt",
+        "error": null
+      },
+      "docker": {
+        "daemon_version": "29.8.1",
+        "compose_version": "5.5.1",
+        "migrate_pin_active": true
+      }
+    },
+    "installed_units": {
+      "avelren-backup.service": {
+        "sha256": "dc49dd062523844f3ea433cfc54bb2ae96f7d2735c66d087ecce5f712ef0a240"
+      },
+      "avelren-backup.timer": {
+        "sha256": "dca57bb9ea931a4a6400b325667f2fe03cb683028d00662e5a1cd6d7c7bcc41a"
+      },
+      "avelren-telemetry.service": {
+        "sha256": "9155cb2927c6425ac214c6ee3a245ab0a0a55b48ace306b09ae8afc789eb0bd2"
+      },
+      "avelren-telemetry.timer": {
+        "sha256": "b77c86fed532ac0befdec06b35b5d5bfe8048104d7c0ead2f2ddd9ff47e6d24b"
+      }
+    },
+    "cloud_init_warnings": [
+      {
+        "timestamp": "1790097470989484",
+        "unit": "init.scope",
+        "known_hotplug_failure": false
+      },
+      {
+        "timestamp": "1790097470990367",
+        "unit": "init.scope",
+        "known_hotplug_failure": false
+      }
+    ]
+  },
+  "database": {
+    "runs_24h": [
+      {
+        "cycles": 1440,
+        "first": "2026-09-22 13:27:13+00:00",
+        "last": "2026-09-23 13:26:13+00:00",
+        "failed": 156,
+        "derived_failed": 0,
+        "derived_missing": 0,
+        "max_duration_ms": 2817
+      }
+    ],
+    "run_statuses": [
+      {
+        "http_status": 200,
+        "n": 1284
+      },
+      {
+        "http_status": 500,
+        "n": 156
+      }
+    ],
+    "intervals_24h": [
+      {
+        "shortest": "60.000000",
+        "longest": "60.000000",
+        "gaps_over_90s": 0,
+        "gaps_under_59s": 0
+      }
+    ],
+    "latest_success": [
+      {
+        "time": "2026-09-23 13:26:13+00:00"
+      }
+    ],
+    "observations_10m": [
+      {
+        "first": "2026-09-23 13:17:13+00:00",
+        "last": "2026-09-23 13:26:13+00:00",
+        "rows": 380,
+        "checkpoints": 38
+      }
+    ],
+    "devices": [
+      {
+        "total": 90,
+        "admins": 1,
+        "reachable_admins": 1,
+        "older_than_90d": 0
+      }
+    ],
+    "active_health": [],
+    "daily_reports": [
+      {
+        "kind": "daily_status:2026-09-23",
+        "first_seen": "2026-09-23 09:02:11.162356+00:00",
+        "last_sent_at": "2026-09-23 09:02:11.162356+00:00",
+        "send_count": 1
+      },
+      {
+        "kind": "daily_status:2026-09-22",
+        "first_seen": "2026-09-22 10:19:00.467374+00:00",
+        "last_sent_at": "2026-09-22 10:19:00.467374+00:00",
+        "send_count": 1
+      },
+      {
+        "kind": "daily_status:2026-09-21",
+        "first_seen": "2026-09-21 11:30:18.843649+00:00",
+        "last_sent_at": "2026-09-21 11:30:18.843649+00:00",
+        "send_count": 1
+      }
+    ],
+    "sessions": [
+      {
+        "usename": "avelren",
+        "application_name": "",
+        "state": "active",
+        "n": 1
+      },
+      {
+        "usename": "avelren",
+        "application_name": "",
+        "state": "idle",
+        "n": 6
+      },
+      {
+        "usename": "avelren",
+        "application_name": "TimescaleDB Background Worker Scheduler",
+        "state": "idle",
+        "n": 1
+      }
+    ],
+    "db_health": [
+      {
+        "bytes": 106648035,
+        "idle_transactions": 0,
+        "long_transactions": 0,
+        "invalid_indexes": 0
+      }
+    ],
+    "jobs": [
+      {
+        "job_id": 1,
+        "job_status": "Scheduled",
+        "last_run_status": "Success",
+        "last_successful_finish": "2026-09-23 09:23:09.437325+00:00",
+        "total_runs": 60,
+        "total_failures": 1
+      },
+      {
+        "job_id": 3,
+        "job_status": "Scheduled",
+        "last_run_status": "Success",
+        "last_successful_finish": "2026-09-01 00:00:00.023970+00:00",
+        "total_runs": 2,
+        "total_failures": 0
+      },
+      {
+        "job_id": 1000,
+        "job_status": "Scheduled",
+        "last_run_status": "Success",
+        "last_successful_finish": "2026-09-23 08:41:55.704786+00:00",
+        "total_runs": 96,
+        "total_failures": 0
+      },
+      {
+        "job_id": 1001,
+        "job_status": "Scheduled",
+        "last_run_status": "Success",
+        "last_successful_finish": "2026-09-23 12:42:46.026206+00:00",
+        "total_runs": 1145,
+        "total_failures": 0
+      }
+    ],
+    "error_categories": [
+      {
+        "n": 156,
+        "phase": "fetch",
+        "classes": [],
+        "keywords": [
+          "500"
+        ]
+      }
+    ]
+  },
+  "probes": {
+    "physical_schema": {
+      "versions": [
+        "001_init",
+        "002_countries",
+        "003_checkpoints_sort_index",
+        "004_alerts",
+        "005_eta_targets",
+        "006_admin_devices",
+        "007_device_secret",
+        "008_notification_cancels",
+        "009_observability"
+      ],
+      "contract_problems": []
+    },
+    "migrate_pin": {
+      "entrypoint": null,
+      "command": [
+        "python",
+        "-m",
+        "avelren.migrate"
+      ],
+      "profiles": [
+        "migrate"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/var/lib/avelren-migrate-pin-009",
+          "target": "/migrations",
+          "read_only": true
+        }
+      ]
+    },
+    "latest_image": "sha256:978ec2d927b71b24eeac235742678b12c804f9d06f5b1e21d6254efc0e74f921",
+    "http": {
+      "/health": {
+        "status": 200,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        },
+        "body": {
+          "status": "ok",
+          "last_observation": "2026-09-23T13:30:13Z",
+          "age_seconds": 49,
+          "alert_channel": "ok",
+          "undelivered_alerts": "ok"
+        }
+      },
+      "/workload": {
+        "status": 200,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        }
+      },
+      "/admin/access": {
+        "status": 404,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        }
+      },
+      "/admin/telemetry": {
+        "status": 401,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        }
+      },
+      "/docs": {
+        "status": 200,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        }
+      },
+      "/redoc": {
+        "status": 200,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        }
+      },
+      "/openapi.json": {
+        "status": 200,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        }
+      },
+      "/status": {
+        "status": 404,
+        "headers": {
+          "Server": "Caddy",
+          "Strict-Transport-Security": null,
+          "X-Content-Type-Options": null,
+          "Referrer-Policy": null
+        }
+      }
+    }
+  },
+  "error_categories": {
+    "database_error_templates": {
+      "syntax error at or near <redacted> at character 213": 1,
+      "column <redacted> does not exist at character 42": 1,
+      "operator is not unique: unknown || <redacted> at character 17": 1,
+      "column <redacted> does not exist at character 26": 1,
+      "column <redacted> does not exist at character 24": 1
+    },
+    "journal_error_units": {
+      "ssh.service": 21,
+      "sshd": 2,
+      "init.scope": 1
+    }
+  },
+  "runtime_comparison": [
+    {
+      "service": "api",
+      "file": "forecast.py",
+      "production_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "candidate_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "admin_enroll.py",
+      "production_sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533",
+      "candidate_sha256": "9cade4525d16d43de5dd3eca6542f5f9ef0640bfb1f825222cf2b55a4be0025b",
+      "state": "changed"
+    },
+    {
+      "service": "api",
+      "file": "schema_verify.py",
+      "production_sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed",
+      "candidate_sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
+      "state": "changed"
+    },
+    {
+      "service": "api",
+      "file": "__init__.py",
+      "production_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "candidate_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "migrate.py",
+      "production_sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129",
+      "candidate_sha256": "843b3e3c3606af7b4f4c29d6473d5fe21efa136b2931dc9c4e995261f667c61d",
+      "state": "changed"
+    },
+    {
+      "service": "api",
+      "file": "watchdog.py",
+      "production_sha256": "005300321ac8d90322d7a543d5388355c409c353ae191191596622ea0a7901d2",
+      "candidate_sha256": "7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4",
+      "state": "changed"
+    },
+    {
+      "service": "api",
+      "file": "restore_smoke.py",
+      "production_sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2",
+      "candidate_sha256": null,
+      "state": "absent"
+    },
+    {
+      "service": "api",
+      "file": "api.py",
+      "production_sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8",
+      "candidate_sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
+      "state": "changed"
+    },
+    {
+      "service": "api",
+      "file": "eta.py",
+      "production_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "candidate_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "schemas.py",
+      "production_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "candidate_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "notifier.py",
+      "production_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "candidate_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "alerts.py",
+      "production_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "candidate_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "cancels.py",
+      "production_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "candidate_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "collector.py",
+      "production_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "candidate_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "fcm.py",
+      "production_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "candidate_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "config.py",
+      "production_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "candidate_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "telemetry.py",
+      "production_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "candidate_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "echerha.py",
+      "production_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "candidate_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "subscriptions_api.py",
+      "production_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "candidate_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "restore_identity.py",
+      "production_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "candidate_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "db.py",
+      "production_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "candidate_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "schema_gate.py",
+      "production_sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65",
+      "candidate_sha256": "c1aafa6bbf3d4e018045b5bfb7aba0440c93b3aee9eefcd18d5fbf8b4f4b196c",
+      "state": "changed"
+    },
+    {
+      "service": "api",
+      "file": "ratelimit.py",
+      "production_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "candidate_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "limits.py",
+      "production_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "candidate_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "models.py",
+      "production_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "candidate_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "state": "identical"
+    },
+    {
+      "service": "api",
+      "file": "restore_readonly_smoke.py",
+      "production_sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722",
+      "candidate_sha256": null,
+      "state": "absent"
+    },
+    {
+      "service": "collector",
+      "file": "forecast.py",
+      "production_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "candidate_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "admin_enroll.py",
+      "production_sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533",
+      "candidate_sha256": "9cade4525d16d43de5dd3eca6542f5f9ef0640bfb1f825222cf2b55a4be0025b",
+      "state": "changed"
+    },
+    {
+      "service": "collector",
+      "file": "schema_verify.py",
+      "production_sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed",
+      "candidate_sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
+      "state": "changed"
+    },
+    {
+      "service": "collector",
+      "file": "__init__.py",
+      "production_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "candidate_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "migrate.py",
+      "production_sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129",
+      "candidate_sha256": "843b3e3c3606af7b4f4c29d6473d5fe21efa136b2931dc9c4e995261f667c61d",
+      "state": "changed"
+    },
+    {
+      "service": "collector",
+      "file": "watchdog.py",
+      "production_sha256": "005300321ac8d90322d7a543d5388355c409c353ae191191596622ea0a7901d2",
+      "candidate_sha256": "7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4",
+      "state": "changed"
+    },
+    {
+      "service": "collector",
+      "file": "restore_smoke.py",
+      "production_sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2",
+      "candidate_sha256": null,
+      "state": "absent"
+    },
+    {
+      "service": "collector",
+      "file": "api.py",
+      "production_sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8",
+      "candidate_sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
+      "state": "changed"
+    },
+    {
+      "service": "collector",
+      "file": "eta.py",
+      "production_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "candidate_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "schemas.py",
+      "production_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "candidate_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "notifier.py",
+      "production_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "candidate_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "alerts.py",
+      "production_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "candidate_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "cancels.py",
+      "production_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "candidate_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "collector.py",
+      "production_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "candidate_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "fcm.py",
+      "production_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "candidate_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "config.py",
+      "production_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "candidate_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "telemetry.py",
+      "production_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "candidate_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "echerha.py",
+      "production_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "candidate_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "subscriptions_api.py",
+      "production_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "candidate_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "restore_identity.py",
+      "production_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "candidate_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "db.py",
+      "production_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "candidate_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "schema_gate.py",
+      "production_sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65",
+      "candidate_sha256": "c1aafa6bbf3d4e018045b5bfb7aba0440c93b3aee9eefcd18d5fbf8b4f4b196c",
+      "state": "changed"
+    },
+    {
+      "service": "collector",
+      "file": "ratelimit.py",
+      "production_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "candidate_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "limits.py",
+      "production_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "candidate_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "models.py",
+      "production_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "candidate_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "state": "identical"
+    },
+    {
+      "service": "collector",
+      "file": "restore_readonly_smoke.py",
+      "production_sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722",
+      "candidate_sha256": null,
+      "state": "absent"
+    },
+    {
+      "service": "notifier",
+      "file": "forecast.py",
+      "production_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "candidate_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "admin_enroll.py",
+      "production_sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533",
+      "candidate_sha256": "9cade4525d16d43de5dd3eca6542f5f9ef0640bfb1f825222cf2b55a4be0025b",
+      "state": "changed"
+    },
+    {
+      "service": "notifier",
+      "file": "schema_verify.py",
+      "production_sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed",
+      "candidate_sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
+      "state": "changed"
+    },
+    {
+      "service": "notifier",
+      "file": "__init__.py",
+      "production_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "candidate_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "migrate.py",
+      "production_sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129",
+      "candidate_sha256": "843b3e3c3606af7b4f4c29d6473d5fe21efa136b2931dc9c4e995261f667c61d",
+      "state": "changed"
+    },
+    {
+      "service": "notifier",
+      "file": "watchdog.py",
+      "production_sha256": "005300321ac8d90322d7a543d5388355c409c353ae191191596622ea0a7901d2",
+      "candidate_sha256": "7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4",
+      "state": "changed"
+    },
+    {
+      "service": "notifier",
+      "file": "restore_smoke.py",
+      "production_sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2",
+      "candidate_sha256": null,
+      "state": "absent"
+    },
+    {
+      "service": "notifier",
+      "file": "api.py",
+      "production_sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8",
+      "candidate_sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
+      "state": "changed"
+    },
+    {
+      "service": "notifier",
+      "file": "eta.py",
+      "production_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "candidate_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "schemas.py",
+      "production_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "candidate_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "notifier.py",
+      "production_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "candidate_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "alerts.py",
+      "production_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "candidate_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "cancels.py",
+      "production_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "candidate_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "collector.py",
+      "production_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "candidate_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "fcm.py",
+      "production_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "candidate_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "config.py",
+      "production_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "candidate_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "telemetry.py",
+      "production_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "candidate_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "echerha.py",
+      "production_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "candidate_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "subscriptions_api.py",
+      "production_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "candidate_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "restore_identity.py",
+      "production_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "candidate_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "db.py",
+      "production_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "candidate_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "schema_gate.py",
+      "production_sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65",
+      "candidate_sha256": "c1aafa6bbf3d4e018045b5bfb7aba0440c93b3aee9eefcd18d5fbf8b4f4b196c",
+      "state": "changed"
+    },
+    {
+      "service": "notifier",
+      "file": "ratelimit.py",
+      "production_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "candidate_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "limits.py",
+      "production_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "candidate_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "models.py",
+      "production_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "candidate_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "state": "identical"
+    },
+    {
+      "service": "notifier",
+      "file": "restore_readonly_smoke.py",
+      "production_sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722",
+      "candidate_sha256": null,
+      "state": "absent"
+    },
+    {
+      "service": "watchdog",
+      "file": "forecast.py",
+      "production_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "candidate_sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "admin_enroll.py",
+      "production_sha256": "5a97d6d49de68629c076958f925b658ee01c000718526fc8cdbfd4313f129533",
+      "candidate_sha256": "9cade4525d16d43de5dd3eca6542f5f9ef0640bfb1f825222cf2b55a4be0025b",
+      "state": "changed"
+    },
+    {
+      "service": "watchdog",
+      "file": "schema_verify.py",
+      "production_sha256": "5665203b6f48cb62dc883704b6b3339f2e74cf819bce74a4ace27f5d82a179ed",
+      "candidate_sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
+      "state": "changed"
+    },
+    {
+      "service": "watchdog",
+      "file": "__init__.py",
+      "production_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "candidate_sha256": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "migrate.py",
+      "production_sha256": "e835ba875fc6096d7586ec8b3e4217cb45055038b536cb329ffcc3e9980a4129",
+      "candidate_sha256": "843b3e3c3606af7b4f4c29d6473d5fe21efa136b2931dc9c4e995261f667c61d",
+      "state": "changed"
+    },
+    {
+      "service": "watchdog",
+      "file": "watchdog.py",
+      "production_sha256": "85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d",
+      "candidate_sha256": "7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4",
+      "state": "changed"
+    },
+    {
+      "service": "watchdog",
+      "file": "restore_smoke.py",
+      "production_sha256": "f3e8aca6e88a148b35755febed3bd723e967ccf694d00c416b8b8a42e4d674c2",
+      "candidate_sha256": null,
+      "state": "absent"
+    },
+    {
+      "service": "watchdog",
+      "file": "api.py",
+      "production_sha256": "48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8",
+      "candidate_sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
+      "state": "changed"
+    },
+    {
+      "service": "watchdog",
+      "file": "eta.py",
+      "production_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "candidate_sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "schemas.py",
+      "production_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "candidate_sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "notifier.py",
+      "production_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "candidate_sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "alerts.py",
+      "production_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "candidate_sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "cancels.py",
+      "production_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "candidate_sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "collector.py",
+      "production_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "candidate_sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "fcm.py",
+      "production_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "candidate_sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "config.py",
+      "production_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "candidate_sha256": "ae87c768dd5b329dc2b8a9d548a2959da4f27811cd20ece007bf7db73ba31ae9",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "telemetry.py",
+      "production_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "candidate_sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "echerha.py",
+      "production_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "candidate_sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "subscriptions_api.py",
+      "production_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "candidate_sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "restore_identity.py",
+      "production_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "candidate_sha256": "2e9238c3aa5392af271c6f9e24fdd55d278194b3723a794388ff250f022008dd",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "db.py",
+      "production_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "candidate_sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "schema_gate.py",
+      "production_sha256": "b13773c9b7d9275faafb003ee063b8f27f3f86938982a9da39343be340bc7b65",
+      "candidate_sha256": "c1aafa6bbf3d4e018045b5bfb7aba0440c93b3aee9eefcd18d5fbf8b4f4b196c",
+      "state": "changed"
+    },
+    {
+      "service": "watchdog",
+      "file": "ratelimit.py",
+      "production_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "candidate_sha256": "713a789d3a308ad7405e301650a73566b93db2a8f428789dcdf1589960abd0c0",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "limits.py",
+      "production_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "candidate_sha256": "b15c8d40ad1ac1e76c6a0219d04a146ff33928a32121ba39fab772d9963ff2b4",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "models.py",
+      "production_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "candidate_sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "state": "identical"
+    },
+    {
+      "service": "watchdog",
+      "file": "restore_readonly_smoke.py",
+      "production_sha256": "89d4a97e2378b30ce4d3d1c4178c6cc0eda6206ba1593f0167a6224c646ed722",
+      "candidate_sha256": null,
+      "state": "absent"
+    }
+  ]
+}
