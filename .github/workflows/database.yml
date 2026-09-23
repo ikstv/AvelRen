@@ -34,6 +34,9 @@ jobs:
       - name: Незмінність вихідних файлів
         run: python3 scripts/verify_core_provenance.py
       - name: Синтаксис сценаріїв
-        run: bash -n scripts/test_database.sh ops/postgres-bootstrap.sh
+        run: |
+          for script in scripts/test_database.sh ops/postgres-bootstrap.sh; do
+            bash -n "$script"
+          done
       - name: TimescaleDB, міграції, права та запис даних
         run: bash scripts/test_database.sh

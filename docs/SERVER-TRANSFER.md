@@ -1,10 +1,13 @@
 # Перелік для перенесення серверної частини
 
-Перший блок уже перенесено: collector, notifier та спільні залежності,
+Уже перенесено collector, notifier та спільні залежності,
 разом із трьома незмінними наборами unit-тестів. Точне відображення шляхів
 і SHA-256 — у [CORE-PROVENANCE.json](CORE-PROVENANCE.json), інструкції —
 у [README серверного ядра](../services/backend/README.md). Решта цього
-документа описує план наступних блоків, а не дозвіл на розгортання.
+документа описує план блоків, а не дозвіл на розгортання.
+Також додано [БД](../db/README.md) та [API/Admin](API-TRANSFER.md).
+Перевірені серверні копії [watchdog і snapshot](WATCHDOG-TRANSFER.md)
+перенесено окремим блоком; відомі недоліки не оголошені виправленими.
 Повний [перелік файлів із SHA-256](SERVER-FILES.csv) обчислено з Git blobs
 коміту `4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27` репозиторію
 `ikstv/AvelRen`. Він відтворюваний незалежно від переносу рядків Windows.
@@ -61,38 +64,46 @@ CSV містить контрольні суми вихідних файлів G
 
 ## Межа готовності — контрольна звірка 23 вересня 2026 року
 
-Collector/notifier і міграції 001–011 перенесено до гілки codex/server-core-db
-у PR #2. Походження та SHA-256 файлів записані у provenance-маніфестах.
-PR #2 ще не злитий; main поки містить документацію й інструменти доступу.
+Станом на 2026-09-23, PR #2 злитий у `main` комітом
+`9dddad1403fcddabb01c5d3a4ed72e617538851f`. На його перевіреному head
+успішними були core та database. На production collector і notifier
+збігаються з `CORE-PROVENANCE.json`; у журналі БД лише міграції 001–009,
+їхні хеші збігаються з `DB-PROVENANCE.json`. Міграції 010 і 011 не
+застосовані.
 
-Production checkout лишився на 81e5b047f8f18c42ca46a59f86495f71d0681af0.
-Production collector і notifier збігаються з CORE-PROVENANCE.json. БД має
-лише 001–009; усі дев'ять SHA-256 збігаються з DB-PROVENANCE.json. Міграції
-010 і 011 присутні в гілці для ізольованої перевірки, але не застосовані
-на production.
+Після злиття PR #2 гілку PR #3 синхронізовано з `main` merge-комітом
+`43c27c82bd47b763aa72bb507fca41e1343138a7`. На цьому кодовому head усі
+чотири GitHub Actions успішні (API/Admin, core, database,
+watchdog/telemetry). Подальший commit `1c311dc3b451b1dcf2ad9c4a796d7dca4c0f7fa7`
+оновив документацію результатів; він не змінював код.
 
-Production watchdog має SHA-256
-85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d.
-Кандидат watchdog у PR #3 має інший SHA-256
-7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4.
-Production API має SHA-256 48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8;
-API у PR #3 — 67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72.
-Перед злиттям PR #3 потрібно звірити ці зміни з production і збереженими
-варіантами PR #188. Після окремої перевірки та злиття PR #2 оновити основу
-PR #3 та розв'язати його конфлікти.
+Read-only порівняння фактичних production-файлів і кандидата PR #3 завершено
+23 вересня 2026 року. Production API SHA-256:
+`48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8`;
+кандидат API:
+`67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72`.
+Обробники маршрутів збігаються; кандидат додає імпорт і реєстрацію
+`admin_access_router`.
 
-CI на commit f6a3eed2fee80466edcbe815d385b5f942663982: core і database
-успішні. У тестовому сценарії вимкнено Timescale telemetry лише в
-ізольованому контейнері: фоновий telemetry worker інколи заважав прибрати
-тимчасову БД. Локальний Docker-прогін дав 15 passed; database job GitHub
-також успішний.
+Production watchdog SHA-256:
+`85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d`;
+кандидат watchdog:
+`7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4`.
+Цикл, основні перевірки, відновлення та доставка звіту зберігають поточну
+політику: лише щоденний звіт, без миттєвих FCM про інцидент або відновлення.
+Кандидат додає advisory lock, перевірки свіжості/цілісності snapshot і
+звіту, а також параметри доставки, щоб новий щоденний звіт замінював
+застарілий у черзі. SHA-256 production telemetry snapshot
+(`577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966`)
+збігається з `EXPECTED_SNAPSHOT_SHA` кандидата.
 
-Під час читання на сервері всі шість контейнерів були запущені, PostgreSQL
-мав стан healthy. У production checkout лишаються дві змінені tracked-версії
-(watchdog.py, telemetry-snapshot.sh) і три невідстежувані резервні файли;
-їх збережено. Перелік є в PRODUCTION-AUDIT.md.
+PR #188 (`fix/prod-observability-cleanup`) перевірено окремо: його старі
+миттєві FCM сповіщення про проблеми/відновлення не перенесені. Детальний
+опис файлів і контрольні суми — в [аудиті production](PRODUCTION-AUDIT.md).
+PR #3 залишається draft і не злитий; цей огляд не змінював production.
 
-Ця звірка не виконувала розгортань чи SQL-записів. Вона не дозволяє
-застосовувати міграції, прибирати локальні файли або змінювати production.
-Наступний маленький крок — окремо завершити перевірку й злиття PR #2;
-потім узгодити PR #3 з фактичним watchdog/API сервера.
+Production checkout лишається на `81e5b047f8f18c42ca46a59f86495f71d0681af0`.
+Дві змінені tracked-версії (watchdog.py та telemetry-snapshot.sh) і три
+резервні файли збережені; перелік наведено в `PRODUCTION-AUDIT.md`. У цій
+синхронізації production не змінювався, міграції та SQL-записи не виконувалися.
+Backup/restore та повні експлуатаційні процедури ще не перенесені.

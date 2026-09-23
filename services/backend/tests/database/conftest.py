@@ -70,12 +70,27 @@ def database(monkeypatch, request, tmp_path):
                 target.execute("GRANT CREATE ON SCHEMA public TO avelren_migrator")
             monkeypatch.setattr(settings, "database_url", dsn("migrator", name))
             migration_directory = MIGRATIONS
-            if getattr(request, "param", 11) == 9:
+            version = getattr(request, "param", 11)
+            if version in (9, 10):
                 migration_directory = tmp_path / "prefix"
                 migration_directory.mkdir()
-                for file in sorted(MIGRATIONS.glob("*.sql"))[:9]:
+                for file in sorted(MIGRATIONS.glob("*.sql"))[:version]:
                     (migration_directory / file.name).write_bytes(file.read_bytes())
             assert migrate.run(migration_directory) == 0
             yield lambda role: dsn(role, name)
         finally:
+            # Забороняємо нові фонові підключення до одноразової БД перед видаленням.
+            admin.execute(
+                sql.SQL("ALTER DATABASE {} ALLOW_CONNECTIONS false").format(sql.Identifier(name))
+            )
+            remaining = admin.execute(
+                "SELECT usename, backend_type, application_name FROM pg_stat_activity "
+                "WHERE datname=%s",
+                (name,),
+            ).fetchall()
+            print(f"Test database cleanup: {remaining}")
+            admin.execute(
+                "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname=%s",
+                (name,),
+            )
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))

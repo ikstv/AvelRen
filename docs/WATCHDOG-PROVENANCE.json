@@ -1,0 +1,31 @@
+{
+  "files": [
+    {
+      "origin": "production-read-only",
+      "observed_at": "2026-09-22T19:31:58.221Z",
+      "checkout_commit": "81e5b047f8f18c42ca46a59f86495f71d0681af0",
+      "source": "/opt/avelren/app/src/avelren/watchdog.py",
+      "destination": "services/backend/src/avelren/watchdog.py",
+      "sha256": "85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d",
+      "revision": {
+        "sha256": "7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4",
+        "notes": "docs/DAILY-REPORT.md"
+      }
+    },
+    {
+      "origin": "production-read-only",
+      "observed_at": "2026-09-22T19:31:59.957Z",
+      "checkout_commit": "81e5b047f8f18c42ca46a59f86495f71d0681af0",
+      "source": "/opt/avelren/deploy/telemetry-snapshot.sh",
+      "destination": "ops/telemetry-snapshot.sh",
+      "sha256": "577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/tests/test_watchdog_snapshot.py",
+      "destination": "services/backend/tests/unit/test_watchdog_snapshot.py",
+      "sha256": "b7495defe9cbdee06a0138e54b9c613eb3ed5be45aecfae0ac4854676a1ec4bf"
+    }
+  ]
+}

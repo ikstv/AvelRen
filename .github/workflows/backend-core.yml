@@ -6,6 +6,9 @@ on:
       - 'scripts/verify_core_provenance.py'
       - 'docs/CORE-PROVENANCE.json'
       - 'docs/DB-PROVENANCE.json'
+      - 'docs/API-PROVENANCE.json'
+      - 'docs/WATCHDOG-PROVENANCE.json'
+      - 'ops/telemetry-snapshot.sh'
       - 'db/**'
       - '.gitattributes'
       - '.github/workflows/backend-core.yml'
@@ -16,6 +19,9 @@ on:
       - 'scripts/verify_core_provenance.py'
       - 'docs/CORE-PROVENANCE.json'
       - 'docs/DB-PROVENANCE.json'
+      - 'docs/API-PROVENANCE.json'
+      - 'docs/WATCHDOG-PROVENANCE.json'
+      - 'ops/telemetry-snapshot.sh'
       - 'db/**'
       - '.gitattributes'
       - '.github/workflows/backend-core.yml'
@@ -41,6 +47,6 @@ jobs:
       - name: Походження файлів
         run: python scripts/verify_core_provenance.py
       - name: Аналіз коду
-        run: python -m ruff check services/backend/src services/backend/tests/unit
+        run: python -m ruff check services/backend/src services/backend/tests scripts/*.py
       - name: Ізольовані тести
         run: python -m pytest -c services/backend/pytest.ini services/backend/tests/unit -q

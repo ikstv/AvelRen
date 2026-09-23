@@ -1,0 +1,42 @@
+name: Щоденний звіт і телеметрія
+on:
+  pull_request:
+    paths:
+      - 'services/backend/**'
+      - 'db/**'
+      - 'ops/**'
+      - 'scripts/test_database.sh'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/*PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/watchdog.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/backend/**'
+      - 'db/**'
+      - 'ops/**'
+      - 'scripts/test_database.sh'
+      - 'scripts/verify_core_provenance.py'
+      - 'docs/*PROVENANCE.json'
+      - '.gitattributes'
+      - '.github/workflows/watchdog.yml'
+permissions:
+  contents: read
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Незмінність перенесених файлів
+        run: python3 scripts/verify_core_provenance.py
+      - name: Синтаксис сценаріїв
+        run: |
+          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/telemetry-snapshot.sh; do
+            bash -n "$script"
+          done
+      - name: Watchdog і справжній snapshot в ізольованому контейнері
+        run: bash scripts/test_database.sh watchdog
