@@ -469,3 +469,90 @@ scanning та push protection увімкнені. Водночас Dependabot se
 disabled`. У новому приватному репозиторії `security_and_analysis` через API
 поки не налаштований. Перед перенесенням залежностей треба окремо ввімкнути
 доступні security-перевірки й додати короткий dependency audit до CI.
+
+
+## Перевірка відповідності переносу — 23 вересня 2026 року, лише читанням
+
+На сервері /opt/avelren checkout лишився на commit
+81e5b047f8f18c42ca46a59f86495f71d0681af0. Під час звірки production
+контейнери api, collector, notifier, watchdog, caddy і db були запущені;
+PostgreSQL мав стан healthy.
+
+### Що збігається з новим репозиторієм
+
+SHA-256 production collector.py
+(e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661)
+і notifier.py
+(1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2)
+збігаються з файлами у CORE-PROVENANCE.json гілки PR #2.
+
+Журнал schema_migrations має дев'ять записів: 001_init–009_observability.
+Їхні SHA-256 збігаються з рядками DB-PROVENANCE.json. У цій перевірці
+серед цих дев'яти не побачили зміненого запису.
+
+### Що ще розходиться або очікує перенесення
+
+- Production checkout HEAD — 81e5b047.... На ньому є незакомічені
+  app/src/avelren/watchdog.py та deploy/telemetry-snapshot.sh і три
+  резервні файли: deploy/static/privacy-policy.html.bak-20260824-113543,
+  docker-compose.override.yml.bak-20260905-131812,
+  docker-compose.override.yml.pre-88. Не прибирати чи перезаписувати їх
+  у межах переносу.
+- Production watchdog SHA-256:
+  85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d.
+  Запущений watchdog.py всередині контейнера має той самий хеш.
+  Варіант watchdog у PR #3 має SHA-256
+  7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4.
+  Це різні файли; перед злиттям PR #3 зіставити поведінку та зберегти
+  production-звіт і telemetry з попереднього коду та PR #188.
+- Production API SHA-256:
+  48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8.
+  Кандидат API із PR #3 має
+  67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72.
+  Це кандидат переносу, не вже встановлений production code.
+- Production schema лишається на 009. Нові 010_postgresql_least_privilege
+  й 011_admin_access не застосовані. Старі ролі avelren і avelren_admin
+  мають rolsuper=true; runtime-ролі avelren_api, avelren_backup,
+  avelren_collector, avelren_migrator, avelren_notifier і avelren_watchdog
+  мають false. Це збігається з попереднім аудитом і означає, що перехід
+  least-privilege ще не завершений.
+- Окремий локальний checkout C:\AI\AvelRen має незбережені зміни до
+  migrate.py, schema_verify.py, watchdog.py, трьох тестів, сценаріїв
+  adoption/restore та альтернативну 011_daily_admin_reports.sql.
+  Цей набір не змішувати автоматично з 011_admin_access.sql у PR #2.
+
+Після окремого GO власника резервний public key
+SHA256:uGE19uDEANDxIIdHevENqBV/af+xwrVF7nGPvJAaews додано до
+authorized_keys користувача averlenadmin. Початковий файл збережено
+поруч із SHA-256 4907a620532b2c8417b8cd97656b6f37fb7d0f5d3b04c46810f9464ac446c8e6;
+перевірені старий і новий SSH-входи. Сервіси не перезапускали.
+
+Файл pin знайдений у /opt/avelren/deploy/PROD_PIN; його SHA-256 —
+552b5b6fe83f0a86f2ab4a89f56e1c43cfd262c18d7842ba91e3bc7d38997e6e.
+Його не змінювали. Під час звірки не виконували deployment, рестартів,
+записів у БД чи змін production-конфігурації.
+
+У GitHub PR #2 лишався відкритим; після виправлення cleanup ізольованої БД
+commit f6a3eed2fee80466edcbe815d385b5f942663982 отримав успішні перевірки
+core і database. PR #3 уже існує, але на час перевірки мав конфліктний стан;
+після окремого злиття PR #2 його основу слід перевірити та оновити.
+
+
+## Read-only звірка API та watchdog із production — 23 вересня 2026 року, 12:43 UTC
+
+Після синхронізації PR #3 з `main` прочитано фактичні файли сервера через SSH із перевіркою ED25519 host key. Команди лише читали вихідні файли й обчислювали SHA-256; production, сервіси, база даних і конфігурація не змінювалися.
+
+SHA-256 на сервері збігаються з попереднім аудитом:
+
+- API: `48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8`.
+- Watchdog: `85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d`.
+- Встановлений `telemetry-snapshot.sh`: `577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966`; цей хеш відповідає `EXPECTED_SNAPSHOT_SHA` у кандидатові watchdog PR #3.
+
+### Результат порівняння
+
+- У `api.py` виробничі маршрути й функції однакові з кандидатом PR #3. Кандидат додає імпорт і реєстрацію `admin_access_router`; це нова Admin-функціональність, якої production ще не має.
+- У `watchdog.py` однакові перевірки інцидентів, перевірка дрейфу snapshot, збереження/дедуплікація щоденного звіту, обробка відновлень і запуск процесу. Production також уже не надсилає миттєві FCM про технічні інциденти чи відновлення; надсилається щоденний звіт.
+- Кандидат додає серіалізацію watchdog-циклів транзакційним advisory lock, перевірку структури й свіжості snapshot та точнішу обробку невідомих показників у звіті.
+- Для звіту кандидат додає `report_id`, спільний `collapse_key=health:daily` і TTL 86400 секунд. У production на час читання лишався TTL 1800 секунд і ключ окремо для кожної дати. Це змінює поведінку черги звітів на офлайн-пристрої; деталі й обмеження описані в [DAILY-REPORT.md](DAILY-REPORT.md), а тести доставки не є доказом фактичного показу на телефоні.
+
+Кандидат зберігає затверджену політику повідомлень, але не є побайтовою копією production watchdog. Ці конкретні відмінності перевірені в PR #3; автоматично копіювати старішу гілку PR #188 не можна, бо вона повторно вмикає негайні FCM-повідомлення. На head PR #3 `43c27c82bd47b763aa72bb507fca41e1343138a7` пройшли чотири GitHub Actions. Злиття PR #3 та розгортання на production не виконувалися.
