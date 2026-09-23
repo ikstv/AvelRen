@@ -484,6 +484,11 @@ disabled`. У новому приватному репозиторії `security
 
 - Усі шість контейнерів працюють: API, Caddy, collector, TimescaleDB, notifier
   і watchdog. БД `healthy`; у кожного `RestartCount=0`, OOM немає.
+- Серверний checkout залишається на `81e5b047f8f18c42ca46a59f86495f71d0681af0`
+  із двома зміненими tracked-файлами (`watchdog.py`, `telemetry-snapshot.sh`)
+  і трьома `.bak`/`pre` файлами. Вміст не змінювали. Це не повністю чистий
+  і відтворюваний release checkout; перед майбутнім deploy треба окремо
+  розібрати ці локальні зміни й доказати, який коміт має кожен контейнер.
 - `/api/health`, `/api/checkpoints`, `/api/workload` та `/privacy` повернули
   HTTP 200. Адміністративний маршрут `/api/admin/access` повернув 404
   (функція Admin і міграція 011 на сервері не розгорнуті); захищена телеметрія
