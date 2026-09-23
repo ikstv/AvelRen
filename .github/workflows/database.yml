@@ -41,10 +41,18 @@ jobs:
         run: python3 scripts/verify_core_provenance.py
       - name: Синтаксис сценаріїв
         run: |
-          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh; do
+          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-engine.lib.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh; do
             bash -n "$script"
           done
       - name: Контракт backup із фіктивними Docker і rclone
         run: bash ops/backup-contract-test.sh
+      - name: Контракти fail-closed restore
+        run: |
+          bash ops/restore-contract-test.sh
+          bash ops/restore-engine-contract-test.sh
+          bash ops/restore-verify-guard-contract-test.sh
+          python3 ops/restore-allowlist-contract-test.py
+      - name: Повна restore-репетиція у тимчасовій TimescaleDB
+        run: bash ops/restore-integration-test.sh
       - name: TimescaleDB, міграції, права та запис даних
         run: bash scripts/test_database.sh

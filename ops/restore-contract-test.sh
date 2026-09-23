@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+valid="$WORK/valid.sql.gz"
+printf 'SELECT 1;\n' | gzip -c > "$valid"
+
+denied() {
+    if bash "$ROOT/ops/restore.sh" "$@" >/dev/null 2>&1; then
+        echo "expected restore denial: $*" >&2
+        exit 1
+    fi
+}
+
+# A: production target without explicit confirmation.
+denied "$valid" --target avelren
+# B: bad confirmation token.
+denied "$valid" --target avelren --confirm-production-restore WRONG
+# C: unsupported target.
+denied "$valid" --target not-a-real-database --confirm-production-restore AVELREN-PRODUCTION-RESTORE
+# D: corrupt artifact is rejected before any database command.
+printf 'corrupt\n' > "$WORK/corrupt.sql.gz"
+denied "$WORK/corrupt.sql.gz" --target restore_test
+# E: missing artifact is rejected.
+denied "$WORK/missing.sql.gz" --target restore_test
+# F: disposable restore path still passes its pre-destructive contract.
+AVELREN_COMPOSE_FILE="$WORK/restore-compose.yml" \
+AVELREN_COMPOSE_PROJECT_DIR="$WORK" \
+AVELREN_COMPOSE_ENV_FILE="$WORK/compose.env" \
+AVELREN_COMPOSE_PROJECT=avelren-restore-contract \
+AVELREN_COMPOSE_ENV_GUARD=isolated \
+bash "$ROOT/ops/restore.sh" "$valid" --target restore_test --dry-run >/dev/null
+# Restore CLI refuses to run without explicit isolated context, before Docker.
+BIN="$WORK/guard-bin"
+mkdir -p "$BIN"
+cat >"$BIN/docker" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${FAKE_LOG:?}"
+SH
+chmod +x "$BIN/docker"
+for item in missing-context production-project; do
+    : >"$WORK/$item.log"
+    project=avelren-restore-contract
+    [ "$item" != production-project ] || project=avelren
+    if env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$item.log" \
+        AVELREN_STACK_DIR="$ROOT" AVELREN_COMPOSE_FILE="$WORK/restore-compose.yml" \
+        AVELREN_COMPOSE_PROJECT_DIR="$WORK" AVELREN_COMPOSE_ENV_FILE="$WORK/compose.env" \
+        AVELREN_COMPOSE_PROJECT="$project" AVELREN_ADMIN_PASSWORD=ci-only \
+        "$([ "$item" = missing-context ] && echo AVELREN_COMPOSE_ENV_GUARD=missing || echo AVELREN_COMPOSE_ENV_GUARD=isolated)" \
+        bash "$ROOT/ops/restore.sh" "$valid" --target restore_test >/dev/null 2>&1; then
+        echo "expected isolated restore guard: $item" >&2
+        exit 1
+    fi
+    [ ! -s "$WORK/$item.log" ]
+done
+# G: even the historical public phrase cannot authorize direct production.
+denied "$valid" --target avelren \
+    --confirm-production-restore AVELREN-PRODUCTION-RESTORE --dry-run
+
+# H: the source-only engine has no executable production CLI.
+if bash "$ROOT/ops/restore-engine.lib.sh" >/dev/null 2>&1; then
+    echo "source-only restore engine unexpectedly executed" >&2
+    exit 1
+fi
+
+BIN="$WORK/bin"
+mkdir -p "$BIN"
+cat >"$BIN/docker" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${FAKE_LOG:?}"
+if [[ " $* " == *' run --rm --no-deps -T '* ]]; then
+    if [[ " $* " == *' avelren.schema_verify '* ]]; then
+        expected=${EXPECTED_MIGRATOR_DSN:?}
+        expected_role=avelren_migrator
+    else
+        expected=${EXPECTED_API_DSN:?}
+        expected_role=avelren_api
+    fi
+    [ "${DATABASE_URL:-}" = "$expected" ] || {
+        echo 'least-privilege verification DSN was not provided through the process environment' >&2
+        exit 40
+    }
+    [[ " $* " == *' -e DATABASE_URL '* ]] || {
+        echo 'verification did not request protected DATABASE_URL forwarding' >&2
+        exit 41
+    }
+    [[ "$*" != *"$expected"* ]] || {
+        echo 'verification DSN leaked into docker argv' >&2
+        exit 42
+    }
+    [[ " $* " == *' -e AVELREN_RESTORE_VERIFY_TARGET=restore_test '* ]] || {
+        echo 'verification target identity was not forwarded' >&2
+        exit 43
+    }
+    [[ " $* " == *" -e AVELREN_RESTORE_VERIFY_ROLE=$expected_role "* ]] || {
+        echo 'verification role identity was not forwarded' >&2
+        exit 44
+    }
+fi
+exit 0
+SH
+chmod +x "$BIN/docker"
+
+# I/J: restore role configuration fails before the first database command.
+for item in \
+    'missing-password:AVELREN_ADMIN_PASSWORD=' \
+    'non-admin-role:AVELREN_ADMIN_DB_USER=avelren_backup'
+do
+    name=${item%%:*}; setting=${item#*:}
+    : >"$WORK/$name.log"
+    if env PATH="$BIN:$PATH" FAKE_LOG="$WORK/$name.log" "$setting" \
+        AVELREN_STACK_DIR="$ROOT" \
+        bash "$ROOT/ops/restore.sh" "$valid" --target restore_test >/dev/null 2>&1; then
+        echo "expected restore role configuration denial: $name" >&2
+        exit 1
+    fi
+    [ ! -s "$WORK/$name.log" ]
+done
+
+# K/L: each least-privilege verification DSN is mandatory before app startup.
+for item in migrator api; do
+    : >"$WORK/verify-missing-$item.log"
+    MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/restore_test
+    API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/restore_test
+    [ "$item" != migrator ] || MIGRATOR_DSN=
+    [ "$item" != api ] || API_DSN=
+    if env PATH="$BIN:$PATH" FAKE_LOG="$WORK/verify-missing-$item.log" \
+        AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DSN" \
+        AVELREN_VERIFY_API_DSN="$API_DSN" \
+        AVELREN_COMPOSE_FILE="$WORK/restore-compose.yml" \
+        AVELREN_COMPOSE_PROJECT_DIR="$WORK" AVELREN_COMPOSE_ENV_FILE="$WORK/compose.env" \
+        AVELREN_COMPOSE_ENV_GUARD=isolated \
+        AVELREN_COMPOSE_PROJECT=restore-verify-contract \
+        bash "$ROOT/ops/restore-verify.sh" restore_test >/dev/null 2>&1; then
+        echo "expected missing $item verification DSN denial" >&2
+        exit 1
+    fi
+    [ ! -s "$WORK/verify-missing-$item.log" ]
+done
+
+# M: schema and API checks receive only their corresponding DSNs through the environment.
+MIGRATOR_DSN=postgresql://avelren_migrator:migrator-contract-secret@db:5432/restore_test
+API_DSN=postgresql://avelren_api:api-contract-secret@db:5432/restore_test
+: >"$WORK/verify.log"
+env PATH="$BIN:$PATH" FAKE_LOG="$WORK/verify.log" \
+    AVELREN_STACK_DIR="$ROOT" AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_DSN" \
+    AVELREN_VERIFY_API_DSN="$API_DSN" EXPECTED_MIGRATOR_DSN="$MIGRATOR_DSN" \
+    EXPECTED_API_DSN="$API_DSN" \
+    AVELREN_COMPOSE_FILE="$WORK/restore-compose.yml" \
+    AVELREN_COMPOSE_PROJECT_DIR="$WORK" AVELREN_COMPOSE_ENV_FILE="$WORK/compose.env" \
+    AVELREN_COMPOSE_ENV_GUARD=isolated \
+    AVELREN_COMPOSE_PROJECT=restore-verify-contract \
+    bash "$ROOT/ops/restore-verify.sh" restore_test >/dev/null
+[ "$(grep -c ' run --rm --no-deps -T ' "$WORK/verify.log")" -eq 2 ]
+if grep -Eq '(migrator|api)-contract-secret' "$WORK/verify.log"; then
+    echo 'verification DSN leaked into logged argv' >&2
+    exit 1
+fi
+
+echo "restore contract tests: 15 passed"
