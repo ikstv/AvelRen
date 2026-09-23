@@ -5,7 +5,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/api.py",
       "destination": "services/backend/src/avelren/api.py",
-      "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72"
+      "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
+      "revision": {
+        "sha256": "a117624e99f87021ddae4a54170ce8c5b11131b30a8a36f1f84f7728a742efeb",
+        "notes": "docs/SERVER-STATUS.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

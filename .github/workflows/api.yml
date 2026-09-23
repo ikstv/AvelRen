@@ -7,7 +7,10 @@ on:
       - 'ops/**'
       - 'scripts/test_database.sh'
       - 'scripts/verify_core_provenance.py'
-      - 'docs/*PROVENANCE.json'
+      - 'docs/CORE-PROVENANCE.json'
+      - 'docs/DB-PROVENANCE.json'
+      - 'docs/API-PROVENANCE.json'
+      - 'docs/WATCHDOG-PROVENANCE.json'
       - '.gitattributes'
       - '.github/workflows/api.yml'
   push:
@@ -18,7 +21,10 @@ on:
       - 'ops/**'
       - 'scripts/test_database.sh'
       - 'scripts/verify_core_provenance.py'
-      - 'docs/*PROVENANCE.json'
+      - 'docs/CORE-PROVENANCE.json'
+      - 'docs/DB-PROVENANCE.json'
+      - 'docs/API-PROVENANCE.json'
+      - 'docs/WATCHDOG-PROVENANCE.json'
       - '.gitattributes'
       - '.github/workflows/api.yml'
 permissions:

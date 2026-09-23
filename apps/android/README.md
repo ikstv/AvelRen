@@ -1,0 +1,24 @@
+# Android-застосунок
+
+База: `ikstv/AvelRen`, коміт `4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27`,
+версія 0.1.1 (versionCode 4). Не застаріла робоча папка й не незлитий PR #137.
+Походження 64 файлів: [маніфест](../../docs/ANDROID-PROVENANCE.json).
+Зміни плашки: [контракт стану](../../docs/SERVER-STATUS.md).
+
+## Перевірка
+
+Потрібні JDK 17 та Android SDK 36. З цієї папки:
+
+```sh
+bash gradlew -PavelrenUiPreview=true :app:testDebugUnitTest :app:compileDebugKotlin --no-daemon --max-workers=2
+```
+
+На Windows замість `bash gradlew` використати `.\gradlew.bat`.
+Це компіляція та JVM-тести, не встановлення APK. Preview вимикає Google
+Services plugin; Firebase-ключі, підпис і реальні мережеві виклики для тестів
+не потрібні. Реальний FCM і Play Update цим прогоном не перевіряються.
+Окремий workflow Android не запускається від зміни лише серверного коду.
+
+APK на телефон дозволений лише з чистої погодженої main із записом SHA-256
+та перевіркою встановленого файла. У цьому PR main не змінюємо, Play-реліз
+не публікуємо. Секретні локальні файли й кеші не копіювалися.
