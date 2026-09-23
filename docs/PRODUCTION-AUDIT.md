@@ -469,3 +469,70 @@ scanning та push protection увімкнені. Водночас Dependabot se
 disabled`. У новому приватному репозиторії `security_and_analysis` через API
 поки не налаштований. Перед перенесенням залежностей треба окремо ввімкнути
 доступні security-перевірки й додати короткий dependency audit до CI.
+
+
+## Перевірка відповідності переносу — 23 вересня 2026 року, лише читанням
+
+На сервері /opt/avelren checkout лишився на commit
+81e5b047f8f18c42ca46a59f86495f71d0681af0. Під час звірки production
+контейнери api, collector, notifier, watchdog, caddy і db були запущені;
+PostgreSQL мав стан healthy.
+
+### Що збігається з новим репозиторієм
+
+SHA-256 production collector.py
+(e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661)
+і notifier.py
+(1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2)
+збігаються з файлами у CORE-PROVENANCE.json гілки PR #2.
+
+Журнал schema_migrations має дев'ять записів: 001_init–009_observability.
+Їхні SHA-256 збігаються з рядками DB-PROVENANCE.json. У цій перевірці
+серед цих дев'яти не побачили зміненого запису.
+
+### Що ще розходиться або очікує перенесення
+
+- Production checkout HEAD — 81e5b047.... На ньому є незакомічені
+  app/src/avelren/watchdog.py та deploy/telemetry-snapshot.sh і три
+  резервні файли: deploy/static/privacy-policy.html.bak-20260824-113543,
+  docker-compose.override.yml.bak-20260905-131812,
+  docker-compose.override.yml.pre-88. Не прибирати чи перезаписувати їх
+  у межах переносу.
+- Production watchdog SHA-256:
+  85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d.
+  Запущений watchdog.py всередині контейнера має той самий хеш.
+  Варіант watchdog у PR #3 має SHA-256
+  7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4.
+  Це різні файли; перед злиттям PR #3 зіставити поведінку та зберегти
+  production-звіт і telemetry з попереднього коду та PR #188.
+- Production API SHA-256:
+  48c0839dd57ac8a67194843dd1da3875e9f5a9a6a66dd2007f9835562d1466a8.
+  Кандидат API із PR #3 має
+  67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72.
+  Це кандидат переносу, не вже встановлений production code.
+- Production schema лишається на 009. Нові 010_postgresql_least_privilege
+  й 011_admin_access не застосовані. Старі ролі avelren і avelren_admin
+  мають rolsuper=true; runtime-ролі avelren_api, avelren_backup,
+  avelren_collector, avelren_migrator, avelren_notifier і avelren_watchdog
+  мають false. Це збігається з попереднім аудитом і означає, що перехід
+  least-privilege ще не завершений.
+- Окремий локальний checkout C:\AI\AvelRen має незбережені зміни до
+  migrate.py, schema_verify.py, watchdog.py, трьох тестів, сценаріїв
+  adoption/restore та альтернативну 011_daily_admin_reports.sql.
+  Цей набір не змішувати автоматично з 011_admin_access.sql у PR #2.
+
+Після окремого GO власника резервний public key
+SHA256:uGE19uDEANDxIIdHevENqBV/af+xwrVF7nGPvJAaews додано до
+authorized_keys користувача averlenadmin. Початковий файл збережено
+поруч із SHA-256 4907a620532b2c8417b8cd97656b6f37fb7d0f5d3b04c46810f9464ac446c8e6;
+перевірені старий і новий SSH-входи. Сервіси не перезапускали.
+
+Файл pin знайдений у /opt/avelren/deploy/PROD_PIN; його SHA-256 —
+552b5b6fe83f0a86f2ab4a89f56e1c43cfd262c18d7842ba91e3bc7d38997e6e.
+Його не змінювали. Під час звірки не виконували deployment, рестартів,
+записів у БД чи змін production-конфігурації.
+
+У GitHub PR #2 лишався відкритим; після виправлення cleanup ізольованої БД
+commit f6a3eed2fee80466edcbe815d385b5f942663982 отримав успішні перевірки
+core і database. PR #3 уже існує, але на час перевірки мав конфліктний стан;
+після окремого злиття PR #2 його основу слід перевірити та оновити.
