@@ -17,12 +17,12 @@ head успішні. Аудити API, production-сумісності та ві
 [SERVER-COMPATIBILITY-AUDIT.md](SERVER-COMPATIBILITY-AUDIT.md) і
 [CONTROL-AUDIT.md](CONTROL-AUDIT.md).
 
-PR #4 з Android переведено на `main`; його head проходив Android, серверні
-та repository-check workflows до синхронізації з новим `main`. Зараз
-виконується звичайний merge-коміт, щоб зберегти історію та усунути конфлікт
-документації. PR #1 із source-only backup та розкладом лишається наступним
-draft-етапом. Restore engine й повний ізольований restore rehearsal ще не
-перенесені, тож перевірений `pg_dump` не є доказом відновлення.
+PR #4 з Android злитий у `main` звичайним merge-комітом
+`70324cb5d5a17d06dee51547f88522027319afca`; усі шість перевірок його точного
+head успішні. PR #1 із backup source, розкладом і контрактними тестами
+синхронізується з актуальним `main` у draft. Restore engine до ORIGINAL ще не
+перенесений. Ізольована репетиція старого source restore успішна, але не є
+перевіркою відновлення в ORIGINAL.
 
 На production застосовані лише міграції 001–009; нові міграції та зміни
 репозиторію не розгорталися. Production-збірка, restore/rehearsal та будь-яке

@@ -41,8 +41,10 @@ jobs:
         run: python3 scripts/verify_core_provenance.py
       - name: Синтаксис сценаріїв
         run: |
-          for script in scripts/test_database.sh ops/postgres-bootstrap.sh; do
+          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh; do
             bash -n "$script"
           done
+      - name: Контракт backup із фіктивними Docker і rclone
+        run: bash ops/backup-contract-test.sh
       - name: TimescaleDB, міграції, права та запис даних
         run: bash scripts/test_database.sh

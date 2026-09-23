@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily AvelRen backup
+
+[Timer]
+# 03:20 UTC — nighttime in Kyiv, service load is minimal.
+OnCalendar=*-*-* 03:20:00
+# The server may have been powered off — don't skip a backup silently.
+Persistent=true
+# Jitter so we don't hit Google Drive at exactly the same second every day.
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
