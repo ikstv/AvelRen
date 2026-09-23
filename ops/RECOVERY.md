@@ -61,13 +61,20 @@ backup dump і не проходять сценарій rehearsal зі стар�
   потрібні для доступу до сервісу й зашифрованої копії. Це не дамп БД і не
   заміна процедури відновлення.
 
-**Ще не перенесені як серверний комплект:** `deploy/backup.sh`, systemd
-service/timer, restore engine, його fail-closed CLI, production orchestrator,
-`restore-verify.sh` та integration-тести відновлення. У старому `AvelRen`
-ці файли лежали під `deploy/`; у новому `ops/` поки є тільки ізольована тестова
-БД і telemetry snapshot. Старі файли не можна механічно копіювати: вони
-очікують `/opt/avelren`, старі шляхи, Compose services і певну модель ролей.
+**Перенесено як source-only кандидати:** `ops/backup.sh`,
+`ops/avelren-backup.service` та `ops/avelren-backup.timer`. Вони скопійовані
+без редагування зі старого `AvelRen` main
+`4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27`. SHA-256 скрипту
+`de881a23614d40336cb1a7f51495124e30e152b1762f32fb0e90bae9b86dfae9`
+збігається з read-only виміром серверного checkout і встановленої копії на
+23.09.2026. Unit-и перенесено лише як вихідні файли; шляхи й інтеграцію з
+новим monorepo ще не адаптували. Це не інсталяція і не дозвіл запуску.
 
+**Ще не перенесені:** backup-контрактні тести, restore engine, його fail-closed
+CLI, production orchestrator, `restore-verify.sh` та integration-тести
+відновлення. Старі файли очікують `/opt/avelren`, попередні шляхи, Compose
+services і певну модель ролей; їх не можна механічно підключати до нового
+репозиторію.
 ## Порядок перенесення коду
 
 1. Перенести backup і restore сценарії зі старого `AvelRen` разом із
