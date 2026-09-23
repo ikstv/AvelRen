@@ -1,0 +1,102 @@
+{
+  "files": [
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/001_init.sql",
+      "destination": "db/migrations/001_init.sql",
+      "sha256": "f4e05e824a8fb6001e1983f2ef30228174a69e0a31706bb3fc91f6e78796659c"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/002_countries.sql",
+      "destination": "db/migrations/002_countries.sql",
+      "sha256": "65bb7e95b27a5041c5a734cafb9fb1ad46a0e7ab92b5ff79e25a789fd3d54d4a"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/003_checkpoints_sort_index.sql",
+      "destination": "db/migrations/003_checkpoints_sort_index.sql",
+      "sha256": "f00240b6a72b1c727c67b82da53c4ee4562032861f43ba241c50f5c66ef4483e"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/004_alerts.sql",
+      "destination": "db/migrations/004_alerts.sql",
+      "sha256": "bb2a352db98ea4dd7b10e84d530a8962e44879f882784c54c246a6be1e1822cf"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/005_eta_targets.sql",
+      "destination": "db/migrations/005_eta_targets.sql",
+      "sha256": "fbe93e33672df1cb7da17cb058b7c7e98227e221c9275bc6dde4d839328a0175"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/006_admin_devices.sql",
+      "destination": "db/migrations/006_admin_devices.sql",
+      "sha256": "6d495412502b3de1848ce40358a278140f577b708a2218f2ff27baadd9fbd0e9"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/007_device_secret.sql",
+      "destination": "db/migrations/007_device_secret.sql",
+      "sha256": "1e333fa8d2f0e6e6c12293c6f7a1e57d5fab65e36b0c0a6f039abd4bbf2146a4"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/008_notification_cancels.sql",
+      "destination": "db/migrations/008_notification_cancels.sql",
+      "sha256": "9e9def778050e3e3a7d4ff3f3b5a598ff66c96188eb9c3e6adc16eb57160425f"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/009_observability.sql",
+      "destination": "db/migrations/009_observability.sql",
+      "sha256": "8ed774face6228300346c49cf49cd81979345a2de4c034b59dd2fd0771e99471"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/010_postgresql_least_privilege.sql",
+      "destination": "db/migrations/010_postgresql_least_privilege.sql",
+      "sha256": "1bbc6b07b61aea0d78c712c04bb2025fa3f5a5c1a033c24eba7b07a65dd73f29"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/migrations/011_admin_access.sql",
+      "destination": "db/migrations/011_admin_access.sql",
+      "sha256": "cb130250eaa0913f16c58624e911ecc1ef68bcc7ae02795630501ccb550cbf8b"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "db/security/bootstrap.sql",
+      "destination": "db/security/bootstrap.sql",
+      "sha256": "e4fbda712f56e41a5c95d17fa9923234a294ee676f357c3c9db795511b53ea92"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/migrate.py",
+      "destination": "services/backend/src/avelren/migrate.py",
+      "sha256": "843b3e3c3606af7b4f4c29d6473d5fe21efa136b2931dc9c4e995261f667c61d"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "deploy/postgres-bootstrap.sh",
+      "destination": "ops/postgres-bootstrap.sh",
+      "sha256": "1367916a31c5e1835d8e12c4b582b4081385d4dbfbf8518c38ce558dd8f992db"
+    }
+  ]
+}

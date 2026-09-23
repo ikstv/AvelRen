@@ -1,0 +1,6 @@
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+COPY services/backend/requirements.lock /tmp/requirements.lock
+RUN pip install --require-hashes -r /tmp/requirements.lock && pip install pytest==9.1.1
+WORKDIR /workspace
+CMD ["python", "-m", "pytest", "-c", "services/backend/pytest.ini", "services/backend/tests/database", "-q", "-p", "no:cacheprovider"]
