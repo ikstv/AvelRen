@@ -111,3 +111,19 @@ Android, реальна доставка FCM і відновлення резе�
 GitHub підтверджує, що відкритий [PR #188](https://github.com/ikstv/AvelRen/pull/188) змінює рівно `app/src/avelren/watchdog.py`, `app/tests/test_watchdog_snapshot.py`, `deploy/PROD_PIN` і `deploy/telemetry-snapshot.sh`. Коміт, на який указує серверний `deploy/PROD_PIN` (`87cbac095c5e96f390ea475c2a9101bba3954267`), змінює три файли watchdog/телеметрії та є предком серверного `HEAD` (`81e5b047f8f18c42ca46a59f86495f71d0681af0`). Це підтверджує походження Git-комітів і узгоджується з PR diff.
 
 SSH до сервера під час цього кроку зависає на встановленні з'єднання. Тому побайтова тотожність незакомічених `watchdog.py` і `telemetry-snapshot.sh`, а також зміст резервних `.bak`/`.pre-88` файлів не перевірені. Їх не вважати підтвердженими копіями PR і не видаляти/перезаписувати. Потрібно повторити read-only порівняння після відновлення SSH.
+## Доповнення: фактичний production drift (2026-09-23)
+
+Через SSH alias `avelren-production` виконано read-only звірку. Серверний HEAD лишається `81e5b047f8f18c42ca46a59f86495f71d0681af0`; робоче дерево має дві змінені tracked-копії (`app/src/avelren/watchdog.py`, `deploy/telemetry-snapshot.sh`) і три не відстежувані резервні файли. Резервні файли не читалися та не змінювалися; їхні розміри й SHA-256 зафіксовано лише для ідентифікації: privacy policy 6488 bytes / `e5a8e239fd9672fbf35eefca12f3fa4388286fa36b85dc3942401bc45e035e4a`; compose backup 1105 bytes / `e4f3d173d82355e0bd5a2c070cdf46a6226b2d28d55ddb976ad8729082eee813`; pre-88 compose 1249 bytes / `dc1fffd65b2ac536ab6d97ca0f71c8a7d3cce02859fde3d8f26809f8f2fa6cdd`.
+
+SHA-256 exact files server vs GitHub PR #188 head `4a8c49046cd036a8a6903475b0f56001aa499fc0`:
+
+| Файл | Серверний checkout | PR #188 | Висновок |
+| --- | --- | --- | --- |
+| `app/src/avelren/watchdog.py` | `85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d` | `e2b13849c31796ea31545a431224a842f82dc6328f65fd227a78b61902317157` | Різний код; сервер додає метрики оновлень/ресурсів і вимикає негайні/повторні incident push та recovery push. |
+| `deploy/telemetry-snapshot.sh` | `577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966` | `baa011938e8319f865a0705a983ac296afbae256194f8463201b9292cb624ccf` | Різний код; серверна копія додає підрахунок unattended-upgrades і reboot за 24 години. |
+| `app/tests/test_watchdog_snapshot.py` | `2769858ae5db55766b396c9fd05ccfdbd2a9ba16100f84667e0035718c4908c8` | `2769858ae5db55766b396c9fd05ccfdbd2a9ba16100f84667e0035718c4908c8` | Однаковий файл тестів. |
+| `deploy/PROD_PIN` | `552b5b6fe83f0a86f2ab4a89f56e1c43cfd262c18d7842ba91e3bc7d38997e6e` | `552b5b6fe83f0a86f2ab4a89f56e1c43cfd262c18d7842ba91e3bc7d38997e6e` | Однаковий pin на `87cbac0`. |
+
+Read-only `docker exec` показав, що `/app/src/avelren/watchdog.py` у запущеному `avelren-watchdog-1` має SHA `85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d`, тобто контейнер реально виконує незакомічений серверний watchdog-код, а не версію PR #188. Файл telemetry за вказаним шляхом у контейнері відсутній; хостова встановлена копія раніше звірена із серверним checkout, але не з образом.
+
+**Висновок і межа перенесення:** PR #188 не відображає повністю поточну production-поведінку. Особливо чутлива зміна — вимкнення аварійних і recovery push-повідомлень, тоді як health incidents лишаються в БД/логах і зводяться до щоденного звіту. Не відновлювати сповіщення, не замінювати файли на сервері й не переносити цей diff у новий репозиторій без окремого рішення власника. Наступний крок — зберегти цей production diff у контрольованій гілці/patch після узгодження, перевірити його семантику та покриття тестами; резервні файли окремо класифікувати, не видаляючи.
