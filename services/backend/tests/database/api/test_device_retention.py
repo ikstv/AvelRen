@@ -94,7 +94,9 @@ def test_deleted_installation_gets_401_and_can_register_again(api_client, conn, 
     with psycopg.connect(database("notifier"), autocommit=True) as worker:
         worker.execute("SELECT * FROM prune_inactive_devices(true)")
     assert api_client.get("/subscriptions", headers=device.headers()).status_code == 401
-    response = api_client.post("/devices", json={"fcm_token": "synthetic-reinstalled-token-32chars"})
+    response = api_client.post(
+        "/devices", json={"fcm_token": "synthetic-reinstalled-token-32chars"}
+    )
     assert response.status_code == 201
 
 
