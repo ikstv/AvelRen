@@ -4,8 +4,34 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDate
+import java.time.Instant
 
 class ForecastPresentationTest {
+    @Test
+    fun `rolling day keeps tomorrow and excludes stale and distant points`() {
+        val now = Instant.parse("2026-09-24T14:30:00Z")
+        val points = listOf(
+            point("2026-09-25T14:00:00Z", 90),
+            point("2026-09-24T15:00:00Z", 20),
+            point("2026-09-24T14:00:00Z", 200),
+            point("2026-09-25T15:00:00Z", 300),
+            point("invalid", 500),
+        )
+        val result = ForecastPresentation.next24Hours(points, now)
+        assertEquals(listOf(20, 90), result.map { it.vehicles_expected })
+        assertEquals(90, ForecastPresentation.peak(result)?.vehicles_expected)
+    }
+
+    @Test
+    fun `rolling day is 24 elapsed hours across Kyiv clock changes`() {
+        for (start in listOf("2026-03-28T21:00:00Z", "2026-10-24T20:00:00Z")) {
+            val now = Instant.parse(start)
+            val points = (0L..25L).map { point(now.plusSeconds(it * 3600).toString(), it.toInt()) }
+            val result = ForecastPresentation.next24Hours(points, now)
+            assertEquals(24, result.size)
+            assertEquals(24, result.last().vehicles_expected)
+        }
+    }
     private fun point(time: String, vehicles: Int) = Api.ForecastPoint(
         time = time,
         wait_seconds_low = 0,

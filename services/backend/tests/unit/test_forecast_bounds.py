@@ -39,6 +39,10 @@ class _ForecastConn:
         self.rows = rows
 
     async def execute(self, sql: str, params: tuple | None = None):  # noqa: ANN201
+        if "ORDER BY time DESC LIMIT 1" in sql:
+            return _FakeCursor({"time": datetime.now(UTC), "vehicles_in_queue": 188})
+        if "GROUP BY bucket ORDER BY bucket" in sql:
+            return _FakeCursor([])
         return _FakeCursor(self.rows)
 
 
@@ -87,6 +91,14 @@ def test_ready_forecast_requires_eight_samples_for_each_slot(monkeypatch) -> Non
         return forecast.Readiness("ready", 8.0, 8, None)
 
     monkeypatch.setattr(forecast, "readiness", ready)
+    monkeypatch.setattr(
+        forecast,
+        "predict_counts",
+        lambda history, issued, current, targets, **kw: {
+            at: {"vehicles_expected": current, "vehicles_low": current, "vehicles_high": current}
+            for at in targets
+        },
+    )
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     target = (now + timedelta(hours=1)).astimezone(forecast.KYIV)
     target_dow = (target.weekday() + 1) % 7
@@ -109,6 +121,5 @@ def test_ready_forecast_requires_eight_samples_for_each_slot(monkeypatch) -> Non
     result = asyncio.run(forecast.forecast(_ForecastConn(rows), 123))
 
     assert result["status"] == "ready"
-    assert all(
-        point["time"] != now + timedelta(hours=1) for point in result["points"]
-    )
+    assert len(result["points"]) == 23
+    assert all(point["time"] != now + timedelta(hours=1) for point in result["points"])
