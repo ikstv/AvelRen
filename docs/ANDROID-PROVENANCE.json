@@ -67,8 +67,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/Api.kt",
       "sha256": "2a165f98b363bbfc3db195eea3f2d0485de2d297247f51aa62c750bb5377f997",
       "revision": {
-        "sha256": "1e55683d1461a2620564c119149dc871e298710cb8f91d462ee535041f49157d",
-        "notes": "docs/SERVER-STATUS.md"
+        "sha256": "c1dc42e411ab1234d670bb1faae33be9f3f5415e46400ed7dc8538c38eb4ce75",
+        "notes": "docs/forecast.md"
       }
     },
     {
@@ -201,8 +201,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "530294a67e1a01912bfe42bfcc442fcb823d0d84b5f6659db97459d55c76c6b1",
-        "notes": "docs/PLAY-UPDATES.md"
+        "sha256": "3ecdd28f6ef5f1004f533661eee261fd366ea5fc0ba1974ad1f1070ef2f7f9a4",
+        "notes": "docs/forecast.md"
       }
     },
     {

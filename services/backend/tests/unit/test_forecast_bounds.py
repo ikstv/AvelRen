@@ -19,6 +19,9 @@ class _FakeCursor:
     async def fetchone(self) -> dict:
         return self._row
 
+    async def fetchall(self) -> list[dict]:
+        return self._row
+
 
 class _SpyConn:
     """Records each execute(sql, params), executing nothing."""
@@ -29,6 +32,14 @@ class _SpyConn:
     async def execute(self, sql: str, params: tuple | None = None):  # noqa: ANN201
         self.calls.append((sql, params or ()))
         return _FakeCursor({"n": 0, "mae_hours": None})
+
+
+class _ForecastConn:
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    async def execute(self, sql: str, params: tuple | None = None):  # noqa: ANN201
+        return _FakeCursor(self.rows)
 
 
 def test_evaluate_query_is_time_bounded() -> None:
@@ -51,3 +62,53 @@ def test_evaluate_query_is_time_bounded() -> None:
     window = datetime.now(UTC) - since
     # The window is finite and reasonable (not "all history"). LOOKBACK_WEEKS with margin.
     assert timedelta(0) < window <= timedelta(weeks=forecast.LOOKBACK_WEEKS + 1)
+
+
+def test_quality_evaluation_holds_out_latest_week() -> None:
+    spy = _SpyConn()
+    asyncio.run(forecast.evaluate(spy, 123))
+
+    sql, params = spy.calls[0]
+    assert "validation" in sql.lower()
+    assert "training" in sql.lower()
+    assert "FROM validation" in sql
+    assert "FROM training" in sql
+    # Params: checkpoint, lower bound, upper bound, train/validation split.
+    assert len(params) == 5
+    assert params[3] == params[4]
+    # The upper bound is the start of the current UTC hour, so the in-progress
+    # hourly aggregate cannot leak into the holdout as a partial actual.
+    assert params[2].minute == params[2].second == params[2].microsecond == 0
+    assert params[2] - params[3] == timedelta(days=7)
+
+
+def test_ready_forecast_requires_eight_samples_for_each_slot(monkeypatch) -> None:
+    async def ready(*_args):
+        return forecast.Readiness("ready", 8.0, 8, None)
+
+    monkeypatch.setattr(forecast, "readiness", ready)
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    target = (now + timedelta(hours=1)).astimezone(forecast.KYIV)
+    target_dow = (target.weekday() + 1) % 7
+    rows = [
+        {
+            "dow": dow,
+            "hour": hour,
+            "p25": 10,
+            "p50": 20,
+            "p75": 30,
+            "vehicles_p25": 1,
+            "vehicles_p50": 2,
+            "vehicles_p75": 3,
+            "samples": 7 if (dow, hour) == (target_dow, target.hour) else 8,
+        }
+        for dow in range(7)
+        for hour in range(24)
+    ]
+
+    result = asyncio.run(forecast.forecast(_ForecastConn(rows), 123))
+
+    assert result["status"] == "ready"
+    assert all(
+        point["time"] != now + timedelta(hours=1) for point in result["points"]
+    )

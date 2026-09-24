@@ -297,7 +297,10 @@ object Api {
         val wait_seconds_low: Int,
         val wait_seconds_expected: Int,
         val wait_seconds_high: Int,
+        val vehicles_low: Int? = null,
         val vehicles_expected: Int,
+        val vehicles_high: Int? = null,
+        val samples: Int? = null,
     )
 
     @Serializable
