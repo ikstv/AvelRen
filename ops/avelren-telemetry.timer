@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic host telemetry snapshot for the AvelRen API
+Documentation=file:///opt/avelren/ops/telemetry-snapshot.sh
+
+[Timer]
+# Keep the snapshot cadence aligned with the collector's one-minute cycle.
+OnBootSec=30s
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

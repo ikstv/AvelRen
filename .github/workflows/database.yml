@@ -50,6 +50,8 @@ jobs:
           for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-engine.lib.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh ops/compose-production-contract-test.sh; do
             bash -n "$script"
           done
+      - name: Контракт telemetry systemd units
+        run: python3 ops/telemetry-unit-contract-test.py
       - name: Контракт backup із фіктивними Docker і rclone
         run: bash ops/backup-contract-test.sh
       - name: Контракти fail-closed restore
