@@ -187,7 +187,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "6cf34587f48ae0adc4d6c0d865202d4d8f01610e8dcd8b27e4296e9524dc7dc9",
+        "sha256": "76fea60b714361bdace5d2ce9ca2fca6c57835193651a51fa8ef1ac10d4e673a",
         "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
@@ -196,7 +196,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/java/ua/avelren/app/ui/Attribution.kt",
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/Attribution.kt",
-      "sha256": "d6b722c308a0eed9254891ac665bcccaa023fac0a9fd573369e427ad55b54c91"
+      "sha256": "d6b722c308a0eed9254891ac665bcccaa023fac0a9fd573369e427ad55b54c91",
+      "revision": {
+        "sha256": "0f92d8b655c5b3602699ee8efbca556d16f05d737eaefd5b7cd1778f580e3d58",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -205,8 +209,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "f0ddbe4870350fe018594a86cf46f0b3775409839d332a68d005437d71fc9182",
-        "notes": "docs/BANNER-FOUR-STATES.md"
+        "sha256": "4402bcabce6a175820247bfff1cc520039e7e466470870cbf19e544f63e0075d",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
     {
