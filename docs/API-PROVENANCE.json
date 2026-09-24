@@ -18,8 +18,8 @@
       "destination": "services/backend/src/avelren/subscriptions_api.py",
       "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
       "revision": {
-        "sha256": "8e8968ab8a6d13e3a47ed1399cffab019ad65ba615aeb3907dbcb765dfd983c0",
-        "notes": "docs/ADMIN-RETENTION-DEPLOY.md"
+        "sha256": "cda54b5d2a82ef1fdea6d75a4be2ab96bbab9a00c6e38e5207023011201e3579",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
     {
