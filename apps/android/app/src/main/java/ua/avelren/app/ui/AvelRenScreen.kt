@@ -432,10 +432,9 @@ fun AvelRenScreen(
     BackHandler(enabled = forecastOpen) { pendingAiCp = null }
     val bottomChromePadding = if (updateAvailable) 182.dp else 136.dp
 
-    // Головна — фото на всю площу з `filter:grayscale(100%)` + затемнення згори
-    // (190px) і знизу (170px). Екран «Моніторинг» — суцільний темний фон
-    // (#0A0A0A), без фото й градієнтів.
-    Box(Modifier.fillMaxSize().background(if (onMonitor || onSettings || forecastOpen) MonitorBg else Color.Black)) {
+    // Головна — фото на всю площу; моніторинг і налаштування мають рівний
+    // чорний фон без підсвічування під нижньою навігацією.
+    Box(Modifier.fillMaxSize().background(if (forecastOpen) MonitorBg else Color.Black)) {
         if (!onMonitor && !onSettings && !forecastOpen) {
             Image(
                 painter = painterResource(R.drawable.onboarding_truck),
@@ -594,6 +593,7 @@ fun AvelRenScreen(
     BottomNavBar(
         activeTab = activeTab,
         onSelect = { activeTab = it },
+        flatDark = onMonitor || onSettings,
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .windowInsetsPadding(WindowInsets.systemBars)
@@ -1880,11 +1880,11 @@ internal fun SettingsScreen(
     MaterialTheme(colorScheme = ua.avelren.app.ui.theme.DarkColors.copy(
         primary = SignWarn,
         onPrimary = ua.avelren.app.ui.theme.SignOnWarn,
-        surface = MonitorBg,
+        surface = Color.Black,
     )) {
         androidx.compose.material3.Surface(
             modifier = modifier,
-            color = MonitorBg,
+            color = Color.Black,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             Column {
@@ -1992,10 +1992,9 @@ internal fun SettingsDeveloperFooter(
 }
 
 // --- Нижня навігація (з Design) -------------------------------------------
-// Плавуча закруглена панель поверх вмісту: `bottom:12; height:60; radius:20;
-// bg rgba(10,10,10,.72); border rgba(255,255,255,.14); shadow`. Активна
-// вкладка жовта (#F5C400), неактивна rgba(255,255,255,.45).
-private val MonitorBg = Color(0xFF0A0A0A)    // суцільний фон екрана «Моніторинг»
+// Плавуча закруглена панель поверх вмісту. На фото — напівпрозора з тінню;
+// на моніторингу й налаштуваннях — рівна чорна без світлого ореолу.
+private val MonitorBg = Color(0xFF0A0A0A)    // фон прогнозу й темних діалогів
 private val NavGlass = Color(0xB80A0A0A)     // rgba(10,10,10,.72)
 private val NavBorder = Color(0x24FFFFFF)    // rgba(255,255,255,.14)
 private val NavInactive = Color(0x73FFFFFF)  // rgba(255,255,255,.45)
@@ -2004,14 +2003,15 @@ private val NavInactive = Color(0x73FFFFFF)  // rgba(255,255,255,.45)
 private fun BottomNavBar(
     activeTab: String,
     onSelect: (String) -> Unit,
+    flatDark: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier
             .fillMaxWidth()
             .height(60.dp)
-            .shadow(8.dp, RoundedCornerShape(20.dp))
-            .background(NavGlass, RoundedCornerShape(20.dp))
+            .shadow(if (flatDark) 0.dp else 8.dp, RoundedCornerShape(20.dp))
+            .background(if (flatDark) Color.Black else NavGlass, RoundedCornerShape(20.dp))
             .border(1.dp, NavBorder, RoundedCornerShape(20.dp)),
     ) {
         NavTab("Головна", activeTab == "home", { onSelect("home") }, Modifier.weight(1f)) { HomeIcon(it) }

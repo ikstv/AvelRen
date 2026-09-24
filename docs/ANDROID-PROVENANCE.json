@@ -209,7 +209,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "4402bcabce6a175820247bfff1cc520039e7e466470870cbf19e544f63e0075d",
+        "sha256": "f92dccc50d3c5b32de2e29c55767e240ece2de345b19be8cf5800bdc40871f75",
         "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
