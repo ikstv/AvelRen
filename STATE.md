@@ -63,7 +63,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 44 |
-| `chore/state-refresh` | 40 | 0 |
+| `chore/state-refresh` | 41 | 0 |
 | `codex/admin-access` | 5 | 1 |
 | `codex/device-retention-cleanup` | 2 | 5 |
 | `codex/fix-launcher-icon` | 6 | 5 |
