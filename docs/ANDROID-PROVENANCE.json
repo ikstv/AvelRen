@@ -205,8 +205,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "14389afb9c58d2482bd56733ef268c114c3a54345358dbac86f17883bb4aecb5",
-        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
+        "sha256": "f0ddbe4870350fe018594a86cf46f0b3775409839d332a68d005437d71fc9182",
+        "notes": "docs/BANNER-FOUR-STATES.md"
       }
     },
     {

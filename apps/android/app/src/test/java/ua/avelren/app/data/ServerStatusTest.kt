@@ -21,6 +21,20 @@ class ServerStatusTest {
         assertEquals(ServerStatus.NO_INTERNET, status(InternetState.OFFLINE, maintenance = window))
     }
 
+    @Test fun bannerHasOnlyTheFourAgreedVisibleStates() {
+        assertEquals(
+            setOf("СЕРВЕР ОНЛАЙН", "НЕМАЄ ІНТЕРНЕТУ", "СЛАБКИЙ ІНТЕРНЕТ", "ТЕХНІЧНІ РОБОТИ"),
+            ServerStatus.entries.map { it.label }.filter { it.isNotEmpty() }.toSet(),
+        )
+    }
+
+    @Test fun disconnectDoesNotShowAnIntermediateConnectionMessage() {
+        assertEquals("", status(InternetState.UNKNOWN, false).label)
+        assertEquals("НЕМАЄ ІНТЕРНЕТУ", status(InternetState.OFFLINE, false).label)
+        assertEquals("", status(InternetState.ONLINE, null).label)
+        assertEquals("СЕРВЕР ОНЛАЙН", status(InternetState.ONLINE, true).label)
+    }
+
     @Test fun responseFailureIsNotLossOfInternet() {
         assertEquals(ServerStatus.UNREACHABLE, status(success = false))
         assertEquals(ServerStatus.CONNECTION_UNKNOWN, status(InternetState.UNKNOWN, false))

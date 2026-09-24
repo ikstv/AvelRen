@@ -841,7 +841,7 @@ private fun HeaderRow(
                     },
                 )
             }
-        } else {
+        } else if (!showServerStatus) {
             VersionHeader()
         }
     }
