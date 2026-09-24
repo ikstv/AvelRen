@@ -38,6 +38,10 @@ internal interface AdminAccessClient {
     suspend fun unlock(password: String): Api.AdminAccess
 }
 
+internal interface AdminServerClient {
+    suspend fun activeDevices(): Api.ActiveDevices
+}
+
 @Composable
 internal fun AdministrationSettings(
     modifier: Modifier = Modifier,
@@ -74,7 +78,14 @@ internal fun AdministrationSettings(
                         text = { Text(label, fontWeight = FontWeight.Bold) })
                 }
             }
-            if (tab == 1) {
+            if (tab == 0) {
+                val server = remember {
+                    object : AdminServerClient {
+                        override suspend fun activeDevices() = Api.activeDevices()
+                    }
+                }
+                AdminServerContent(server, Modifier.fillMaxWidth().weight(1f))
+            } else {
                 val application = LocalContext.current.applicationContext
                 val access = client ?: remember(application) {
                     val installation = (application as AvelRenApp).installation
@@ -87,6 +98,50 @@ internal fun AdministrationSettings(
                 }
                 AdminAccessForm(access, Modifier.fillMaxWidth().weight(1f))
             }
+        }
+    }
+}
+
+@Composable
+private fun AdminServerContent(server: AdminServerClient, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    var count by remember { mutableStateOf<Int?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    suspend fun load() {
+        busy = true
+        error = null
+        try {
+            val result = server.activeDevices()
+            count = result.active_devices
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ClientRequestException) {
+            count = null
+            error = when (e.response.status) {
+                HttpStatusCode.NotFound -> "Показник ще не доступний на сервері."
+                else -> "Не вдалося отримати кількість пристроїв."
+            }
+        } catch (_: Exception) {
+            count = null
+            error = "Не вдалося отримати кількість пристроїв."
+        } finally {
+            busy = false
+        }
+    }
+
+    LaunchedEffect(Unit) { load() }
+    Column(modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Активні пристрої за 24 години", style = MaterialTheme.typography.titleMedium)
+        count?.let {
+            Text(it.toString(), style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold)
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (busy) CircularProgressIndicator(Modifier.size(24.dp))
+        TextButton(onClick = { scope.launch { load() } }, enabled = !busy) {
+            Text("Оновити")
         }
     }
 }
