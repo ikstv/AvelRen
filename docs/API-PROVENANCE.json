@@ -18,7 +18,7 @@
       "destination": "services/backend/src/avelren/subscriptions_api.py",
       "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
       "revision": {
-        "sha256": "cda54b5d2a82ef1fdea6d75a4be2ab96bbab9a00c6e38e5207023011201e3579",
+        "sha256": "44a23bc608dc1d96aab43e6901322420ed2f646c1dca71476adc13a8537c03ad",
         "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },

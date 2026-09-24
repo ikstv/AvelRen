@@ -70,7 +70,7 @@ internal fun AdministrationSettings(
                     page = "admin"
                 }
                 SettingsMenuItem("Політика конфіденційності", Icons.Default.Lock) {
-                    uriHandler.openUri("https://api.bordersignal.pp.ua/privacy")
+                    uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
                 }
             }
         } else if (page == "about") {
@@ -154,7 +154,7 @@ private fun AboutContent(modifier: Modifier = Modifier) {
             .padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 140.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("AvelRen · версія ${BuildConfig.VERSION_NAME}",
+        Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("0.1.1", color = SignWarn, fontWeight = FontWeight.Bold)
         Text(releaseNotes)
@@ -195,7 +195,7 @@ private fun AdminServerContent(server: AdminServerClient, modifier: Modifier = M
 
     LaunchedEffect(Unit) { load() }
     Column(modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Активні пристрої за 24 години", style = MaterialTheme.typography.titleMedium)
+        Text("Активні пристрої", style = MaterialTheme.typography.titleMedium)
         count?.let {
             Text(it.toString(), style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold)

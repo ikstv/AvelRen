@@ -385,7 +385,7 @@ object Api {
         client.get("$base/admin/telemetry") { auth(creds) }.body()
 
     @Serializable
-    data class ActiveDevices(val active_devices: Int, val period_hours: Int)
+    data class ActiveDevices(val active_devices: Int, val retention_days: Int)
 
     suspend fun activeDevices(): ActiveDevices =
         client.get("$base/active-devices").body()
