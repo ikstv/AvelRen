@@ -475,16 +475,15 @@ async def acknowledge_eta_alert(
 
 @router.get("/active-devices")
 async def active_devices(request: Request) -> dict:
-    """Number of installations seen by our API during the last 24 hours."""
+    """Number of device records still retained on our server."""
     rate_check(request, "read")
     async with get_pool().connection() as conn:
         count = await (
             await conn.execute(
-                "SELECT count(*) AS total FROM devices "
-                "WHERE last_seen > now() - INTERVAL '24 hours'"
+                "SELECT count(*) AS total FROM devices"
             )
         ).fetchone()
-    return {"active_devices": count["total"], "period_hours": 24}
+    return {"active_devices": count["total"], "retention_days": 90}
 
 
 # --- Telemetry (admin devices only) ----------------------------------------
