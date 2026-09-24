@@ -86,6 +86,7 @@ import ua.avelren.app.ui.theme.SignWarn
 import ua.avelren.app.ui.theme.SignOnWarn
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
@@ -97,6 +98,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ua.avelren.app.BuildConfig
+import ua.avelren.app.AvelRenApp
 import ua.avelren.app.R
 import ua.avelren.app.data.BackgroundDelivery
 import ua.avelren.app.data.BackgroundDeliveryHint
@@ -201,7 +203,11 @@ fun AvelRenScreen(
     // сервера: subscriptions()/subscribe()/unsubscribe(). Флоу: тап по плитці →
     // пікер КПП → вибір порога (50/100/150/200) → subscribe.
     val scope = rememberCoroutineScope()
-    val creds = remember { DeviceStore.credentials(context) }
+    val installation = remember(context) { (context.applicationContext as AvelRenApp).installation }
+    val installationState by installation.state.collectAsStateWithLifecycle()
+    // Registration finishes asynchronously after a fresh install. Do not retain
+    // the initial null credentials for the whole lifetime of this screen.
+    val creds = remember(installationState) { DeviceStore.credentials(context) }
     var subscriptions by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
     var etaTargets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     // Порожній список сам по собі НЕ означає «підписок немає» — рівно так само
@@ -236,12 +242,13 @@ fun AvelRenScreen(
             monitorsLoading = true
             monitorsFailed = false
             try {
-                val c = DeviceStore.credentials(context) ?: error("Installation unavailable")
                 val result = withTimeout(15_000L) {
-                    coroutineScope {
-                        val subs = async { Api.subscriptions(c) }
-                        val targets = async { Api.etaTargets(c) }
-                        subs.await() to targets.await()
+                    installation.authenticatedCall { c ->
+                        coroutineScope {
+                            val subs = async { Api.subscriptions(c) }
+                            val targets = async { Api.etaTargets(c) }
+                            subs.await() to targets.await()
+                        }
                     }
                 }
                 // Publish a complete snapshot; preserve the previous one on errors.
