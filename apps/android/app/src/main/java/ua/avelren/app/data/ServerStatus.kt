@@ -29,13 +29,14 @@ data class PublicServerStatus(val maintenance: MaintenanceWindow? = null)
 
 enum class ServerStatus(val label: String) {
     CHECKING(""), // Initial uncertainty is not a user-facing server status.
-    WEAK_INTERNET("НЕСТАБІЛЬНИЙ ІНТЕРНЕТ"),
+    WEAK_INTERNET("СЛАБКИЙ ІНТЕРНЕТ"),
     NO_INTERNET("НЕМАЄ ІНТЕРНЕТУ"),
-    UNREACHABLE("СЕРВЕР НЕДОСТУПНИЙ"),
-    CONNECTION_UNKNOWN("НЕМАЄ ЗВ'ЯЗКУ"),
+    // Diagnostic states remain distinct, but do not invent a user-facing cause.
+    UNREACHABLE(""),
+    CONNECTION_UNKNOWN(""),
     MAINTENANCE("ТЕХНІЧНІ РОБОТИ"),
-    STALE("ДАНІ ЗАСТАРІЛІ"),
-    NO_DATA("ДАНІ НЕДОСТУПНІ"),
+    STALE(""),
+    NO_DATA(""),
     ONLINE("СЕРВЕР ОНЛАЙН");
 
     companion object {
