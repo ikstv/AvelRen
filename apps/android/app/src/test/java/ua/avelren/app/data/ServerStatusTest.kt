@@ -49,6 +49,16 @@ class ServerStatusTest {
         assertFalse(NetworkAvailability.weakWifiSignal(true, null))
     }
 
+    @Test fun instabilityNeedsRepeatedActualLossAndClearsAfterStableMinute() {
+        val tracker = ConnectionStability()
+        assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 0))
+        assertEquals(InternetState.OFFLINE, tracker.observe(InternetState.OFFLINE, 1_000))
+        assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 2_000))
+        assertEquals(InternetState.OFFLINE, tracker.observe(InternetState.OFFLINE, 3_000))
+        assertEquals(InternetState.WEAK, tracker.observe(InternetState.ONLINE, 4_000))
+        assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 64_000))
+    }
+
     @Test fun confirmedWindowSurvivesFailedRequestButExpires() {
         assertEquals(ServerStatus.MAINTENANCE, status(success = false, maintenance = window))
         assertEquals(3L, window.remainingMinutes(now))

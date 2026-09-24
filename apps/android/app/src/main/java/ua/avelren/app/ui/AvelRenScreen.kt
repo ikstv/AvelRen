@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Build as MaintenanceIcon
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Settings
@@ -809,7 +810,7 @@ private fun HeaderRow(
             val dot = when (status) {
                 ServerStatus.ONLINE -> avelren.go
                 ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA,
-                ServerStatus.WEAK_INTERNET -> avelren.warn
+                ServerStatus.WEAK_INTERNET, ServerStatus.MAINTENANCE -> avelren.warn
                 else -> avelren.closed
             }
             Row(
@@ -818,7 +819,12 @@ private fun HeaderRow(
                     .clip(RoundedCornerShape(8.dp))
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                if (status == ServerStatus.MAINTENANCE) {
+                    Icon(Icons.Filled.MaintenanceIcon, contentDescription = null,
+                        tint = dot, modifier = Modifier.size(14.dp))
+                } else {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                }
                 Spacer(Modifier.width(7.dp))
                 Text(
                     if (status == ServerStatus.MAINTENANCE && remainingMinutes != null)
@@ -828,7 +834,11 @@ private fun HeaderRow(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.sp,
-                    color = Color.White,
+                    color = when (status) {
+                        ServerStatus.NO_INTERNET, ServerStatus.WEAK_INTERNET,
+                        ServerStatus.MAINTENANCE -> dot
+                        else -> Color.White
+                    },
                 )
             }
         } else {
