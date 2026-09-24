@@ -76,6 +76,7 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
                     """
                     SELECT secret_hash FROM devices
                     WHERE id = %s AND secret_hash IS NOT NULL
+                    FOR UPDATE
                     """,
                     (x_device_id,),
                 )
