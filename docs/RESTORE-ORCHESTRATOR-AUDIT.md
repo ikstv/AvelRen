@@ -18,6 +18,23 @@ read-only evidence production checkout від 2026-09-23:
 Це підтверджує походження кандидатів, але не їхню сумісність із консолідованим
 репозиторієм або право виконання на production.
 
+## Ізольована перевірка старого кандидата
+
+24.09.2026 `deploy/restore-production-integration-test.sh` пройшов на чистому
+export main commit `4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27` у локальному
+Docker Desktop. Тест підняв випадковий Compose-проєкт із синтетичними
+TimescaleDB-базами та тестовими credentials. Він перевірив restore повного
+dump, restore з префіксом міграцій 001–009 із подальшим migrate/schema gate,
+read-only API smoke, порядок restart, readiness/freshness failure та відмову
+за активної DB-сесії. Контейнер, volume і мережа цього проєкту після тесту не
+залишилися.
+
+Успішний результат стосується лише старого orchestrator у старій структурі
+checkout та його синтетичного тестового середовища. Він не перевіряє новий
+`ops/restore-engine.lib.sh`, реальну копію з Drive, decrypt ключ або production
+database. `FATAL` після рядка успішного завершення походить від навмисного
+завершення тестового `pg_sleep` процесу в сценарії активної сесії.
+
 ## Несумісність із перенесеним restore-кодом
 
 У старому orchestrator є кілька production-side ефектів до виклику engine:
