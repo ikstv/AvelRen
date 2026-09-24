@@ -1,5 +1,6 @@
 package ua.avelren.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -77,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import ua.avelren.app.data.NotificationPermissionState
+import ua.avelren.app.data.ForecastPresentation
 import ua.avelren.app.ui.theme.SignClosed
 import ua.avelren.app.ui.theme.SignOnClosed
 import ua.avelren.app.ui.theme.SignWarn
@@ -208,7 +211,7 @@ fun AvelRenScreen(
     var pendingThresholdCp by remember { mutableStateOf<Api.Workload?>(null) }
     var showEtaCpPicker by remember { mutableStateOf(false) }
     var pendingEtaCp by remember { mutableStateOf<Api.Workload?>(null) }
-    // AI-прогноз — читання (не підписка): обрав КПП → показуємо прогноз.
+    // Прогноз — read-only потік: вибір КПП відкриває окремий екран.
     var showAiCpPicker by remember { mutableStateOf(false) }
     var pendingAiCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Гейт беззвучної підписки (#117 крок 2): коли дозволу нема, вибір порога
@@ -387,13 +390,15 @@ fun AvelRenScreen(
 
     val onMonitor = activeTab == "monitor"
     val onSettings = activeTab == "settings"
+    val forecastOpen = pendingAiCp != null
+    BackHandler(enabled = forecastOpen) { pendingAiCp = null }
     val bottomChromePadding = if (updateAvailable) 182.dp else 136.dp
 
     // Головна — фото на всю площу з `filter:grayscale(100%)` + затемнення згори
     // (190px) і знизу (170px). Екран «Моніторинг» — суцільний темний фон
     // (#0A0A0A), без фото й градієнтів.
-    Box(Modifier.fillMaxSize().background(if (onMonitor || onSettings) MonitorBg else Color.Black)) {
-        if (!onMonitor && !onSettings) {
+    Box(Modifier.fillMaxSize().background(if (onMonitor || onSettings || forecastOpen) MonitorBg else Color.Black)) {
+        if (!onMonitor && !onSettings && !forecastOpen) {
             Image(
                 painter = painterResource(R.drawable.onboarding_truck),
                 contentDescription = null,
@@ -411,7 +416,25 @@ fun AvelRenScreen(
             )
         }
 
-    if (onMonitor) {
+    if (forecastOpen) {
+        pendingAiCp?.let { cp ->
+            ForecastScreen(
+                checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
+                checkpointId = cp.checkpoint_id,
+                onBack = { pendingAiCp = null },
+            )
+        }
+        AttributionBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 12.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xCC0A0A0A))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    } else if (onMonitor) {
         // Екран «Моніторинг»: 4 плитки на всю висоту. Header фіксований зверху,
         // три плитки-дії й «Ваш моніторинг» ділять решту простору вагами (список
         // отримує трохи більше й скролиться, якщо рядків багато).
@@ -449,8 +472,8 @@ fun AvelRenScreen(
                 icon = { TileIcon(Icons.Filled.HourglassEmpty) },
             )
             ActionTile(
-                title = "AI-прогноз",
-                subtitle = "Прогноз хвиль реєстрацій у чергу від AI-моделі",
+                title = "Прогноз черги",
+                subtitle = "Коли сьогодні очікується найбільша черга",
                 onClick = { showAiCpPicker = true },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 icon = { TileIcon(Icons.Filled.AutoAwesome) },
@@ -533,6 +556,7 @@ fun AvelRenScreen(
     // Макет: плавуча навпанель — `left:12; right:12; bottom:12; height:60;
     // radius:20`, прибита до низу поверх вмісту (футер «DEVELOPER» на головній
     // прибрано — його місце зайняла панель).
+    if (!forecastOpen) {
     BottomNavBar(
         activeTab = activeTab,
         onSelect = { activeTab = it },
@@ -576,6 +600,7 @@ fun AvelRenScreen(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = if (onSettings) 116.dp else 104.dp),
         )
+    }
     }
     }
 
@@ -720,15 +745,6 @@ fun AvelRenScreen(
                 showAiCpPicker = false
             },
             onDismiss = { showAiCpPicker = false },
-        )
-    }
-
-    // Крок 2 — показ прогнозу для обраного КПП.
-    pendingAiCp?.let { cp ->
-        ForecastDialog(
-            checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
-            checkpointId = cp.checkpoint_id,
-            onDismiss = { pendingAiCp = null },
         )
     }
 
@@ -1506,10 +1522,10 @@ private fun EtaChooserDialog(
     }
 }
 
-// --- AI-прогноз -----------------------------------------------------------
-private val AI_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMMM", java.util.Locale("uk"))
-private fun aiReadyDate(iso: String): String = runCatching {
-    OffsetDateTime.parse(iso).atZoneSameInstant(KYIV).format(AI_DATE)
+// --- Прогноз черги --------------------------------------------------------
+private val FORECAST_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMMM", java.util.Locale("uk"))
+private fun forecastReadyDate(iso: String): String = runCatching {
+    OffsetDateTime.parse(iso).atZoneSameInstant(KYIV).format(FORECAST_DATE)
 }.getOrDefault(iso)
 
 /**
@@ -1518,112 +1534,193 @@ private fun aiReadyDate(iso: String): String = runCatching {
  * ready/preliminary — очікуваний пік черги з прогнозних точок.
  */
 @Composable
-private fun ForecastDialog(
+private fun ForecastScreen(
     checkpointTitle: String,
     checkpointId: Int,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
 ) {
     var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
-    LaunchedEffect(checkpointId) {
-        loading = true; failed = false
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(checkpointId, reload) {
+        loading = true
+        failed = false
         runCatching { Api.forecast(checkpointId) }
             .onSuccess { forecast = it; loading = false }
             .onFailure { failed = true; loading = false }
     }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(PickerSheetBg)
-                .border(1.dp, NavBorder, RoundedCornerShape(20.dp))
-                .padding(20.dp),
-        ) {
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MonitorBg)
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentPadding = PaddingValues(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 72.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
             Text(
-                "AI-прогноз",
+                "←  Назад до КПП",
                 color = HeroYellow,
-                fontWeight = FontWeight.Black,
-                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
+                modifier = Modifier.tapNoRipple(onClick = onBack).padding(vertical = 8.dp),
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                checkpointTitle,
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(16.dp))
-            val f = forecast
-            when {
-                loading -> ForecastLine("Завантаження…")
-                failed || f == null -> ForecastLine("Не вдалося отримати прогноз")
-                f.status == "ready" || f.status == "preliminary" -> {
-                    val peak = f.points.maxByOrNull { it.vehicles_expected }
-                    if (peak != null) {
-                        ForecastLine("Очікуваний пік черги:")
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "≈ ${peak.vehicles_expected} авто о ${etaBadge(peak.time)}",
-                            color = Color.White,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 18.sp,
-                        )
-                        if (f.status == "preliminary") {
-                            Spacer(Modifier.height(8.dp))
-                            ForecastLine("Прогноз попередній — модель ще вчиться")
-                        }
-                    } else {
-                        ForecastLine("Прогноз ще формується")
-                    }
-                }
-                else -> {
-                    // collecting
-                    Text(
-                        "Модель ще вчиться на зібраних даних",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontSize = 13.sp,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    ForecastLine("Зібрано ${"%.1f".format(f.weeks_collected)} з ${f.weeks_needed} тижнів")
-                    f.ready_at?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Готово орієнтовно ${aiReadyDate(it)}",
-                            color = HeroYellow,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 12.sp,
-                        )
-                    }
+        }
+        item {
+            Column {
+                Text(
+                    "Прогноз черги",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 28.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(checkpointTitle, color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(
+                    "Сьогодні, ${java.time.LocalDate.now(KYIV).format(FORECAST_DATE)} · київський час",
+                    color = EmptyInk,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+
+        val f = forecast
+        when {
+            loading -> item {
+                Box(Modifier.fillMaxWidth().padding(vertical = 56.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = HeroYellow, strokeWidth = 2.dp)
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            val view = LocalView.current
-            Text(
-                "Закрити",
-                color = PickerInk,
-                fontWeight = FontWeight.Black,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(HeroYellow)
-                    .tapNoRipple {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        onDismiss()
+            failed || f == null -> item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ForecastLine("Не вдалося завантажити прогноз.")
+                    Text(
+                        "Спробувати ще раз",
+                        color = PickerInk,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(HeroYellow).clickable { reload++ }.padding(14.dp),
+                    )
+                }
+            }
+            f.status == "ready" || f.status == "preliminary" -> {
+                val todayPoints = ForecastPresentation.forKyivDate(
+                    f.points, java.time.LocalDate.now(KYIV),
+                )
+                val peak = ForecastPresentation.peak(todayPoints)
+                if (peak != null) {
+                    item { ForecastPeakCard(peak) }
+                    item {
+                        Text(
+                            "Погодинний прогноз",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 17.sp,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                     }
-                    .padding(vertical = 13.dp),
-            )
+                    items(todayPoints, key = { it.time }) { point ->
+                        ForecastHourRow(
+                            point = point,
+                            maxVehicles = todayPoints.maxOf { it.vehicles_expected },
+                            isPeak = point.time == peak.time,
+                        )
+                    }
+                    item {
+                        ForecastLine("Медіана й типовий розкид історичних схожих годин; це оцінка, не гарантія.")
+                    }
+                    if (f.status == "preliminary") item {
+                        ForecastLine("Попередній прогноз: історичних даних поки мало.")
+                    }
+                } else item {
+                    val noHoursLeft = java.time.LocalTime.now(KYIV).hour == 23
+                    ForecastEmptyState(
+                        if (noHoursLeft) "На сьогодні прогнозних годин більше немає. Перевірте завтра знову."
+                        else "На решту сьогоднішніх годин недостатньо даних для прогнозу.",
+                    )
+                }
+            }
+            else -> item {
+                ForecastEmptyState(
+                    "Модель ще збирає історію для цього КПП.",
+                    detail = buildString {
+                        append("Зібрано ${"%.1f".format(f.weeks_collected)} з ${f.weeks_needed} тижнів")
+                        f.ready_at?.let { append(" · орієнтовна готовність ${forecastReadyDate(it)}") }
+                    },
+                )
+            }
         }
     }
 }
 
-/** Рядок пояснення в AI-діалозі (приглушений). */
+@Composable
+private fun ForecastPeakCard(point: Api.ForecastPoint) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(HeroYellow.copy(alpha = 0.12f))
+            .border(1.dp, HeroYellow.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+            .padding(18.dp),
+    ) {
+        Text("НАЙБІЛЬША ЧЕРГА ДО КІНЦЯ ДНЯ · КИЇВ", color = HeroYellow, fontWeight = FontWeight.Black, fontSize = 12.sp)
+        Spacer(Modifier.height(6.dp))
+        Text("${point.vehicles_expected} авто", color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
+        Text("орієнтовно о ${etaBadge(point.time)}", color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Spacer(Modifier.height(8.dp))
+        Text(forecastRangeLabel(point), color = EmptyInk, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ForecastHourRow(point: Api.ForecastPoint, maxVehicles: Int, isPeak: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            etaBadge(point.time),
+            modifier = Modifier.width(56.dp),
+            color = if (isPeak) HeroYellow else EmptyInk,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+        )
+        Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${point.vehicles_expected} авто", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(forecastRangeLabel(point), color = EmptyInk, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(5.dp))
+            val fraction = if (maxVehicles > 0) (point.vehicles_expected.toFloat() / maxVehicles).coerceIn(0f, 1f) else 0f
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f))) {
+                Box(
+                    Modifier.fillMaxWidth(fraction).fillMaxHeight()
+                        .background(HeroYellow.copy(alpha = if (isPeak) 1f else 0.58f)),
+                )
+            }
+            point.samples?.let { Text("$it схожих годин", color = EmptyInk, fontSize = 10.sp) }
+        }
+    }
+}
+
+private fun forecastRangeLabel(point: Api.ForecastPoint): String =
+    if (point.vehicles_low != null && point.vehicles_high != null) {
+        "Типовий розкид ${point.vehicles_low}–${point.vehicles_high} авто"
+    } else {
+        "Орієнтир за історичними даними"
+    }
+
+@Composable
+private fun ForecastEmptyState(text: String, detail: String? = null) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.05f)).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        detail?.let { ForecastLine(it) }
+    }
+}
+
+/** Рядок пояснення на екрані прогнозу (приглушений). */
 @Composable
 private fun ForecastLine(text: String) {
     Text(
