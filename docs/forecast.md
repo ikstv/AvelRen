@@ -192,3 +192,7 @@ production-ready. Нічого на production не змінювалося.
 
 
 
+
+## Походження змін у PR #9
+
+Оригінальні SHA перенесених файлів лишаються в API-PROVENANCE.json та ANDROID-PROVENANCE.json. Revision для forecast.py і test_forecast_bounds.py описує історичний розкид, перевірку кількості повторів у кожній годині та окремий validation тиждень. Revision для Api.kt і AvelRenScreen.kt додає повноекранний прогноз і необов’язкові поля діапазону; зберігає раніше описані зміни плашки та Play Update (SERVER-STATUS.md, PLAY-UPDATES.md). 183 серверні unit-тести та перевірка походження пройшли; це не доказ готовності production SQL або точності прогнозу.

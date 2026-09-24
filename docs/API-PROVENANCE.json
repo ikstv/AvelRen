@@ -44,7 +44,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/forecast.py",
       "destination": "services/backend/src/avelren/forecast.py",
-      "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf"
+      "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "revision": {
+        "sha256": "79cf0586fa51f3b7ce87c07a6effa15cbf30d5c08b2b9724851f32025a6a5d75",
+        "notes": "docs/forecast.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -100,7 +104,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/tests/test_forecast_bounds.py",
       "destination": "services/backend/tests/unit/test_forecast_bounds.py",
-      "sha256": "6eee86856d5498ba7e10099f53f893decc6ed49c538666098d3dfebee582610c"
+      "sha256": "6eee86856d5498ba7e10099f53f893decc6ed49c538666098d3dfebee582610c",
+      "revision": {
+        "sha256": "c536afc13932067cd5a2e5ada3aee386315f4559afc280eeea146ca2e7b4b136",
+        "notes": "docs/forecast.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
