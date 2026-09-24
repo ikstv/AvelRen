@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -11,9 +12,18 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 object NetworkAvailability {
+    // A radio signal measurement, not an inference from a slow server response.
+    // Unknown/redacted values and cellular bearer-specific units are not guessed.
+    internal fun weakWifiSignal(isWifi: Boolean, dbm: Int?): Boolean =
+        isWifi && dbm != null && dbm in -126..-85
+
     private fun state(caps: NetworkCapabilities?): InternetState = when {
         caps == null -> InternetState.UNKNOWN
-        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) -> InternetState.ONLINE
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) -> {
+            val dbm = if (Build.VERSION.SDK_INT >= 29) caps.signalStrength else null
+            if (weakWifiSignal(caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI), dbm))
+                InternetState.WEAK else InternetState.ONLINE
+        }
         else -> InternetState.OFFLINE
     }
 

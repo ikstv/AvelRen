@@ -120,8 +120,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/NetworkAvailability.kt",
       "sha256": "a10d888cacad2984cb574be3e351d3382a2ff6dd58afd7c926bb053232bce974",
       "revision": {
-        "sha256": "8a9265c6e74233c625495d5632342f5cb56fb179d1e5e545475d98e8a4d20b55",
-        "notes": "docs/SERVER-STATUS.md"
+        "sha256": "619f0251da894154650729f7142df826f6d638cbe8a94a73f6cf673545a1ebfe",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
     {
@@ -205,8 +205,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "0226e647905a77a2a9a3a2f5ca6799389ff966b3d57b29dfac48f4221e327dca",
-        "notes": "docs/RELEASE-0.1.1-WORKLOG.md"
+        "sha256": "cbda9192750f18db40a0aa819f4f2d365446ee3c98264d081f59d8da191579de",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
     {

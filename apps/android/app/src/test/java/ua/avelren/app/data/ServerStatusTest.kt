@@ -36,6 +36,19 @@ class ServerStatusTest {
         assertEquals(ServerStatus.ONLINE, status())
     }
 
+    @Test fun checkingIsHiddenAndWeakSignalRequiresMeasurement() {
+        assertEquals("", ServerStatus.CHECKING.label)
+        assertEquals(ServerStatus.WEAK_INTERNET, status(InternetState.WEAK))
+        assertEquals(ServerStatus.UNREACHABLE, status(InternetState.ONLINE, false))
+        assertEquals(ServerStatus.NO_INTERNET, status(InternetState.OFFLINE, false))
+        assertTrue(NetworkAvailability.weakWifiSignal(true, -90))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, -60))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, Int.MIN_VALUE))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, -127))
+        assertFalse(NetworkAvailability.weakWifiSignal(false, -90))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, null))
+    }
+
     @Test fun confirmedWindowSurvivesFailedRequestButExpires() {
         assertEquals(ServerStatus.MAINTENANCE, status(success = false, maintenance = window))
         assertEquals(3L, window.remainingMinutes(now))

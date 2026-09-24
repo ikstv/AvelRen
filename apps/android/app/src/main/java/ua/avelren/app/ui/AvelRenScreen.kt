@@ -371,7 +371,8 @@ fun AvelRenScreen(
                         responseSucceeded = null
                     }
                     if (state == InternetState.OFFLINE) loading = false
-                    else if (changed && state == InternetState.ONLINE) launch { refresh() }
+                    else if (changed && (state == InternetState.ONLINE || state == InternetState.WEAK))
+                        launch { refresh() }
                 }
             }
             launch {
@@ -804,10 +805,11 @@ private fun HeaderRow(
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White,
         )
-        if (showServerStatus) {
+        if (showServerStatus && status.label.isNotEmpty()) {
             val dot = when (status) {
                 ServerStatus.ONLINE -> avelren.go
-                ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA -> avelren.warn
+                ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA,
+                ServerStatus.WEAK_INTERNET -> avelren.warn
                 else -> avelren.closed
             }
             Row(
