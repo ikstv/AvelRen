@@ -219,6 +219,11 @@ BEGIN
     ELSIF to_regprocedure('public.activate_approved_admin(uuid)') IS NOT NULL THEN
         RAISE EXCEPTION 'admin activation function exists without its migration';
     END IF;
+    IF EXISTS (SELECT 1 FROM public.schema_migrations WHERE version = '012_device_retention') THEN
+        ALTER FUNCTION public.prune_inactive_devices(boolean) OWNER TO avelren_migrator;
+    ELSIF to_regprocedure('public.prune_inactive_devices(boolean)') IS NOT NULL THEN
+        RAISE EXCEPTION 'device retention function exists without its migration';
+    END IF;
 END
 $$;
 

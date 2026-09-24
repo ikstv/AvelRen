@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily AvelRen inactive-device cleanup
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+Unit=avelren-device-retention.service
+
+[Install]
+WantedBy=timers.target

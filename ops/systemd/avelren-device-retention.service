@@ -1,0 +1,18 @@
+[Unit]
+Description=AvelRen inactive devices (90 days)
+After=docker.service avelren-backup.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Install/enable only after the separate production migration and backup approval.
+# Uses the existing notifier role, which can execute only the fixed 90-day function.
+ExecStart=/usr/bin/docker exec avelren-notifier-1 python -m avelren.device_retention --apply
+TimeoutStartSec=120
+User=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+StandardOutput=journal
+StandardError=journal
