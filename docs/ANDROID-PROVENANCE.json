@@ -67,7 +67,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/Api.kt",
       "sha256": "2a165f98b363bbfc3db195eea3f2d0485de2d297247f51aa62c750bb5377f997",
       "revision": {
-        "sha256": "e7dd8a5b4fb2d4dc5a00a121666bf460bab7cd001957975400687c6614282bb6",
+        "sha256": "60bfe94f4be1eeca9788756e428dc24bc2525df78db32aec61656b593a4aa48d",
         "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
@@ -187,7 +187,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "5e87e413e7c106be06127da4a5cd73efdb258f75be4628994909a09fb8eaf391",
+        "sha256": "42d73f30f21a3e8561644af1e2deefd3b0d9f57e2efa37a1faf4a7a843a7eb38",
         "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
@@ -209,7 +209,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "4402bcabce6a175820247bfff1cc520039e7e466470870cbf19e544f63e0075d",
+        "sha256": "f92dccc50d3c5b32de2e29c55767e240ece2de345b19be8cf5800bdc40871f75",
         "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
@@ -218,7 +218,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/java/ua/avelren/app/ui/OnboardingScreen.kt",
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/OnboardingScreen.kt",
-      "sha256": "90f1228b43d37bc1b4ed71bb0bda344135b2f4960cc6336e9a6a04b3bbc2f783"
+      "sha256": "90f1228b43d37bc1b4ed71bb0bda344135b2f4960cc6336e9a6a04b3bbc2f783",
+      "revision": {
+        "sha256": "3412673163c5f8baf3635461902ce70ea02a54530de2b045900a5d8cc8f60034",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

@@ -325,7 +325,7 @@ private fun ColumnScope.DisclaimerBody(acked: Boolean, onToggleAck: () -> Unit) 
             append("Повний текст політики: ")
             withLink(
                 LinkAnnotation.Url(
-                    "https://api.bordersignal.pp.ua/privacy",
+                    "https://api.bordersignal.pp.ua/privacy?v=20260924",
                     TextLinkStyles(
                         style = SpanStyle(
                             color = SignWarn,

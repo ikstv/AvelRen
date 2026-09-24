@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -70,7 +71,7 @@ internal fun AdministrationSettings(
                     page = "admin"
                 }
                 SettingsMenuItem("Політика конфіденційності", Icons.Default.Lock) {
-                    uriHandler.openUri("https://api.bordersignal.pp.ua/privacy")
+                    uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
                 }
             }
         } else if (page == "about") {
@@ -154,7 +155,7 @@ private fun AboutContent(modifier: Modifier = Modifier) {
             .padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 140.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("AvelRen · версія ${BuildConfig.VERSION_NAME}",
+        Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("0.1.1", color = SignWarn, fontWeight = FontWeight.Bold)
         Text(releaseNotes)
@@ -195,10 +196,13 @@ private fun AdminServerContent(server: AdminServerClient, modifier: Modifier = M
 
     LaunchedEffect(Unit) { load() }
     Column(modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Активні пристрої за 24 години", style = MaterialTheme.typography.titleMedium)
-        count?.let {
-            Text(it.toString(), style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Активні пристрої —", Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            Text(count?.toString() ?: "…", style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold, maxLines = 1)
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))

@@ -80,7 +80,7 @@ def test_foreign_device_cannot_delete_subscription(api_client, checkpoint, devic
     assert api_client.get("/admin/telemetry").status_code == 401
 
 
-def test_public_active_device_count_uses_last_24_hours(api_client, installation, conn):
+def test_public_active_device_count_includes_retained_devices(api_client, installation, conn):
     installation()
     old = installation()
     conn.execute(
@@ -90,7 +90,7 @@ def test_public_active_device_count_uses_last_24_hours(api_client, installation,
 
     response = api_client.get("/active-devices")
     assert response.status_code == 200
-    assert response.json() == {"active_devices": 1, "period_hours": 24}
+    assert response.json() == {"active_devices": 2, "retention_days": 90}
 
 
 @pytest.mark.parametrize("failure", ["connection", "pool"])
