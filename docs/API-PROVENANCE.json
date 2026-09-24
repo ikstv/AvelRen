@@ -66,7 +66,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/admin_access_api.py",
       "destination": "services/backend/src/avelren/admin_access_api.py",
-      "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57"
+      "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57",
+      "revision": {
+        "sha256": "bf784159c948b8ab49acef029b3073c957d753b07e2e326fa19029809f983694",
+        "notes": "docs/RELEASE-0.1.1-FINALIZATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
