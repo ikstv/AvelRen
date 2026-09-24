@@ -14,9 +14,20 @@ def attempt(client, headers, pin="0000"):
 def test_unapproved_cannot_lock_owner(api_client, approved, installation, conn):
     assert api_client.get("/admin/access").status_code == 401
     foreign = installation().headers()
+    deadline = None
     for _ in range(4):
-        assert attempt(api_client, foreign, "7392")["state"] == "awaiting_approval"
+        result = attempt(api_client, foreign, "7392")
+        assert result["state"] == "blocked"
+        if deadline is None:
+            deadline = result["locked_until"]
+        assert result["locked_until"] == deadline
     assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == 0
+    hours = conn.execute(
+        "SELECT extract(epoch FROM admin_blocked_until-clock_timestamp())/3600 AS hours "
+        "FROM devices WHERE id=%s", (foreign["X-Device-Id"],),
+    ).fetchone()["hours"]
+    assert 23.99 < hours <= 24
+    assert attempt(api_client, approved, "7392")["state"] == "authorized"
 
 
 def test_lock_survives_reinstallation(api_client, approved, installation, conn):
@@ -32,7 +43,23 @@ def test_lock_survives_reinstallation(api_client, approved, installation, conn):
     fresh = installation().headers()
     conn.execute("UPDATE admin_access SET approved_device_id=%s", (fresh["X-Device-Id"],))
     assert attempt(api_client, fresh, "7392") == blocked
-    assert attempt(api_client, approved, "7392")["state"] == "awaiting_approval"
+    assert attempt(api_client, approved, "7392")["state"] == "blocked"
+
+
+def test_foreign_expired_lock_requires_approval(api_client, approved, installation, conn):
+    foreign = installation().headers()
+    assert attempt(api_client, foreign, "7392")["state"] == "blocked"
+    conn.execute(
+        "UPDATE devices SET admin_blocked_until=now()-interval '1 second' WHERE id=%s",
+        (foreign["X-Device-Id"],),
+    )
+    assert attempt(api_client, foreign, "7392")["state"] == "blocked"
+    assert attempt(api_client, approved, "7392")["state"] == "authorized"
+
+
+@pytest.mark.parametrize("database", [11], indirect=True)
+def test_without_installation_lock_migration_is_unavailable(database, api_client, device):
+    assert attempt(api_client, device.headers(), "7392")["state"] == "unavailable"
 
 
 def test_only_one_admin_and_revocation(api_client, approved, installation, conn):
@@ -45,7 +72,7 @@ def test_only_one_admin_and_revocation(api_client, approved, installation, conn)
     rows = conn.execute("SELECT id FROM devices WHERE is_admin").fetchall()
     assert [str(row["id"]) for row in rows] == [approved["X-Device-Id"]]
     assert set_admin(conn, approved["X-Device-Id"], False) == 0
-    assert attempt(api_client, approved, "7392")["state"] == "awaiting_approval"
+    assert attempt(api_client, approved, "7392")["state"] == "blocked"
 
 
 def test_parallel_attempts_cannot_bypass_limit(api_client, approved, conn):

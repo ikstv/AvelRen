@@ -655,6 +655,7 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = selected,
             countryFilter = countryFilter,
+            showAttribution = true,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 selected = id
@@ -672,6 +673,7 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
+            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingThresholdCp = workload.firstOrNull { it.checkpoint_id == id }
@@ -729,6 +731,7 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
+            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingEtaCp = workload.firstOrNull { it.checkpoint_id == id }
@@ -773,6 +776,7 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
+            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingAiCp = workload.firstOrNull { it.checkpoint_id == id }
@@ -2204,6 +2208,7 @@ private fun CheckpointPickerSheet(
     workload: List<Api.Workload>,
     selectedId: Int,
     countryFilter: String?,
+    showAttribution: Boolean,
     onFilter: (String?) -> Unit,
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -2256,7 +2261,7 @@ private fun CheckpointPickerSheet(
             // (повноекранний Dialog) флагнув Google. Угорі, а не в підвалі: у
             // Dialog вікно wrap-height, тож прибити рядок до низу надійно не
             // виходить (виходив 0×0), а тут він гарантовано видимий і не скролиться.
-            AttributionBar(Modifier.padding(top = 10.dp))
+            if (showAttribution) AttributionBar(Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {

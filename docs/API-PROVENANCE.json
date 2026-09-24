@@ -18,8 +18,8 @@
       "destination": "services/backend/src/avelren/subscriptions_api.py",
       "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
       "revision": {
-        "sha256": "8e8968ab8a6d13e3a47ed1399cffab019ad65ba615aeb3907dbcb765dfd983c0",
-        "notes": "docs/ADMIN-RETENTION-DEPLOY.md"
+        "sha256": "cda54b5d2a82ef1fdea6d75a4be2ab96bbab9a00c6e38e5207023011201e3579",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
     {
@@ -66,7 +66,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/admin_access_api.py",
       "destination": "services/backend/src/avelren/admin_access_api.py",
-      "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57"
+      "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57",
+      "revision": {
+        "sha256": "bf784159c948b8ab49acef029b3073c957d753b07e2e326fa19029809f983694",
+        "notes": "docs/RELEASE-0.1.1-FINALIZATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
