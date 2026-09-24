@@ -4,7 +4,7 @@ import java.time.Duration
 import java.time.Instant
 import kotlinx.serialization.Serializable
 
-enum class InternetState { UNKNOWN, OFFLINE, ONLINE }
+enum class InternetState { UNKNOWN, OFFLINE, ONLINE, WEAK }
 
 @Serializable
 data class MaintenanceWindow(val starts_at: String, val ends_at: String) {
@@ -28,7 +28,8 @@ data class MaintenanceWindow(val starts_at: String, val ends_at: String) {
 data class PublicServerStatus(val maintenance: MaintenanceWindow? = null)
 
 enum class ServerStatus(val label: String) {
-    CHECKING("ПЕРЕВІРЯЄМО ЗВ'ЯЗОК"),
+    CHECKING(""), // Initial uncertainty is not a user-facing server status.
+    WEAK_INTERNET("НЕСТАБІЛЬНИЙ ІНТЕРНЕТ"),
     NO_INTERNET("НЕМАЄ ІНТЕРНЕТУ"),
     UNREACHABLE("СЕРВЕР НЕДОСТУПНИЙ"),
     CONNECTION_UNKNOWN("НЕМАЄ ЗВ'ЯЗКУ"),
@@ -48,10 +49,12 @@ enum class ServerStatus(val label: String) {
             internet == InternetState.OFFLINE -> NO_INTERNET
             maintenance?.active(now) == true -> MAINTENANCE
             responseSucceeded == null -> CHECKING
+            !responseSucceeded && internet == InternetState.WEAK -> WEAK_INTERNET
             !responseSucceeded && internet == InternetState.ONLINE -> UNREACHABLE
             !responseSucceeded -> CONNECTION_UNKNOWN
             stale == null -> NO_DATA
             stale -> STALE
+            internet == InternetState.WEAK -> WEAK_INTERNET
             else -> ONLINE
         }
     }

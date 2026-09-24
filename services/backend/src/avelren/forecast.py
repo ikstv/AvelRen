@@ -1,9 +1,9 @@
 """Feature #3: checkpoint workload forecast.
 
-The base model is a **seasonal naive forecast**: the expectation for Tuesday
-09:00 is taken as the average over Tuesdays 09:00 in prior weeks. On such series
-it is surprisingly strong, and any more complex model must beat it on the same
-data, otherwise we do not adopt it (see `docs/forecast.md`).
+Vehicle counts start from a fresh measurement and use changes in similar
+historical situations. Wait-time estimates retain the seasonal median baseline.
+The quality endpoint still identifies and evaluates that seasonal baseline;
+the candidate count model has a separate rolling backtest (docs/forecast.md).
 
 The key thing here is not the model's quality but **honesty about data
 sufficiency**. Weekly seasonality is the main signal, and it can only be
@@ -22,6 +22,8 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from psycopg import AsyncConnection
+
+from avelren.queue_model import predict_counts
 
 log = logging.getLogger("avelren.forecast")
 
@@ -93,7 +95,8 @@ async def forecast(
         "weeks_collected": state.weeks_collected,
         "weeks_needed": state.weeks_needed,
         "ready_at": state.ready_at,
-        "method": "seasonal_naive",
+        "method": "current_anchored_neighbors_v1",
+        "wait_method": "seasonal_naive",
         "points": [],
     }
 
@@ -102,8 +105,39 @@ async def forecast(
         # data means lying in a confident tone.
         return result
 
-    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    issued_at = datetime.now(UTC)
+    now = issued_at.replace(minute=0, second=0, microsecond=0)
     since = now - timedelta(weeks=LOOKBACK_WEEKS)
+
+    latest = await (
+        await conn.execute(
+            "SELECT time, vehicles_in_queue FROM observations "
+            "WHERE checkpoint_id = %s AND time <= %s ORDER BY time DESC LIMIT 1",
+            (checkpoint_id, issued_at),
+        )
+    ).fetchone()
+    if not latest or issued_at - latest["time"] > timedelta(minutes=3):
+        result["reason"] = "fresh_measurement_required"
+        return result
+    hourly = await (
+        await conn.execute(
+            """
+            SELECT time_bucket(INTERVAL '1 hour', time) AS bucket,
+                   avg(vehicles_in_queue) AS avg_vehicles
+            FROM observations
+            WHERE checkpoint_id = %s AND time >= %s AND time < %s
+            GROUP BY bucket ORDER BY bucket
+            """,
+            (checkpoint_id, since, now),
+        )
+    ).fetchall()
+    # A missing wait estimate must not discard a valid vehicle count.
+    counts = predict_counts(
+        {row["bucket"]: float(row["avg_vehicles"]) for row in hourly},
+        issued_at, latest["vehicles_in_queue"],
+        [now + timedelta(hours=i) for i in range(1, hours_ahead + 1)],
+        current_at=latest["time"],
+    )
 
     rows = await (
         await conn.execute(
@@ -163,7 +197,7 @@ async def forecast(
         slot = by_slot.get((pg_dow, at_local.hour))
         # A long overall span does not prove that this particular Kyiv weekday
         # and hour has enough observations. Gate every forecast point itself.
-        if slot is None or slot["samples"] < min_slot_samples:
+        if slot is None or slot["samples"] < min_slot_samples or at not in counts:
             continue
 
         result["points"].append(
@@ -172,9 +206,7 @@ async def forecast(
                 "wait_seconds_low": int(slot["p25"]),
                 "wait_seconds_expected": int(slot["p50"]),
                 "wait_seconds_high": int(slot["p75"]),
-                "vehicles_low": int(slot["vehicles_p25"]),
-                "vehicles_expected": int(slot["vehicles_p50"]),
-                "vehicles_high": int(slot["vehicles_p75"]),
+                **counts[at],
                 "samples": slot["samples"],
             }
         )

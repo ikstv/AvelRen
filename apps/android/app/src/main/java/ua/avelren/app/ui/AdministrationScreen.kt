@@ -25,6 +25,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import io.ktor.client.plugins.ClientRequestException
+import io.ktor.http.HttpStatusCode
 import ua.avelren.app.AvelRenApp
 import ua.avelren.app.data.Api
 import java.time.Instant
@@ -107,6 +109,13 @@ private fun AdminAccessForm(access: AdminAccessClient, modifier: Modifier = Modi
             status = access.status()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ClientRequestException) {
+            status = null
+            error = if (e.response.status == HttpStatusCode.NotFound) {
+                "Вхід Admin ще не доступний на сервері. Потрібне оновлення серверної частини."
+            } else {
+                "Сервер відхилив запит входу. Спробуйте пізніше."
+            }
         } catch (_: Exception) {
             status = null
             error = "Вхід недоступний. Перевірте з’єднання або спробуйте пізніше."

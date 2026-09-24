@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Build as MaintenanceIcon
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Settings
@@ -86,15 +87,19 @@ import ua.avelren.app.ui.theme.SignWarn
 import ua.avelren.app.ui.theme.SignOnWarn
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ua.avelren.app.BuildConfig
+import ua.avelren.app.AvelRenApp
 import ua.avelren.app.R
 import ua.avelren.app.data.BackgroundDelivery
 import ua.avelren.app.data.BackgroundDeliveryHint
@@ -199,7 +204,11 @@ fun AvelRenScreen(
     // сервера: subscriptions()/subscribe()/unsubscribe(). Флоу: тап по плитці →
     // пікер КПП → вибір порога (50/100/150/200) → subscribe.
     val scope = rememberCoroutineScope()
-    val creds = remember { DeviceStore.credentials(context) }
+    val installation = remember(context) { (context.applicationContext as AvelRenApp).installation }
+    val installationState by installation.state.collectAsStateWithLifecycle()
+    // Registration finishes asynchronously after a fresh install. Do not retain
+    // the initial null credentials for the whole lifetime of this screen.
+    val creds = remember(installationState) { DeviceStore.credentials(context) }
     var subscriptions by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
     var etaTargets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     // Порожній список сам по собі НЕ означає «підписок немає» — рівно так само
@@ -207,6 +216,9 @@ fun AvelRenScreen(
     // прапорця UI стверджував «Нема вибраних вами КПП», хоча підписки є (#107).
     // true лише після успішної відповіді сервера.
     var monitorsLoaded by remember { mutableStateOf(false) }
+    var monitorsLoading by remember { mutableStateOf(true) }
+    var monitorsFailed by remember { mutableStateOf(false) }
+    val monitorsMutex = remember { Mutex() }
     var showThresholdCpPicker by remember { mutableStateOf(false) }
     var pendingThresholdCp by remember { mutableStateOf<Api.Workload?>(null) }
     var showEtaCpPicker by remember { mutableStateOf(false) }
@@ -226,10 +238,34 @@ fun AvelRenScreen(
     // поведінці. Прапорець зводиться лише коли ОБИДВА запити вдались: інакше
     // напівпорожній список видавали б за повний.
     val loadMonitors: suspend () -> Unit = {
-        creds?.let { c ->
-            val subsRes = runCatching { Api.subscriptions(c) }.onSuccess { subscriptions = it }
-            val tgtRes = runCatching { Api.etaTargets(c) }.onSuccess { etaTargets = it }
-            if (subsRes.isSuccess && tgtRes.isSuccess) monitorsLoaded = true
+        // Concurrent triggers share the current request instead of queuing duplicates.
+        if (monitorsMutex.tryLock()) {
+            monitorsLoading = true
+            monitorsFailed = false
+            try {
+                val result = withTimeout(15_000L) {
+                    installation.authenticatedCall { c ->
+                        coroutineScope {
+                            val subs = async { Api.subscriptions(c) }
+                            val targets = async { Api.etaTargets(c) }
+                            subs.await() to targets.await()
+                        }
+                    }
+                }
+                // Publish a complete snapshot; preserve the previous one on errors.
+                subscriptions = result.first
+                etaTargets = result.second
+                monitorsLoaded = true
+            } catch (_: TimeoutCancellationException) {
+                monitorsFailed = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                monitorsFailed = true
+            } finally {
+                monitorsLoading = false
+                monitorsMutex.unlock()
+            }
         }
     }
     val reloadSubs: () -> Unit = { scope.launch { loadMonitors() } }
@@ -292,6 +328,7 @@ fun AvelRenScreen(
                 responseSucceeded = false
                 loading = false
             } else coroutineScope {
+                val monitors = async { loadMonitors() }
                 val status = async {
                     runCatching { Api.serverStatus() }
                         .onFailure { if (it is CancellationException) throw it }
@@ -309,7 +346,7 @@ fun AvelRenScreen(
                         maintenanceStore.write(maintenance)
                     }
                 }
-                loadMonitors()
+                monitors.await()
                 freshnessNow = Instant.now()
             }
         }
@@ -335,7 +372,8 @@ fun AvelRenScreen(
                         responseSucceeded = null
                     }
                     if (state == InternetState.OFFLINE) loading = false
-                    else if (changed && state == InternetState.ONLINE) launch { refresh() }
+                    else if (changed && (state == InternetState.ONLINE || state == InternetState.WEAK))
+                        launch { refresh() }
                 }
             }
             launch {
@@ -424,16 +462,6 @@ fun AvelRenScreen(
                 onBack = { pendingAiCp = null },
             )
         }
-        AttributionBar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 12.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xCC0A0A0A))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
     } else if (onMonitor) {
         // Екран «Моніторинг»: 4 плитки на всю висоту. Header фіксований зверху,
         // три плитки-дії й «Ваш моніторинг» ділять решту простору вагами (список
@@ -473,7 +501,7 @@ fun AvelRenScreen(
             )
             ActionTile(
                 title = "Прогноз черги",
-                subtitle = "Коли сьогодні очікується найбільша черга",
+                subtitle = "Прогноз черги на наступні 24 години",
                 onClick = { showAiCpPicker = true },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 icon = { TileIcon(Icons.Filled.AutoAwesome) },
@@ -484,6 +512,9 @@ fun AvelRenScreen(
                 modifier = Modifier.fillMaxWidth().weight(1.5f),
                 fill = true,
                 loaded = monitorsLoaded,
+                loading = monitorsLoading,
+                failed = monitorsFailed,
+                onRetry = reloadSubs,
                 notificationsSilent = notificationsSilent,
             )
         }
@@ -542,6 +573,9 @@ fun AvelRenScreen(
                         onRemove = { pendingRemove = it },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                         loaded = monitorsLoaded,
+                        loading = monitorsLoading,
+                        failed = monitorsFailed,
+                        onRetry = reloadSubs,
                         notificationsSilent = notificationsSilent,
                     )
                 }
@@ -772,20 +806,25 @@ private fun HeaderRow(
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White,
         )
-        if (showServerStatus) {
+        if (showServerStatus && status.label.isNotEmpty()) {
             val dot = when (status) {
                 ServerStatus.ONLINE -> avelren.go
-                ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA -> avelren.warn
+                ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA,
+                ServerStatus.WEAK_INTERNET, ServerStatus.MAINTENANCE -> avelren.warn
                 else -> avelren.closed
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .border(2.dp, Color(0x80FFFFFF), RoundedCornerShape(8.dp))
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                if (status == ServerStatus.MAINTENANCE) {
+                    Icon(Icons.Filled.MaintenanceIcon, contentDescription = null,
+                        tint = dot, modifier = Modifier.size(14.dp))
+                } else {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                }
                 Spacer(Modifier.width(7.dp))
                 Text(
                     if (status == ServerStatus.MAINTENANCE && remainingMinutes != null)
@@ -795,7 +834,11 @@ private fun HeaderRow(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.sp,
-                    color = Color.White,
+                    color = when (status) {
+                        ServerStatus.NO_INTERNET, ServerStatus.WEAK_INTERNET,
+                        ServerStatus.MAINTENANCE -> dot
+                        else -> Color.White
+                    },
                 )
             }
         } else {
@@ -920,6 +963,9 @@ private fun MonitoringTile(
     modifier: Modifier = Modifier,
     fill: Boolean = false,   // true — заповнити висоту плитки (екран «Моніторинг»)
     loaded: Boolean = true,  // false — список ще не приїхав; НЕ показувати empty-state
+    loading: Boolean = false,
+    failed: Boolean = false,
+    onRetry: () -> Unit = {},
     notificationsSilent: Boolean = false,  // дозволу нема → рядки несуть позначку «беззвучна»
 ) {
     Column(
@@ -937,7 +983,23 @@ private fun MonitoringTile(
             fontSize = 12.sp,
             letterSpacing = 0.025.em,
         )
-        if (rows.isEmpty()) {
+        if (failed || (!loaded && !loading)) {
+            Text(
+                if (loaded) "Не вдалося оновити моніторинг. Показано попередні дані."
+                else "Не вдалося завантажити моніторинг.",
+                color = EmptyInk,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                "Повторити",
+                color = HeroYellow,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable(enabled = !loading, onClick = onRetry)
+                    .padding(vertical = 12.dp),
+            )
+        }
+        if (rows.isEmpty() && !(failed || (!loaded && !loading))) {
             // fill — центр по всій висоті плитки; інакше — природна висота.
             Box(
                 if (fill) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth(),
@@ -946,7 +1008,7 @@ private fun MonitoringTile(
                 // Поки список не приїхав — стан очікування, а не твердження
                 // «нічого не відстежується». Стверджувати можна лише після
                 // успішної відповіді сервера (#107).
-                if (!loaded) {
+                if (!loaded && loading) {
                     CircularProgressIndicator(
                         color = HeroYellow,
                         strokeWidth = 2.dp,
@@ -1543,9 +1605,11 @@ private fun ForecastScreen(
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
+    var horizonStart by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(checkpointId, reload) {
         loading = true
         failed = false
+        horizonStart = Instant.now()
         runCatching { Api.forecast(checkpointId) }
             .onSuccess { forecast = it; loading = false }
             .onFailure { failed = true; loading = false }
@@ -1579,7 +1643,7 @@ private fun ForecastScreen(
                 Spacer(Modifier.height(4.dp))
                 Text(checkpointTitle, color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
-                    "Сьогодні, ${java.time.LocalDate.now(KYIV).format(FORECAST_DATE)} · київський час",
+                    "${horizonStart.atZone(KYIV).format(FORECAST_DATE)} · наступні 24 години",
                     color = EmptyInk,
                     fontSize = 13.sp,
                 )
@@ -1607,8 +1671,8 @@ private fun ForecastScreen(
                 }
             }
             f.status == "ready" || f.status == "preliminary" -> {
-                val todayPoints = ForecastPresentation.forKyivDate(
-                    f.points, java.time.LocalDate.now(KYIV),
+                val todayPoints = ForecastPresentation.next24Hours(
+                    f.points, horizonStart,
                 )
                 val peak = ForecastPresentation.peak(todayPoints)
                 if (peak != null) {
@@ -1629,17 +1693,9 @@ private fun ForecastScreen(
                             isPeak = point.time == peak.time,
                         )
                     }
-                    item {
-                        ForecastLine("Медіана й типовий розкид історичних схожих годин; це оцінка, не гарантія.")
-                    }
-                    if (f.status == "preliminary") item {
-                        ForecastLine("Попередній прогноз: історичних даних поки мало.")
-                    }
                 } else item {
-                    val noHoursLeft = java.time.LocalTime.now(KYIV).hour == 23
                     ForecastEmptyState(
-                        if (noHoursLeft) "На сьогодні прогнозних годин більше немає. Перевірте завтра знову."
-                        else "На решту сьогоднішніх годин недостатньо даних для прогнозу.",
+                        "На наступні 24 години недостатньо даних для прогнозу.",
                     )
                 }
             }
@@ -1653,6 +1709,7 @@ private fun ForecastScreen(
                 )
             }
         }
+        item { ForecastLine("Попередній прогноз. AI-модель ще в розробці.") }
     }
 }
 
@@ -1664,10 +1721,10 @@ private fun ForecastPeakCard(point: Api.ForecastPoint) {
             .border(1.dp, HeroYellow.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
             .padding(18.dp),
     ) {
-        Text("НАЙБІЛЬША ЧЕРГА ДО КІНЦЯ ДНЯ · КИЇВ", color = HeroYellow, fontWeight = FontWeight.Black, fontSize = 12.sp)
+        Text("ПРОГНОЗОВАНА ЧЕРГА У НАЙБЛИЖЧИЙ ЧАС", color = HeroYellow, fontWeight = FontWeight.Black, fontSize = 12.sp)
         Spacer(Modifier.height(6.dp))
         Text("${point.vehicles_expected} авто", color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
-        Text("орієнтовно о ${etaBadge(point.time)}", color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text("орієнтовно ${forecastHourLabel(point.time)}", color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Spacer(Modifier.height(8.dp))
         Text(forecastRangeLabel(point), color = EmptyInk, fontSize = 12.sp)
     }
@@ -1677,8 +1734,8 @@ private fun ForecastPeakCard(point: Api.ForecastPoint) {
 private fun ForecastHourRow(point: Api.ForecastPoint, maxVehicles: Int, isPeak: Boolean) {
     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            etaBadge(point.time),
-            modifier = Modifier.width(56.dp),
+            forecastHourLabel(point.time),
+            modifier = Modifier.width(92.dp),
             color = if (isPeak) HeroYellow else EmptyInk,
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp,
@@ -1696,10 +1753,15 @@ private fun ForecastHourRow(point: Api.ForecastPoint, maxVehicles: Int, isPeak: 
                         .background(HeroYellow.copy(alpha = if (isPeak) 1f else 0.58f)),
                 )
             }
-            point.samples?.let { Text("$it схожих годин", color = EmptyInk, fontSize = 10.sp) }
         }
     }
 }
+
+private fun forecastHourLabel(time: String): String =
+    runCatching {
+        OffsetDateTime.parse(time).atZoneSameInstant(KYIV)
+            .format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))
+    }.getOrDefault("—")
 
 private fun forecastRangeLabel(point: Api.ForecastPoint): String =
     if (point.vehicles_low != null && point.vehicles_high != null) {
