@@ -140,6 +140,15 @@ private fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 
 @Composable
 private fun AboutContent(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val releaseNotes = remember(context) {
+        context.assets.open("release-notes/v0.1.1.uk.txt")
+            .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
+    }
+    val previousNotes = remember(context) {
+        context.assets.open("release-notes/v0.1.0.uk.txt")
+            .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
+    }
     Column(
         modifier.verticalScroll(rememberScrollState())
             .padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 140.dp),
@@ -148,15 +157,10 @@ private fun AboutContent(modifier: Modifier = Modifier) {
         Text("AvelRen · версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("0.1.1", color = SignWarn, fontWeight = FontWeight.Bold)
-        Text(
-            "Прогноз на 24 години, швидше завантаження моніторингу, " +
-                "зрозумілі стани з’єднання, захищений Admin, " +
-                "кількість активних пристроїв і оновлена політика конфіденційності. " +
-                "AI-прогноз попередній: модель ще в розробці."
-        )
+        Text(releaseNotes)
         HorizontalDivider()
         Text("0.1.0", color = SignWarn, fontWeight = FontWeight.Bold)
-        Text("Перший випуск AvelRen.")
+        Text(previousNotes)
     }
 }
 

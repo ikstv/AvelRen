@@ -187,7 +187,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "76fea60b714361bdace5d2ce9ca2fca6c57835193651a51fa8ef1ac10d4e673a",
+        "sha256": "5e87e413e7c106be06127da4a5cd73efdb258f75be4628994909a09fb8eaf391",
         "notes": "docs/RELEASE-0.1.1-CHANGES.md"
       }
     },
