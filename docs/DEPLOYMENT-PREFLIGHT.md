@@ -17,6 +17,9 @@ reviewed Git commit:
   immutable image digests. They are deliberately **not** required to be the
   candidate images before deployment;
 - backup, schema and health checks are explicitly verified;
+- the schema claim is backed by a successful, read-only run of the independent
+  `avelren.schema_verify` physical-contract verifier against the exact source
+  migration set;
 - the evidence contains no credential-shaped keys.
 
 Example with synthetic evidence only:
@@ -35,3 +38,18 @@ commands.
 The current production evidence intentionally fails this gate: its checkout is
 dirty and lacks migration files 011–013. That is the desired fail-closed
 result, not a reason to alter production.
+
+## Future physical-schema capture
+
+This repository does not include a production command that can be run by
+accident. When a separate, explicit GO is granted for a read-only capture, the
+approved command must run `python -m avelren.schema_verify /migrations` against
+the reviewed migration directory with the database session enforced read-only.
+It must stop on a non-zero exit status. The resulting sanitised evidence records
+only `verifier`, `read_only_session`, `exit_code`, and the migration SHA-256
+mapping under `schema_verification`; it must never include the command output,
+a host name, a DSN, or any secret.
+
+The offline preflight verifies that this attestation matches the reviewed
+source. It still cannot make a production operation authorised: the exact host
+command and its read-only scope require their own GO.

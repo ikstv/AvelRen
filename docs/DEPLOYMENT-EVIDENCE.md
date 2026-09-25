@@ -32,12 +32,25 @@ private key or `.env` value in it.
     "backup_verified": true,
     "health_verified": true,
     "schema_verified": true
+  },
+  "schema_verification": {
+    "verifier": "avelren.schema_verify",
+    "read_only_session": true,
+    "exit_code": 0,
+    "migrations": {"001_init": "sha256 of the migration checked"}
   }
 }
 ```
 
 `candidate_images` prove what is proposed for deployment. `live_runtime` is
-only the pre-deployment baseline, so it may legitimately be older. A missing,
-unverified or malformed field fails the preflight. The capture itself must be
-performed only after an explicit read-only production authorisation; a
-successful preflight is still not authorisation to run a deployment.
+only the pre-deployment baseline, so it may legitimately be older.
+
+`schema_verification` is the proof behind `checks.schema_verified`: it records
+that the source's independent physical verifier (`avelren.schema_verify`) ran
+successfully against the exact source migration set in a database session
+enforced as read-only. It deliberately records neither a host identity nor a
+DSN. A missing, unverified or malformed field fails the preflight.
+
+The capture itself must be performed only after an explicit read-only
+production authorisation; a successful preflight is still not authorisation to
+run a deployment.

@@ -54,6 +54,12 @@ def valid_evidence() -> dict:
             "health_verified": True,
             "schema_verified": True,
         },
+        "schema_verification": {
+            "verifier": preflight.SCHEMA_VERIFIER,
+            "read_only_session": True,
+            "exit_code": 0,
+            "migrations": migrations,
+        },
     }
 
 
@@ -88,6 +94,18 @@ expect_failure(missing_live_runtime, "live_runtime must contain")
 missing_health = valid_evidence()
 missing_health["checks"]["health_verified"] = False
 expect_failure(missing_health, "checks must prove")
+
+missing_schema_attestation = valid_evidence()
+missing_schema_attestation.pop("schema_verification")
+expect_failure(missing_schema_attestation, "schema_verification.verifier")
+
+schema_not_read_only = valid_evidence()
+schema_not_read_only["schema_verification"]["read_only_session"] = False
+expect_failure(schema_not_read_only, "schema_verification.read_only_session")
+
+schema_wrong_migrations = valid_evidence()
+schema_wrong_migrations["schema_verification"]["migrations"].pop("013_admin_installation_lock")
+expect_failure(schema_wrong_migrations, "schema_verification.migrations")
 
 secret = valid_evidence()
 secret["database_dsn"] = "must never be accepted"
