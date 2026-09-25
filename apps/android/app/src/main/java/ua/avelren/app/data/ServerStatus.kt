@@ -35,6 +35,7 @@ enum class ServerStatus(val label: String) {
     UNREACHABLE(""),
     CONNECTION_UNKNOWN(""),
     MAINTENANCE("ТЕХНІЧНІ РОБОТИ"),
+    RESTARTING("ПЕРЕЗАПУСК СЕРВЕРА"),
     STALE(""),
     NO_DATA(""),
     ONLINE("СЕРВЕР ОНЛАЙН");
@@ -48,6 +49,10 @@ enum class ServerStatus(val label: String) {
             now: Instant,
         ): ServerStatus = when {
             internet == InternetState.OFFLINE -> NO_INTERNET
+            // The API confirmed this short window before it became unavailable.
+            // With working device connectivity that makes a reboot truthful, not
+            // a guess from stale data or a generic server outage.
+            maintenance?.active(now) == true && responseSucceeded == false -> RESTARTING
             maintenance?.active(now) == true -> MAINTENANCE
             responseSucceeded == null -> CHECKING
             !responseSucceeded && internet == InternetState.WEAK -> WEAK_INTERNET

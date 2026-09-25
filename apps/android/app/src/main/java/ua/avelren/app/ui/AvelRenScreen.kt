@@ -790,7 +790,8 @@ fun AvelRenScreen(
 
 /**
  * Плашка лише на головній. Вузький екран переносить її під назву без обрізання.
- * Стан визначає ServerStatus; прогноз перезапуску не виводимо з віку даних.
+ * Стан визначає ServerStatus; перезапуск можливий лише у підтвердженому
+ * maintenance-вікні, а не як припущення з віку даних.
  */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
@@ -814,7 +815,8 @@ private fun HeaderRow(
             val dot = when (status) {
                 ServerStatus.ONLINE -> avelren.go
                 ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA,
-                ServerStatus.WEAK_INTERNET, ServerStatus.MAINTENANCE -> avelren.warn
+                ServerStatus.WEAK_INTERNET, ServerStatus.MAINTENANCE,
+                ServerStatus.RESTARTING -> avelren.warn
                 else -> avelren.closed
             }
             Row(
@@ -823,7 +825,7 @@ private fun HeaderRow(
                     .clip(RoundedCornerShape(8.dp))
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
-                if (status == ServerStatus.MAINTENANCE) {
+                if (status == ServerStatus.MAINTENANCE || status == ServerStatus.RESTARTING) {
                     Icon(Icons.Filled.MaintenanceIcon, contentDescription = null,
                         tint = dot, modifier = Modifier.size(14.dp))
                 } else {
@@ -840,7 +842,7 @@ private fun HeaderRow(
                     letterSpacing = 0.sp,
                     color = when (status) {
                         ServerStatus.NO_INTERNET, ServerStatus.WEAK_INTERNET,
-                        ServerStatus.MAINTENANCE -> dot
+                        ServerStatus.MAINTENANCE, ServerStatus.RESTARTING -> dot
                         else -> Color.White
                     },
                 )
