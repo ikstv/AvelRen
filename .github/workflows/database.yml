@@ -47,13 +47,15 @@ jobs:
         run: python3 scripts/verify_core_provenance.py
       - name: Синтаксис сценаріїв
         run: |
-          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-artifact.lib.sh ops/restore-artifact-contract-test.sh ops/restore-engine.lib.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh ops/compose-production-contract-test.sh ops/maintenance-window.sh ops/maintenance-reboot.sh ops/maintenance-window-contract-test.sh; do
+          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-artifact.lib.sh ops/restore-artifact-contract-test.sh ops/restore-engine.lib.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh ops/compose-production-contract-test.sh ops/maintenance-window.sh ops/maintenance-reboot.sh ops/maintenance-window-contract-test.sh ops/build-candidate-image.sh ops/candidate-image-attestation-contract-test.sh; do
             bash -n "$script"
           done
       - name: Контракт telemetry systemd units
         run: python3 ops/telemetry-unit-contract-test.py
       - name: Контракт source-only deployment preflight
         run: python3 ops/deployment-preflight-contract-test.py
+      - name: Контракт local candidate-image attestation
+        run: bash ops/candidate-image-attestation-contract-test.sh
       - name: systemd-analyze verify без запуску служб
         run: |
           sudo install -D -o root -g root -m 0755 ops/telemetry-snapshot.sh /usr/local/sbin/avelren-telemetry-snapshot
