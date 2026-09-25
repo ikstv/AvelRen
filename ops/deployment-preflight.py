@@ -107,18 +107,29 @@ def evaluate(evidence: Any, source_commit: str, migrations_dir: Path = MIGRATION
                 errors.append("database_journal contains an invalid migration SHA-256")
                 break
 
-    images = _mapping(root.get("runtime_images"), "runtime_images", errors)
+    candidates = _mapping(root.get("candidate_images"), "candidate_images", errors)
+    if set(candidates) != RUNTIME_SERVICES:
+        errors.append("candidate_images must contain exactly api, collector, notifier and watchdog")
+    for service in RUNTIME_SERVICES:
+        image = candidates.get(service)
+        if not isinstance(image, dict):
+            continue
+        if image.get("source_commit") != source_commit:
+            errors.append(f"candidate image {service} was not built from target_commit")
+        digest = image.get("image_digest")
+        if not isinstance(digest, str) or not digest.startswith("sha256:") or not SHA256.fullmatch(digest[7:]):
+            errors.append(f"candidate image {service} lacks a valid immutable image_digest")
+
+    images = _mapping(root.get("live_runtime"), "live_runtime", errors)
     if set(images) != RUNTIME_SERVICES:
-        errors.append("runtime_images must contain exactly api, collector, notifier and watchdog")
+        errors.append("live_runtime must contain exactly api, collector, notifier and watchdog")
     for service in RUNTIME_SERVICES:
         image = images.get(service)
         if not isinstance(image, dict):
             continue
-        if image.get("source_commit") != source_commit:
-            errors.append(f"runtime image {service} was not built from target_commit")
         digest = image.get("image_digest")
         if not isinstance(digest, str) or not digest.startswith("sha256:") or not SHA256.fullmatch(digest[7:]):
-            errors.append(f"runtime image {service} lacks a valid immutable image_digest")
+            errors.append(f"live runtime {service} lacks a valid immutable image_digest")
 
     checks = _mapping(root.get("checks"), "checks", errors)
     if checks != {"backup_verified": True, "health_verified": True, "schema_verified": True}:

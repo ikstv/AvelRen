@@ -41,8 +41,12 @@ def valid_evidence() -> dict:
             "migration_files": migrations,
         },
         "database_journal": migrations,
-        "runtime_images": {
+        "candidate_images": {
             service: {"source_commit": COMMIT, "image_digest": DIGEST}
+            for service in sorted(preflight.RUNTIME_SERVICES)
+        },
+        "live_runtime": {
+            service: {"image_digest": DIGEST}
             for service in sorted(preflight.RUNTIME_SERVICES)
         },
         "checks": {
@@ -73,9 +77,13 @@ wrong_journal = valid_evidence()
 wrong_journal["database_journal"]["011_admin_access"] = "0" * 64
 expect_failure(wrong_journal, "database journal")
 
-wrong_image = valid_evidence()
-wrong_image["runtime_images"]["watchdog"]["source_commit"] = "c" * 40
-expect_failure(wrong_image, "runtime image watchdog")
+wrong_candidate = valid_evidence()
+wrong_candidate["candidate_images"]["watchdog"]["source_commit"] = "c" * 40
+expect_failure(wrong_candidate, "candidate image watchdog")
+
+missing_live_runtime = valid_evidence()
+missing_live_runtime["live_runtime"].pop("watchdog")
+expect_failure(missing_live_runtime, "live_runtime must contain")
 
 missing_health = valid_evidence()
 missing_health["checks"]["health_verified"] = False
