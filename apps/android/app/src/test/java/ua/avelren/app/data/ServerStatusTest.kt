@@ -21,9 +21,15 @@ class ServerStatusTest {
         assertEquals(ServerStatus.NO_INTERNET, status(InternetState.OFFLINE, maintenance = window))
     }
 
-    @Test fun bannerHasOnlyTheFourAgreedVisibleStates() {
+    @Test fun bannerHasTheAgreedVisibleStatesIncludingPlannedRestart() {
         assertEquals(
-            setOf("СЕРВЕР ОНЛАЙН", "НЕМАЄ ІНТЕРНЕТУ", "СЛАБКИЙ ІНТЕРНЕТ", "ТЕХНІЧНІ РОБОТИ"),
+            setOf(
+                "СЕРВЕР ОНЛАЙН",
+                "НЕМАЄ ІНТЕРНЕТУ",
+                "СЛАБКИЙ ІНТЕРНЕТ",
+                "ТЕХНІЧНІ РОБОТИ",
+                "ПЕРЕЗАПУСК СЕРВЕРА",
+            ),
             ServerStatus.entries.map { it.label }.filter { it.isNotEmpty() }.toSet(),
         )
     }
@@ -73,8 +79,9 @@ class ServerStatusTest {
         assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 64_000))
     }
 
-    @Test fun confirmedWindowSurvivesFailedRequestButExpires() {
-        assertEquals(ServerStatus.MAINTENANCE, status(success = false, maintenance = window))
+    @Test fun confirmedWindowBecomesRestartWhenServerStopsAnswering() {
+        assertEquals(ServerStatus.MAINTENANCE, status(success = true, maintenance = window))
+        assertEquals(ServerStatus.RESTARTING, status(success = false, maintenance = window))
         assertEquals(3L, window.remainingMinutes(now))
         assertEquals(1L, window.remainingMinutes(now.plusSeconds(179)))
         assertEquals(ServerStatus.UNREACHABLE, status(success = false, maintenance = window, time = now.plusSeconds(180)))
