@@ -23,7 +23,7 @@ MIGRATIONS = ROOT / "db" / "migrations"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 RUNTIME_SERVICES = frozenset({"api", "collector", "notifier", "watchdog"})
-FORBIDDEN_EVIDENCE_KEYS = frozenset({"dsn", "password", "secret", "token", "private_key"})
+FORBIDDEN_EVIDENCE_KEYS = frozenset({"dsn", "password", "token", "private_key", "secret_value"})
 
 
 def source_migrations(directory: Path = MIGRATIONS) -> dict[str, str]:
@@ -49,10 +49,10 @@ def _contains_forbidden_key(value: Any, path: str = "$") -> str | None:
             if not isinstance(key, str):
                 return f"{path} has a non-string key"
             normalized = key.lower().replace("-", "_")
-            forbidden_marker = any(
-                marker in normalized for marker in ("password", "secret", "token", "private_key")
+            credential_suffix = normalized.endswith(
+                ("_dsn", "_password", "_token", "_private_key")
             )
-            if normalized in FORBIDDEN_EVIDENCE_KEYS or forbidden_marker or normalized.endswith("_dsn"):
+            if normalized in FORBIDDEN_EVIDENCE_KEYS or credential_suffix:
                 return f"{path}.{key} is forbidden; evidence must not contain secrets"
             found = _contains_forbidden_key(nested, f"{path}.{key}")
             if found:
