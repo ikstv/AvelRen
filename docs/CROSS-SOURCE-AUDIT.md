@@ -56,6 +56,25 @@ deployment preflight, який відхиляє застарілий server chec
 із source migrations в ізольованому середовищі. Це підсилює відтворюваність,
 не торкаючись production.
 
+## Перевірка deployment preflight (read-only, 2026-09-25)
+
+Санітизований зріз production прогнано через
+[`ops/deployment-preflight.py`](../ops/deployment-preflight.py) з цільовим
+commit `1cc98eb7c7b08043a36f7a950a37f81c15425680`. Він коректно повернув
+**FAIL** — цей результат не є помилкою інструмента і не запускав deployment.
+
+- **Підтверджено:** DB journal `001`–`013` має SHA, тотожні source migrations;
+  `/api/health` відповів 200; backup timer має `Result=success` і
+  `ActiveState=active`.
+- **Заблоковано:** checkout `/opt/avelren` dirty, на commit
+  `81e5b047f8f18c42ca46a59f86495f71d0681af0` і містить лише migration files
+  `001`–`010`; candidate images для цільового commit ще не створені й не
+  атестовані; фізичний schema preflight у цьому зрізі не виконувався.
+
+Отже, новий gate відокремив наявні здорові сигнали від реальної готовності до
+deployment. Жодних файлів, контейнерів, сервісів, БД або диска на production
+не змінювали.
+
 ## Обов'язковий порядок звірки
 
 ### Перед перенесенням функції
