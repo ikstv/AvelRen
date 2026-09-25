@@ -99,6 +99,18 @@ object Api {
         val time: String? = null,
     )
 
+    /** Public status used by the server-state badge; no device credentials required. */
+    @Serializable
+    data class Status(
+        val maintenance: MaintenanceWindow? = null,
+    )
+
+    @Serializable
+    data class MaintenanceWindow(
+        val starts_at: String,
+        val ends_at: String,
+    )
+
     @Serializable
     data class Subscription(
         val id: Long,
@@ -372,6 +384,8 @@ object Api {
     suspend fun checkpoints(): List<Checkpoint> = client.get("$base/checkpoints").body()
 
     suspend fun workload(): List<Workload> = client.get("$base/workload").body()
+
+    suspend fun status(): Status = client.get("$base/status").body()
 
     /** Telemetry is available only to admin devices; for the rest the server returns 403. */
     suspend fun telemetry(creds: DeviceStore.Credentials): Telemetry =

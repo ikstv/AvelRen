@@ -40,6 +40,9 @@ object DeviceStore {
     // touched by clearCredentials(): re-registering after a 401 is not a reason to
     // show someone the same advice about their phone's battery settings again.
     private const val KEY_BG_HINT_DISMISSED = "bg_delivery_hint_dismissed"
+    // Public, short-lived server status. Persist it so reopening the app during
+    // a planned reboot still shows the truthful restart state.
+    private const val KEY_MAINTENANCE_ENDS_AT = "maintenance_ends_at"
 
     @Volatile
     private var prefs: SharedPreferences? = null
@@ -132,6 +135,19 @@ object DeviceStore {
 
     fun saveSelectedCheckpoint(context: Context, id: Int) {
         prefs(context).edit().putInt(KEY_SELECTED, id).apply()
+    }
+
+    fun maintenanceEndsAt(context: Context): String? =
+        prefs(context).getString(KEY_MAINTENANCE_ENDS_AT, null)
+
+    fun saveMaintenanceEndsAt(context: Context, endsAt: String?) {
+        val edit = prefs(context).edit()
+        if (endsAt == null) {
+            edit.remove(KEY_MAINTENANCE_ENDS_AT)
+        } else {
+            edit.putString(KEY_MAINTENANCE_ENDS_AT, endsAt)
+        }
+        edit.apply()
     }
 
     fun pendingFcmToken(context: Context): String? =

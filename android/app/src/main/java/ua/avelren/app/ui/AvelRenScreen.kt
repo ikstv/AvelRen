@@ -91,6 +91,9 @@ import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.LiveRefresh
 import ua.avelren.app.data.NetworkAvailability
+import ua.avelren.app.data.ServerBadge
+import ua.avelren.app.data.activeMaintenanceEnd
+import ua.avelren.app.data.serverBadge
 import ua.avelren.app.ui.theme.HeroNumberStyle
 import ua.avelren.app.ui.theme.RoadSignShape
 import ua.avelren.app.ui.theme.TabularNumberFeature
@@ -157,6 +160,9 @@ fun AvelRenScreen(
     var selected by remember { mutableStateOf(DeviceStore.selectedCheckpoint(context)) }
     var loading by remember { mutableStateOf(true) }
     var refreshError by remember { mutableStateOf(false) }
+    var maintenanceEndsAt by remember {
+        mutableStateOf(activeMaintenanceEnd(DeviceStore.maintenanceEndsAt(context), Instant.now()))
+    }
     // Оновлюється КОЖЕН poll (навіть якщо payload не змінився), щоб freshness
     // рухалась і UI переходив у stale, коли collector завис, а API віддає той
     // самий snapshot (B2).
@@ -266,6 +272,15 @@ fun AvelRenScreen(
         wlRes
             .onSuccess { refreshError = false }
             .onFailure { refreshError = true }
+        // While the API is alive, cache its confirmed maintenance horizon. If
+        // it becomes unreachable inside that horizon, the header can truthfully
+        // say that the server is restarting instead of disappearing or blaming
+        // the phone's internet connection.
+        runCatching { Api.status() }.onSuccess { status ->
+            val end = activeMaintenanceEnd(status.maintenance?.ends_at, Instant.now())
+            maintenanceEndsAt = end
+            DeviceStore.saveMaintenanceEndsAt(context, end?.toString())
+        }
         // Моніторинг оновлюємо тим самим тілом, що й чергу. Інакше після
         // відновлення мережі черга оживала, а секція «Ваш моніторинг» лишалась
         // порожньою до випадкового перемикання вкладки (#107).
@@ -374,7 +389,12 @@ fun AvelRenScreen(
                 .padding(bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            HeaderRow(freshness = freshness, hasError = refreshError)
+            HeaderRow(
+                freshness = freshness,
+                hasError = refreshError,
+                maintenanceEndsAt = maintenanceEndsAt,
+                now = freshnessNow,
+            )
             if (notificationsSilent) {
                 NotificationSilentBanner(onOpenNotificationSettings)
             }
@@ -424,7 +444,12 @@ fun AvelRenScreen(
             contentPadding = PaddingValues(bottom = 104.dp),
         ) {
             item {
-                HeaderRow(freshness = freshness, hasError = refreshError)
+                HeaderRow(
+                    freshness = freshness,
+                    hasError = refreshError,
+                    maintenanceEndsAt = maintenanceEndsAt,
+                    now = freshnessNow,
+                )
             }
             if (notificationsSilent) {
                 item { NotificationSilentBanner(onOpenNotificationSettings) }
@@ -645,6 +670,8 @@ fun AvelRenScreen(
 private fun HeaderRow(
     freshness: LiveRefresh.Freshness?,
     hasError: Boolean,
+    maintenanceEndsAt: Instant?,
+    now: Instant,
 ) {
     val avelren = MaterialTheme.avelren
     // Стан сервера виводимо з реальних сигналів, а не з перемикача-заглушки
@@ -653,10 +680,12 @@ private fun HeaderRow(
     // padding:5px 10px; font:700 10px; letter-spacing:1px` (→ 0.1em),
     // крапка 8×8.
     // Рядки й кольори крапки — точно з SERVER_STATES макета.
-    val (dot, label) = when {
-        hasError -> Color(0xFFD5382C) to "НЕМАЄ ІНТЕРНЕТУ"
-        freshness?.stale == true -> Color(0xFFC9A100) to "СЕРВЕР ПЕРЕЗАПУСКАЄТЬСЯ"
-        else -> Color(0xFF0E7A4E) to "СЕРВЕР ОНЛАЙН"
+    val (dot, label) = when (serverBadge(hasError, freshness?.stale == true, maintenanceEndsAt, now)) {
+        ServerBadge.RESTARTING -> Color(0xFFF5C400) to "ПЕРЕЗАПУСК СЕРВЕРА"
+        ServerBadge.MAINTENANCE -> Color(0xFFF5C400) to "ТЕХНІЧНІ РОБОТИ"
+        ServerBadge.OFFLINE -> Color(0xFFD5382C) to "НЕМАЄ ІНТЕРНЕТУ"
+        ServerBadge.STALE -> Color(0xFFF5C400) to "ДАНІ ЗАСТАРІЛІ"
+        ServerBadge.ONLINE -> Color(0xFF0E7A4E) to "СЕРВЕР ОНЛАЙН"
     }
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 26.dp),
