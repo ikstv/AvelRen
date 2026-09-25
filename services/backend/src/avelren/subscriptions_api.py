@@ -76,6 +76,7 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
                     """
                     SELECT secret_hash FROM devices
                     WHERE id = %s AND secret_hash IS NOT NULL
+                    FOR UPDATE
                     """,
                     (x_device_id,),
                 )
@@ -467,6 +468,22 @@ async def acknowledge_eta_alert(
                 (row["target_id"],),
             )
     return {"status": "acknowledged" if row else "already_closed"}
+
+
+# --- Public aggregate; no installation identifiers are returned -----------
+
+
+@router.get("/active-devices")
+async def active_devices(request: Request) -> dict:
+    """Number of device records still retained on our server."""
+    rate_check(request, "read")
+    async with get_pool().connection() as conn:
+        count = await (
+            await conn.execute(
+                "SELECT count(*) AS total FROM devices"
+            )
+        ).fetchone()
+    return {"active_devices": count["total"], "retention_days": 90}
 
 
 # --- Telemetry (admin devices only) ----------------------------------------

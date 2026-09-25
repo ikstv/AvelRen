@@ -80,6 +80,19 @@ def test_foreign_device_cannot_delete_subscription(api_client, checkpoint, devic
     assert api_client.get("/admin/telemetry").status_code == 401
 
 
+def test_public_active_device_count_includes_retained_devices(api_client, installation, conn):
+    installation()
+    old = installation()
+    conn.execute(
+        "UPDATE devices SET last_seen=now()-interval '25 hours' WHERE id=%s",
+        (old.device_id,),
+    )
+
+    response = api_client.get("/active-devices")
+    assert response.status_code == 200
+    assert response.json() == {"active_devices": 2, "retention_days": 90}
+
+
 @pytest.mark.parametrize("failure", ["connection", "pool"])
 def test_database_unavailable_returns_retry_after(api_client, monkeypatch, failure):
     from psycopg import AsyncConnection, OperationalError

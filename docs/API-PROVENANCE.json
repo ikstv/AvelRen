@@ -16,7 +16,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/subscriptions_api.py",
       "destination": "services/backend/src/avelren/subscriptions_api.py",
-      "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402"
+      "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
+      "revision": {
+        "sha256": "44a23bc608dc1d96aab43e6901322420ed2f646c1dca71476adc13a8537c03ad",
+        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -44,7 +48,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/forecast.py",
       "destination": "services/backend/src/avelren/forecast.py",
-      "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf"
+      "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
+      "revision": {
+        "sha256": "7c5b7bd20e9c80c2d492b1e1151c0fb26843138b63ac6bb7cfe15532fa32d484",
+        "notes": "docs/RELEASE-0.1.1-WORKLOG.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -58,7 +66,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/admin_access_api.py",
       "destination": "services/backend/src/avelren/admin_access_api.py",
-      "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57"
+      "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57",
+      "revision": {
+        "sha256": "bf784159c948b8ab49acef029b3073c957d753b07e2e326fa19029809f983694",
+        "notes": "docs/RELEASE-0.1.1-FINALIZATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -100,7 +112,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/tests/test_forecast_bounds.py",
       "destination": "services/backend/tests/unit/test_forecast_bounds.py",
-      "sha256": "6eee86856d5498ba7e10099f53f893decc6ed49c538666098d3dfebee582610c"
+      "sha256": "6eee86856d5498ba7e10099f53f893decc6ed49c538666098d3dfebee582610c",
+      "revision": {
+        "sha256": "55fe7284c7b189a7ab39921b4afc50ff5b42d0caf91d73a633ae8e0fd5c69481",
+        "notes": "docs/RELEASE-0.1.1-WORKLOG.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

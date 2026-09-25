@@ -297,7 +297,10 @@ object Api {
         val wait_seconds_low: Int,
         val wait_seconds_expected: Int,
         val wait_seconds_high: Int,
+        val vehicles_low: Int? = null,
         val vehicles_expected: Int,
+        val vehicles_high: Int? = null,
+        val samples: Int? = null,
     )
 
     @Serializable
@@ -380,6 +383,12 @@ object Api {
     /** Telemetry is available only to admin devices; for the rest the server returns 403. */
     suspend fun telemetry(creds: DeviceStore.Credentials): Telemetry =
         client.get("$base/admin/telemetry") { auth(creds) }.body()
+
+    @Serializable
+    data class ActiveDevices(val active_devices: Int, val retention_days: Int)
+
+    suspend fun activeDevices(): ActiveDevices =
+        client.get("$base/active-devices").body()
 
     @Serializable
     data class AdminAccess(

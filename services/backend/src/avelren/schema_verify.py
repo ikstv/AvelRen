@@ -36,7 +36,9 @@ log = logging.getLogger("avelren.schema_verify")
 
 # Optional features enforce their exact migration at their own entry point.
 # Their absence must not stop collector/notifier or the existing public API.
-FEATURE_MIGRATIONS = frozenset({"011_admin_access"})
+FEATURE_MIGRATIONS = frozenset({
+    "011_admin_access", "012_device_retention", "013_admin_installation_lock",
+})
 
 # --- Version-annotated physical contract ------------------------------------
 # Format: (since_version | None, ...object details)
@@ -62,6 +64,7 @@ _TABLES_V: list[tuple[str | None, str]] = [
 ]
 
 _COLUMNS_V: list[tuple[str | None, str, str]] = [
+    ("013_admin_installation_lock", "devices", "admin_blocked_until"),
     ("011_admin_access", "admin_access", "approved_device_id"),
     ("011_admin_access", "admin_access", "pin_hash"),
     ("011_admin_access", "admin_access", "failures"),
@@ -327,6 +330,16 @@ def verify_contract(
             "search_path=pg_catalog, pg_temp" not in (row[2] or [])
         ):
             problems.append("admin activation function missing or unsafe owner/search_path")
+
+    if want("012_device_retention"):
+        row = conn.execute(
+            "SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig "
+            "FROM pg_proc p WHERE p.oid=to_regprocedure('public.prune_inactive_devices(boolean)')"
+        ).fetchone()
+        if not row or not row[0] or row[1] != "avelren_migrator" or (
+            "search_path=pg_catalog, pg_temp" not in (row[2] or [])
+        ):
+            problems.append("device retention function missing or unsafe owner/search_path")
 
     return problems
 

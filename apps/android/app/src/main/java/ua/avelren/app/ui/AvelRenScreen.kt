@@ -1,5 +1,6 @@
 package ua.avelren.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -32,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Build as MaintenanceIcon
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Settings
@@ -77,21 +80,26 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import ua.avelren.app.data.NotificationPermissionState
+import ua.avelren.app.data.ForecastPresentation
 import ua.avelren.app.ui.theme.SignClosed
 import ua.avelren.app.ui.theme.SignOnClosed
 import ua.avelren.app.ui.theme.SignWarn
 import ua.avelren.app.ui.theme.SignOnWarn
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ua.avelren.app.BuildConfig
+import ua.avelren.app.AvelRenApp
 import ua.avelren.app.R
 import ua.avelren.app.data.BackgroundDelivery
 import ua.avelren.app.data.BackgroundDeliveryHint
@@ -196,7 +204,11 @@ fun AvelRenScreen(
     // сервера: subscriptions()/subscribe()/unsubscribe(). Флоу: тап по плитці →
     // пікер КПП → вибір порога (50/100/150/200) → subscribe.
     val scope = rememberCoroutineScope()
-    val creds = remember { DeviceStore.credentials(context) }
+    val installation = remember(context) { (context.applicationContext as AvelRenApp).installation }
+    val installationState by installation.state.collectAsStateWithLifecycle()
+    // Registration finishes asynchronously after a fresh install. Do not retain
+    // the initial null credentials for the whole lifetime of this screen.
+    val creds = remember(installationState) { DeviceStore.credentials(context) }
     var subscriptions by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
     var etaTargets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     // Порожній список сам по собі НЕ означає «підписок немає» — рівно так само
@@ -204,11 +216,14 @@ fun AvelRenScreen(
     // прапорця UI стверджував «Нема вибраних вами КПП», хоча підписки є (#107).
     // true лише після успішної відповіді сервера.
     var monitorsLoaded by remember { mutableStateOf(false) }
+    var monitorsLoading by remember { mutableStateOf(true) }
+    var monitorsFailed by remember { mutableStateOf(false) }
+    val monitorsMutex = remember { Mutex() }
     var showThresholdCpPicker by remember { mutableStateOf(false) }
     var pendingThresholdCp by remember { mutableStateOf<Api.Workload?>(null) }
     var showEtaCpPicker by remember { mutableStateOf(false) }
     var pendingEtaCp by remember { mutableStateOf<Api.Workload?>(null) }
-    // AI-прогноз — читання (не підписка): обрав КПП → показуємо прогноз.
+    // Прогноз — read-only потік: вибір КПП відкриває окремий екран.
     var showAiCpPicker by remember { mutableStateOf(false) }
     var pendingAiCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Гейт беззвучної підписки (#117 крок 2): коли дозволу нема, вибір порога
@@ -223,10 +238,34 @@ fun AvelRenScreen(
     // поведінці. Прапорець зводиться лише коли ОБИДВА запити вдались: інакше
     // напівпорожній список видавали б за повний.
     val loadMonitors: suspend () -> Unit = {
-        creds?.let { c ->
-            val subsRes = runCatching { Api.subscriptions(c) }.onSuccess { subscriptions = it }
-            val tgtRes = runCatching { Api.etaTargets(c) }.onSuccess { etaTargets = it }
-            if (subsRes.isSuccess && tgtRes.isSuccess) monitorsLoaded = true
+        // Concurrent triggers share the current request instead of queuing duplicates.
+        if (monitorsMutex.tryLock()) {
+            monitorsLoading = true
+            monitorsFailed = false
+            try {
+                val result = withTimeout(15_000L) {
+                    installation.authenticatedCall { c ->
+                        coroutineScope {
+                            val subs = async { Api.subscriptions(c) }
+                            val targets = async { Api.etaTargets(c) }
+                            subs.await() to targets.await()
+                        }
+                    }
+                }
+                // Publish a complete snapshot; preserve the previous one on errors.
+                subscriptions = result.first
+                etaTargets = result.second
+                monitorsLoaded = true
+            } catch (_: TimeoutCancellationException) {
+                monitorsFailed = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                monitorsFailed = true
+            } finally {
+                monitorsLoading = false
+                monitorsMutex.unlock()
+            }
         }
     }
     val reloadSubs: () -> Unit = { scope.launch { loadMonitors() } }
@@ -289,6 +328,7 @@ fun AvelRenScreen(
                 responseSucceeded = false
                 loading = false
             } else coroutineScope {
+                val monitors = async { loadMonitors() }
                 val status = async {
                     runCatching { Api.serverStatus() }
                         .onFailure { if (it is CancellationException) throw it }
@@ -306,7 +346,7 @@ fun AvelRenScreen(
                         maintenanceStore.write(maintenance)
                     }
                 }
-                loadMonitors()
+                monitors.await()
                 freshnessNow = Instant.now()
             }
         }
@@ -332,7 +372,8 @@ fun AvelRenScreen(
                         responseSucceeded = null
                     }
                     if (state == InternetState.OFFLINE) loading = false
-                    else if (changed && state == InternetState.ONLINE) launch { refresh() }
+                    else if (changed && (state == InternetState.ONLINE || state == InternetState.WEAK))
+                        launch { refresh() }
                 }
             }
             launch {
@@ -387,13 +428,14 @@ fun AvelRenScreen(
 
     val onMonitor = activeTab == "monitor"
     val onSettings = activeTab == "settings"
+    val forecastOpen = pendingAiCp != null
+    BackHandler(enabled = forecastOpen) { pendingAiCp = null }
     val bottomChromePadding = if (updateAvailable) 182.dp else 136.dp
 
-    // Головна — фото на всю площу з `filter:grayscale(100%)` + затемнення згори
-    // (190px) і знизу (170px). Екран «Моніторинг» — суцільний темний фон
-    // (#0A0A0A), без фото й градієнтів.
-    Box(Modifier.fillMaxSize().background(if (onMonitor || onSettings) MonitorBg else Color.Black)) {
-        if (!onMonitor && !onSettings) {
+    // Головна — фото на всю площу; моніторинг і налаштування мають рівний
+    // чорний фон без підсвічування під нижньою навігацією.
+    Box(Modifier.fillMaxSize().background(if (forecastOpen) MonitorBg else Color.Black)) {
+        if (!onMonitor && !onSettings && !forecastOpen) {
             Image(
                 painter = painterResource(R.drawable.onboarding_truck),
                 contentDescription = null,
@@ -411,7 +453,15 @@ fun AvelRenScreen(
             )
         }
 
-    if (onMonitor) {
+    if (forecastOpen) {
+        pendingAiCp?.let { cp ->
+            ForecastScreen(
+                checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
+                checkpointId = cp.checkpoint_id,
+                onBack = { pendingAiCp = null },
+            )
+        }
+    } else if (onMonitor) {
         // Екран «Моніторинг»: 4 плитки на всю висоту. Header фіксований зверху,
         // три плитки-дії й «Ваш моніторинг» ділять решту простору вагами (список
         // отримує трохи більше й скролиться, якщо рядків багато).
@@ -449,8 +499,8 @@ fun AvelRenScreen(
                 icon = { TileIcon(Icons.Filled.HourglassEmpty) },
             )
             ActionTile(
-                title = "AI-прогноз",
-                subtitle = "Прогноз хвиль реєстрацій у чергу від AI-моделі",
+                title = "Прогноз черги",
+                subtitle = "Прогноз черги на наступні 24 години",
                 onClick = { showAiCpPicker = true },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 icon = { TileIcon(Icons.Filled.AutoAwesome) },
@@ -461,6 +511,9 @@ fun AvelRenScreen(
                 modifier = Modifier.fillMaxWidth().weight(1.5f),
                 fill = true,
                 loaded = monitorsLoaded,
+                loading = monitorsLoading,
+                failed = monitorsFailed,
+                onRetry = reloadSubs,
                 notificationsSilent = notificationsSilent,
             )
         }
@@ -519,6 +572,9 @@ fun AvelRenScreen(
                         onRemove = { pendingRemove = it },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                         loaded = monitorsLoaded,
+                        loading = monitorsLoading,
+                        failed = monitorsFailed,
+                        onRetry = reloadSubs,
                         notificationsSilent = notificationsSilent,
                     )
                 }
@@ -533,9 +589,11 @@ fun AvelRenScreen(
     // Макет: плавуча навпанель — `left:12; right:12; bottom:12; height:60;
     // radius:20`, прибита до низу поверх вмісту (футер «DEVELOPER» на головній
     // прибрано — його місце зайняла панель).
+    if (!forecastOpen) {
     BottomNavBar(
         activeTab = activeTab,
         onSelect = { activeTab = it },
+        flatDark = onMonitor || onSettings,
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .windowInsetsPadding(WindowInsets.systemBars)
@@ -578,6 +636,7 @@ fun AvelRenScreen(
         )
     }
     }
+    }
 
     if (showUpdatePrompt && updateAvailable && updateState.actionable) {
         AppUpdateDialog(
@@ -596,6 +655,7 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = selected,
             countryFilter = countryFilter,
+            showAttribution = true,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 selected = id
@@ -613,6 +673,7 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
+            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingThresholdCp = workload.firstOrNull { it.checkpoint_id == id }
@@ -670,6 +731,7 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
+            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingEtaCp = workload.firstOrNull { it.checkpoint_id == id }
@@ -714,21 +776,13 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
+            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingAiCp = workload.firstOrNull { it.checkpoint_id == id }
                 showAiCpPicker = false
             },
             onDismiss = { showAiCpPicker = false },
-        )
-    }
-
-    // Крок 2 — показ прогнозу для обраного КПП.
-    pendingAiCp?.let { cp ->
-        ForecastDialog(
-            checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
-            checkpointId = cp.checkpoint_id,
-            onDismiss = { pendingAiCp = null },
         )
     }
 
@@ -756,20 +810,25 @@ private fun HeaderRow(
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White,
         )
-        if (showServerStatus) {
+        if (showServerStatus && status.label.isNotEmpty()) {
             val dot = when (status) {
                 ServerStatus.ONLINE -> avelren.go
-                ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA -> avelren.warn
+                ServerStatus.CHECKING, ServerStatus.STALE, ServerStatus.NO_DATA,
+                ServerStatus.WEAK_INTERNET, ServerStatus.MAINTENANCE -> avelren.warn
                 else -> avelren.closed
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .border(2.dp, Color(0x80FFFFFF), RoundedCornerShape(8.dp))
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                if (status == ServerStatus.MAINTENANCE) {
+                    Icon(Icons.Filled.MaintenanceIcon, contentDescription = null,
+                        tint = dot, modifier = Modifier.size(14.dp))
+                } else {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                }
                 Spacer(Modifier.width(7.dp))
                 Text(
                     if (status == ServerStatus.MAINTENANCE && remainingMinutes != null)
@@ -779,10 +838,14 @@ private fun HeaderRow(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.sp,
-                    color = Color.White,
+                    color = when (status) {
+                        ServerStatus.NO_INTERNET, ServerStatus.WEAK_INTERNET,
+                        ServerStatus.MAINTENANCE -> dot
+                        else -> Color.White
+                    },
                 )
             }
-        } else {
+        } else if (!showServerStatus) {
             VersionHeader()
         }
     }
@@ -904,6 +967,9 @@ private fun MonitoringTile(
     modifier: Modifier = Modifier,
     fill: Boolean = false,   // true — заповнити висоту плитки (екран «Моніторинг»)
     loaded: Boolean = true,  // false — список ще не приїхав; НЕ показувати empty-state
+    loading: Boolean = false,
+    failed: Boolean = false,
+    onRetry: () -> Unit = {},
     notificationsSilent: Boolean = false,  // дозволу нема → рядки несуть позначку «беззвучна»
 ) {
     Column(
@@ -921,7 +987,23 @@ private fun MonitoringTile(
             fontSize = 12.sp,
             letterSpacing = 0.025.em,
         )
-        if (rows.isEmpty()) {
+        if (failed || (!loaded && !loading)) {
+            Text(
+                if (loaded) "Не вдалося оновити моніторинг. Показано попередні дані."
+                else "Не вдалося завантажити моніторинг.",
+                color = EmptyInk,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                "Повторити",
+                color = HeroYellow,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable(enabled = !loading, onClick = onRetry)
+                    .padding(vertical = 12.dp),
+            )
+        }
+        if (rows.isEmpty() && !(failed || (!loaded && !loading))) {
             // fill — центр по всій висоті плитки; інакше — природна висота.
             Box(
                 if (fill) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth(),
@@ -930,7 +1012,7 @@ private fun MonitoringTile(
                 // Поки список не приїхав — стан очікування, а не твердження
                 // «нічого не відстежується». Стверджувати можна лише після
                 // успішної відповіді сервера (#107).
-                if (!loaded) {
+                if (!loaded && loading) {
                     CircularProgressIndicator(
                         color = HeroYellow,
                         strokeWidth = 2.dp,
@@ -1506,10 +1588,10 @@ private fun EtaChooserDialog(
     }
 }
 
-// --- AI-прогноз -----------------------------------------------------------
-private val AI_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMMM", java.util.Locale("uk"))
-private fun aiReadyDate(iso: String): String = runCatching {
-    OffsetDateTime.parse(iso).atZoneSameInstant(KYIV).format(AI_DATE)
+// --- Прогноз черги --------------------------------------------------------
+private val FORECAST_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMMM", java.util.Locale("uk"))
+private fun forecastReadyDate(iso: String): String = runCatching {
+    OffsetDateTime.parse(iso).atZoneSameInstant(KYIV).format(FORECAST_DATE)
 }.getOrDefault(iso)
 
 /**
@@ -1518,112 +1600,193 @@ private fun aiReadyDate(iso: String): String = runCatching {
  * ready/preliminary — очікуваний пік черги з прогнозних точок.
  */
 @Composable
-private fun ForecastDialog(
+private fun ForecastScreen(
     checkpointTitle: String,
     checkpointId: Int,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
 ) {
     var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
-    LaunchedEffect(checkpointId) {
-        loading = true; failed = false
+    var reload by remember { mutableStateOf(0) }
+    var horizonStart by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(checkpointId, reload) {
+        loading = true
+        failed = false
+        horizonStart = Instant.now()
         runCatching { Api.forecast(checkpointId) }
             .onSuccess { forecast = it; loading = false }
             .onFailure { failed = true; loading = false }
     }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(PickerSheetBg)
-                .border(1.dp, NavBorder, RoundedCornerShape(20.dp))
-                .padding(20.dp),
-        ) {
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MonitorBg)
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentPadding = PaddingValues(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 72.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
             Text(
-                "AI-прогноз",
+                "←  Назад до КПП",
                 color = HeroYellow,
-                fontWeight = FontWeight.Black,
-                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
+                modifier = Modifier.tapNoRipple(onClick = onBack).padding(vertical = 8.dp),
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                checkpointTitle,
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(16.dp))
-            val f = forecast
-            when {
-                loading -> ForecastLine("Завантаження…")
-                failed || f == null -> ForecastLine("Не вдалося отримати прогноз")
-                f.status == "ready" || f.status == "preliminary" -> {
-                    val peak = f.points.maxByOrNull { it.vehicles_expected }
-                    if (peak != null) {
-                        ForecastLine("Очікуваний пік черги:")
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "≈ ${peak.vehicles_expected} авто о ${etaBadge(peak.time)}",
-                            color = Color.White,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 18.sp,
-                        )
-                        if (f.status == "preliminary") {
-                            Spacer(Modifier.height(8.dp))
-                            ForecastLine("Прогноз попередній — модель ще вчиться")
-                        }
-                    } else {
-                        ForecastLine("Прогноз ще формується")
-                    }
-                }
-                else -> {
-                    // collecting
-                    Text(
-                        "Модель ще вчиться на зібраних даних",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontSize = 13.sp,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    ForecastLine("Зібрано ${"%.1f".format(f.weeks_collected)} з ${f.weeks_needed} тижнів")
-                    f.ready_at?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Готово орієнтовно ${aiReadyDate(it)}",
-                            color = HeroYellow,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 12.sp,
-                        )
-                    }
+        }
+        item {
+            Column {
+                Text(
+                    "Прогноз черги",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 28.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(checkpointTitle, color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(
+                    "${horizonStart.atZone(KYIV).format(FORECAST_DATE)} · наступні 24 години",
+                    color = EmptyInk,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+
+        val f = forecast
+        when {
+            loading -> item {
+                Box(Modifier.fillMaxWidth().padding(vertical = 56.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = HeroYellow, strokeWidth = 2.dp)
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            val view = LocalView.current
-            Text(
-                "Закрити",
-                color = PickerInk,
-                fontWeight = FontWeight.Black,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(HeroYellow)
-                    .tapNoRipple {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        onDismiss()
+            failed || f == null -> item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ForecastLine("Не вдалося завантажити прогноз.")
+                    Text(
+                        "Спробувати ще раз",
+                        color = PickerInk,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(HeroYellow).clickable { reload++ }.padding(14.dp),
+                    )
+                }
+            }
+            f.status == "ready" || f.status == "preliminary" -> {
+                val todayPoints = ForecastPresentation.next24Hours(
+                    f.points, horizonStart,
+                )
+                val peak = ForecastPresentation.peak(todayPoints)
+                if (peak != null) {
+                    item { ForecastPeakCard(peak) }
+                    item {
+                        Text(
+                            "Погодинний прогноз",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 17.sp,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                     }
-                    .padding(vertical = 13.dp),
-            )
+                    items(todayPoints, key = { it.time }) { point ->
+                        ForecastHourRow(
+                            point = point,
+                            maxVehicles = todayPoints.maxOf { it.vehicles_expected },
+                            isPeak = point.time == peak.time,
+                        )
+                    }
+                } else item {
+                    ForecastEmptyState(
+                        "На наступні 24 години недостатньо даних для прогнозу.",
+                    )
+                }
+            }
+            else -> item {
+                ForecastEmptyState(
+                    "Модель ще збирає історію для цього КПП.",
+                    detail = buildString {
+                        append("Зібрано ${"%.1f".format(f.weeks_collected)} з ${f.weeks_needed} тижнів")
+                        f.ready_at?.let { append(" · орієнтовна готовність ${forecastReadyDate(it)}") }
+                    },
+                )
+            }
+        }
+        item { ForecastLine("Попередній прогноз. AI-модель ще в розробці.") }
+    }
+}
+
+@Composable
+private fun ForecastPeakCard(point: Api.ForecastPoint) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(HeroYellow.copy(alpha = 0.12f))
+            .border(1.dp, HeroYellow.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+            .padding(18.dp),
+    ) {
+        Text("ПРОГНОЗОВАНА ЧЕРГА У НАЙБЛИЖЧИЙ ЧАС", color = HeroYellow, fontWeight = FontWeight.Black, fontSize = 12.sp)
+        Spacer(Modifier.height(6.dp))
+        Text("${point.vehicles_expected} авто", color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
+        Text("орієнтовно ${forecastHourLabel(point.time)}", color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Spacer(Modifier.height(8.dp))
+        Text(forecastRangeLabel(point), color = EmptyInk, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ForecastHourRow(point: Api.ForecastPoint, maxVehicles: Int, isPeak: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            forecastHourLabel(point.time),
+            modifier = Modifier.width(92.dp),
+            color = if (isPeak) HeroYellow else EmptyInk,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+        )
+        Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${point.vehicles_expected} авто", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(forecastRangeLabel(point), color = EmptyInk, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(5.dp))
+            val fraction = if (maxVehicles > 0) (point.vehicles_expected.toFloat() / maxVehicles).coerceIn(0f, 1f) else 0f
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f))) {
+                Box(
+                    Modifier.fillMaxWidth(fraction).fillMaxHeight()
+                        .background(HeroYellow.copy(alpha = if (isPeak) 1f else 0.58f)),
+                )
+            }
         }
     }
 }
 
-/** Рядок пояснення в AI-діалозі (приглушений). */
+private fun forecastHourLabel(time: String): String =
+    runCatching {
+        OffsetDateTime.parse(time).atZoneSameInstant(KYIV)
+            .format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))
+    }.getOrDefault("—")
+
+private fun forecastRangeLabel(point: Api.ForecastPoint): String =
+    if (point.vehicles_low != null && point.vehicles_high != null) {
+        "Типовий розкид ${point.vehicles_low}–${point.vehicles_high} авто"
+    } else {
+        "Орієнтир за історичними даними"
+    }
+
+@Composable
+private fun ForecastEmptyState(text: String, detail: String? = null) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.05f)).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        detail?.let { ForecastLine(it) }
+    }
+}
+
+/** Рядок пояснення на екрані прогнозу (приглушений). */
 @Composable
 private fun ForecastLine(text: String) {
     Text(
@@ -1717,11 +1880,11 @@ internal fun SettingsScreen(
     MaterialTheme(colorScheme = ua.avelren.app.ui.theme.DarkColors.copy(
         primary = SignWarn,
         onPrimary = ua.avelren.app.ui.theme.SignOnWarn,
-        surface = MonitorBg,
+        surface = Color.Black,
     )) {
         androidx.compose.material3.Surface(
             modifier = modifier,
-            color = MonitorBg,
+            color = Color.Black,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             Column {
@@ -1829,10 +1992,9 @@ internal fun SettingsDeveloperFooter(
 }
 
 // --- Нижня навігація (з Design) -------------------------------------------
-// Плавуча закруглена панель поверх вмісту: `bottom:12; height:60; radius:20;
-// bg rgba(10,10,10,.72); border rgba(255,255,255,.14); shadow`. Активна
-// вкладка жовта (#F5C400), неактивна rgba(255,255,255,.45).
-private val MonitorBg = Color(0xFF0A0A0A)    // суцільний фон екрана «Моніторинг»
+// Плавуча закруглена панель поверх вмісту. На фото — напівпрозора з тінню;
+// на моніторингу й налаштуваннях — рівна чорна без світлого ореолу.
+private val MonitorBg = Color(0xFF0A0A0A)    // фон прогнозу й темних діалогів
 private val NavGlass = Color(0xB80A0A0A)     // rgba(10,10,10,.72)
 private val NavBorder = Color(0x24FFFFFF)    // rgba(255,255,255,.14)
 private val NavInactive = Color(0x73FFFFFF)  // rgba(255,255,255,.45)
@@ -1841,14 +2003,15 @@ private val NavInactive = Color(0x73FFFFFF)  // rgba(255,255,255,.45)
 private fun BottomNavBar(
     activeTab: String,
     onSelect: (String) -> Unit,
+    flatDark: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier
             .fillMaxWidth()
             .height(60.dp)
-            .shadow(8.dp, RoundedCornerShape(20.dp))
-            .background(NavGlass, RoundedCornerShape(20.dp))
+            .shadow(if (flatDark) 0.dp else 8.dp, RoundedCornerShape(20.dp))
+            .background(if (flatDark) Color.Black else NavGlass, RoundedCornerShape(20.dp))
             .border(1.dp, NavBorder, RoundedCornerShape(20.dp)),
     ) {
         NavTab("Головна", activeTab == "home", { onSelect("home") }, Modifier.weight(1f)) { HomeIcon(it) }
@@ -2045,6 +2208,7 @@ private fun CheckpointPickerSheet(
     workload: List<Api.Workload>,
     selectedId: Int,
     countryFilter: String?,
+    showAttribution: Boolean,
     onFilter: (String?) -> Unit,
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -2097,7 +2261,7 @@ private fun CheckpointPickerSheet(
             // (повноекранний Dialog) флагнув Google. Угорі, а не в підвалі: у
             // Dialog вікно wrap-height, тож прибити рядок до низу надійно не
             // виходить (виходив 0×0), а тут він гарантовано видимий і не скролиться.
-            AttributionBar(Modifier.padding(top = 10.dp))
+            if (showAttribution) AttributionBar(Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {

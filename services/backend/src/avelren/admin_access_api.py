@@ -30,7 +30,7 @@ async def access(device_id: str, pin: str | None = None) -> AccessOut:
         async with conn.transaction():
             # This feature is independently deployable; core services still need only their schema.
             installed = await (await conn.execute(
-                "SELECT 1 FROM schema_migrations WHERE version='011_admin_access'"
+                "SELECT 1 FROM schema_migrations WHERE version='013_admin_installation_lock'"
             )).fetchone()
             if not installed:
                 return AccessOut(state="unavailable")
@@ -40,10 +40,25 @@ async def access(device_id: str, pin: str | None = None) -> AccessOut:
             )).fetchone()
             if not row or not row["pin_hash"]:
                 return AccessOut(state="unavailable")
-            if str(row["approved_device_id"]) != device_id:
-                return AccessOut(state="awaiting_approval")
             # Read the clock AFTER acquiring the row lock, including under concurrency.
             now = (await (await conn.execute("SELECT clock_timestamp() AS now")).fetchone())["now"]
+            device = await (await conn.execute(
+                "SELECT admin_blocked_until FROM devices WHERE id=%s FOR UPDATE", (device_id,),
+            )).fetchone()
+            if device is None:
+                return AccessOut(state="unavailable")
+            installation_lock = device["admin_blocked_until"]
+            if installation_lock is not None and installation_lock > now:
+                return AccessOut(state="blocked", locked_until=installation_lock)
+            if str(row["approved_device_id"]) != device_id:
+                # Do not change the owner's failure counter or extend an active deadline.
+                installation_lock = await (await conn.execute(
+                    "UPDATE devices SET admin_blocked_until=clock_timestamp()+interval '24 hours' "
+                    "WHERE id=%s RETURNING admin_blocked_until", (device_id,),
+                )).fetchone()
+                return AccessOut(
+                    state="blocked", locked_until=installation_lock["admin_blocked_until"],
+                )
             locked = row["locked_until"]
             if locked is not None and locked > now:
                 return AccessOut(state="blocked", locked_until=locked)

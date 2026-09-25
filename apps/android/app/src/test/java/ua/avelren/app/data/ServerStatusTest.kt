@@ -21,6 +21,20 @@ class ServerStatusTest {
         assertEquals(ServerStatus.NO_INTERNET, status(InternetState.OFFLINE, maintenance = window))
     }
 
+    @Test fun bannerHasOnlyTheFourAgreedVisibleStates() {
+        assertEquals(
+            setOf("СЕРВЕР ОНЛАЙН", "НЕМАЄ ІНТЕРНЕТУ", "СЛАБКИЙ ІНТЕРНЕТ", "ТЕХНІЧНІ РОБОТИ"),
+            ServerStatus.entries.map { it.label }.filter { it.isNotEmpty() }.toSet(),
+        )
+    }
+
+    @Test fun disconnectDoesNotShowAnIntermediateConnectionMessage() {
+        assertEquals("", status(InternetState.UNKNOWN, false).label)
+        assertEquals("НЕМАЄ ІНТЕРНЕТУ", status(InternetState.OFFLINE, false).label)
+        assertEquals("", status(InternetState.ONLINE, null).label)
+        assertEquals("СЕРВЕР ОНЛАЙН", status(InternetState.ONLINE, true).label)
+    }
+
     @Test fun responseFailureIsNotLossOfInternet() {
         assertEquals(ServerStatus.UNREACHABLE, status(success = false))
         assertEquals(ServerStatus.CONNECTION_UNKNOWN, status(InternetState.UNKNOWN, false))
@@ -34,6 +48,29 @@ class ServerStatusTest {
     @Test fun staleDataNeverMeansReboot() {
         assertEquals(ServerStatus.STALE, status(stale = true))
         assertEquals(ServerStatus.ONLINE, status())
+    }
+
+    @Test fun checkingIsHiddenAndWeakSignalRequiresMeasurement() {
+        assertEquals("", ServerStatus.CHECKING.label)
+        assertEquals(ServerStatus.WEAK_INTERNET, status(InternetState.WEAK))
+        assertEquals(ServerStatus.UNREACHABLE, status(InternetState.ONLINE, false))
+        assertEquals(ServerStatus.NO_INTERNET, status(InternetState.OFFLINE, false))
+        assertTrue(NetworkAvailability.weakWifiSignal(true, -90))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, -60))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, Int.MIN_VALUE))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, -127))
+        assertFalse(NetworkAvailability.weakWifiSignal(false, -90))
+        assertFalse(NetworkAvailability.weakWifiSignal(true, null))
+    }
+
+    @Test fun instabilityNeedsRepeatedActualLossAndClearsAfterStableMinute() {
+        val tracker = ConnectionStability()
+        assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 0))
+        assertEquals(InternetState.OFFLINE, tracker.observe(InternetState.OFFLINE, 1_000))
+        assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 2_000))
+        assertEquals(InternetState.OFFLINE, tracker.observe(InternetState.OFFLINE, 3_000))
+        assertEquals(InternetState.WEAK, tracker.observe(InternetState.ONLINE, 4_000))
+        assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 64_000))
     }
 
     @Test fun confirmedWindowSurvivesFailedRequestButExpires() {

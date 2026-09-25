@@ -89,7 +89,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/schema_verify.py",
       "destination": "services/backend/src/avelren/schema_verify.py",
-      "sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b"
+      "sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
+      "revision": {
+        "sha256": "53b676ca24be3ecc026b4642cbfd1e7ef5900f1aef7e446901db9bbb843c2dfa",
+        "notes": "docs/RELEASE-0.1.1-FINALIZATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
