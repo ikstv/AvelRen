@@ -24,6 +24,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 RUNTIME_SERVICES = frozenset({"api", "collector", "notifier", "watchdog"})
 FORBIDDEN_EVIDENCE_KEYS = frozenset({"dsn", "password", "token", "private_key", "secret_value"})
+SCHEMA_VERIFIER = "avelren.schema_verify"
 
 
 def source_migrations(directory: Path = MIGRATIONS) -> dict[str, str]:
@@ -134,6 +135,21 @@ def evaluate(evidence: Any, source_commit: str, migrations_dir: Path = MIGRATION
     checks = _mapping(root.get("checks"), "checks", errors)
     if checks != {"backup_verified": True, "health_verified": True, "schema_verified": True}:
         errors.append("checks must prove backup_verified, health_verified and schema_verified")
+
+    # A boolean alone would make it too easy to claim that the physical schema
+    # was checked.  This is deliberately an attestation of the exact verifier,
+    # its read-only session, successful exit and the migration set it checked.
+    # It contains no host name or credentials, so it remains safe to review
+    # offline together with the rest of the sanitised evidence.
+    schema = _mapping(root.get("schema_verification"), "schema_verification", errors)
+    if schema.get("verifier") != SCHEMA_VERIFIER:
+        errors.append(f"schema_verification.verifier must be {SCHEMA_VERIFIER}")
+    if schema.get("read_only_session") is not True:
+        errors.append("schema_verification.read_only_session must be true")
+    if schema.get("exit_code") != 0:
+        errors.append("schema_verification.exit_code must be 0")
+    if schema.get("migrations") != expected_migrations:
+        errors.append("schema_verification.migrations do not exactly match source migrations")
 
     return errors
 
