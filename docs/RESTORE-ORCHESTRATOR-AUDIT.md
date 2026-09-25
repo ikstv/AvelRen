@@ -67,8 +67,10 @@ capability, який спершу доводить усі preconditions до з�
 зберігає окрему fail-closed межу від CLI для disposable restore. Після цього
 потрібні адаптовані contract та ізольовані integration tests.
 
-Детальні фази, межі та матрицю майбутніх перевірок наведено в
-[дизайні production restore](PRODUCTION-RESTORE-DESIGN.md).
+Детальні фази та межі наведено в
+[дизайні production restore](PRODUCTION-RESTORE-DESIGN.md), а точні
+розбіжності старого кандидата з поточним engine — у
+[контрольній матриці](PRODUCTION-RESTORE-GAP-MATRIX.md).
 
 Цей документ не містить команди запуску й не дозволяє розгортання чи
 відновлення production. Будь-які server-side дії потребують окремої великої
