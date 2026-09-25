@@ -81,7 +81,9 @@ SQL. Він не завантажує production artifact із Drive і не п�
 тести під `ops/restore-*.{sh,py}`. Усі шляхи адаптовані до monorepo. Публічний
 CLI та verifier приймають лише `restore_test`; вони вимагають явний Compose
 файл, проєкт, host guard і маркер ізоляції всередині DB-контейнера до першого
-`dropdb`. Production orchestrator навмисно не переносився.
+`dropdb`. Production orchestrator навмисно не переносився; його зафіксовану
+несумісність із fail-closed engine описано в
+[аудиті orchestrator](../docs/RESTORE-ORCHESTRATOR-AUDIT.md).
 
 **Походження:** базові restore-файли взято з зафіксованого `origin/main`
 публічного `ikstv/AvelRen`, commit

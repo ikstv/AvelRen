@@ -1,0 +1,23 @@
+[Unit]
+Description=Host telemetry snapshot for the AvelRen API
+Documentation=file:///opt/avelren/ops/telemetry-snapshot.sh
+
+# The snapshot is only useful while Docker is alive, but it does not block host startup.
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Installed independently from the checkout; the unit does not depend on Git paths.
+ExecStart=/usr/local/sbin/avelren-telemetry-snapshot
+
+# Least privilege: read host telemetry and write only the published snapshot.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/avelren-telemetry
+ReadOnlyPaths=/proc /run
+# The certificate probe connects to the public API over TLS.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true

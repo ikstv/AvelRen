@@ -1,0 +1,41 @@
+# Caddy obtains and renews the Let's Encrypt certificate for this name on its own.
+https://api.bordersignal.pp.ua {
+	encode gzip
+
+	handle /api/* {
+		# Cap the request body before it reaches the API: the unauthenticated
+		# POST /devices reads the body into memory, so without a ceiling a
+		# single large request is a cheap way to exhaust memory. 64KB with
+		# headroom covers the largest legitimate payload (registration/subscriptions).
+		request_body {
+			max_size 64KB
+		}
+		uri strip_prefix /api
+		reverse_proxy api:8000 {
+			header_up -X-Forwarded-For
+			header_up -X-AvelRen-Client-IP
+			header_up X-AvelRen-Client-IP {http.request.remote.host}
+		}
+	}
+
+	# Static privacy policy for the Play Console listing. Served from a
+	# read-only bind mount (see docker-compose.yml). No API involvement.
+	# Placed after handle /api/* on purpose: handle blocks are matched by
+	# matcher specificity, not source order, and the setup contract greps a
+	# fixed window after the site opener for `reverse_proxy api:8000`.
+	handle /privacy {
+		root * /srv/static
+		try_files /privacy-policy.html
+		file_server
+	}
+
+	handle {
+		respond "AvelRen API" 200
+	}
+}
+
+# We keep bare-IP access for diagnostics from the server itself, but without
+# HTTPS: you can't issue a certificate for an IP address, and the app talks to the domain.
+:80 {
+	redir https://{host}{uri} permanent
+}
