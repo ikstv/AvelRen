@@ -57,7 +57,9 @@ def test_foreign_expired_lock_requires_approval(api_client, approved, installati
     assert attempt(api_client, approved, "7392")["state"] == "authorized"
 
 
-def test_foreign_status_never_creates_or_extends_self_lock(api_client, approved, installation, conn):
+def test_foreign_status_never_creates_or_extends_self_lock(
+    api_client, approved, installation, conn
+):
     foreign = installation().headers()
     assert api_client.get("/admin/access", headers=foreign).json()["state"] == "awaiting_approval"
     assert conn.execute(
