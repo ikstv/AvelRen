@@ -11,8 +11,11 @@ reviewed Git commit:
 - the server checkout is clean and at that commit;
 - the migration files in the checkout and the DB migration journal both exactly
   match the SHA-256 of every source migration;
-- API, collector, notifier and watchdog each name the same source commit and
-  an immutable image digest;
+- candidate images for API, collector, notifier and watchdog each name the
+  same source commit and an immutable image digest;
+- the four currently running services are captured as a healthy baseline with
+  immutable image digests. They are deliberately **not** required to be the
+  candidate images before deployment;
 - backup, schema and health checks are explicitly verified;
 - the evidence contains no credential-shaped keys.
 
