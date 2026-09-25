@@ -42,7 +42,7 @@
 
 | Артефакт | Зіставлення | Рішення |
 | --- | --- | --- |
-| Міграції production | Журнал DB містить `001`–`013`, але checkout `/opt/avelren/db/migrations` містить лише `001`–`010`. SHA журналу для `011`–`013` зафіксовані окремим read-only evidence. | **Блокер відтворюваності.** Не застосовувати, не відкочувати й не редагувати міграції. Перед майбутнім deploy/restore встановити provenance файлів `011`–`013` та пройти schema/role preflight. |
+| Міграції production | Журнал DB містить `001`–`013`, але checkout `/opt/avelren/db/migrations` містить лише `001`–`010`. SHA journal для `011`–`013` точно збігаються з `AvelRen-ORIGINAL/db/migrations/011_admin_access.sql`, `012_device_retention.sql` і `013_admin_installation_lock.sql`. | **Provenance підтверджено; checkout застарів.** Не застосовувати, не відкочувати й не редагувати міграції. Server checkout не можна використовувати як deployment/restore source, доки його стан не буде окремо узгоджено й пройдений schema/role preflight. |
 | Collector | SHA source у контейнері збігається зі старим кодом і current ORIGINAL. | **Перенесено.** Не потребує копіювання з host. |
 | Notifier | SHA source у контейнері збігається зі старим кодом і current ORIGINAL. | **Перенесено.** Не потребує копіювання з host. |
 | API | Серверний source SHA походить зі старого історичного коміту external health gate (#174/#175). Семантика `alert_channel` та `undelivered_alerts` уже є в current ORIGINAL, хоча runtime SHA не дорівнює SHA current source. | **Функціонально перенесено; runtime неідентичний.** Перед deployment потрібна звірка повного diff, а не заміна образу за SHA. |
@@ -51,9 +51,10 @@
 | Host maintenance/reboot scripts | SHA на host відрізняються від current ORIGINAL source. | **Потребує semantic diff.** Не перезаписувати host scripts до окремого рішення й явного GO. |
 | Backup/Compose резервні файли на host | Виявлені untracked backup/override файли можуть містити секрети. | **Оpaque.** Не читати, не комітити й не копіювати без окремої процедури поводження з секретами. |
 
-Найменший безпечний наступний крок після цього документа — встановити provenance
-саме для migration files `011`–`013` і звірити їхній вміст із SHA journal у
-ізольованому середовищі. Це дає доказ відновлюваності, не торкаючись production.
+Найменший безпечний наступний крок після цього документа — зафіксувати окремий
+deployment preflight, який відхиляє застарілий server checkout і звіряє journal
+із source migrations в ізольованому середовищі. Це підсилює відтворюваність,
+не торкаючись production.
 
 ## Обов'язковий порядок звірки
 
