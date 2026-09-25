@@ -1,0 +1,217 @@
+# Shared build spec for all services on the `avelren-app:latest` image.
+# SOURCE_COMMIT is passed into the Dockerfile as an ARG → env AVELREN_GIT_SHA,
+# which `/admin/telemetry.version.git_sha` serves to the Server Dashboard.
+# Default is an empty string: better a null on the client than a fake "unknown"
+# (see N5 review #34).
+#
+# The deploy runbook (`schema-gate-deploy.md` in the private AvelRen-ops repo)
+# exports the variable before the build:
+#   export SOURCE_COMMIT=$(git rev-parse HEAD)
+#   sudo -E docker compose build migrate
+# Without `sudo -E` the env variable does not reach docker compose under sudo.
+x-avelren-build: &avelren-build
+  context: ./services/backend
+  args:
+    SOURCE_COMMIT: ${SOURCE_COMMIT:-}
+
+services:
+  db:
+    # Reproducible builds (issue #23): external images are pinned to a digest,
+    # not just a tag. A tag like `2.17.2-pg16` can be re-pushed to a different
+    # image; the digest cannot. The human-readable tag is kept alongside for
+    # legibility, and Dependabot's docker ecosystem watches the digest and opens
+    # a PR when the upstream image is re-published. Digests captured from the
+    # images the production host is already running (2026-08-15).
+    image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
+    restart: unless-stopped
+    # Resource ceilings so no single container can starve the host and take
+    # PostgreSQL down with it (audit MED). db gets the largest share.
+    mem_limit: 1g
+    cpus: 1.5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 for the same reason as in the disposable suites (#146): the
+      # services wait on `condition: service_healthy` and then connect to db:5432
+      # over TCP, so the probe has to answer for TCP too. Left on the unix socket
+      # it reports ready for the temporary server initdb runs on first bring-up,
+      # and the runtime starts against a port nobody is listening on yet. Costs
+      # nothing on an already-initialised volume, which is why it went unnoticed.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Runs before every service start and then exits, keeping the DB schema from
+  # drifting away from the code because of a forgotten migration.
+  #
+  # WHY migrate IS behind `profiles:` (since #88 PR 2). migrate.py applies ALL
+  # *.sql not present in schema_migrations, with no pin on the maximum version,
+  # so any `compose up` that pulls migrate in as a resolved dependency applies
+  # the next migration outside the adoption sequence. The profile removes
+  # migrate from the default service set and closes that structurally: a bare
+  # `docker compose up -d` cannot start it at all.
+  #
+  # The profile requires `required: false` on the four depends_on edges below —
+  # otherwise Compose declares the whole model invalid whenever the profile is
+  # inactive ("depends on undefined service migrate: invalid compose project",
+  # exit 1, which fails even `config`).
+  #
+  # And `required: false` drops fail-closed not only for "service absent" but
+  # also for "service present and FAILED": with the profile active, a migrate
+  # that exits 1 lets the runtime services start anyway and `up` returns 0
+  # (measured on compose v5.3.1). That property is NOT lost — it moved into the
+  # application. `avelren/schema_gate.py` checks max(schema_migrations.version)
+  # against the version the code requires, at startup, in all four services, and
+  # refuses to serve if the schema is behind. Unlike a compose edge, it cannot be
+  # bypassed by the way the container is launched.
+  #
+  # `--no-deps` at adopt.sh's call sites stays as a second belt: a host overlay
+  # or a future compose file could re-declare migrate outside the profile.
+  migrate:
+    build: *avelren-build
+    image: avelren-app:latest
+    command: ["python", "-m", "avelren.migrate"]
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      DATABASE_URL: ${AVELREN_MIGRATOR_DSN}
+      LOG_LEVEL: ${LOG_LEVEL}
+    volumes:
+      - ./db/migrations:/migrations:ro
+    restart: "no"
+    profiles: ["migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  collector:
+    build: *avelren-build
+    image: avelren-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "avelren.collector"]
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      DATABASE_URL: ${AVELREN_COLLECTOR_DSN}
+      ECHERHA_BASE_URL: ${ECHERHA_BASE_URL}
+      ECHERHA_VEHICLE_TYPE: ${ECHERHA_VEHICLE_TYPE}
+      # The collector identifies itself to eCherha with a device identity.
+      # config.py requires ECHERHA_DEVICE_ID to be a valid UUID; without these
+      # the collector aborts at startup with "ECHERHA_DEVICE_ID must be a valid
+      # UUID" and collects nothing. They were missing here while present in .env,
+      # so a container recreated from the current compose could not collect
+      # (surfaced by the 2026-08-14 adoption incident, which recreated it).
+      ECHERHA_API_VERSION: ${ECHERHA_API_VERSION}
+      ECHERHA_CLIENT_VERSION: ${ECHERHA_CLIENT_VERSION}
+      ECHERHA_DEVICE_ID: ${ECHERHA_DEVICE_ID}
+      ECHERHA_DEVICE_NAME: ${ECHERHA_DEVICE_NAME}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
+      HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS}
+      CONTACT_EMAIL: ${CONTACT_EMAIL}
+      LOG_LEVEL: ${LOG_LEVEL}
+      REARM_FACTOR: ${REARM_FACTOR}
+    # `required: false` on the migrate edge — see the migrate service comment
+    # above for why the profile needs it on all four runtime edges.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+        required: false
+
+  # Separate from the collector: history must keep accumulating even if FCM is
+  # down.
+  notifier:
+    build: *avelren-build
+    image: avelren-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "avelren.notifier"]
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      DATABASE_URL: ${AVELREN_NOTIFIER_DSN}
+      FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH}
+      ALERT_RESEND_SECONDS: ${ALERT_RESEND_SECONDS}
+      HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS}
+      LOG_LEVEL: ${LOG_LEVEL}
+    volumes:
+      - ./secrets:/secrets:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+        required: false
+
+  # Notices that the system has gone silent. The most dangerous failure is a
+  # quiet one.
+  watchdog:
+    build: *avelren-build
+    image: avelren-app:latest
+    restart: unless-stopped
+    command: ["python", "-m", "avelren.watchdog"]
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      DATABASE_URL: ${AVELREN_WATCHDOG_DSN}
+      FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
+      HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS}
+      LOG_LEVEL: ${LOG_LEVEL}
+    volumes:
+      - ./secrets:/secrets:ro
+      # Host facts (backup-stamp, reboot-required) come from the host snapshot,
+      # like the API per SEC-1 — without mounting the whole /run (which also has
+      # docker.sock; audit M-1). The snapshot is written by a systemd timer
+      # (deploy/telemetry-snapshot.sh).
+      - /var/lib/avelren-telemetry:/telemetry:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+        required: false
+
+  api:
+    build: *avelren-build
+    image: avelren-app:latest
+    restart: unless-stopped
+    command: ["uvicorn", "avelren.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    mem_limit: 512m
+    cpus: 1.0
+    environment:
+      DATABASE_URL: ${AVELREN_API_DSN}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
+      ECHERHA_VEHICLE_TYPE: ${ECHERHA_VEHICLE_TYPE}
+    volumes:
+      # Host-telemetry snapshot only: the JSON is written by a systemd timer on
+      # the host (deploy/telemetry-snapshot.sh), the API only reads it. No
+      # /secrets, /proc, /run in the public container — an RCE in FastAPI no
+      # longer leads to the Firebase service-account (audit SEC-1 / A-01).
+      - /var/lib/avelren-telemetry:/telemetry:ro
+    expose:
+      - "8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+        required: false
+
+  caddy:
+    image: caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./ops/static:/srv/static:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:
