@@ -58,7 +58,8 @@ def expect_failure(evidence: dict, phrase: str) -> None:
     assert any(phrase in error for error in errors), errors
 
 
-assert preflight.evaluate(valid_evidence(), COMMIT) == []
+valid_errors = preflight.evaluate(valid_evidence(), COMMIT)
+assert valid_errors == [], valid_errors
 
 dirty = valid_evidence()
 dirty["server_checkout"]["clean"] = False
