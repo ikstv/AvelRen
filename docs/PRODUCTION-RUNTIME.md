@@ -1,43 +1,45 @@
-# Production runtime package
+# Пакет production runtime
 
-This package records the production Compose runtime in the consolidated private
-repository. It was transferred from the old `AvelRen` repository at server
-checkout commit `81e5b047f8f18c42ca46a59f86495f71d0681af0` and adapted to the
-monorepo paths (`services/backend`, `ops/`). The deployment model has not been
-validated by deploying this checkout.
+Production Compose runtime перенесено зі старого `AvelRen` з checkout-коміту
+`81e5b047f8f18c42ca46a59f86495f71d0681af0` та адаптовано до шляхів монорепозиторію
+(`services/backend`, `ops/`). Пакет описує конфігурацію, але цей checkout не
+розгортався на сервері.
 
-## Host-only configuration
+## Конфігурація хоста
 
-The expected production checkout path is `/opt/avelren`. Host configuration
-(`.env`, `docker-compose.override.yml`, Firebase credentials and telemetry
-snapshot) is not part of Git. `.env.example` contains empty secret/DSN values
-and safe non-secret defaults. Do not copy a production override into Git or
-replace it with a default-only Compose invocation: the existing override may
-contain a migration pin and compatibility settings needed by the adoption
-sequence.
+Очікуваний шлях checkout на сервері — `/opt/avelren`. `.env`,
+`docker-compose.override.yml`, Firebase credentials і telemetry snapshot
+залишаються поза Git. `.env.example` містить порожні секрети й DSN та безпечні
+несекретні значення за замовчуванням. Production override може містити
+migration pin та налаштування переходу; не додавайте його до Git і не
+підміняйте ефективну Compose-конфігурацію запуском лише основного файла.
 
-## Migration boundary
+## Межа міграцій
 
-The `migrate` service is behind the explicit `migrate` profile. A normal Compose
-service start must not apply migrations. At the production comparison on
-2026-09-23, the database had migrations 001–009 applied and their checksums
-matched this repository. Migrations 010 and 011 are present in the repository
-but unapplied on production. This document does not authorize applying them;
-follow the private operations runbook and obtain operation-specific approval.
+Сервіс `migrate` доступний лише через явний профіль `migrate`; звичайний запуск
+Compose не повинен застосовувати міграції. Під час read-only звірки 2026-09-23
+у production були застосовані міграції 001–009, їхні контрольні суми збіглися
+з приватним репозиторієм. 010 і 011 у репозиторії є, але на production не
+застосовані. Це не дозвіл їх запускати.
 
-## Runtime scope and outstanding work
+## Склад і залишок робіт
 
-Compose defines the database, migration runner, collector, notifier, watchdog,
-API and Caddy. Caddy serves the privacy page from `ops/static/`. The host-side
-telemetry systemd service/timer and its installation procedure remain a
-separate transfer stage. The restore CLI and verifier are available, while the
-production restore orchestrator and its runbook remain separate work. No
-production server, database, secret, service, or image was changed or validated
-by this repository change.
+Compose описує DB, migrate runner, collector, notifier, watchdog, API та Caddy.
+Caddy обслуговує privacy page з `ops/static/`. Snapshot script і telemetry
+systemd units тепер також присутні в `ops/`; дивіться
+[опис telemetry units](TELEMETRY-SYSTEMD.md). Production вже мав активний
+telemetry timer під час останньої read-only звірки. Виконувальну інструкцію
+розгортання не переносили: історичний ops runbook містить команди, що вже не
+відповідають поточному migration/adoption процесу. Її треба окремо звірити й
+підготувати після явної команди та дозволу власника.
 
-## Local checks
+Restore CLI та verifier перенесено, але production restore orchestrator і
+актуальний runbook лишаються окремою роботою. Жоден production сервер,
+database, secret, service чи image у межах цих змін не змінювався.
 
-The Compose contract test resolves configuration with sentinels and does not
-start services. A successful local contract or image build is not proof of
-production deployment readiness; compare the effective host configuration and
-run the authorized staged rollout checks before deployment.
+## Локальні перевірки
+
+Compose contract перевіряє модель із тестовими маркерами, не запускаючи служби.
+Backend image було зібрано локально з Docker Desktop. Telemetry unit contract
+перевіряє статичні директиви service і timer. Ці перевірки не підтверджують
+розгортання на сервері або роботу systemd на production.

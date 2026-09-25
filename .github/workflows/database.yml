@@ -50,6 +50,15 @@ jobs:
           for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-engine.lib.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh ops/compose-production-contract-test.sh; do
             bash -n "$script"
           done
+      - name: Контракт telemetry systemd units
+        run: python3 ops/telemetry-unit-contract-test.py
+      - name: systemd-analyze verify без запуску служб
+        run: |
+          sudo install -D -o root -g root -m 0755 ops/telemetry-snapshot.sh /usr/local/sbin/avelren-telemetry-snapshot
+          sudo install -D -o root -g root -m 0644 ops/avelren-telemetry.service /etc/systemd/system/avelren-telemetry.service
+          sudo install -D -o root -g root -m 0644 ops/avelren-telemetry.timer /etc/systemd/system/avelren-telemetry.timer
+          sudo install -D -o root -g root -m 0755 ops/telemetry-snapshot.sh /opt/avelren/ops/telemetry-snapshot.sh
+          sudo systemd-analyze verify /etc/systemd/system/avelren-telemetry.service /etc/systemd/system/avelren-telemetry.timer
       - name: Контракт backup із фіктивними Docker і rclone
         run: bash ops/backup-contract-test.sh
       - name: Контракти fail-closed restore
