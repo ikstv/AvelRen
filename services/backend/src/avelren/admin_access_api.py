@@ -51,7 +51,14 @@ async def access(device_id: str, pin: str | None = None) -> AccessOut:
             if installation_lock is not None and installation_lock > now:
                 return AccessOut(state="blocked", locked_until=installation_lock)
             if str(row["approved_device_id"]) != device_id:
-                # Do not change the owner's failure counter or extend an active deadline.
+                # A status refresh is not an authentication attempt.  In
+                # particular it must never create or extend a foreign
+                # installation's lockout: otherwise the UI's “refresh” button
+                # turns into a 24-hour self-lock loop.  A foreign PIN POST is
+                # still denied below by giving that installation its own lock,
+                # without touching the owner's failure counter.
+                if pin is None:
+                    return AccessOut(state="awaiting_approval")
                 installation_lock = await (await conn.execute(
                     "UPDATE devices SET admin_blocked_until=clock_timestamp()+interval '24 hours' "
                     "WHERE id=%s RETURNING admin_blocked_until", (device_id,),
