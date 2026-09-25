@@ -52,6 +52,8 @@ jobs:
           done
       - name: Контракт telemetry systemd units
         run: python3 ops/telemetry-unit-contract-test.py
+      - name: Контракт source-only deployment preflight
+        run: python3 ops/deployment-preflight-contract-test.py
       - name: systemd-analyze verify без запуску служб
         run: |
           sudo install -D -o root -g root -m 0755 ops/telemetry-snapshot.sh /usr/local/sbin/avelren-telemetry-snapshot
