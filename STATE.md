@@ -63,14 +63,14 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 44 |
-| `chore/state-refresh` | 41 | 0 |
+| `chore/state-refresh` | 42 | 0 |
 | `codex/admin-access` | 5 | 1 |
 | `codex/device-retention-cleanup` | 2 | 5 |
 | `codex/fix-launcher-icon` | 6 | 5 |
 | `codex/held-out-forecast` | 13 | 5 |
 | `codex/premium-instructions` | 7 | 5 |
 | `dependabot/docker/app/python-cae66f2` | 1 | 11 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 5 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 0 |
 | `dependabot/github_actions/actions-821e0a5e16` | 1 | 0 |
 | `docs/readme-professional` | 1 | 99 |
 | `docs/signal-has-a-date` | 1 | 48 |
