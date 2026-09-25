@@ -11,9 +11,10 @@ The script never runs Compose, pushes an image, contacts production, reads
 attestation; the same attestation may be assigned to API, collector, notifier
 and watchdog because they share the backend image.
 
-The candidate built locally on 2026-09-25 from commit
-`6be250eaadbfc4276ec9707a4a7341c10fa34104` had image ID
-`sha256:285abc3313fa62f6cade2792af2cced56d94e9754fef557d80777574b8ab0429`
-and embedded the same commit. This is local build evidence only: it is not an
-approved production candidate until a fresh target commit, evidence record and
-review are prepared.
+The current candidate was built locally on 2026-09-25 from clean `main` commit
+`ec070b6edd8b87aaf11fc81c6613378a5abad66a`. Its image ID is
+`sha256:b7a708e8ed7c7773129b96297dcfe10d1ddcfe5d5cd60bef445668e1193b4acc`
+and the one-shot no-network attestation read the same value from
+`AVELREN_GIT_SHA`. The image remains only in local Docker Desktop: it was not
+pushed, run as a service or deployed. It is not an approved production
+candidate until a fresh server evidence record and review are prepared.
