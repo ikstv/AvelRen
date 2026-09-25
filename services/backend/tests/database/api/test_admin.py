@@ -57,6 +57,38 @@ def test_foreign_expired_lock_requires_approval(api_client, approved, installati
     assert attempt(api_client, approved, "7392")["state"] == "authorized"
 
 
+def test_foreign_status_never_creates_or_extends_self_lock(
+    api_client, approved, installation, conn
+):
+    foreign = installation().headers()
+    assert api_client.get("/admin/access", headers=foreign).json()["state"] == "awaiting_approval"
+    assert conn.execute(
+        "SELECT admin_blocked_until FROM devices WHERE id=%s", (foreign["X-Device-Id"],)
+    ).fetchone()["admin_blocked_until"] is None
+
+    # A PIN POST is an attempt, so it gets the foreign-installation lock.
+    locked = attempt(api_client, foreign, "7392")
+    assert locked["state"] == "blocked"
+    before = conn.execute(
+        "SELECT admin_blocked_until FROM devices WHERE id=%s", (foreign["X-Device-Id"],)
+    ).fetchone()["admin_blocked_until"]
+    assert api_client.get("/admin/access", headers=foreign).json() == locked
+    after = conn.execute(
+        "SELECT admin_blocked_until FROM devices WHERE id=%s", (foreign["X-Device-Id"],)
+    ).fetchone()["admin_blocked_until"]
+    assert after == before
+
+    conn.execute(
+        "UPDATE devices SET admin_blocked_until=now()-interval '1 second' WHERE id=%s",
+        (foreign["X-Device-Id"],),
+    )
+    assert api_client.get("/admin/access", headers=foreign).json()["state"] == "awaiting_approval"
+    assert conn.execute(
+        "SELECT admin_blocked_until < clock_timestamp() AS expired FROM devices WHERE id=%s",
+        (foreign["X-Device-Id"],),
+    ).fetchone()["expired"] is True
+
+
 @pytest.mark.parametrize("database", [11], indirect=True)
 def test_without_installation_lock_migration_is_unavailable(database, api_client, device):
     assert attempt(api_client, device.headers(), "7392")["state"] == "unavailable"
