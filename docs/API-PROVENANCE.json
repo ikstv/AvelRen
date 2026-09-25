@@ -68,8 +68,8 @@
       "destination": "services/backend/src/avelren/admin_access_api.py",
       "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57",
       "revision": {
-        "sha256": "bf784159c948b8ab49acef029b3073c957d753b07e2e326fa19029809f983694",
-        "notes": "docs/RELEASE-0.1.1-FINALIZATION.md"
+        "sha256": "54a0a885d56c65b98492487a63b0c05c494ed1c61c73560ca8d7daf1af3efbba",
+        "notes": "docs/ADMIN-ACCESS-LOCK-FIX.md"
       }
     },
     {
