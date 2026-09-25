@@ -13,7 +13,7 @@ integration tests, але його пряме перенесення небез�
 | Межа | Старий кандидат | Поточний ORIGINAL | Висновок для майбутнього production capability |
 | --- | --- | --- | --- |
 | Публічний CLI | Окремий `deploy/restore-production.sh` приймає точний confirmation token | `ops/restore.sh` підтримує лише `restore_test` | Зберегти два незалежні entrypoint-и; ніколи не розширювати публічний CLI на `avelren`. |
-| Артефакт backup | Перевіряє наявність і `gzip -t` | Ізольований CLI також перевіряє gzip | До будь-якої stop-команди додати обов'язкову перевірку sidecar SHA-256 та визначений provenance/decrypt процес. |
+| Артефакт backup | Перевіряє наявність і `gzip -t` | Source-only `restore-artifact.lib.sh` перевіряє gzip і один безпечний SHA-256 sidecar рядок; контракт покриває підміну, шлях і формат | Майбутній internal-only orchestrator мусить викликати цей gate до першої stop-команди; provenance/decrypt лишається окремим дозволеним процесом. |
 | Compose-контекст | Приймає file і project, але не вимагає project directory, env file чи marker контейнера | Ізольований engine вимагає явні file/project/project-directory/env-file та `isolated` guard | Production capability має вимагати явний production context і перевіряти очікувані Compose labels до maintenance; не копіювати isolated guard як substitute для production identity. |
 | Ролі й DSN | Перевіряє `avelren_admin`, password, три DSN і `current_user` до maintenance | Engine вимагає `avelren_admin` і password | Зберегти старі identity gates, але додати read-only звірку фактичних ролей/grants із вибраним recovery pin. Не виводити DSN або секрети в argv чи логи. |
 | Схема до зупинки | Не фіксує фактичну верхню міграцію й relation inventory до maintenance | Allowlist перевіряється після restore | До maintenance перевіряти migration range/pin та сумісну schema/role модель. На зафіксованому аудиті 2026-09-23 production була на 001–009; це історичний факт, не припущення для майбутнього запуску. |
@@ -40,10 +40,10 @@ backup-артефакту чи Compose runtime.
 
 ## Наступний кодовий крок після review
 
-Створити internal-only production orchestrator і спочатку написати його
-contract tests для трьох pre-maintenance відмов: sidecar SHA, production
-Compose identity та migration/role pin. Лише після них переносити maintenance,
-snapshot, engine і post-restore checks до ізольованого integration test.
+Створити contract tests для production Compose identity та migration/role pin,
+а потім internal-only production orchestrator, який викликає вже перевірений
+artifact gate до maintenance. Лише після цього переносити maintenance, snapshot,
+engine і post-restore checks до ізольованого integration test.
 
 Окреме явне GO власника все одно потрібне перед будь-яким server-side
 preflight, deployment або production restore.
