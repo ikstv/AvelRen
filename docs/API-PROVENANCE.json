@@ -50,8 +50,8 @@
       "destination": "services/backend/src/avelren/forecast.py",
       "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
       "revision": {
-        "sha256": "7c5b7bd20e9c80c2d492b1e1151c0fb26843138b63ac6bb7cfe15532fa32d484",
-        "notes": "docs/RELEASE-0.1.1-WORKLOG.md"
+        "sha256": "411a902fb7b87871bd26ad75b2466adecaa3c3055d9721f133f220addcd955c4",
+        "notes": "docs/forecast.md"
       }
     },
     {
@@ -114,8 +114,8 @@
       "destination": "services/backend/tests/unit/test_forecast_bounds.py",
       "sha256": "6eee86856d5498ba7e10099f53f893decc6ed49c538666098d3dfebee582610c",
       "revision": {
-        "sha256": "55fe7284c7b189a7ab39921b4afc50ff5b42d0caf91d73a633ae8e0fd5c69481",
-        "notes": "docs/RELEASE-0.1.1-WORKLOG.md"
+        "sha256": "b95f94dd163a56796bdf8e8ff81e7468d321b81b68f042ffdc594cf264a721d6",
+        "notes": "docs/forecast.md"
       }
     },
     {
