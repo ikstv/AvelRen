@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import io.ktor.http.HttpStatusCode
 import ua.avelren.app.AvelRenApp
 import ua.avelren.app.BuildConfig
 import ua.avelren.app.data.Api
+import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.ui.theme.SignWarn
 import java.time.Instant
 import java.time.ZoneId
@@ -97,6 +99,14 @@ internal fun AdministrationSettings(
                 AdminServerContent(server, Modifier.fillMaxWidth().weight(1f))
             } else {
                 val application = LocalContext.current.applicationContext
+                // The ID identifies this installation on the server.  It is not the
+                // device secret and is intentionally shown only when an owner must
+                // approve a replacement installation.
+                val installationId = if (client == null) {
+                    remember(application) { DeviceStore.credentials(application)?.deviceId }
+                } else {
+                    null
+                }
                 val access = client ?: remember(application) {
                     val installation = (application as AvelRenApp).installation
                     object : AdminAccessClient {
@@ -106,7 +116,7 @@ internal fun AdministrationSettings(
                             installation.authenticatedCall { Api.unlockAdmin(it, password) }
                     }
                 }
-                AdminAccessForm(access, Modifier.fillMaxWidth().weight(1f))
+                AdminAccessForm(access, installationId, Modifier.fillMaxWidth().weight(1f))
             }
         }
     }
@@ -213,7 +223,11 @@ private fun AdminServerContent(server: AdminServerClient, modifier: Modifier = M
 }
 
 @Composable
-private fun AdminAccessForm(access: AdminAccessClient, modifier: Modifier = Modifier) {
+private fun AdminAccessForm(
+    access: AdminAccessClient,
+    installationId: String?,
+    modifier: Modifier = Modifier,
+) {
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -254,7 +268,14 @@ private fun AdminAccessForm(access: AdminAccessClient, modifier: Modifier = Modi
         when (current?.state) {
             "authorized" -> Text("Цей пристрій — єдиний адміністратор.")
             "preview_authorized" -> Text("Тестовий вхід виконано. Права адміністратора не змінено.")
-            "awaiting_approval" -> Text("Ця інсталяція очікує підтвердження адміністратора.")
+            "awaiting_approval" -> {
+                Text("Ця інсталяція очікує підтвердження адміністратора.")
+                if (installationId != null) {
+                    Text("ID цієї інсталяції:", fontWeight = FontWeight.Bold)
+                    SelectionContainer { Text(installationId) }
+                    Text("Передайте цей ID власнику для звірки. Це не пароль і не секрет.")
+                }
+            }
             "unavailable" -> Text("Адміністрування ще не налаштовано.")
             "blocked" -> {
                 val until = current.locked_until?.let {
