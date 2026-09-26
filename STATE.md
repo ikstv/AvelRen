@@ -50,6 +50,8 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 
 ### Issues
 
+- #197 🔴 external monitor: alerts are firing and not being delivered
+- #196 fix(status): автоматизувати вікно технічних робіт перед reboot і deploy
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
 - #110 Робота на двох ПК (десктоп + ноутбук): доступи, синхрон, стан дошки
 - #26 audit: Production hardening після аудиту 7e110306 / Production hardening after the 7e110306 audit
@@ -63,8 +65,9 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 44 |
-| `chore/state-refresh` | 42 | 0 |
+| `chore/state-refresh` | 43 | 0 |
 | `codex/admin-access` | 5 | 1 |
+| `codex/automated-maintenance-window` | 5 | 6 |
 | `codex/device-retention-cleanup` | 2 | 5 |
 | `codex/fix-launcher-icon` | 6 | 5 |
 | `codex/held-out-forecast` | 13 | 5 |
