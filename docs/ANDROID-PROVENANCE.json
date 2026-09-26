@@ -5,7 +5,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/build.gradle.kts",
       "destination": "apps/android/app/build.gradle.kts",
-      "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d"
+      "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
+      "revision": {
+        "sha256": "a2f4b6feb08f498e282fac84651038b5aae72ef5e22f7aa160a34b2965337f1d",
+        "notes": "docs/RELEASE-0.1.2-DRAFT.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
