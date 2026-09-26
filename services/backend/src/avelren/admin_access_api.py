@@ -28,35 +28,36 @@ class AccessOut(BaseModel):
 async def access(device_id: str, pin: str | None = None) -> AccessOut:
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # This feature is independently deployable; core services still need only their schema.
+            # Feature migrations are optional so older deployed schemas stay usable.
             installed = await (await conn.execute(
-                "SELECT 1 FROM schema_migrations WHERE version='013_admin_installation_lock'"
-            )).fetchone()
-            if not installed:
+                "SELECT version FROM schema_migrations "
+                "WHERE version IN ('013_admin_installation_lock', '014_admin_pin_rebind')"
+            )).fetchall()
+            versions = {row["version"] for row in installed}
+            if "013_admin_installation_lock" not in versions:
                 return AccessOut(state="unavailable")
+            can_rebind = "014_admin_pin_rebind" in versions
             row = await (await conn.execute(
                 "SELECT approved_device_id, pin_hash, failures, locked_until "
                 "FROM admin_access WHERE singleton FOR UPDATE"
             )).fetchone()
             if not row or not row["pin_hash"]:
                 return AccessOut(state="unavailable")
-            # Read the clock AFTER acquiring the row lock, including under concurrency.
-            now = (await (await conn.execute("SELECT clock_timestamp() AS now")).fetchone())["now"]
             device = await (await conn.execute(
-                "SELECT admin_blocked_until FROM devices WHERE id=%s FOR UPDATE", (device_id,),
+                "SELECT admin_blocked_until, fcm_token "
+                "FROM devices WHERE id=%s FOR UPDATE", (device_id,),
             )).fetchone()
             if device is None:
                 return AccessOut(state="unavailable")
+            # Read time after both locks, so an attempt has one consistent deadline.
+            now = (await (await conn.execute("SELECT clock_timestamp() AS now")).fetchone())["now"]
             installation_lock = device["admin_blocked_until"]
             if installation_lock is not None and installation_lock > now:
                 return AccessOut(state="blocked", locked_until=installation_lock)
-            if str(row["approved_device_id"]) != device_id:
-                # A status refresh is not an authentication attempt.  In
-                # particular it must never create or extend a foreign
-                # installation's lockout: otherwise the UI's “refresh” button
-                # turns into a 24-hour self-lock loop.  A foreign PIN POST is
-                # still denied below by giving that installation its own lock,
-                # without touching the owner's failure counter.
+
+            approved = str(row["approved_device_id"]) == device_id
+            if not approved and not can_rebind:
+                # An older schema must not grant a foreign installation PIN entry.
                 if pin is None:
                     return AccessOut(state="awaiting_approval")
                 installation_lock = await (await conn.execute(
@@ -66,12 +67,16 @@ async def access(device_id: str, pin: str | None = None) -> AccessOut:
                 return AccessOut(
                     state="blocked", locked_until=installation_lock["admin_blocked_until"],
                 )
+
             locked = row["locked_until"]
             if locked is not None and locked > now:
                 return AccessOut(state="blocked", locked_until=locked)
+            if device["fcm_token"] is None:
+                return AccessOut(state="unavailable")
             failures = 0 if locked is not None else row["failures"]
             if pin is None:
                 return AccessOut(state="ready", attempts_remaining=MAX_ATTEMPTS - failures)
+
             matches = await asyncio.to_thread(verify_pin, pin, row["pin_hash"])
             result = evaluate_attempt(failures, locked, now, matches)
             await conn.execute(
@@ -79,8 +84,11 @@ async def access(device_id: str, pin: str | None = None) -> AccessOut:
                 (result.failures, result.locked_until),
             )
             if result.state == "authorized":
-                await conn.execute("SELECT activate_approved_admin(%s::uuid)", (device_id,))
-            # Returning normally commits wrong attempts too; an HTTPException here would roll back.
+                if can_rebind:
+                    await conn.execute("SELECT activate_admin_after_pin(%s::uuid)", (device_id,))
+                else:
+                    await conn.execute("SELECT activate_approved_admin(%s::uuid)", (device_id,))
+            # Returning normally commits wrong attempts too; an HTTPException would roll back.
             return AccessOut(
                 state=result.state, attempts_remaining=result.remaining,
                 locked_until=result.locked_until,
