@@ -338,7 +338,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/test/java/ua/avelren/app/data/AdminAccessTest.kt",
       "destination": "apps/android/app/src/test/java/ua/avelren/app/data/AdminAccessTest.kt",
-      "sha256": "9974211091f893d681cbbcdd282c4c874c7eebbddda27357f48be00ef07ca346"
+      "sha256": "9974211091f893d681cbbcdd282c4c874c7eebbddda27357f48be00ef07ca346",
+      "revision": {
+        "sha256": "44893f0b2003f9dc001b9a8f82572de5bdc84d481e83eeacc7cc090eb2bc5838",
+        "notes": "docs/RELEASE-READINESS.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

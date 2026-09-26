@@ -17,17 +17,17 @@ class AdminAccessTest {
     private val credentials = DeviceStore.Credentials("installation", "test-secret")
 
     @Test
-    fun `status uses authenticated GET without PIN`() = runTest {
+    fun `new installation receives PIN ready state via authenticated GET`() = runTest {
         val client = Api.clientFor(MockEngine { request ->
             assertEquals(HttpMethod.Get, request.method)
             assertEquals("/api/admin/access", request.url.encodedPath)
             assertEquals("installation", request.headers["X-Device-Id"])
             assertEquals("test-secret", request.headers["X-Device-Secret"])
             assertFalse(request.url.parameters.contains("pin"))
-            respond("""{"state":"awaiting_approval"}""", headers = headersOf("Content-Type", "application/json"))
+            respond("""{"state":"ready","attempts_remaining":3}""", headers = headersOf("Content-Type", "application/json"))
         })
         try {
-            assertEquals("awaiting_approval", Api.adminAccessWith(client, credentials).state)
+            assertEquals("ready", Api.adminAccessWith(client, credentials).state)
         } finally { client.close() }
     }
 
@@ -39,7 +39,7 @@ class AdminAccessTest {
             assertEquals("""{"pin":"7392"}""", (request.body as TextContent).text)
             assertFalse(request.url.toString().contains("7392"))
             respond(
-                """{"state":"blocked","attempts_remaining":0,"locked_until":"2026-09-23T13:00:00Z"}""",
+                """{"state":"blocked","attempts_remaining":0,"locked_until":"2026-10-26T13:00:00Z"}""",
                 headers = headersOf("Content-Type", "application/json"),
             )
         })
@@ -47,7 +47,23 @@ class AdminAccessTest {
             val result = Api.adminAccessWith(client, credentials, "7392")
             assertEquals("blocked", result.state)
             assertEquals(0, result.attempts_remaining)
-            assertEquals("2026-09-23T13:00:00Z", result.locked_until)
+            assertEquals("2026-10-26T13:00:00Z", result.locked_until)
+        } finally { client.close() }
+    }
+
+    @Test
+    fun `correct PIN returns authorized for a new installation`() = runTest {
+        val client = Api.clientFor(MockEngine { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("installation", request.headers["X-Device-Id"])
+            assertEquals("test-secret", request.headers["X-Device-Secret"])
+            assertEquals("""{"pin":"7392"}""", (request.body as TextContent).text)
+            assertFalse(request.url.toString().contains("7392"))
+            respond("""{"state":"authorized","attempts_remaining":3}""",
+                headers = headersOf("Content-Type", "application/json"))
+        })
+        try {
+            assertEquals("authorized", Api.adminAccessWith(client, credentials, "7392").state)
         } finally { client.close() }
     }
 
