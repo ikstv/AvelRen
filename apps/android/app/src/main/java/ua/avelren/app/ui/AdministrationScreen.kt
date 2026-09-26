@@ -153,10 +153,14 @@ private fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 private fun AboutContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val releaseNotes = remember(context) {
-        context.assets.open("release-notes/v0.1.1.uk.txt")
+        context.assets.open("release-notes/v0.1.2.uk.txt")
             .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
     }
     val previousNotes = remember(context) {
+        context.assets.open("release-notes/v0.1.1.uk.txt")
+            .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
+    }
+    val earlierNotes = remember(context) {
         context.assets.open("release-notes/v0.1.0.uk.txt")
             .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
     }
@@ -167,11 +171,14 @@ private fun AboutContent(modifier: Modifier = Modifier) {
     ) {
         Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("0.1.1", color = SignWarn, fontWeight = FontWeight.Bold)
+        Text("0.1.2", color = SignWarn, fontWeight = FontWeight.Bold)
         Text(releaseNotes)
         HorizontalDivider()
-        Text("0.1.0", color = SignWarn, fontWeight = FontWeight.Bold)
+        Text("0.1.1", color = SignWarn, fontWeight = FontWeight.Bold)
         Text(previousNotes)
+        HorizontalDivider()
+        Text("0.1.0", color = SignWarn, fontWeight = FontWeight.Bold)
+        Text(earlierNotes)
     }
 }
 

@@ -24,7 +24,7 @@ for file in (root / "apps/android/app/src/main").rglob("*"):
 about_screen = (
     root / "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt"
 ).read_text(encoding="utf-8")
-for version in ("0.1.0", "0.1.1"):
+for version in ("0.1.0", "0.1.1", "0.1.2"):
     asset = f"release-notes/v{version}.uk.txt"
     notes_path = root / "apps/android/app/src/main/assets" / asset
     notes = notes_path.read_text(encoding="utf-8").rstrip("\r\n")
