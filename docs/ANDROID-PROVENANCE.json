@@ -5,7 +5,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/build.gradle.kts",
       "destination": "apps/android/app/build.gradle.kts",
-      "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d"
+      "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
+      "revision": {
+        "sha256": "a2f4b6feb08f498e282fac84651038b5aae72ef5e22f7aa160a34b2965337f1d",
+        "notes": "docs/RELEASE-0.1.2-DRAFT.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -187,8 +191,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "53b94699a5bbd5a75ba3b41c6924b7e7ca8947b715070c3ceb30739685523def",
-        "notes": "docs/ADMIN-DEVICE-IDENTITY.md"
+        "sha256": "cb6dc6fe6c7bb443c4d38d6f08f4c5c7dce8e5326000a7ca53f46f6f16a1891a",
+        "notes": "docs/RELEASE-0.1.2-DRAFT.md"
       }
     },
     {
