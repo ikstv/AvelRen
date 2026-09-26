@@ -5,13 +5,13 @@
      (this repo); detailed operational state lives in the private AvelRen-ops
      repo; only what is derived from git and gh lands here. -->
 
-Generated from `main` @ `5b45e3e`.
+Generated from `main` @ `4a8e010`.
 
 ## Prod vs. main
 
 | | |
 |---|---|
-| Prod pinned to | `5b79d17` |
+| Prod pinned to | `254fd17` |
 | `main` ahead by | **6 commit(s)** |
 
 ### What will ride into prod at the next Gate 11 re-prep
@@ -23,30 +23,35 @@ the riskiest operation. The list below is exactly that payload; if it is large,
 consider splitting: first a re-prep and deploy without adoption, then a separate
 one for 3B.2.
 
-- `3a6314d` chore(deploy): pin prod to 5b79d17 after installing the snapshot script (#166)
-- `ae4cb4d` ci: let the state workflow start the checks its own PR cannot (#159) (#167)
-- `ca1f60d` chore(state): regenerate STATE.md (#162)
-- `4660b8f` ci(state): bring the reused branch up to date, or the PR still cannot merge (#168)
-- `3b6c916` chore(state): regenerate STATE.md (#169)
-- `5b45e3e` Revert "ci: let the state workflow start the checks its own PR cannot (#159)" (#170)
+- `fb89075` chore(deploy): pin prod to 254fd17 after the silent-device deploy (#181)
+- `dfcde7a` Clarify onboarding Premium and source copy (#189)
+- `b766b2f` Show Google Play in-app update prompt (#191)
+- `676a9f4` Refine settings and onboarding copy (#192)
+- `661b744` Polish update prompt and settings footer (#193)
+- `4a8e010` Адміністрування та підготовка релізу 0.1.1 (#194)
 
-Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
+Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 
 ## Open PRs and issues
 
 ### PRs
 
+- #190 Expire inactive device data after 90 days — `codex/device-retention-cleanup`
+- #188 Sync production daily status and telemetry cleanup — `fix/prod-observability-cleanup`
+- #185 Fix forecast quality evaluation — `codex/held-out-forecast`
+- #184 Explain upcoming Premium features — `codex/premium-instructions`
+- #183 Automate inactive-device retention — `codex/fix-launcher-icon`
+- #173 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
 - #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
-- #138 chore(deps): bump python from `ce40764` to `cae66f2` in /app — `dependabot/docker/app/python-cae66f2`
+- #138 chore(deps): bump python from `ce40764` to `cad9a2c` in /app — `dependabot/docker/app/python-cae66f2`
 - #137 feat(app): truthful server-status badge for all users — `feat/truthful-server-badge`
 - #123 docs: "a signal has a date" — three staleness rules — `docs/signal-has-a-date`
 
 ### Issues
 
-- #159 state workflow: the PR it opens can never be merged (GITHUB_TOKEN starts no checks)
-- #121 backup: rclone не зберігає оновлений токен (ProtectHome=read-only) — перенести конфіг у /etc/avelren
-- #117 Відсутній дозвіл на сповіщення робить застосунок беззвучним — ні користувач, ні сервер цього не бачать
+- #197 🔴 external monitor: alerts are firing and not being delivered
+- #196 fix(status): автоматизувати вікно технічних робіт перед reboot і deploy
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
 - #110 Робота на двох ПК (десктоп + ноутбук): доступи, синхрон, стан дошки
 - #26 audit: Production hardening після аудиту 7e110306 / Production hardening after the 7e110306 audit
@@ -59,13 +64,21 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **1**.
 
 | Branch | Ahead | Behind |
 |---|---|---|
-| `chore/repo-tidy` | 2 | 31 |
-| `dependabot/docker/app/python-cae66f2` | 1 | 25 |
-| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 15 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 2 |
-| `docs/readme-professional` | 1 | 86 |
-| `docs/signal-has-a-date` | 1 | 35 |
-| `feat/launcher-road-a` | 1 | 28 |
-| `feat/privacy-page` | 3 | 30 |
-| `feat/truthful-server-badge` | 1 | 25 |
-| `fix/backup-grants-and-rate-limits` | 1 | 22 |
+| `chore/repo-tidy` | 2 | 44 |
+| `chore/state-refresh` | 43 | 0 |
+| `codex/admin-access` | 5 | 1 |
+| `codex/automated-maintenance-window` | 5 | 6 |
+| `codex/device-retention-cleanup` | 2 | 5 |
+| `codex/fix-launcher-icon` | 6 | 5 |
+| `codex/held-out-forecast` | 13 | 5 |
+| `codex/premium-instructions` | 7 | 5 |
+| `dependabot/docker/app/python-cae66f2` | 1 | 11 |
+| `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 0 |
+| `dependabot/github_actions/actions-821e0a5e16` | 1 | 0 |
+| `docs/readme-professional` | 1 | 99 |
+| `docs/signal-has-a-date` | 1 | 48 |
+| `feat/launcher-road-a` | 1 | 41 |
+| `feat/privacy-page` | 3 | 43 |
+| `feat/truthful-server-badge` | 1 | 38 |
+| `fix/backup-grants-and-rate-limits` | 1 | 35 |
+| `fix/prod-observability-cleanup` | 4 | 5 |
