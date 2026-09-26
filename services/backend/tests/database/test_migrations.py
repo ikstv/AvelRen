@@ -96,7 +96,11 @@ def test_pin_rebind_function_is_migrator_owned_and_narrowly_granted(database):
             SELECT r.rolname, r.rolsuper, p.prosecdef, p.proconfig,
                    has_function_privilege('avelren_api', p.oid, 'EXECUTE'),
                    has_function_privilege('avelren_backup', p.oid, 'EXECUTE'),
-                   EXISTS (SELECT 1 FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE')
+                   EXISTS (
+                       SELECT 1 FROM aclexplode(
+                           COALESCE(p.proacl, acldefault('f', p.proowner))
+                       ) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+                   )
             FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
             WHERE p.oid = to_regprocedure('public.activate_admin_after_pin(uuid)')
         """).fetchone()

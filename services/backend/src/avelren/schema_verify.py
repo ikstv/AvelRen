@@ -37,7 +37,10 @@ log = logging.getLogger("avelren.schema_verify")
 # Optional features enforce their exact migration at their own entry point.
 # Their absence must not stop collector/notifier or the existing public API.
 FEATURE_MIGRATIONS = frozenset({
-    "011_admin_access", "012_device_retention", "013_admin_installation_lock", "014_admin_pin_rebind",
+    "011_admin_access",
+    "012_device_retention",
+    "013_admin_installation_lock",
+    "014_admin_pin_rebind",
 })
 
 # --- Version-annotated physical contract ------------------------------------

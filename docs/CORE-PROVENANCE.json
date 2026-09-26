@@ -91,7 +91,7 @@
       "destination": "services/backend/src/avelren/schema_verify.py",
       "sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
       "revision": {
-        "sha256": "290ce35534ec1ff184905c18af695633c9490e4d57897c23b10c87147af32b52",
+        "sha256": "166bc543df4920f626430ddfb4a1d7fe691643495396037bf79178fb945d34dd",
         "notes": "docs/RELEASE-READINESS.md"
       }
     },
