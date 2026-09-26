@@ -335,12 +335,15 @@ def verify_contract(
         row = conn.execute(
             "SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig, "
             "has_function_privilege('avelren_api', p.oid, 'EXECUTE'), "
-            "has_function_privilege('avelren_backup', p.oid, 'EXECUTE'), "
-            "EXISTS (SELECT 1 FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') "
+            "NOT EXISTS (SELECT 1 FROM aclexplode("
+            "COALESCE(p.proacl, acldefault('f', p.proowner))) acl "
+            "WHERE acl.privilege_type='EXECUTE' AND acl.grantee NOT IN "
+            "(p.proowner, (SELECT oid FROM pg_roles WHERE rolname='avelren_api'))) "
             "FROM pg_proc p WHERE p.oid=to_regprocedure('public.activate_admin_after_pin(uuid)')"
         ).fetchone()
-        if row != (True, "avelren_migrator", ["search_path=pg_catalog, pg_temp"],
-                   True, False, False):
+        if row != (
+            True, "avelren_migrator", ["search_path=pg_catalog, pg_temp"], True, True,
+        ):
             problems.append("PIN rebind function missing or unsafe owner/search_path/grants")
     if want("012_device_retention"):
         row = conn.execute(

@@ -199,3 +199,16 @@ def test_concurrent_pin_rebinds_leave_exactly_one_admin(database):
         admins = conn.execute("SELECT id FROM devices WHERE is_admin").fetchall()
         assert approved in candidates
         assert admins == [(approved,)]
+
+
+def test_pin_rebind_verifier_rejects_extra_execute_role(database):
+    with psycopg.connect(database("migrator")) as conn:
+        conn.execute(
+            "GRANT EXECUTE ON FUNCTION activate_admin_after_pin(uuid) TO avelren_notifier"
+        )
+    with psycopg.connect(database("migrator")) as conn:
+        versions = {
+            row[0] for row in conn.execute("SELECT version FROM schema_migrations")
+        }
+        problems = schema_verify.verify_contract(conn, versions)
+        assert any("PIN rebind function" in problem for problem in problems)
