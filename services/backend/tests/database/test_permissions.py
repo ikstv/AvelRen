@@ -57,7 +57,7 @@ def test_backup_reads_every_public_table_and_sequence_but_cannot_write(database)
 @pytest.mark.parametrize("role", ["collector", "notifier", "watchdog", "api"])
 def test_runtime_cannot_modify_schema_or_read_device_secrets(database, role):
     with psycopg.connect(database(role), autocommit=True) as conn:
-        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 13
+        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 14
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("CREATE TABLE public.unauthorized(id int)")
         if role != "api":
@@ -65,3 +65,9 @@ def test_runtime_cannot_modify_schema_or_read_device_secrets(database, role):
                 conn.execute("SELECT secret_hash FROM devices LIMIT 0")
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("UPDATE devices SET is_admin=true WHERE false")
+
+
+def test_api_cannot_directly_change_approval(database):
+    with psycopg.connect(database("api"), autocommit=True) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("UPDATE admin_access SET approved_device_id=NULL WHERE false")
