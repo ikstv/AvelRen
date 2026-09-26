@@ -46,6 +46,24 @@ class _ForecastConn:
         return _FakeCursor(self.rows)
 
 
+class _ReadinessConn:
+    def __init__(self, longest_gap: timedelta | None) -> None:
+        self.longest_gap = longest_gap
+        self.calls = 0
+
+    async def execute(self, sql: str, params: tuple | None = None):  # noqa: ANN201
+        self.calls += 1
+        if self.calls == 1:
+            return _FakeCursor(
+                {
+                    "since": datetime.now(UTC) - timedelta(weeks=9),
+                    "until": datetime.now(UTC),
+                }
+            )
+        assert "collector_runs" in sql
+        return _FakeCursor({"longest_gap": self.longest_gap})
+
+
 def test_evaluate_query_is_time_bounded() -> None:
     spy = _SpyConn()
     asyncio.run(forecast.evaluate(spy, 123))
@@ -84,6 +102,22 @@ def test_quality_evaluation_holds_out_latest_week() -> None:
     # hourly aggregate cannot leak into the holdout as a partial actual.
     assert params[2].minute == params[2].second == params[2].microsecond == 0
     assert params[2] - params[3] == timedelta(days=7)
+
+
+def test_ready_forecast_is_demoted_by_a_large_collection_gap() -> None:
+    state = asyncio.run(
+        forecast.readiness(_ReadinessConn(timedelta(minutes=6)), 123)
+    )
+
+    assert state.status == "preliminary"
+
+
+def test_short_collection_delay_keeps_ready_status() -> None:
+    state = asyncio.run(
+        forecast.readiness(_ReadinessConn(timedelta(minutes=5)), 123)
+    )
+
+    assert state.status == "ready"
 
 
 def test_ready_forecast_requires_eight_samples_for_each_slot(monkeypatch) -> None:

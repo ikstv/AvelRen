@@ -42,6 +42,11 @@ MIN_SAMPLES_READY = 8
 # rules, throughput, and flows change.
 LOOKBACK_WEEKS = 12
 
+# The collector is scheduled every minute.  A couple of delayed cycles do not
+# invalidate weeks of history, but a longer silent interval means that the
+# calendar span alone is not enough evidence for a fully-ready forecast.
+MAX_READY_COLLECTION_GAP = timedelta(minutes=5)
+
 
 @dataclass
 class Readiness:
@@ -74,6 +79,30 @@ async def readiness(conn: AsyncConnection, checkpoint_id: int) -> Readiness:
         status = "preliminary"
     else:
         status = "collecting"
+
+    if status == "ready":
+        gap_row = await (
+            await conn.execute(
+                """
+                SELECT max(gap) AS longest_gap
+                FROM (
+                    SELECT time - lag(time) OVER (ORDER BY time) AS gap
+                    FROM collector_runs
+                    WHERE time >= %s AND time <= %s
+                ) gaps
+                """,
+                (row["since"], row["until"]),
+            )
+        ).fetchone()
+        # No collector rows is not treated as a synthetic gap: historical or
+        # imported observations may predate collector_runs.  A known large
+        # gap, however, must keep the forecast explicitly preliminary.
+        if (
+            gap_row
+            and gap_row["longest_gap"]
+            and gap_row["longest_gap"] > MAX_READY_COLLECTION_GAP
+        ):
+            status = "preliminary"
 
     ready_at = row["since"] + timedelta(weeks=MIN_SAMPLES_READY)
     return Readiness(status, round(weeks, 2), MIN_SAMPLES_READY, ready_at)
