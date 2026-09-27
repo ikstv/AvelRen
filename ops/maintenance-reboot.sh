@@ -8,4 +8,9 @@ if [[ ! -x "$PUBLISHER" ]]; then
 fi
 
 "$PUBLISHER" "$@"
-exec systemctl reboot --message='Planned AvelRen maintenance'
+if ! systemctl reboot --message='Planned AvelRen maintenance'; then
+  OUT_DIR="${AVELREN_MAINTENANCE_DIR:-/var/lib/avelren-telemetry}"
+  rm -f "$OUT_DIR/maintenance.json"
+  echo "reboot command failed; maintenance signal removed" >&2
+  exit 69
+fi

@@ -38,14 +38,13 @@ def read_window(now: datetime) -> dict[str, str] | None:
             return None
         if not 0 < len(published_boot_id) <= 128:
             return None
-        try:
-            current_boot_id = BOOT_ID_PATH.read_text(encoding="utf-8").strip()
-        except OSError:
-            current_boot_id = ""
+        current_boot_id = BOOT_ID_PATH.read_text(encoding="utf-8").strip()
+        if not current_boot_id:
+            return None
         # A different boot identity proves that the planned restart completed.
         # The stale file may remain on persistent storage, but clients should
         # immediately return to ONLINE as soon as the new API process answers.
-        if current_boot_id and current_boot_id != published_boot_id:
+        if current_boot_id != published_boot_id:
             return None
         public["restarts_at"] = restart.astimezone(UTC).isoformat()
         return public

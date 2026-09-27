@@ -83,9 +83,9 @@ class ServerStatusTest {
         assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 64_000))
     }
 
-    @Test fun confirmedWindowBecomesRestartWhenServerStopsAnswering() {
+    @Test fun scheduledWindowDoesNotCallAnEarlyWorkloadFailureAReboot() {
         assertEquals(ServerStatus.MAINTENANCE, status(success = true, maintenance = window))
-        assertEquals(ServerStatus.RESTARTING, status(success = false, maintenance = window))
+        assertEquals(ServerStatus.MAINTENANCE, status(success = false, maintenance = window))
         assertEquals(10L, window.remainingMinutes(now))
         assertEquals(1L, window.remainingMinutes(now.plusSeconds(599)))
         assertEquals(ServerStatus.UNREACHABLE, status(success = false, maintenance = window, time = now.plusSeconds(600)))

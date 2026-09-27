@@ -96,6 +96,19 @@ def test_completed_restart_clears_window_from_public_status(window, tmp_path):
     assert maintenance.read_window(now + timedelta(seconds=100)) is None
 
 
+def test_planned_restart_is_hidden_when_api_cannot_read_boot_identity(window):
+    now = datetime(2026, 9, 27, 12, tzinfo=UTC)
+    window.write_text(json.dumps({
+        "starts_at": now.isoformat(),
+        "restarts_at": (now + timedelta(seconds=90)).isoformat(),
+        "ends_at": (now + timedelta(minutes=10)).isoformat(),
+        "boot_id": "boot-before-restart",
+    }), encoding="utf-8")
+    maintenance.BOOT_ID_PATH.unlink()
+
+    assert maintenance.read_window(now) is None
+
+
 @pytest.mark.parametrize("restart_offset", [-1, 0, 600, 601])
 def test_restart_must_be_strictly_inside_window(window, restart_offset):
     now = datetime(2026, 9, 27, 12, tzinfo=UTC)

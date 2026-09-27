@@ -9,10 +9,11 @@ STATUS_URL="${AVELREN_STATUS_URL:-https://api.bordersignal.pp.ua/api/status}"
 BOOT_ID_FILE="${AVELREN_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
 DURATION_SECONDS=600
 WAIT_SECONDS=75
+CONFIRMATION_BUDGET_SECONDS=15
 POST_RESTART_MARGIN_SECONDS=120
 
 usage() {
-  echo "usage: $0 [--duration-seconds 120..900] [--wait-seconds 60..300]; duration must leave 120s after wait" >&2
+  echo "usage: $0 [--duration-seconds 120..900] [--wait-seconds 60..300]; duration must cover confirmation, wait and 120s post-restart" >&2
   exit 64
 }
 
@@ -28,7 +29,7 @@ done
 [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] || usage
 (( DURATION_SECONDS >= 120 && DURATION_SECONDS <= 900 )) || usage
 (( WAIT_SECONDS >= 60 && WAIT_SECONDS <= 300 )) || usage
-(( DURATION_SECONDS - WAIT_SECONDS >= POST_RESTART_MARGIN_SECONDS )) || usage
+(( DURATION_SECONDS - WAIT_SECONDS - CONFIRMATION_BUDGET_SECONDS >= POST_RESTART_MARGIN_SECONDS )) || usage
 
 if [[ $(id -u) -ne 0 ]]; then
   echo "must run as root to publish the production maintenance signal" >&2
@@ -46,8 +47,9 @@ boot_id=$(tr -d '\r\n' <"$BOOT_ID_FILE")
   exit 69
 }
 start_epoch=$(date -u +%s)
+restart_epoch=$((start_epoch + CONFIRMATION_BUDGET_SECONDS + WAIT_SECONDS))
 starts_at=$(date -u -d "@${start_epoch}" +%Y-%m-%dT%H:%M:%SZ)
-restarts_at=$(date -u -d "@$((start_epoch + WAIT_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)
+restarts_at=$(date -u -d "@${restart_epoch}" +%Y-%m-%dT%H:%M:%SZ)
 ends_at=$(date -u -d "@$((start_epoch + DURATION_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)
 temporary=$(mktemp "$OUT_DIR/.maintenance.json.XXXXXX")
 cleanup() { rm -f "$temporary"; }
@@ -91,5 +93,13 @@ PY
   exit 69
 }
 
-echo "maintenance window confirmed by $STATUS_URL; waiting ${WAIT_SECONDS}s before host operation"
-sleep "$WAIT_SECONDS"
+confirmed_epoch=$(date -u +%s)
+remaining_seconds=$((restart_epoch - confirmed_epoch))
+if (( remaining_seconds < WAIT_SECONDS )); then
+  rm -f "$OUT"
+  echo "maintenance confirmation exceeded its time budget; refusing planned outage" >&2
+  exit 69
+fi
+
+echo "maintenance window confirmed by $STATUS_URL; waiting ${remaining_seconds}s until planned host operation"
+sleep "$remaining_seconds"

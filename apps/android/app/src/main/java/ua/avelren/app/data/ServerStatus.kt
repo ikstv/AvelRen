@@ -62,8 +62,12 @@ enum class ServerStatus(val label: String) {
             // The API confirmed this short window before it became unavailable.
             // With working device connectivity that makes a reboot truthful, not
             // a guess from stale data or a generic server outage.
-            maintenance?.active(now) == true &&
-                (responseSucceeded == false || maintenance.restartDue(now)) -> RESTARTING
+            maintenance?.active(now) == true && maintenance.restartDue(now) -> RESTARTING
+            // Legacy two-field windows have no scheduled transition. Preserve
+            // their old fallback, but do not mislabel an unrelated /workload
+            // failure before a new-format planned reboot.
+            maintenance?.active(now) == true && maintenance.restarts_at == null &&
+                responseSucceeded == false -> RESTARTING
             maintenance?.active(now) == true -> MAINTENANCE
             responseSucceeded == null -> CHECKING
             !responseSucceeded && internet == InternetState.WEAK -> WEAK_INTERNET
