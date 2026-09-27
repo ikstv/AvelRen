@@ -734,3 +734,31 @@ host-скрипти. Production checkout `/opt/avelren` не оновлювал�
 Хост не перезавантажувався, maintenance-вікно не публікувалося. Повний сценарій
 «Технічні роботи» → «Перезапуск сервера» → «Сервер онлайн» потребує окремого
 GO і візуальної перевірки на встановленому connected-test APK.
+
+## Окремо погоджений контрольний reboot — 27.09.2026, 19:28–19:32 UTC
+
+Після нового явного GO виконано лише штатний
+`/usr/local/sbin/avelren-maintenance-reboot`; прямий `systemctl reboot` не
+використовувався. Connected-test APK був відкритий на підключеному телефоні.
+
+- API підтвердив вікно `starts_at=19:28:31Z`, `restarts_at=19:30:01Z`,
+  `ends_at=19:38:31Z`. Wrapper чекав 90 секунд до planned host operation.
+- UI hierarchy телефона послідовно зафіксувала
+  `ТЕХНІЧНІ РОБОТИ · ДО 10 ХВ`, потім `ПЕРЕЗАПУСК СЕРВЕРА`.
+- Хост завантажився о 19:30:06 UTC. Boot ID змінився з
+  `715a3a41-8c33-42ba-9626-df6eff2cbd91` на
+  `01597fac-1c2a-4a92-8242-11fe5b5a95f4`.
+- Після нового boot `/api/status` повернув `maintenance:null`, а телефон
+  автоматично показав `СЕРВЕР ОНЛАЙН`.
+- Systemd має стан `running`, failed units немає. Усі шість контейнерів
+  повернулися з тими самими container IDs; БД `healthy`. API лишився на image
+  `sha256:a5854182ec1d6acb983b39c59992c42cc0d08120e8ea1feca33935076acd445e`,
+  `RestartCount=0`, `OOMKilled=false`.
+- `/api/health` після reboot: `status=ok`, `alert_channel=ok`,
+  `undelivered_alerts=ok`. Collector записав свіже спостереження о 19:31:26Z;
+  у перевіреному API-журналі немає `ERROR`, `Traceback` чи `Exception`.
+- Backup timer лишився enabled/active, остання backup-служба має
+  `Result=success`, `ExecMainStatus=0`.
+
+Отже, production-приймання повного автоматичного циклу плашки завершено.
+Повторний reboot для цієї функції не потрібен.
