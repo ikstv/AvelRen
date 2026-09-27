@@ -21,6 +21,27 @@ for file in (root / "apps/android/app/src/main").rglob("*"):
     ):
         raise SystemExit(f"Missing asset provenance: {file.name}")
 
+# The connected test APK must exercise the real main activity and production API
+# while remaining a separate package that cannot register a duplicate FCM device.
+gradle = (root / "apps/android/app/build.gradle.kts").read_text(encoding="utf-8")
+connected_manifest_path = root / "apps/android/app/src/connectedTest/AndroidManifest.xml"
+application = (
+    root / "apps/android/app/src/main/java/ua/avelren/app/AvelRenApp.kt"
+).read_text(encoding="utf-8")
+for required in (
+    'providers.gradleProperty("avelrenConnectedTest")',
+    'applicationIdSuffix = ".connectedtest"',
+    'versionNameSuffix = "-connected-test"',
+    'buildConfigField("boolean", "ENABLE_PUSH", "false")',
+    'manifest.srcFile("src/connectedTest/AndroidManifest.xml")',
+):
+    if required not in gradle:
+        raise SystemExit(f"Connected test APK contract missing from Gradle: {required}")
+if not connected_manifest_path.is_file():
+    raise SystemExit("Connected test APK manifest is missing")
+if "BuildConfig.ENABLE_PUSH" not in application:
+    raise SystemExit("Connected test APK must disable push registration in AvelRenApp")
+
 about_screen = (
     root / "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt"
 ).read_text(encoding="utf-8")

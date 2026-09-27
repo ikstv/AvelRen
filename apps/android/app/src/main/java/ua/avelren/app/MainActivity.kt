@@ -103,7 +103,8 @@ class MainActivity : ComponentActivity() {
         // The initial request exactly once. Previously launch() was called on every
         // Activity creation: after two denials the system no longer shows the dialog,
         // so it was a silent no-op with no way back.
-        if (permissionState is NotificationPermissionState.NeedsRequest &&
+        if (BuildConfig.ENABLE_PUSH &&
+            permissionState is NotificationPermissionState.NeedsRequest &&
             !DeviceStore.notificationHistory(this).asked
         ) {
             launchRequest()
@@ -289,6 +290,12 @@ class MainActivity : ComponentActivity() {
     }.getOrDefault(false)
 
     private fun refreshPermissionState() {
+        if (!BuildConfig.ENABLE_PUSH) {
+            permissionState = NotificationPermissionState.Granted
+            ignoringBatteryOptimizations = true
+            backgroundHintDismissed = true
+            return
+        }
         val runtimeGranted = Notifications.runtimePermissionGranted(this)
 
         // Record an already-granted permission: after an APK update over an

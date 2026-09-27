@@ -76,6 +76,9 @@ class AvelRenApp : Application() {
             pendingTokens = DevicePendingFcmTokenStore(ctx),
             retryScheduler = WorkManagerFcmTokenRetryScheduler(ctx),
         )
+        // A connected side-by-side APK exercises the real public API and UI,
+        // but must not create a second production device/FCM identity.
+        if (!BuildConfig.ENABLE_PUSH) return
         installation.start()
 
         // Reconcile on EVERY new Ready (including after a recovery re-registration).
