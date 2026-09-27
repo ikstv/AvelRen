@@ -88,7 +88,11 @@ cat >"$WORK/bin/systemctl" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
-chmod +x "$WORK/bin/publisher" "$WORK/bin/systemctl"
+cat >"$WORK/bin/flock" <<'SH'
+#!/usr/bin/env bash
+[[ "${LOCK_SHOULD_FAIL:-0}" != 1 ]]
+SH
+chmod +x "$WORK/bin/publisher" "$WORK/bin/systemctl" "$WORK/bin/flock"
 if PATH="$WORK/bin:$PATH" \
   AVELREN_MAINTENANCE_DIR="$WORK/state" \
   AVELREN_MAINTENANCE_PUBLISHER="$WORK/bin/publisher" \
@@ -100,6 +104,21 @@ test ! -e "$WORK/state/maintenance.json" || {
   echo "failed reboot command left a false maintenance signal" >&2
   exit 1
 }
+
+printf '{"owner":"first-reboot"}\n' >"$WORK/state/maintenance.json"
+if PATH="$WORK/bin:$PATH" \
+  AVELREN_MAINTENANCE_DIR="$WORK/state" \
+  AVELREN_MAINTENANCE_PUBLISHER="$WORK/bin/publisher" \
+  LOCK_SHOULD_FAIL=1 \
+  bash "$ROOT/ops/maintenance-reboot.sh"; then
+  echo "overlapping reboot acquired the operation lock" >&2
+  exit 1
+fi
+grep -q '"owner":"first-reboot"' "$WORK/state/maintenance.json" || {
+  echo "rejected overlapping reboot changed another operation's marker" >&2
+  exit 1
+}
+rm -f "$WORK/state/maintenance.json"
 
 printf '0\n' >"$WORK/date-calls"
 if PATH="$WORK/bin:$PATH" \
