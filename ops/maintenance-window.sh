@@ -45,9 +45,10 @@ boot_id=$(tr -d '\r\n' <"$BOOT_ID_FILE")
   echo "invalid boot identity; refusing planned reboot signal" >&2
   exit 69
 }
-starts_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-restarts_at=$(date -u -d "+${WAIT_SECONDS} seconds" +%Y-%m-%dT%H:%M:%SZ)
-ends_at=$(date -u -d "+${DURATION_SECONDS} seconds" +%Y-%m-%dT%H:%M:%SZ)
+start_epoch=$(date -u +%s)
+starts_at=$(date -u -d "@${start_epoch}" +%Y-%m-%dT%H:%M:%SZ)
+restarts_at=$(date -u -d "@$((start_epoch + WAIT_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)
+ends_at=$(date -u -d "@$((start_epoch + DURATION_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)
 temporary=$(mktemp "$OUT_DIR/.maintenance.json.XXXXXX")
 cleanup() { rm -f "$temporary"; }
 trap cleanup EXIT

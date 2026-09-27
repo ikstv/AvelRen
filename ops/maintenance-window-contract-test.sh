@@ -27,7 +27,18 @@ cat >"$WORK/bin/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >"$SLEEP_LOG"
 SH
-chmod +x "$WORK/bin/id" "$WORK/bin/curl" "$WORK/bin/sleep"
+cat >"$WORK/bin/date" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  '-u +%s') printf '1790500000\n' ;;
+  '-u -d @1790500000 +%Y-%m-%dT%H:%M:%SZ') printf '2026-09-27T07:33:20Z\n' ;;
+  '-u -d @1790500075 +%Y-%m-%dT%H:%M:%SZ') printf '2026-09-27T07:34:35Z\n' ;;
+  '-u -d @1790500600 +%Y-%m-%dT%H:%M:%SZ') printf '2026-09-27T07:43:20Z\n' ;;
+  *) echo "unexpected date invocation: $*" >&2; exit 1 ;;
+esac
+SH
+chmod +x "$WORK/bin/id" "$WORK/bin/curl" "$WORK/bin/sleep" "$WORK/bin/date"
 
 PATH="$WORK/bin:$PATH" \
   AVELREN_MAINTENANCE_DIR="$WORK/state" \
