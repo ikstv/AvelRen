@@ -6,11 +6,14 @@ set -euo pipefail
 OUT_DIR="${AVELREN_MAINTENANCE_DIR:-/var/lib/avelren-telemetry}"
 OUT="$OUT_DIR/maintenance.json"
 STATUS_URL="${AVELREN_STATUS_URL:-https://api.bordersignal.pp.ua/api/status}"
-DURATION_SECONDS=120
+BOOT_ID_FILE="${AVELREN_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
+DURATION_SECONDS=600
 WAIT_SECONDS=75
+CONFIRMATION_BUDGET_SECONDS=15
+POST_RESTART_MARGIN_SECONDS=120
 
 usage() {
-  echo "usage: $0 [--duration-seconds 120..900] [--wait-seconds 60..300]" >&2
+  echo "usage: $0 [--duration-seconds 120..900] [--wait-seconds 60..300]; duration must cover confirmation, wait and 120s post-restart" >&2
   exit 64
 }
 
@@ -26,6 +29,7 @@ done
 [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] || usage
 (( DURATION_SECONDS >= 120 && DURATION_SECONDS <= 900 )) || usage
 (( WAIT_SECONDS >= 60 && WAIT_SECONDS <= 300 )) || usage
+(( DURATION_SECONDS - WAIT_SECONDS - CONFIRMATION_BUDGET_SECONDS >= POST_RESTART_MARGIN_SECONDS )) || usage
 
 if [[ $(id -u) -ne 0 ]]; then
   echo "must run as root to publish the production maintenance signal" >&2
@@ -33,14 +37,35 @@ if [[ $(id -u) -ne 0 ]]; then
 fi
 
 install -d -m 0755 "$OUT_DIR"
-starts_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-ends_at=$(date -u -d "+${DURATION_SECONDS} seconds" +%Y-%m-%dT%H:%M:%SZ)
+[[ -r "$BOOT_ID_FILE" ]] || {
+  echo "cannot read boot identity; refusing planned reboot signal" >&2
+  exit 69
+}
+boot_id=$(tr -d '\r\n' <"$BOOT_ID_FILE")
+[[ "$boot_id" =~ ^[[:alnum:]_.-]{1,128}$ ]] || {
+  echo "invalid boot identity; refusing planned reboot signal" >&2
+  exit 69
+}
+start_epoch=$(date -u +%s)
+restart_epoch=$((start_epoch + CONFIRMATION_BUDGET_SECONDS + WAIT_SECONDS))
+starts_at=$(date -u -d "@${start_epoch}" +%Y-%m-%dT%H:%M:%SZ)
+restarts_at=$(date -u -d "@${restart_epoch}" +%Y-%m-%dT%H:%M:%SZ)
+ends_at=$(date -u -d "@$((start_epoch + DURATION_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)
 temporary=$(mktemp "$OUT_DIR/.maintenance.json.XXXXXX")
-cleanup() { rm -f "$temporary"; }
+published=false
+wait_completed=false
+cleanup() {
+  rm -f "$temporary"
+  if [[ "$published" == true && "$wait_completed" != true ]]; then
+    rm -f "$OUT"
+  fi
+}
 trap cleanup EXIT
-printf '{"starts_at":"%s","ends_at":"%s"}\n' "$starts_at" "$ends_at" >"$temporary"
+printf '{"starts_at":"%s","restarts_at":"%s","ends_at":"%s","boot_id":"%s"}\n' \
+  "$starts_at" "$restarts_at" "$ends_at" "$boot_id" >"$temporary"
 chmod 0644 "$temporary"
 mv -f "$temporary" "$OUT"
+published=true
 
 response=$(curl --fail --silent --show-error --max-time 15 "$STATUS_URL") || {
   rm -f "$OUT"
@@ -48,14 +73,14 @@ response=$(curl --fail --silent --show-error --max-time 15 "$STATUS_URL") || {
   exit 69
 }
 
-python3 - "$starts_at" "$ends_at" "$response" <<'PY' || {
+python3 - "$starts_at" "$restarts_at" "$ends_at" "$response" <<'PY' || {
 import json
 import sys
 from datetime import UTC, datetime
 
-starts_at, ends_at, response = sys.argv[1:]
+starts_at, restarts_at, ends_at, response = sys.argv[1:]
 maintenance = json.loads(response).get("maintenance")
-if not isinstance(maintenance, dict) or set(maintenance) != {"starts_at", "ends_at"}:
+if not isinstance(maintenance, dict) or set(maintenance) != {"starts_at", "restarts_at", "ends_at"}:
     raise SystemExit(1)
 
 
@@ -66,7 +91,9 @@ def utc(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-if utc(maintenance["starts_at"]) != utc(starts_at) or utc(maintenance["ends_at"]) != utc(ends_at):
+if (utc(maintenance["starts_at"]) != utc(starts_at)
+        or utc(maintenance["restarts_at"]) != utc(restarts_at)
+        or utc(maintenance["ends_at"]) != utc(ends_at)):
     raise SystemExit(1)
 PY
   rm -f "$OUT"
@@ -74,5 +101,14 @@ PY
   exit 69
 }
 
-echo "maintenance window confirmed by $STATUS_URL; waiting ${WAIT_SECONDS}s before host operation"
-sleep "$WAIT_SECONDS"
+confirmed_epoch=$(date -u +%s)
+remaining_seconds=$((restart_epoch - confirmed_epoch))
+if (( remaining_seconds < WAIT_SECONDS )); then
+  rm -f "$OUT"
+  echo "maintenance confirmation exceeded its time budget; refusing planned outage" >&2
+  exit 69
+fi
+
+echo "maintenance window confirmed by $STATUS_URL; waiting ${remaining_seconds}s until planned host operation"
+sleep "$remaining_seconds"
+wait_completed=true

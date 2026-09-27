@@ -7,7 +7,11 @@ import org.junit.Test
 
 class ServerStatusTest {
     private val now = Instant.parse("2026-09-22T12:00:00Z")
-    private val window = MaintenanceWindow(now.toString(), now.plusSeconds(180).toString())
+    private val window = MaintenanceWindow(
+        now.toString(),
+        now.plusSeconds(600).toString(),
+        now.plusSeconds(75).toString(),
+    )
 
     private fun status(
         internet: InternetState = InternetState.ONLINE,
@@ -79,13 +83,36 @@ class ServerStatusTest {
         assertEquals(InternetState.ONLINE, tracker.observe(InternetState.ONLINE, 64_000))
     }
 
-    @Test fun confirmedWindowBecomesRestartWhenServerStopsAnswering() {
+    @Test fun scheduledWindowDoesNotCallAnEarlyWorkloadFailureAReboot() {
         assertEquals(ServerStatus.MAINTENANCE, status(success = true, maintenance = window))
-        assertEquals(ServerStatus.RESTARTING, status(success = false, maintenance = window))
-        assertEquals(3L, window.remainingMinutes(now))
-        assertEquals(1L, window.remainingMinutes(now.plusSeconds(179)))
-        assertEquals(ServerStatus.UNREACHABLE, status(success = false, maintenance = window, time = now.plusSeconds(180)))
-        assertNull(window.remainingMinutes(now.plusSeconds(180)))
+        assertEquals(ServerStatus.MAINTENANCE, status(success = false, maintenance = window))
+        assertEquals(10L, window.remainingMinutes(now))
+        assertEquals(1L, window.remainingMinutes(now.plusSeconds(599)))
+        assertEquals(ServerStatus.UNREACHABLE, status(success = false, maintenance = window, time = now.plusSeconds(600)))
+        assertNull(window.remainingMinutes(now.plusSeconds(600)))
+    }
+
+    @Test fun plannedMomentBecomesRestartEvenBeforeNextFailedPoll() {
+        assertEquals(
+            ServerStatus.MAINTENANCE,
+            status(success = true, maintenance = window, time = now.plusSeconds(74)),
+        )
+        assertEquals(
+            ServerStatus.RESTARTING,
+            status(success = true, maintenance = window, time = now.plusSeconds(75)),
+        )
+    }
+
+    @Test fun legacyWindowStillNeedsObservedFailureToClaimRestart() {
+        val legacy = MaintenanceWindow(now.toString(), now.plusSeconds(180).toString())
+        assertEquals(
+            ServerStatus.MAINTENANCE,
+            status(success = true, maintenance = legacy, time = now.plusSeconds(75)),
+        )
+        assertEquals(
+            ServerStatus.RESTARTING,
+            status(success = false, maintenance = legacy, time = now.plusSeconds(75)),
+        )
     }
 
     @Test fun futureWindowDoesNotSayWorkHasStarted() {
@@ -98,15 +125,21 @@ class ServerStatusTest {
             MaintenanceWindow(now.toString(), now.minusSeconds(1).toString()),
             MaintenanceWindow(now.toString(), now.plusSeconds(901).toString()),
             MaintenanceWindow(now.plusSeconds(86401).toString(), now.plusSeconds(86500).toString()),
+            MaintenanceWindow(now.toString(), now.plusSeconds(600).toString(), now.toString()),
+            MaintenanceWindow(now.toString(), now.plusSeconds(600).toString(), now.plusSeconds(600).toString()),
         ).forEach { assertEquals(ServerStatus.ONLINE, status(maintenance = it)) }
     }
 
     @Test fun publicContractAndUnknownFieldsAreCompatible() {
         val json = Json { ignoreUnknownKeys = true }
         val result = json.decodeFromString<PublicServerStatus>(
-            """{"maintenance":{"starts_at":"2026-09-22T12:00:00+00:00","ends_at":"2026-09-22T12:03:00+00:00"},"future":true}"""
+            """{"maintenance":{"starts_at":"2026-09-22T12:00:00+00:00","ends_at":"2026-09-22T12:10:00+00:00","restarts_at":"2026-09-22T12:01:15+00:00"},"future":true}"""
         )
         assertEquals(ServerStatus.MAINTENANCE, status(maintenance = result.maintenance))
+        assertEquals(
+            ServerStatus.RESTARTING,
+            status(maintenance = result.maintenance, time = now.plusSeconds(75)),
+        )
         assertNull(json.decodeFromString<PublicServerStatus>("{}").maintenance)
     }
 }

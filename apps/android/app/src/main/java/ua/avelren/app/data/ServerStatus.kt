@@ -7,16 +7,26 @@ import kotlinx.serialization.Serializable
 enum class InternetState { UNKNOWN, OFFLINE, ONLINE, WEAK }
 
 @Serializable
-data class MaintenanceWindow(val starts_at: String, val ends_at: String) {
+data class MaintenanceWindow(
+    val starts_at: String,
+    val ends_at: String,
+    val restarts_at: String? = null,
+) {
     fun bounds(now: Instant): Pair<Instant, Instant>? = runCatching {
         val start = Instant.parse(starts_at)
         val end = Instant.parse(ends_at)
+        val restart = restarts_at?.let(Instant::parse)
         val duration = Duration.between(start, end).seconds
-        if (duration !in 1..900 || end <= now || start > now.plusSeconds(86400)) null
+        if (duration !in 1..900 || end <= now || start > now.plusSeconds(86400) ||
+            (restart != null && (restart <= start || restart >= end))) null
         else start to end
     }.getOrNull()
 
     fun active(now: Instant): Boolean = bounds(now)?.let { now >= it.first } == true
+
+    fun restartDue(now: Instant): Boolean = active(now) && restarts_at?.let {
+        runCatching { now >= Instant.parse(it) }.getOrDefault(false)
+    } == true
 
     fun remainingMinutes(now: Instant): Long? = bounds(now)
         ?.takeIf { now >= it.first }
@@ -52,7 +62,12 @@ enum class ServerStatus(val label: String) {
             // The API confirmed this short window before it became unavailable.
             // With working device connectivity that makes a reboot truthful, not
             // a guess from stale data or a generic server outage.
-            maintenance?.active(now) == true && responseSucceeded == false -> RESTARTING
+            maintenance?.active(now) == true && maintenance.restartDue(now) -> RESTARTING
+            // Legacy two-field windows have no scheduled transition. Preserve
+            // their old fallback, but do not mislabel an unrelated /workload
+            // failure before a new-format planned reboot.
+            maintenance?.active(now) == true && maintenance.restarts_at == null &&
+                responseSucceeded == false -> RESTARTING
             maintenance?.active(now) == true -> MAINTENANCE
             responseSucceeded == null -> CHECKING
             !responseSucceeded && internet == InternetState.WEAK -> WEAK_INTERNET
