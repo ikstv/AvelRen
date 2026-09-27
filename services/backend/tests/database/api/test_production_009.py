@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
+from psycopg.rows import dict_row
 
 from ..conftest import MIGRATIONS
 
@@ -144,6 +145,8 @@ def test_009_upgrade_approval_pin_and_backup(
         assert schema_verify.verify(verifier, MIGRATIONS) == []
     assert migrate.run(MIGRATIONS) == 0
     assert history(conn) == after
+
+
     # Міграція не обирає пристрій і не відкликає чинний канал сповіщень.
     assert conn.execute("SELECT approved_device_id,pin_hash FROM admin_access").fetchone() == {
         "approved_device_id": None, "pin_hash": None,
@@ -184,3 +187,68 @@ def test_009_upgrade_approval_pin_and_backup(
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 api.execute(statement)
     assert history(conn) == after
+
+
+def test_previous_api_database_contract_survives_014(
+    production_009, device, installation, conn, monkeypatch,
+):
+    """The API shipped immediately before this PR can roll back onto schema 014.
+
+    Keep the database operations below aligned with the previous
+    ``admin_access_api.access`` at base commit 523eb92. This is deliberately a
+    frozen compatibility harness rather than the current FastAPI route: using
+    the current route would silently stop testing the documented rollback.
+    """
+    from avelren import admin_approve, migrate
+    from avelren.admin_pin import verify_pin
+    from avelren.config import settings
+
+    assert migrate.run(MIGRATIONS) == 0
+    assert len(history(conn)) == 14
+
+    # The previous API only admits the already-approved installation.
+    with monkeypatch.context() as patch:
+        patch.setattr(settings, "database_url", production_009("migrator"))
+        patch.setattr("sys.argv", ["admin_approve", device.device_id, "--set-pin"])
+        patch.setattr("getpass.getpass", lambda _: "7392")
+        admin_approve.main()
+
+    with psycopg.connect(production_009("api"), row_factory=dict_row) as previous_api:
+        installed = previous_api.execute(
+            "SELECT 1 FROM schema_migrations "
+            "WHERE version='013_admin_installation_lock'"
+        ).fetchone()
+        assert installed is not None
+        access = previous_api.execute(
+            "SELECT approved_device_id,pin_hash,failures,locked_until "
+            "FROM admin_access WHERE singleton FOR UPDATE"
+        ).fetchone()
+        candidate = previous_api.execute(
+            "SELECT admin_blocked_until FROM devices WHERE id=%s FOR UPDATE",
+            (device.device_id,),
+        ).fetchone()
+        assert candidate["admin_blocked_until"] is None
+        assert str(access["approved_device_id"]) == device.device_id
+        assert verify_pin("7392", access["pin_hash"])
+        previous_api.execute(
+            "UPDATE admin_access SET failures=0,locked_until=NULL WHERE singleton"
+        )
+        previous_api.execute(
+            "SELECT activate_approved_admin(%s::uuid)", (device.device_id,),
+        )
+
+    assert conn.execute(
+        "SELECT is_admin FROM devices WHERE id=%s", (device.device_id,),
+    ).fetchone()["is_admin"] is True
+
+    # Its foreign-installation branch must also retain the exact UPDATE grant
+    # used to fail closed for 24 hours; migration 014 must not revoke it.
+    foreign = installation()
+    with psycopg.connect(production_009("api"), row_factory=dict_row) as previous_api:
+        blocked = previous_api.execute(
+            "UPDATE devices "
+            "SET admin_blocked_until=clock_timestamp()+interval '24 hours' "
+            "WHERE id=%s RETURNING admin_blocked_until",
+            (foreign.device_id,),
+        ).fetchone()
+        assert blocked["admin_blocked_until"] is not None
