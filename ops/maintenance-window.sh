@@ -52,12 +52,20 @@ starts_at=$(date -u -d "@${start_epoch}" +%Y-%m-%dT%H:%M:%SZ)
 restarts_at=$(date -u -d "@${restart_epoch}" +%Y-%m-%dT%H:%M:%SZ)
 ends_at=$(date -u -d "@$((start_epoch + DURATION_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)
 temporary=$(mktemp "$OUT_DIR/.maintenance.json.XXXXXX")
-cleanup() { rm -f "$temporary"; }
+published=false
+wait_completed=false
+cleanup() {
+  rm -f "$temporary"
+  if [[ "$published" == true && "$wait_completed" != true ]]; then
+    rm -f "$OUT"
+  fi
+}
 trap cleanup EXIT
 printf '{"starts_at":"%s","restarts_at":"%s","ends_at":"%s","boot_id":"%s"}\n' \
   "$starts_at" "$restarts_at" "$ends_at" "$boot_id" >"$temporary"
 chmod 0644 "$temporary"
 mv -f "$temporary" "$OUT"
+published=true
 
 response=$(curl --fail --silent --show-error --max-time 15 "$STATUS_URL") || {
   rm -f "$OUT"
@@ -103,3 +111,4 @@ fi
 
 echo "maintenance window confirmed by $STATUS_URL; waiting ${remaining_seconds}s until planned host operation"
 sleep "$remaining_seconds"
+wait_completed=true

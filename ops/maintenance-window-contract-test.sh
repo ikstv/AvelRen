@@ -27,6 +27,7 @@ SH
 cat >"$WORK/bin/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >"$SLEEP_LOG"
+[[ "${SLEEP_SHOULD_FAIL:-0}" != 1 ]]
 SH
 cat >"$WORK/bin/date" <<'SH'
 #!/usr/bin/env bash
@@ -97,6 +98,23 @@ if PATH="$WORK/bin:$PATH" \
 fi
 test ! -e "$WORK/state/maintenance.json" || {
   echo "failed reboot command left a false maintenance signal" >&2
+  exit 1
+}
+
+printf '0\n' >"$WORK/date-calls"
+if PATH="$WORK/bin:$PATH" \
+  AVELREN_MAINTENANCE_DIR="$WORK/state" \
+  AVELREN_BOOT_ID_FILE="$WORK/boot_id" \
+  AVELREN_STATUS_URL="https://status.test/api/status" \
+  DATE_CALL_LOG="$WORK/date-calls" \
+  SLEEP_LOG="$WORK/sleep.log" \
+  SLEEP_SHOULD_FAIL=1 \
+  bash "$ROOT/ops/maintenance-window.sh" --duration-seconds 600 --wait-seconds 75; then
+  echo "interrupted publisher was reported as success" >&2
+  exit 1
+fi
+test ! -e "$WORK/state/maintenance.json" || {
+  echo "interrupted publisher left a false maintenance signal" >&2
   exit 1
 }
 
