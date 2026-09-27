@@ -13,7 +13,10 @@ from avelren.api import app
 @pytest.fixture
 def window(tmp_path, monkeypatch):
     path = tmp_path / "maintenance.json"
+    boot_id = tmp_path / "boot_id"
+    boot_id.write_text("boot-before-restart\n", encoding="utf-8")
     monkeypatch.setattr(maintenance, "MAINTENANCE_PATH", path)
+    monkeypatch.setattr(maintenance, "BOOT_ID_PATH", boot_id)
     return path
 
 
@@ -60,3 +63,47 @@ def test_public_endpoint_is_read_only_and_no_store(window):
         assert client.post("/status", json={}).status_code == 405
     finally:
         client.close()
+
+
+def test_planned_restart_exposes_schedule_but_not_boot_identity(window):
+    now = datetime(2026, 9, 27, 12, tzinfo=UTC)
+    window.write_text(json.dumps({
+        "starts_at": now.isoformat(),
+        "restarts_at": (now + timedelta(seconds=75)).isoformat(),
+        "ends_at": (now + timedelta(minutes=10)).isoformat(),
+        "boot_id": "boot-before-restart",
+    }), encoding="utf-8")
+
+    result = maintenance.read_window(now)
+
+    assert result == {
+        "starts_at": now.isoformat(),
+        "restarts_at": (now + timedelta(seconds=75)).isoformat(),
+        "ends_at": (now + timedelta(minutes=10)).isoformat(),
+    }
+
+
+def test_completed_restart_clears_window_from_public_status(window, tmp_path):
+    now = datetime(2026, 9, 27, 12, tzinfo=UTC)
+    window.write_text(json.dumps({
+        "starts_at": now.isoformat(),
+        "restarts_at": (now + timedelta(seconds=75)).isoformat(),
+        "ends_at": (now + timedelta(minutes=10)).isoformat(),
+        "boot_id": "boot-before-restart",
+    }), encoding="utf-8")
+    maintenance.BOOT_ID_PATH.write_text("boot-after-restart\n", encoding="utf-8")
+
+    assert maintenance.read_window(now + timedelta(seconds=100)) is None
+
+
+@pytest.mark.parametrize("restart_offset", [-1, 0, 600, 601])
+def test_restart_must_be_strictly_inside_window(window, restart_offset):
+    now = datetime(2026, 9, 27, 12, tzinfo=UTC)
+    window.write_text(json.dumps({
+        "starts_at": now.isoformat(),
+        "restarts_at": (now + timedelta(seconds=restart_offset)).isoformat(),
+        "ends_at": (now + timedelta(seconds=600)).isoformat(),
+        "boot_id": "boot-before-restart",
+    }), encoding="utf-8")
+
+    assert maintenance.read_window(now) is None
