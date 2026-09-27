@@ -10,8 +10,12 @@ plugins {
 }
 
 val uiPreview = providers.gradleProperty("avelrenUiPreview").orNull == "true"
-if (!uiPreview) apply(plugin = "com.google.gms.google-services")
-if (uiPreview) {
+val connectedTest = providers.gradleProperty("avelrenConnectedTest").orNull == "true"
+check(!(uiPreview && connectedTest)) {
+    "UI preview and connected test modes are mutually exclusive"
+}
+if (!uiPreview && !connectedTest) apply(plugin = "com.google.gms.google-services")
+if (uiPreview || connectedTest) {
     gradle.taskGraph.whenReady {
         check(allTasks.none { it.name.contains("release", ignoreCase = true) }) {
             "UI preview is debug-only"
@@ -42,6 +46,7 @@ android {
         // The domain is moved into config: the app has no mention of
         // echerha.gov.ua — the client talks only to us (AGENTS.md, rule 1).
         buildConfigField("String", "API_BASE_URL", "\"https://api.bordersignal.pp.ua/api\"")
+        buildConfigField("boolean", "ENABLE_PUSH", "true")
     }
 
     signingConfigs {
@@ -60,6 +65,11 @@ android {
             if (uiPreview) {
                 applicationIdSuffix = ".preview"
                 versionNameSuffix = "-test"
+            }
+            if (connectedTest) {
+                applicationIdSuffix = ".connectedtest"
+                versionNameSuffix = "-connected-test"
+                buildConfigField("boolean", "ENABLE_PUSH", "false")
             }
         }
         release {
@@ -82,6 +92,11 @@ android {
         sourceSets.getByName("debug") {
             manifest.srcFile("src/preview/AndroidManifest.xml")
             java.srcDir("src/preview/java")
+        }
+    }
+    if (connectedTest) {
+        sourceSets.getByName("debug") {
+            manifest.srcFile("src/connectedTest/AndroidManifest.xml")
         }
     }
 
