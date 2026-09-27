@@ -696,3 +696,41 @@ Collector після старту нового API записав два цик�
 Перенесення Admin за правильним PIN на нову інсталяцію production-запитом
 не перевіряли: PIN власника не брали, хибних спроб не витрачали. Новий
 Android APK для R12 ще не зібрано й не встановлено, Play не оновлено.
+
+## Окремо погоджене розгортання плашки reboot — 27.09.2026, 19:23 UTC
+
+Після явного GO точково оновлено лише API-модуль `maintenance.py` та два
+host-скрипти. Production checkout `/opt/avelren` не оновлювали й не очищали;
+міграції, БД, collector, notifier, watchdog і Caddy не змінювали.
+
+- API-кандидат `avelren-api:restart-badge-ae3302b` зібрано поверх чинного
+  `avelren-api:admin-pin-rebind-abfcf31`, щоб зберегти попереднє Admin-виправлення.
+  Новий immutable image ID:
+  `sha256:a5854182ec1d6acb983b39c59992c42cc0d08120e8ea1feca33935076acd445e`;
+  попередній rollback image ID:
+  `sha256:4c8a5b83056428f96c5d8763f646956430b56dab70a829680c12dbe5406ee856`.
+- Фактично імпортований `maintenance.py` має SHA-256
+  `b6084d0ce7fd4934717eee655b83bdd0332c3c5abd44d0b5b7c104175b96c840`.
+  Ізольований candidate smoke підтвердив три публічні часові поля, відсутність
+  `boot_id` у відповіді та завершення вікна після зміни boot ID.
+- `/telemetry` лишився read-only bind mount. Boot ID усередині API-контейнера
+  збігся з host boot ID.
+- Встановлені `/usr/local/sbin/avelren-maintenance-window` і
+  `/usr/local/sbin/avelren-maintenance-reboot` мають SHA-256 відповідно
+  `a7ee3e3feb5c5dc7d6ac87d938133b0d1c8ea488484786699e4fd5ba7840709d` і
+  `dc36deb04d1ea58f25aff3c3ac2c5e9b437543e0507db2972fa3c76dd367098f`.
+- Пересоздано лише `avelren-api-1`; ID інших п'яти контейнерів не змінилися.
+  Під час старту було два короткі HTTP 502, після чого gate отримав
+  `/api/health status=ok`. API має `RestartCount=0`, `OOMKilled=false`, у
+  перевіреному журналі немає `ERROR`, `Traceback` чи `Exception`.
+- Наступний collector-цикл записав свіже спостереження о 19:24:30 UTC;
+  `alert_channel=ok`, `undelivered_alerts=ok`. `/api/status` повертав
+  `maintenance:null`.
+- Root-only rollback-артефакти залишено в
+  `/var/lib/avelren-deploy-restart-badge-ae3302b`: початковий Compose override і
+  обидва попередні host-скрипти. Відкат — відновити ці три файли та пересоздати
+  лише API з `--no-build --pull never --force-recreate --no-deps`.
+
+Хост не перезавантажувався, maintenance-вікно не публікувалося. Повний сценарій
+«Технічні роботи» → «Перезапуск сервера» → «Сервер онлайн» потребує окремого
+GO і візуальної перевірки на встановленому connected-test APK.
