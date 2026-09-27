@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 MAX_ATTEMPTS = 3
-LOCK_DURATION = timedelta(hours=24)
+LOCK_DURATION = timedelta(days=30)
 
 
 def hash_pin(pin: str) -> str:

@@ -37,7 +37,10 @@ log = logging.getLogger("avelren.schema_verify")
 # Optional features enforce their exact migration at their own entry point.
 # Their absence must not stop collector/notifier or the existing public API.
 FEATURE_MIGRATIONS = frozenset({
-    "011_admin_access", "012_device_retention", "013_admin_installation_lock",
+    "011_admin_access",
+    "012_device_retention",
+    "013_admin_installation_lock",
+    "014_admin_pin_rebind",
 })
 
 # --- Version-annotated physical contract ------------------------------------
@@ -331,6 +334,20 @@ def verify_contract(
         ):
             problems.append("admin activation function missing or unsafe owner/search_path")
 
+    if want("014_admin_pin_rebind"):
+        row = conn.execute(
+            "SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig, "
+            "has_function_privilege('avelren_api', p.oid, 'EXECUTE'), "
+            "NOT EXISTS (SELECT 1 FROM aclexplode("
+            "COALESCE(p.proacl, acldefault('f', p.proowner))) acl "
+            "WHERE acl.privilege_type='EXECUTE' AND acl.grantee NOT IN "
+            "(p.proowner, (SELECT oid FROM pg_roles WHERE rolname='avelren_api'))) "
+            "FROM pg_proc p WHERE p.oid=to_regprocedure('public.activate_admin_after_pin(uuid)')"
+        ).fetchone()
+        if row != (
+            True, "avelren_migrator", ["search_path=pg_catalog, pg_temp"], True, True,
+        ):
+            problems.append("PIN rebind function missing or unsafe owner/search_path/grants")
     if want("012_device_retention"):
         row = conn.execute(
             "SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig "

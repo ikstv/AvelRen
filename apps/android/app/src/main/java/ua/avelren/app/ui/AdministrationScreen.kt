@@ -297,22 +297,22 @@ private fun AdminAccessForm(
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { value ->
-                        if (value.length <= 128) pin = value
+                        if (isAllowedAdminPinInput(value)) pin = value
                     },
-                    label = { Text("Пароль") },
+                    label = { Text("PIN-код (4 цифри)") },
                     shape = RoundedCornerShape(8.dp),
                     singleLine = true,
                     enabled = !busy,
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (current.state == "invalid_pin") {
-                    Text("Неправильний пароль. Залишилося спроб: ${current.attempts_remaining}.")
+                    Text("Неправильний PIN-код. Залишилося спроб: ${current.attempts_remaining}.")
                 }
                 Button(
                     shape = RoundedCornerShape(12.dp),
-                    enabled = !busy && pin.isNotEmpty(),
+                    enabled = !busy && isValidAdminPin(pin),
                     onClick = {
                         focusManager.clearFocus()
                         keyboard?.hide()

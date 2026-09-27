@@ -23,23 +23,23 @@ class AdminPinTests(unittest.TestCase):
         for malformed in ("", "scrypt-v1$aa$bb", "scrypt-v2$aa$bb", "x$zz$zz"):
             self.assertFalse(verify_pin("7392", malformed))
 
-    def test_third_failure_blocks_for_24_hours(self):
+    def test_third_failure_blocks_for_30_days(self):
         failures = 0
         for remaining in (2, 1, 0):
             result = evaluate_attempt(failures, None, self.now, False)
             self.assertEqual(result.remaining, remaining)
             failures = result.failures
         self.assertEqual(result.state, "blocked")
-        self.assertEqual(result.locked_until, self.now + timedelta(hours=24))
+        self.assertEqual(result.locked_until, self.now + timedelta(days=30))
 
     def test_correct_pin_cannot_bypass_active_lock(self):
-        until = self.now + timedelta(hours=24)
-        result = evaluate_attempt(3, until, self.now + timedelta(hours=23), True)
+        until = self.now + timedelta(days=30)
+        result = evaluate_attempt(3, until, self.now + timedelta(days=29), True)
         self.assertEqual(result.state, "blocked")
         self.assertEqual(result.locked_until, until)
 
     def test_retries_do_not_extend_lock(self):
-        until = self.now + timedelta(hours=24)
+        until = self.now + timedelta(days=30)
         result = evaluate_attempt(3, until, self.now + timedelta(hours=1), False)
         self.assertEqual(result.locked_until, until)
 

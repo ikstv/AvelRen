@@ -68,8 +68,8 @@
       "destination": "services/backend/src/avelren/admin_access_api.py",
       "sha256": "558de40fe56b1907142d7d6f8b2c573a7265d1558989200108f88c0b3e2c4b57",
       "revision": {
-        "sha256": "54a0a885d56c65b98492487a63b0c05c494ed1c61c73560ca8d7daf1af3efbba",
-        "notes": "docs/ADMIN-ACCESS-LOCK-FIX.md"
+        "sha256": "d6fccd3e8ee3eee7ddbdbb20a92a94a0dcc2c080dca1275be2247b8f18106bb6",
+        "notes": "docs/RELEASE-READINESS.md"
       }
     },
     {
@@ -77,7 +77,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/admin_pin.py",
       "destination": "services/backend/src/avelren/admin_pin.py",
-      "sha256": "343092d01b0b51dd29563f5e43c7f3e6096918f4ff13a66e444d686d09d21a8d"
+      "sha256": "343092d01b0b51dd29563f5e43c7f3e6096918f4ff13a66e444d686d09d21a8d",
+      "revision": {
+        "sha256": "840aafda943e7bd287aec70be33d1ecccaa598cf0c28879b4d65db27e0c56b77",
+        "notes": "docs/RELEASE-READINESS.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -123,7 +127,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/unit_tests/test_admin_pin.py",
       "destination": "services/backend/tests/unit/test_admin_pin.py",
-      "sha256": "71f784d6e8c692fff71e6109639642186df11a1a5ab1a47fae8bc499c2960f71"
+      "sha256": "71f784d6e8c692fff71e6109639642186df11a1a5ab1a47fae8bc499c2960f71",
+      "revision": {
+        "sha256": "fd1ca56ed707b726869fa857d3382f77393120bfd27f94d97de8d1eb2decc5bf",
+        "notes": "docs/RELEASE-READINESS.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

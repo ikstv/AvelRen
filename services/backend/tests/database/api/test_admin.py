@@ -11,23 +11,20 @@ def attempt(client, headers, pin="0000"):
     return response.json()
 
 
-def test_unapproved_cannot_lock_owner(api_client, approved, installation, conn):
+
+def test_foreign_wrong_pin_uses_shared_counter(api_client, approved, installation, conn):
     assert api_client.get("/admin/access").status_code == 401
     foreign = installation().headers()
-    deadline = None
-    for _ in range(4):
-        result = attempt(api_client, foreign, "7392")
-        assert result["state"] == "blocked"
-        if deadline is None:
-            deadline = result["locked_until"]
-        assert result["locked_until"] == deadline
-    assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == 0
-    hours = conn.execute(
-        "SELECT extract(epoch FROM admin_blocked_until-clock_timestamp())/3600 AS hours "
-        "FROM devices WHERE id=%s", (foreign["X-Device-Id"],),
-    ).fetchone()["hours"]
-    assert 23.99 < hours <= 24
-    assert attempt(api_client, approved, "7392")["state"] == "authorized"
+    assert attempt(api_client, foreign, "0000")["attempts_remaining"] == 2
+    assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == 1
+    assert attempt(api_client, approved, "0000")["attempts_remaining"] == 1
+    blocked = attempt(api_client, foreign, "0000")
+    assert blocked["state"] == "blocked"
+    assert attempt(api_client, approved, "7392") == blocked
+    assert conn.execute(
+        "SELECT admin_blocked_until FROM devices WHERE id=%s",
+        (foreign["X-Device-Id"],),
+    ).fetchone()["admin_blocked_until"] is None
 
 
 def test_lock_survives_reinstallation(api_client, approved, installation, conn):
@@ -38,60 +35,44 @@ def test_lock_survives_reinstallation(api_client, approved, installation, conn):
     hours = conn.execute(
         "SELECT extract(epoch FROM locked_until-clock_timestamp())/3600 AS hours FROM admin_access"
     ).fetchone()["hours"]
-    assert 23.99 < hours <= 24
-    assert attempt(api_client, approved, "7392") == blocked
+    assert 719.99 < hours <= 720
     fresh = installation().headers()
-    conn.execute("UPDATE admin_access SET approved_device_id=%s", (fresh["X-Device-Id"],))
     assert attempt(api_client, fresh, "7392") == blocked
-    assert attempt(api_client, approved, "7392")["state"] == "blocked"
+    assert attempt(api_client, approved, "7392") == blocked
 
 
-def test_foreign_expired_lock_requires_approval(api_client, approved, installation, conn):
+def test_foreign_expired_lock_still_requires_pin(api_client, approved, installation, conn):
     foreign = installation().headers()
+    conn.execute(
+        "UPDATE devices SET admin_blocked_until=now()+interval '1 day' WHERE id=%s",
+        (foreign["X-Device-Id"],),
+    )
     assert attempt(api_client, foreign, "7392")["state"] == "blocked"
     conn.execute(
         "UPDATE devices SET admin_blocked_until=now()-interval '1 second' WHERE id=%s",
         (foreign["X-Device-Id"],),
     )
-    assert attempt(api_client, foreign, "7392")["state"] == "blocked"
-    assert attempt(api_client, approved, "7392")["state"] == "authorized"
+    assert api_client.get("/admin/access", headers=foreign).json()["state"] == "ready"
+    assert attempt(api_client, foreign, "7392")["state"] == "authorized"
 
 
-def test_foreign_status_never_creates_or_extends_self_lock(
-    api_client, approved, installation, conn
-):
+def test_foreign_status_never_consumes_attempt(api_client, approved, installation, conn):
     foreign = installation().headers()
-    assert api_client.get("/admin/access", headers=foreign).json()["state"] == "awaiting_approval"
+    assert api_client.get("/admin/access", headers=foreign).json()["state"] == "ready"
+    assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == 0
+    assert attempt(api_client, foreign, "0000")["state"] == "invalid_pin"
+    before = conn.execute("SELECT failures FROM admin_access").fetchone()["failures"]
+    assert api_client.get("/admin/access", headers=foreign).json()["attempts_remaining"] == 2
+    assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == before
     assert conn.execute(
         "SELECT admin_blocked_until FROM devices WHERE id=%s", (foreign["X-Device-Id"],)
     ).fetchone()["admin_blocked_until"] is None
-
-    # A PIN POST is an attempt, so it gets the foreign-installation lock.
-    locked = attempt(api_client, foreign, "7392")
-    assert locked["state"] == "blocked"
-    before = conn.execute(
-        "SELECT admin_blocked_until FROM devices WHERE id=%s", (foreign["X-Device-Id"],)
-    ).fetchone()["admin_blocked_until"]
-    assert api_client.get("/admin/access", headers=foreign).json() == locked
-    after = conn.execute(
-        "SELECT admin_blocked_until FROM devices WHERE id=%s", (foreign["X-Device-Id"],)
-    ).fetchone()["admin_blocked_until"]
-    assert after == before
-
-    conn.execute(
-        "UPDATE devices SET admin_blocked_until=now()-interval '1 second' WHERE id=%s",
-        (foreign["X-Device-Id"],),
-    )
-    assert api_client.get("/admin/access", headers=foreign).json()["state"] == "awaiting_approval"
-    assert conn.execute(
-        "SELECT admin_blocked_until < clock_timestamp() AS expired FROM devices WHERE id=%s",
-        (foreign["X-Device-Id"],),
-    ).fetchone()["expired"] is True
 
 
 @pytest.mark.parametrize("database", [11], indirect=True)
 def test_without_installation_lock_migration_is_unavailable(database, api_client, device):
     assert attempt(api_client, device.headers(), "7392")["state"] == "unavailable"
+
 
 
 def test_only_one_admin_and_revocation(api_client, approved, installation, conn):
@@ -104,7 +85,8 @@ def test_only_one_admin_and_revocation(api_client, approved, installation, conn)
     rows = conn.execute("SELECT id FROM devices WHERE is_admin").fetchall()
     assert [str(row["id"]) for row in rows] == [approved["X-Device-Id"]]
     assert set_admin(conn, approved["X-Device-Id"], False) == 0
-    assert attempt(api_client, approved, "7392")["state"] == "blocked"
+    assert attempt(api_client, approved, "7392")["state"] == "authorized"
+
 
 
 def test_parallel_attempts_cannot_bypass_limit(api_client, approved, conn):
@@ -114,10 +96,12 @@ def test_parallel_attempts_cannot_bypass_limit(api_client, approved, conn):
     assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == 3
 
 
+
 def test_expired_lock_resets_attempts(api_client, approved, conn):
     conn.execute("UPDATE admin_access SET failures=3, locked_until=now()-interval '1 second'")
     assert api_client.get("/admin/access", headers=approved).json()["attempts_remaining"] == 3
     assert attempt(api_client, approved)["attempts_remaining"] == 2
+
 
 
 @pytest.mark.parametrize("database", [10], indirect=True)
@@ -125,6 +109,7 @@ def test_without_admin_migration_core_remains_available(database, api_client, de
     assert api_client.get("/health").status_code == 200
     assert api_client.get("/workload").status_code == 200
     assert attempt(api_client, device.headers(), "7392")["state"] == "unavailable"
+
 
 
 def test_approval_command_preserves_lock(database, approved, installation, conn, monkeypatch):
@@ -145,3 +130,77 @@ def test_approval_command_preserves_lock(database, approved, installation, conn,
     assert str(row["approved_device_id"]) == fresh.device_id
     assert row["failures"] == 3
     assert row["locked_until"] == before
+
+
+
+def test_new_installation_can_take_admin_after_correct_pin(
+    api_client, approved, installation, conn
+):
+    assert attempt(api_client, approved, "7392")["state"] == "authorized"
+    fresh = installation().headers()
+    before = conn.execute(
+        "SELECT approved_device_id, failures, locked_until FROM admin_access"
+    ).fetchone().copy()
+    ready = api_client.get("/admin/access", headers=fresh).json()
+    assert ready == {"state": "ready", "attempts_remaining": 3, "locked_until": None}
+    assert conn.execute(
+        "SELECT approved_device_id, failures, locked_until FROM admin_access"
+    ).fetchone() == before
+    assert attempt(api_client, fresh, "7392")["state"] == "authorized"
+    admins = conn.execute("SELECT id FROM devices WHERE is_admin").fetchall()
+    assert [str(row["id"]) for row in admins] == [fresh["X-Device-Id"]]
+    assert str(conn.execute(
+        "SELECT approved_device_id FROM admin_access"
+    ).fetchone()["approved_device_id"]) == fresh["X-Device-Id"]
+    assert api_client.get("/admin/telemetry", headers=approved).status_code == 403
+    assert api_client.get("/admin/telemetry", headers=fresh).status_code == 200
+
+
+
+@pytest.mark.parametrize("database", [13], indirect=True)
+def test_new_installation_stays_closed_without_014(
+    database, api_client, approved, installation, conn
+):
+    fresh = installation().headers()
+    assert api_client.get("/admin/access", headers=fresh).json()["state"] == "awaiting_approval"
+    assert attempt(api_client, fresh, "7392")["state"] == "blocked"
+    assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == 0
+
+
+
+def test_installation_without_fcm_cannot_take_admin(api_client, approved, installation, conn):
+    fresh = installation().headers()
+    conn.execute(
+        "UPDATE devices SET fcm_token=NULL WHERE id=%s", (fresh["X-Device-Id"],)
+    )
+    assert api_client.get("/admin/access", headers=fresh).json()["state"] == "unavailable"
+    assert attempt(api_client, fresh, "7392")["state"] == "unavailable"
+    row = conn.execute("SELECT approved_device_id, failures FROM admin_access").fetchone()
+    assert str(row["approved_device_id"]) == approved["X-Device-Id"]
+    assert row["failures"] == 0
+    assert conn.execute("SELECT count(*) AS n FROM devices WHERE is_admin").fetchone()["n"] == 0
+
+
+
+def test_third_error_and_correct_pin_are_serialized(
+    api_client, approved, installation, conn
+):
+    fresh = installation().headers()
+    conn.execute("UPDATE admin_access SET failures=2 WHERE singleton")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        wrong = pool.submit(attempt, api_client, approved, "0000")
+        correct = pool.submit(attempt, api_client, fresh, "7392")
+        states = [wrong.result()["state"], correct.result()["state"]]
+    row = conn.execute(
+        "SELECT approved_device_id, failures, locked_until FROM admin_access"
+    ).fetchone()
+    admins = conn.execute("SELECT id FROM devices WHERE is_admin").fetchall()
+    if states == ["blocked", "blocked"]:
+        assert row["failures"] == 3 and row["locked_until"] is not None
+        assert str(row["approved_device_id"]) == approved["X-Device-Id"]
+        assert admins == []
+    else:
+        assert states == ["invalid_pin", "authorized"]
+        assert row["failures"] == 1 and row["locked_until"] is None
+        assert str(row["approved_device_id"]) == fresh["X-Device-Id"]
+        assert [str(admin["id"]) for admin in admins] == [fresh["X-Device-Id"]]
