@@ -1,5 +1,11 @@
 # Звірка трьох legacy PR залежностей
 
+**Актуалізація:** Python source-залишок #138 замінено після merge ORIGINAL
+[#56](https://github.com/ikstv/AvelRen-ORIGINAL/pull/56), main `08a16a2`.
+Фінальний head `e6e5586`: 5/5 CI checks; [аудит](PYTHON-BASE-UPDATE-2026-09-28.md).
+Нижче — первинний зріз до цього оновлення. #143/#140 лишаються відкритими
+задачами перенесення; наступний окремий компонент — Caddy.
+
 28.09.2026. База ORIGINAL: `c4ce7b9e36e0500e09f00574c19305dde9b08013`.
 Перевірено diff та точні head-коміти старих PR, поточні файли нового
 репозиторію, доступність запропонованих image manifests і Actions commits.

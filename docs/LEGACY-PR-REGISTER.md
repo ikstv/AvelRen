@@ -18,16 +18,16 @@
 | [#173 — generated STATE.md](https://github.com/ikstv/AvelRen/pull/173) | **Свідомо відкинуто** | Це автоматично згенерований знімок старого репозиторію, не джерело актуального стану міграції. | Залишити як історичний запис. |
 | [#143 — Compose image updates](https://github.com/ikstv/AvelRen/pull/143) | **Ще треба перенести** | Залежності треба брати з актуального registry та перевіряти на current Compose/restore contract, а не переносити старі pins. | Окремий dependency-update PR після compatibility test. |
 | [#140 — GitHub Actions updates](https://github.com/ikstv/AvelRen/pull/140) | **Ще треба перенести** | Новий CI має іншу структуру; старий workflow diff не придатний для прямого merge. | Окремо перевірити актуальні версії Actions і оновити current workflows. |
-| [#138 — Python image](https://github.com/ikstv/AvelRen/pull/138) | **Ще треба перенести** | Старий Dockerfile і образи відрізняються від `ORIGINAL`; перевірки PR застаріли. | Окремий image-update PR з rebuild, tests і CVE review. |
+| [#138 — Python image](https://github.com/ikstv/AvelRen/pull/138) | **Замінено новою реалізацією** | ORIGINAL PR #56 злитий у main `08a16a2`: узгоджені Python image pins, CVE baseline review, NNP/cap_drop п'яти Python-служб; фінальний head `e6e5586` має 5/5 CI checks. | Старий PR не merge; production-приймання та залишкові CVE не вважати закритими. |
 | [#137 — server-status badge](https://github.com/ikstv/AvelRen/pull/137) | **Замінено новою реалізацією** | Контракт плашки реалізовано й прийнято через `ORIGINAL` PR #19, #20 та #46–#49: technical works → restart → online перевірено на телефоні під час реального reboot. | Старий PR не merge. |
 | [#123 — правила актуальності сигналу](https://github.com/ikstv/AvelRen/pull/123) | **Замінено новою реалізацією** | Принцип «перевіряти світ, а не старе твердження» застосовано в `CROSS-SOURCE-AUDIT`, `PRODUCTION-AUDIT` та release evidence. | Старий документ не переносити окремо. |
 
 ## Висновок
 
-З 11 відкритих legacy PR: 6 замінені новими реалізаціями, 2 свідомо
-відкинуті, 3 залишаються окремими контрольованими задачами. Отже старий
-`AvelRen` ще не можна видаляти: залишаються три звірки залежностей
-(#143 Compose images, #140 Actions, #138 Python image), а production migration,
+З 11 legacy PR цього реєстру: 7 замінені новими реалізаціями, 2 свідомо
+відкинуті, 2 залишаються окремими контрольованими задачами. Отже старий
+`AvelRen` ще не можна видаляти: залишаються дві задачі залежностей
+(#143 Compose images, #140 Actions), а production migration,
 backup/restore та ролі БД мають власні критерії приймання.
 Попередня позначка #185 як неперенесеного була застарілою; її виправлено
 за кодом, а не лише за підсумковим лічильником. Єдиний список залишків —
@@ -38,5 +38,6 @@ backup/restore та ролі БД мають власні критерії пр�
 
 Звірку #143/#140/#138 завершено 28.09.2026:
 [точні pins, файли й критерії приймання](LEGACY-DEPENDENCY-AUDIT.md).
-#140 означає перенесення відсутніх SBOM/CodeQL jobs; усі три PR залишаються
-у статусі «ще треба перенести» до відповідної реалізації та перевірок.
+#140 означає перенесення відсутніх SBOM/CodeQL jobs. Після merge #56
+legacy #138 позначено заміненим; #143 і #140 лишаються незавершеними.
+Стани старих GitHub PR у цьому кроці не змінювались.
