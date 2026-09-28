@@ -89,6 +89,9 @@ services:
       timeout: 2s
       retries: 30
   test:
+    # The private evidence directory belongs to the invoking test user.
+    # Root without DAC_OVERRIDE cannot write a different user's mode-0700 dir.
+    user: "$(id -u):$(id -g)"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     build:

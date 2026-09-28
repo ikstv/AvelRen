@@ -264,8 +264,8 @@ smoke пройшов на реальному runtime-образі з його ш
   синтетичні файли `/var/log` та `/var/lib`. Початковий запуск під UID10001
   дав п'ять PermissionError; лише цей suite явно запускається як UID0,
   зі збереженими NNP/cap_drop. Код snapshot не змінювався.
-- Restore evidence generator лишається UID0 для тимчасового evidence
-  каталогу, але має NNP/cap_drop та runtime-перевірку порожніх capabilities.
+- Restore evidence generator працює під UID/GID власника тимчасового evidence
+  каталогу, має NNP/cap_drop та runtime-перевірку порожніх capabilities.
   Це перевірка сумісності restore з обмеженнями, не повне відтворення
   production USER/volumes. Перевірка реального сервера залишається окремою.
 
@@ -282,3 +282,13 @@ Restore завершився кодом 0: 14 міграцій, least-privilege 
 відновлення в restore_test та cleanup після навмисної помилки пройшли.
 Review не виявив блокувальних зауважень. До готовності PR лишається CI
 точного нового коміту; source hardening не є production-прийманням.
+
+CI першої hardening-версії `a74957c` виявив Linux PermissionError під час
+запису `/evidence/recovery-evidence.json`: каталог mode 0700 належить runner,
+а UID0 без DAC_OVERRIDE не має доступу. Docker Desktop bind mount цього
+локально не відтворив. Виправлено лише disposable restore-клієнт: його
+UID/GID відповідають `id -u`/`id -g` виконавця тесту. Права каталогу не
+послаблювали, capabilities не повертали. Потрібен повторний Linux CI.
+Додатковий локальний Linux tmpfs probe (uid/gid 1001, mode 0700) підтвердив:
+UID0 без capabilities не має доступу; UID1001 без capabilities успішно
+записує й читає синтетичний файл. Host mounts у цій перевірці не було.
