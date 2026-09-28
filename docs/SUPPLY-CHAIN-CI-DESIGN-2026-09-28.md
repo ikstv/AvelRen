@@ -1,10 +1,10 @@
 # Дизайн supply-chain перевірок CI
 
 **Стан на 28.09.2026.** Перевірено `AvelRen-ORIGINAL` main
-`b7fd02e4f0c4dd8e1b7467767b2155d6429a0d84`, workflow, legacy PR #140,
+`4cc23bf106390f2236502019c27615fb05f3bf1a`, workflow, legacy PR #140,
 issue #23, видимість/власника репозиторію та поточні правила GitHub.
 Цей документ фіксує рішення для наступного кодування; CI і settings тут
-не змінювались.
+не змінювались під час початкового аудиту.
 
 ## SBOM: рекомендований обсяг
 
@@ -67,3 +67,10 @@ Gradle locking/checksum, Dependabot, audits і локальний test-stack cle
 а також GitHub `upload-artifact v7.0.1` повними SHA. Container image SBOM
 винести в окремий етап після узгодження candidate image pipeline. CodeQL
 пункт позначати blocked-by-license, а не як неготовий workflow.
+
+Перевірка фактичного artifact на main виявила, що Syft не підхопив 35 Python
+пакетів із `requirements.lock`, тоді як Android lock дав 357 Maven-компонентів.
+Syft Python cataloger розпізнає `*requirements*.txt`; тому workflow тимчасово
+створює поруч `requirements.txt` з точним вмістом hash-locked файла, валідує
+наявність кожного pinned пакета в CycloneDX і завжди прибирає копію.
+Див. [підтримувані Python manifests Syft](https://oss.anchore.com/docs/capabilities/python/).

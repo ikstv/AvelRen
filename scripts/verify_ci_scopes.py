@@ -58,6 +58,14 @@ if checkout.get("with", {}).get("persist-credentials") != "false":
     raise SystemExit("Supply-chain checkout must not persist credentials")
 
 generate = next(step for step in steps if step.get("uses", "").startswith("anchore/sbom-action@"))
+prepare_index = next(
+    index for index, step in enumerate(steps)
+    if "cp services/backend/requirements.lock services/backend/requirements.txt"
+    in step.get("run", "")
+)
+generate_index = steps.index(generate)
+if prepare_index >= generate_index:
+    raise SystemExit("Python lock must be exposed before Syft scans the source tree")
 generate_with = generate.get("with", {})
 if generate_with.get("path") != "." or generate_with.get("format") != "cyclonedx-json":
     raise SystemExit("Source SBOM must scan the repository as CycloneDX JSON")
@@ -65,6 +73,19 @@ if generate_with.get("syft-version") != "v1.51.1":
     raise SystemExit("Syft version must be explicitly pinned")
 if generate_with.get("upload-artifact") != "false" or generate_with.get("upload-release-assets") != "false":
     raise SystemExit("Anchore artifact and release uploads must remain disabled")
+
+validate_index = next(
+    index for index, step in enumerate(steps)
+    if "scripts/verify_source_sbom.py" in step.get("run", "")
+)
+cleanup_index = next(
+    index for index, step in enumerate(steps)
+    if "rm -f services/backend/requirements.txt" in step.get("run", "")
+)
+if not generate_index < validate_index < cleanup_index:
+    raise SystemExit("Validate the Python lock from the SBOM before cleaning the temporary alias")
+if steps[cleanup_index].get("if") != "always()":
+    raise SystemExit("Temporary Python requirements alias must be cleaned even after scan failures")
 
 upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
 upload_with = upload.get("with", {})
