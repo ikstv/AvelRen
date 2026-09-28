@@ -170,6 +170,11 @@ for service_name, own_sentinel in expected.items():
     service = services.get(service_name)
     if not isinstance(service, dict):
         fail(f"service {service_name} missing")
+    security_options = {str(value).replace("=", ":") for value in service.get("security_opt", [])}
+    if "no-new-privileges:true" not in security_options:
+        fail(f"service {service_name} must enable no-new-privileges")
+    if "ALL" not in service.get("cap_drop", []) or service.get("cap_add") or service.get("privileged"):
+        fail(f"service {service_name} must drop all capabilities without overrides")
     if "env_file" in service:
         fail(f"service {service_name} uses env_file")
     environment = environment_mapping(service)

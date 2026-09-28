@@ -36,6 +36,7 @@ trap cleanup EXIT
 
 # Образ будується до запуску контейнерів у мережі без зовнішнього доступу.
 compose build test
+compose run --rm --no-deps -T test python ops/verify-python-container-security.py </dev/null
 compose up -d --wait test-db
 compose exec -T \
     -e AVELREN_TEST_DB=1 -e AVELREN_DB_NAME=avelren_database_test \
@@ -57,7 +58,9 @@ else
         --ignore=services/backend/tests/database/watchdog -q -p no:cacheprovider </dev/null
 fi
 if [ "$SUITE" = watchdog ]; then
-    compose run --rm --no-deps -T -e AVELREN_SNAPSHOT_TEST=1 test python -m pytest \
+    # This suite models the separate root-owned host systemd snapshot, not
+    # the unprivileged Python watchdog. Keep the capability/NNP restrictions.
+    compose run --rm --no-deps -T --user 0:0 -e AVELREN_SNAPSHOT_TEST=1 test python -m pytest \
         -c services/backend/pytest.ini services/backend/tests/snapshot \
         -q -p no:cacheprovider </dev/null
 fi

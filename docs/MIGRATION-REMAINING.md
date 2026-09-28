@@ -43,7 +43,10 @@ Baseline-порівняння: 121 прибраний scanner finding, 0 нов�
 в database CI PR #56. Причину CI (SIGPIPE у pipeline з grep -q) відтворено
 й виправлено, 4/4 регресійні тести та 5/5 GitHub checks head `f8b78bf` пройшли.
 Системний CVE review завершив первинну оцінку: залишилися SUID-утиліти
-та NoNewPrivs=0. Наступний крок — перевірене посилення п'яти Python-служб
-через no-new-privileges/cap_drop; PostgreSQL і Caddy не змінювати побічно;
+та NoNewPrivs=0. Посилення п'яти Python-служб через no-new-privileges/cap_drop
+реалізовано, локальний runtime guard та 8/8 Compose регресій пройшли.
+Інтеграційна матриця DB/API/watchdog/snapshot/restore пройшла локально;
+перед merge потрібне підтвердження CI нового head;
+PostgreSQL і Caddy не змінені;
 #138 поки не закрито, PR залишається чернеткою.
 Серверні операції мають окремі дозволи за AGENTS.md.

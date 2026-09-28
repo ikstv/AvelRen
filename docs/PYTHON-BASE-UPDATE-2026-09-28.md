@@ -1,8 +1,8 @@
 # Кандидат оновлення Python — 28.09.2026
 
-Статус: функціональні перевірки й первинний розбір CVE завершено; залишковий
-ризик SUID/capabilities ще потребує рішення й перевіреного посилення захисту.
-Не зливати й не розгортати до закриття цього gate. Legacy PR #138 поки
+Статус: функціональні перевірки й первинний розбір CVE завершено; посилення
+захисту Python-служб реалізовано, результати приймання наведено в кінці.
+Не розгортати без окремого production GO. Legacy PR #138 поки
 залишається відкритим залишком перенесення.
 
 ## Зміна
@@ -238,3 +238,47 @@ scanner exclusions. Нижчі severity з raw scan також не оголош
 підвищення привілеїв, але не видаляє CVE з пакетів і не усуває DoS-класи.
 Після перевірок — окремо оцінити готовність merge; production deployment
 потребує власного GO та звірки фактичних overrides. PR #56 лишається draft.
+
+## Посилення Python-служб (28.09.2026)
+
+За окремим погодженням власника в source Compose додано спільний блок
+`security_opt: ["no-new-privileges:true"]` і `cap_drop: [ALL]` лише для
+migrate, collector, notifier, watchdog та api. PostgreSQL і Caddy не
+успадковують блок. Dockerfile і прикладний код у цьому кроці не змінені.
+
+Contract guard перевіряє обидва обмеження та відхиляє cap_add/privileged.
+Регресії перевіряють правильну модель, SIGPIPE/failure сценарії, пропущений
+NNP у кожній Python-службі, cap_add у кожній службі, порожній cap_drop і
+privileged:true. До зміни Compose позитивний тест падав на відсутньому NNP;
+після — **8/8 тестів пройшли** (включно з параметризованими subtests).
+
+DB/API/watchdog тестовий клієнт тепер працює як UID/GID 10001 з обома
+обмеженнями. Перед suite читаються `/proc/self/status` і перевіряються
+NoNewPrivs=1 та нульові CapInh/CapPrm/CapEff/CapBnd/CapAmb. Такий самий
+smoke пройшов на реальному runtime-образі з його штатним USER 10001.
+Усі **200 unit-тестів** пройшли під UID10001 з цими обмеженнями.
+
+Окремі тестові винятки, які не змінюють production Python-служби:
+
+- Host-telemetry snapshot моделює root-owned systemd-сценарій і створює
+  синтетичні файли `/var/log` та `/var/lib`. Початковий запуск під UID10001
+  дав п'ять PermissionError; лише цей suite явно запускається як UID0,
+  зі збереженими NNP/cap_drop. Код snapshot не змінювався.
+- Restore evidence generator лишається UID0 для тимчасового evidence
+  каталогу, але має NNP/cap_drop та runtime-перевірку порожніх capabilities.
+  Це перевірка сумісності restore з обмеженнями, не повне відтворення
+  production USER/volumes. Перевірка реального сервера залишається окремою.
+
+Обмеження не видаляють SUID-бінарники чи бібліотеки з образу й не зменшують
+raw CVE counts. Вони забороняють отримання додаткових привілеїв через exec
+та прибирають capability bounding set. Ризики непривілейованого DoS або
+окремого build-time toolchain потребують своїх виправлень; scanner ignores
+не додавалися. Для deployment слід перевірити фактичні overrides та права
+читання bind mounts UID10001, а не покладатися лише на source Compose.
+
+Підсумок локальної матриці: database suite та pg_dump успішні, API **56 passed**,
+watchdog **9 passed**, host snapshot **5 passed** після описаного розділення UID.
+Restore завершився кодом 0: 14 міграцій, least-privilege schema/API smoke,
+відновлення в restore_test та cleanup після навмисної помилки пройшли.
+Review не виявив блокувальних зауважень. До готовності PR лишається CI
+точного нового коміту; source hardening не є production-прийманням.

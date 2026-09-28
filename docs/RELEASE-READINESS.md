@@ -10,8 +10,11 @@ CI head `bcbccda`: api/core/repository/watchdog пройшли; database впа�
 на Compose-контракті. SIGPIPE-причину виправлено з 4/4 локальними регресійними
 тестами; head `f8b78bf` має 5/5 успішних CI checks. Baseline CVE-порівняння
 показало покращення; системний review виявив залишкові SUID/NoNewPrivs=0.
-Посилення прав Python-контейнерів запропоновано, ще не реалізовано;
-security gate лишається відкритим. Production не змінювався;
+Посилення прав п'яти Python-контейнерів реалізовано через NNP/cap_drop;
+200 unit, 8/8 Compose регресій та фактичний runtime security guard пройшли.
+Інтеграційна матриця DB/API/watchdog/snapshot/restore також пройшла локально;
+CI нового head потрібно підтвердити окремо.
+Production не змінювався;
 Android-збірка, телефон і Play у цьому кроці не виконувалися.
 
 ## Попередній запис цільової версії

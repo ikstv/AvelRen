@@ -75,6 +75,34 @@ class ProfileGuardTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("migrate is not reachable", result.stderr)
 
+    def test_each_python_service_rejects_missing_no_new_privileges(self):
+        for name in ("migrate", "collector", "notifier", "watchdog", "api"):
+            with self.subTest(service=name):
+                result = self.run_contract(lambda text: text.replace(
+                    f"  {name}:\n", f"  {name}:\n    security_opt: []\n", 1))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"service {name} must enable no-new-privileges", result.stderr)
+
+    def test_each_python_service_rejects_capability_override(self):
+        for name in ("migrate", "collector", "notifier", "watchdog", "api"):
+            with self.subTest(service=name):
+                result = self.run_contract(lambda text: text.replace(
+                    f"  {name}:\n", f"  {name}:\n    cap_add: [SYS_ADMIN]\n", 1))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"service {name} must drop all capabilities", result.stderr)
+
+    def test_rejects_missing_cap_drop(self):
+        result = self.run_contract(lambda text: text.replace(
+            "  api:\n", "  api:\n    cap_drop: []\n", 1))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("service api must drop all capabilities", result.stderr)
+
+    def test_rejects_privileged_service(self):
+        result = self.run_contract(lambda text: text.replace(
+            "  collector:\n", "  collector:\n    privileged: true\n", 1))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("service collector must drop all capabilities", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
