@@ -2,6 +2,13 @@
 
 ## Кандидат Python runtime (28.09.2026)
 
+**Актуальний стан:** PR #56 злитий у main `08a16a2`; фінальний head
+`e6e5586` має 5/5 успішних CI checks. Source hardening і Python image
+оновлення прийняті. Production deployment, перевірка фактичних overrides
+і доступу UID10001 до bind mounts не виконані. Залишкові CVE збережені
+в аудиті; merge не є підтвердженням їх повного усунення.
+Нижче збережено проміжний запис етапів.
+
 У гілці `codex/python-base-refresh` узгоджено оновлено Python base обох
 Dockerfile. Локальні build/backend/DB/API/watchdog/restore перевірки пройшли;
 приймання CVE **не завершене**, merge та розгортання поки не виконуються.

@@ -18,7 +18,7 @@
 
 | Блок | Конкретний результат для закриття |
 | --- | --- |
-| Залежності legacy #143/#140/#138 | Звірити сучасні Compose/Python images і Actions з ORIGINAL; для кожного зафіксувати «вже замінено», оновлення з тестами або обґрунтоване відкладення. Старі pins не копіювати автоматично. |
+| Залежності legacy #143/#140 | Python (#138) замінено в PR #56. Залишилися Caddy, окремий TimescaleDB upgrade rehearsal і supply-chain CI. Старі pins не копіювати автоматично. |
 | Forecast issue #111 | Звірити семантику відсутнього wait_time та критерії якості. Held-out evaluation вже реалізовано; повторний перенос не потрібний. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
@@ -30,23 +30,20 @@
 
 GitHub: AvelRen має 11 відкритих PR і 8 відкритих issues;
 AvelRen-ops — 0 відкритих PR та 0 відкритих issues.
-За [реєстром PR](LEGACY-PR-REGISTER.md): 6 замінені, 2 відкинуті з причиною,
-3 потребують звірки залежностей. Issue #195 закрита 26.09.2026.
+За [реєстром PR](LEGACY-PR-REGISTER.md): 7 замінені, 2 відкинуті з причиною,
+2 потребують завершення залежностей. Issue #195 закрита 26.09.2026.
 Відсутність відкритих питань у ops не означає завершеного перенесення файлів.
 
 Звірку трьох dependency PR завершено в [LEGACY-DEPENDENCY-AUDIT.md](LEGACY-DEPENDENCY-AUDIT.md):
 оновлення образів ще потрібні, а #140 стосується відсутніх SBOM/CodeQL jobs.
-Кандидат Python у двох Dockerfile зібрано й перевірено локально, але
-CVE review ще не завершене: [результати й знахідки](PYTHON-BASE-UPDATE-2026-09-28.md).
-Baseline-порівняння: 121 прибраний scanner finding, 0 нових; Python/SBOM
-знахідки уточнено. Відкриті системна оцінка ризиків і помилка Compose-контракту
-в database CI PR #56. Причину CI (SIGPIPE у pipeline з grep -q) відтворено
-й виправлено, 4/4 регресійні тести та 5/5 GitHub checks head `f8b78bf` пройшли.
-Системний CVE review завершив первинну оцінку: залишилися SUID-утиліти
-та NoNewPrivs=0. Посилення п'яти Python-служб через no-new-privileges/cap_drop
-реалізовано, локальний runtime guard та 8/8 Compose регресій пройшли.
-Інтеграційна матриця DB/API/watchdog/snapshot/restore пройшла локально;
-перед merge потрібне підтвердження CI нового head;
-PostgreSQL і Caddy не змінені;
-#138 поки не закрито, PR залишається чернеткою.
+PR [#56](https://github.com/ikstv/AvelRen-ORIGINAL/pull/56) злитий 28.09.2026
+у main `08a16a254e25b67ce590475957380e66062de10d`. Фінальний head `e6e5586`
+має 5/5 успішних CI checks. Python pins узгоджено, CVE baseline review
+зафіксовано, NNP/cap_drop п'яти Python-служб та Compose-регресії прийнято.
+Локальні unit/DB/API/watchdog/snapshot/restore перевірки пройшли.
+[Докази та залишкові ризики](PYTHON-BASE-UPDATE-2026-09-28.md).
+Legacy #138 закрито саме як пункт source-перенесення, не як production
+deployment чи усунення всіх CVE. Старі репозиторії та їх PR не змінювалися.
+Наступний малий крок — окреме оновлення Caddy з validate та тестом маршрутизації;
+TimescaleDB не оновлювати разом із ним.
 Серверні операції мають окремі дозволи за AGENTS.md.
