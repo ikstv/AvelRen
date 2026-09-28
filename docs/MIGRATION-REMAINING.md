@@ -46,6 +46,8 @@ Legacy #138 закрито саме як пункт source-перенесенн�
 deployment чи усунення всіх CVE. Старі репозиторії та їх PR не змінювалися.
 Caddy 2.11.4 та виправлення IP-заголовка злиті PR #58 у main `64511b8`;
 4/4 CI merge-коміту успішні. [Докази](CADDY-UPDATE-2026-09-28.md).
-Наступний кандидат — [ізольована TimescaleDB upgrade-репетиція](TIMESCALE-UPGRADE-2026-09-28.md)
-у `codex/timescale-upgrade-rehearsal`; production pins не змінені, #143 не закрито.
+[Ізольована TimescaleDB upgrade-репетиція](TIMESCALE-UPGRADE-2026-09-28.md)
+злита PR #59 (main `dc2b83e`, 4/4 CI успішні). У `codex/timescale-image-refresh`
+підготовлено три pins 2.30.1 для Compose/DB/restore. До завершення CI та merge
+#143 не закриваємо як source-залишок. Production deployment — окремий етап.
 Серверні операції мають окремі дозволи за AGENTS.md.
