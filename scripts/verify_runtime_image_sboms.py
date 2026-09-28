@@ -1,9 +1,9 @@
 """Перевіряє покриття Python та OS пакетів у runtime image SBOMs."""
 
+from pathlib import Path
 import json
 import re
 import sys
-from pathlib import Path
 
 
 sbom_dir = Path(sys.argv[1])
