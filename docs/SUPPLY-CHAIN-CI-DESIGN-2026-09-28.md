@@ -1,16 +1,17 @@
 # Дизайн supply-chain перевірок CI
 
 **Стан на 28.09.2026.** Перевірено `AvelRen-ORIGINAL` main
-`c3630eb3c93a6e4e297ec274d854325c35f8066e`, workflow, legacy PR #140,
+`b7fd02e4f0c4dd8e1b7467767b2155d6429a0d84`, workflow, legacy PR #140,
 issue #23, видимість/власника репозиторію та поточні правила GitHub.
 Цей документ фіксує рішення для наступного кодування; CI і settings тут
 не змінювались.
 
 ## SBOM: рекомендований обсяг
 
-1. Додати окремий `supply-chain.yml`, щоб SBOM не запускав усі компонентні
-   тести повторно. Запускати для PR і push у `main` за змінами manifests,
-   lock-файлів, Dockerfile, Compose та самого workflow.
+1. Окремий `.github/workflows/supply-chain.yml` запускається незалежно від
+   компонентних тестів на кожен PR у `main` і push у `main`: легкий
+   source scan виконується швидко, а широке охоплення не пропускає нові типи
+   manifests/lock-файлів через неповний path filter.
 2. Генерувати CycloneDX JSON для дерева вихідного коду. Це описує залежності,
    які Syft розпізнає в репозиторії; це не є переліком пакетів усередині
    production container images.
@@ -62,7 +63,7 @@ Issue #23 ширша: Python hashes і container digests уже частково
 Gradle locking/checksum, Dependabot, audits і локальний test-stack cleanup
 потребують окремого інвентарного рішення.
 
-Наступна реалізаційна задача: додати лише source SBOM artifact за пунктами
-1–4, перевірити його на PR і main, а container image SBOM винести в окремий
-етап після узгодження candidate image pipeline. CodeQL пункт позначати
-blocked-by-license, а не як неготовий workflow.
+Поточна реалізація pin-ить Anchore SBOM Action `v0.24.2` і Syft `v1.51.1`,
+а також GitHub `upload-artifact v7.0.1` повними SHA. Container image SBOM
+винести в окремий етап після узгодження candidate image pipeline. CodeQL
+пункт позначати blocked-by-license, а не як неготовий workflow.

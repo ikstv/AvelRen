@@ -2,6 +2,7 @@
 
 from fnmatch import fnmatchcase
 from pathlib import Path
+import re
 
 import yaml
 
@@ -32,4 +33,46 @@ for event in ("pull_request", "push"):
         }
         if actual != expected:
             raise SystemExit(f"CI scope mismatch: {event} {file}: {actual} != {expected}")
-print(f"CI scopes: {len(cases) * 2} examples passed")
+
+supply_chain = yaml.load(
+    (root / ".github/workflows/supply-chain.yml").read_text(encoding="utf-8"),
+    Loader=yaml.BaseLoader,
+)
+if set(supply_chain["on"]) != {"pull_request", "push"}:
+    raise SystemExit("Supply-chain workflow must run on PRs and pushes")
+if supply_chain["on"]["pull_request"]["branches"] != ["main"]:
+    raise SystemExit("Supply-chain PR scan must target main")
+if supply_chain["on"]["push"]["branches"] != ["main"]:
+    raise SystemExit("Supply-chain push scan must be limited to main")
+if supply_chain["permissions"] != {"contents": "read"}:
+    raise SystemExit("Supply-chain workflow must use contents: read only")
+
+steps = supply_chain["jobs"]["source-sbom"]["steps"]
+uses = [step.get("uses", "") for step in steps]
+for action in uses:
+    if action and not re.fullmatch(r"[^@]+@[0-9a-f]{40}", action):
+        raise SystemExit(f"Action is not pinned to a full SHA: {action}")
+
+checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+if checkout.get("with", {}).get("persist-credentials") != "false":
+    raise SystemExit("Supply-chain checkout must not persist credentials")
+
+generate = next(step for step in steps if step.get("uses", "").startswith("anchore/sbom-action@"))
+generate_with = generate.get("with", {})
+if generate_with.get("path") != "." or generate_with.get("format") != "cyclonedx-json":
+    raise SystemExit("Source SBOM must scan the repository as CycloneDX JSON")
+if generate_with.get("syft-version") != "v1.51.1":
+    raise SystemExit("Syft version must be explicitly pinned")
+if generate_with.get("upload-artifact") != "false" or generate_with.get("upload-release-assets") != "false":
+    raise SystemExit("Anchore artifact and release uploads must remain disabled")
+
+upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
+upload_with = upload.get("with", {})
+if upload_with.get("retention-days") != "30" or upload_with.get("if-no-files-found") != "error":
+    raise SystemExit("SBOM artifact must fail if absent and expire after 30 days")
+if upload_with.get("name") != "source-sbom-${{ github.sha }}":
+    raise SystemExit("SBOM artifact name must include the source commit SHA")
+if upload_with.get("path") != "${{ runner.temp }}/avelren-source.cdx.json":
+    raise SystemExit("SBOM artifact must upload the generated file from runner temp")
+
+print(f"CI scopes: {len(cases) * 2} examples passed; supply-chain workflow contract passed")
