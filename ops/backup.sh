@@ -15,23 +15,39 @@ KEEP_WEEKLY=${AVELREN_KEEP_WEEKLY:-4}
 KEEP_MONTHLY=${AVELREN_KEEP_MONTHLY:-3}
 BACKUP_DB_USER=${AVELREN_BACKUP_DB_USER:-avelren_backup}
 BACKUP_DB_PASSWORD=${AVELREN_BACKUP_PASSWORD:-}
+RECEIPT=${AVELREN_BACKUP_RECEIPT:-}
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
 fail() { log "ERROR: $*" >&2; exit 1; }
 
 DUMP=
 MANIFEST=
+RECEIPT_TEMP=
 cleanup() {
     local status=$?
     trap - EXIT HUP INT TERM
     [ -z "$DUMP" ] || rm -f -- "$DUMP"
     [ -z "$MANIFEST" ] || rm -f -- "$MANIFEST"
+    [ -z "$RECEIPT_TEMP" ] || rm -f -- "$RECEIPT_TEMP"
     exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+if [ -n "$RECEIPT" ]; then
+    receipt_parent=$(dirname -- "$RECEIPT")
+    [ -d "$receipt_parent" ] || fail "backup receipt parent directory does not exist"
+    receipt_parent=$(realpath -e -- "$receipt_parent") || fail "backup receipt parent directory is invalid"
+    receipt_name=$(basename -- "$RECEIPT")
+    [ "$receipt_name" != . ] && [ "$receipt_name" != .. ] || fail "backup receipt path is invalid"
+    RECEIPT="$receipt_parent/$receipt_name"
+    if [ "$(id -u)" -eq 0 ]; then
+        [ "$(stat -c %u "$receipt_parent")" -eq 0 ] || fail "backup receipt parent must be root-owned"
+    fi
+    rm -f -- "$RECEIPT"
+fi
 
 [ "$BACKUP_DB_USER" = avelren_backup ] || fail "backup database role must be avelren_backup"
 [ -n "$BACKUP_DB_PASSWORD" ] || fail "backup database password is required"
@@ -51,6 +67,12 @@ remote_type=$(rclone config show "$REMOTE_NAME" --config "$RCLONE_CONFIG" 2>/dev
 mkdir -p -- "$WORK_DIR"
 chmod 0700 -- "$WORK_DIR"
 [ "$(stat -c %a "$WORK_DIR")" = 700 ] || fail "work directory does not have mode 0700"
+if [ -n "$RECEIPT" ]; then
+    work_real=$(realpath -e -- "$WORK_DIR") || fail "backup work directory is invalid"
+    case "$RECEIPT" in
+        "$work_real"|"$work_real"/*) fail "backup receipt must be outside the plaintext work directory" ;;
+    esac
+fi
 cd "$STACK_DIR"
 
 STAMP=$(date -u +%Y%m%d-%H%M%S)
@@ -125,6 +147,29 @@ for old in "${old_names[@]}"; do
     # would also mask genuine remote failures, so do not simplify to that.
     rclone delete "$REMOTE/$TIER/" --include "$old.sha256" --config "$RCLONE_CONFIG"
 done
+
+if [ -n "$RECEIPT" ]; then
+    RECEIPT_TEMP=$(mktemp "$receipt_parent/.${receipt_name}.XXXXXX")
+    chmod 0600 -- "$RECEIPT_TEMP"
+    created_at=$(date -u +%FT%TZ)
+    python3 - "$RECEIPT_TEMP" "$created_at" "$REMOTE_DUMP" "$REMOTE_MANIFEST" "$digest" "$bytes" <<'PY'
+import json
+import sys
+
+path, created_at, remote_artifact, remote_sidecar, digest, byte_count = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as receipt:
+    json.dump({
+        "created_at": created_at,
+        "remote_artifact": remote_artifact,
+        "remote_sidecar": remote_sidecar,
+        "sha256": digest,
+        "bytes": int(byte_count),
+    }, receipt, separators=(",", ":"))
+    receipt.write("\n")
+PY
+    mv -f -- "$RECEIPT_TEMP" "$RECEIPT"
+    RECEIPT_TEMP=
+fi
 
 mkdir -p -- "$(dirname "$STAMP_FILE")"
 touch -- "$STAMP_FILE"
