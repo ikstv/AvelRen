@@ -6,8 +6,10 @@
 **перенесено**, **частково перенесено**, **замінено**, **ще потрібно
 перенести** або **операційне спостереження**.
 
-Зріз GitHub: **2026-09-25**. Відкриті Issues: 9 у `AvelRen`, 0 у
-`AvelRen-ops`, 0 у `AvelRen-ORIGINAL` на час звірки. Закриті Issues старого
+Зріз джерел GitHub: **2026-09-28**. Відкриті Issues: 8 у `AvelRen`, 0 у
+`AvelRen-ops`. Issue #195 закрита 26.09.2026; її рядок нижче зберігає історичне
+спостереження. Поточні залишки — у [MIGRATION-REMAINING.md](MIGRATION-REMAINING.md).
+Закриті Issues старого
 репозиторію лишаються історичним доказом; повторно розглядати їх потрібно
 лише коли нова зміна торкається їхнього контракту.
 
@@ -15,7 +17,7 @@
 | --- | --- | --- | --- |
 | [#196 — maintenance перед reboot/deploy](https://github.com/ikstv/AvelRen/issues/196) | **Перенесено** | `ORIGINAL` PR #19/#20/#46–#49: technical works → restart → online підтверджено на телефоні під час контрольного production reboot 2026-09-27. | Стару Issue можна закрити окремим рішенням власника; автоматично не закривати. |
 | [#195 — порожній watchdog alert channel](https://github.com/ikstv/AvelRen/issues/195) | **Операційне спостереження** | Це стан живого каналу, а не пропущений файл міграції. На час перевірки Admin-пристрій був очікувано заблокований, тому live FCM token відсутній. | Не переносити як код; перевірити після розблокування пристрою та окремого дозволу на production. |
-| [#111 — forecast/ETA і нуль як відсутнє значення](https://github.com/ikstv/AvelRen/issues/111) | **Частково перенесено** | MAE=0/null уже виправлено в `ORIGINAL` перевіркою `is not None`; проте semantic contract для відсутнього `wait_time` та held-out evaluation зі старого #185 ще не прийняті. | Провести пофункціональну звірку forecast/ETA до вказаного Issue дедлайну 2026-10-29. |
+| [#111 — forecast/ETA і нуль як відсутнє значення](https://github.com/ikstv/AvelRen/issues/111) | **Частково перенесено** | MAE=0/null виправлено; held-out evaluation реалізовано в `forecast.py:evaluate` та перевірено `test_forecast_bounds.py`. Семантика відсутнього `wait_time` потребує окремого приймання. | Провести пофункціональну звірку forecast/ETA до вказаного Issue дедлайну 2026-10-29. |
 | [#110 — два ПК, доступи й синхронізація](https://github.com/ikstv/AvelRen/issues/110) | **Замінено** | Це історична операційна нотатка зі застарілими комітами й командами. Нові зміни працюють через окремі GitHub PR та чисті гілки. | Зберегти як історію; перед видаленням старого репозиторію перенести лише актуальні правила доступу в приватну ops-документацію. |
 | [#26 — загальний production hardening audit](https://github.com/ikstv/AvelRen/issues/26) | **Частково перенесено** | Його підпункти розкладені між CI, backup/restore, privacy, ролями БД та release readiness; один старий Issue не є доказом готовності. | Не закривати пакетно: звірити кожен підпункт із #15, #19, #23, #25 і поточними тестами. |
 | [#25 — privacy, retention, release runbooks](https://github.com/ikstv/AvelRen/issues/25) | **Частково перенесено** | Політика 90 днів без email-ведення, `/privacy` і release readiness уже є в ORIGINAL. Key escrow, повні runbooks і фінальне release-приймання не завершені. | Доробляти лише прийняті залишки; не закривати, доки evidence/recovery/release checklist не звірені. |
