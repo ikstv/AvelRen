@@ -14,6 +14,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Тимчасово відкрити Python lock для cataloger Syft
+        run: cp services/backend/requirements.lock services/backend/requirements.txt
       - name: Згенерувати CycloneDX SBOM для дерева джерел
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
@@ -23,6 +25,11 @@ jobs:
           syft-version: v1.51.1
           upload-artifact: false
           upload-release-assets: false
+      - name: Перевірити Python lock і SBOM
+        run: python3 scripts/verify_source_sbom.py "$RUNNER_TEMP/avelren-source.cdx.json" services/backend/requirements.lock
+      - name: Прибрати тимчасову копію lock-файла
+        if: always()
+        run: rm -f services/backend/requirements.txt
       - name: Зберегти SBOM як 30-денний artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
