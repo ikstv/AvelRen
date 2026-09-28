@@ -294,26 +294,6 @@ SQL
     }
     restore_log() { echo "$(date -u +%FT%TZ) $*"; }
 
-    # Invoked by the EXIT trap below.
-    # shellcheck disable=SC2329
-    restore_finalize() {
-        local primary_status=$?
-        trap - EXIT
-        if [ "$AVELREN_RESTORE_POST_PENDING" = true ]; then
-            set +e
-            restore_log "primary restore failure (exit=$primary_status); attempting timescaledb_post_restore"
-            restore_psql -d "$AVELREN_RESTORE_TARGET" -q -c "SELECT timescaledb_post_restore();"
-            local cleanup_status=$?
-            if [ "$cleanup_status" -eq 0 ]; then
-                restore_log "timescaledb_post_restore cleanup succeeded after primary failure"
-            else
-                restore_log "ERROR: primary restore failed (exit=$primary_status) and timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
-            fi
-        fi
-        exit "$primary_status"
-    }
-    trap restore_finalize EXIT
-
     restore_log "preparing database $target"
     restore_db_tool dropdb --if-exists --maintenance-db=postgres \
         -U "$AVELREN_RESTORE_ADMIN_DB_USER" "$target"
@@ -326,7 +306,30 @@ SQL
     AVELREN_RESTORE_POST_PENDING=true
 
     restore_log "restoring data"
+    set +e
     gunzip -c "$dump" | restore_psql -d "$target" -q -v ON_ERROR_STOP=1
+    local -a ingest_status=("${PIPESTATUS[@]}")
+    set -e
+    local primary_status=0
+    if [ "${ingest_status[1]}" -ne 0 ]; then
+        primary_status=${ingest_status[1]}
+    elif [ "${ingest_status[0]}" -ne 0 ]; then
+        primary_status=${ingest_status[0]}
+    fi
+    if [ "$primary_status" -ne 0 ]; then
+        set +e
+        restore_log "primary restore failure (exit=$primary_status); attempting timescaledb_post_restore"
+        restore_psql -d "$AVELREN_RESTORE_TARGET" -q -c "SELECT timescaledb_post_restore();"
+        local cleanup_status=$?
+        set -e
+        AVELREN_RESTORE_POST_PENDING=false
+        if [ "$cleanup_status" -eq 0 ]; then
+            restore_log "timescaledb_post_restore cleanup succeeded after primary failure"
+        else
+            restore_log "ERROR: primary restore failed (exit=$primary_status) and timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
+        fi
+        return "$primary_status"
+    fi
 
     restore_log "timescaledb_post_restore"
     set +e

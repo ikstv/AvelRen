@@ -56,6 +56,15 @@ orchestrator: він зупиняє ingress та клієнтів БД, пере
 SQL. Він не завантажує production artifact із Drive і не перевіряє розшифрування
 `rclone crypt`.
 
+## Production restore failure
+
+Якщо manual production orchestrator завершується після початку maintenance,
+він навмисно лишає ingress зупиненим, а maintenance-маркер — на місці. Не
+запускайте Caddy і не видаляйте маркер, доки не перевірені фаза з recovery
+summary, receipt нового safety snapshot, стан БД, схема/ролі та внутрішній API.
+Відновлення з safety snapshot є окремою руйнівною операцією і потребує нового
+явного GO власника; сам recovery summary такого дозволу не дає.
+
 ## Що є в новому репозиторії
 
 - [Міграції й перевірки БД](../db/README.md) використовують окрему БД у tmpfs,

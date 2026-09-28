@@ -41,6 +41,7 @@ run_engine() {
 run_engine success || { cat "$WORK/success.out" >&2; exit 1; }
 grep -Eq ' dropdb .* avelren ' "$WORK/success.calls"
 grep -Eq ' createdb .* avelren ' "$WORK/success.calls"
+grep -Fq -- "--project-directory $WORK/stack --env-file $WORK/stack/.env" "$WORK/success.calls"
 ! grep -Eq ' (restore_test|postgres)($| )' "$WORK/success.calls"
 grep -q 'restore application relation allowlist mismatch' "$WORK/success.calls"
 grep -q 'OWNER TO avelren_migrator' "$WORK/success.calls"

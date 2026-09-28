@@ -37,58 +37,8 @@ _avelren_preflight_sql() {
     fi
 }
 
-avelren_verify_production_preflight() {
-    local dump=${1:?dump path is required}
-    local sidecar=${2:?SHA-256 sidecar path is required}
-    local evidence=${3:?evidence record is required}
-    local source_root=${4:?source root is required}
-    local digest ignored metadata
-    local -a fields
-
-    unset AVELREN_VERIFIED_TARGET_COMMIT AVELREN_VERIFIED_MIGRATION_PIN \
-      AVELREN_VERIFIED_ARTIFACT_SHA AVELREN_EXPECTED_JOURNAL
-    [ -n "${AVELREN_ADMIN_PASSWORD:-}" ] || {
-        echo "DENIED: production admin password is required through the environment" >&2
-        return 1
-    }
-
-    avelren_verify_restore_artifact "$dump" "$sidecar" || return
-    avelren_verify_production_compose_identity || return
-
-    read -r digest ignored < <(sha256sum -- "$dump")
-    digest=${digest,,}
-    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || {
-        echo "DENIED: backup artifact digest could not be determined" >&2
-        return 1
-    }
-    python3 "$_AVELREN_PREFLIGHT_DIR/restore-role-pin.py" verify \
-      --record "$evidence" --source-root "$source_root" --dump-sha256 "$digest" \
-      >/dev/null || return
-
-    if ! metadata=$(python3 - "$evidence" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as source:
-    record = json.load(source)
-print(record["target_commit"])
-print(record["recovery_migration_pin"])
-print(json.dumps(record["database_journal"], separators=(",", ":")))
-PY
-    ); then
-        echo "DENIED: validated evidence metadata could not be read" >&2
-        return 1
-    fi
-    mapfile -t fields <<<"$metadata"
-    if [ "${#fields[@]}" -ne 3 ] || ! [[ "${fields[0]}" =~ ^[0-9a-f]{40}$ ]] || \
-       ! [[ "${fields[1]}" =~ ^[0-9]{3}_[a-z0-9][a-z0-9_]*$ ]] || \
-       ! [[ "${fields[2]}" =~ ^\{.*\}$ ]]; then
-        echo "DENIED: validated evidence metadata was not sanitised" >&2
-        return 1
-    fi
-    AVELREN_EXPECTED_JOURNAL=${fields[2]}
-
-    _avelren_preflight_sql identity-and-journal <<'SQL' || return
+avelren_verify_production_database_journal() {
+    _avelren_preflight_sql identity-and-journal <<'SQL'
 -- preflight:database
 \getenv expected_journal AVELREN_EXPECTED_JOURNAL
 SELECT (
@@ -100,8 +50,10 @@ SELECT (
     ) = :'expected_journal'::jsonb
 )::text;
 SQL
+}
 
-    _avelren_preflight_sql roles-owners-and-grants <<'SQL' || return
+avelren_verify_production_roles_owners_grants() {
+    _avelren_preflight_sql roles-owners-and-grants <<'SQL'
 -- preflight:roles-and-grants
 WITH expected(role_name, can_login, is_superuser) AS (
     VALUES
@@ -179,8 +131,10 @@ SELECT (
     )
 )::text;
 SQL
+}
 
-    _avelren_preflight_sql sessions <<'SQL' || return
+avelren_verify_production_sessions() {
+    _avelren_preflight_sql sessions <<'SQL'
 -- preflight:sessions
 SELECT NOT EXISTS (
     SELECT 1
@@ -191,6 +145,75 @@ SELECT NOT EXISTS (
       AND usename NOT IN ('avelren_api', 'avelren_collector', 'avelren_notifier', 'avelren_watchdog')
 )::text;
 SQL
+}
+
+avelren_verify_production_quiescent_sessions() {
+    _avelren_preflight_sql quiescent-sessions <<'SQL'
+-- preflight:quiescent-sessions
+SELECT NOT EXISTS (
+    SELECT 1
+    FROM pg_stat_activity
+    WHERE datname = current_database()
+      AND pid <> pg_backend_pid()
+      AND backend_type = 'client backend'
+)::text;
+SQL
+}
+
+avelren_verify_production_preflight() {
+    local dump=${1:?dump path is required}
+    local sidecar=${2:?SHA-256 sidecar path is required}
+    local evidence=${3:?evidence record is required}
+    local source_root=${4:?source root is required}
+    local digest ignored metadata
+    local -a fields
+
+    unset AVELREN_VERIFIED_TARGET_COMMIT AVELREN_VERIFIED_MIGRATION_PIN \
+      AVELREN_VERIFIED_ARTIFACT_SHA AVELREN_EXPECTED_JOURNAL
+    [ -n "${AVELREN_ADMIN_PASSWORD:-}" ] || {
+        echo "DENIED: production admin password is required through the environment" >&2
+        return 1
+    }
+
+    avelren_verify_restore_artifact "$dump" "$sidecar" || return
+    avelren_verify_production_compose_identity || return
+
+    read -r digest ignored < <(sha256sum -- "$dump")
+    digest=${digest,,}
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || {
+        echo "DENIED: backup artifact digest could not be determined" >&2
+        return 1
+    }
+    python3 "$_AVELREN_PREFLIGHT_DIR/restore-role-pin.py" verify \
+      --record "$evidence" --source-root "$source_root" --dump-sha256 "$digest" \
+      >/dev/null || return
+
+    if ! metadata=$(python3 - "$evidence" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    record = json.load(source)
+print(record["target_commit"])
+print(record["recovery_migration_pin"])
+print(json.dumps(record["database_journal"], separators=(",", ":")))
+PY
+    ); then
+        echo "DENIED: validated evidence metadata could not be read" >&2
+        return 1
+    fi
+    mapfile -t fields <<<"$metadata"
+    if [ "${#fields[@]}" -ne 3 ] || ! [[ "${fields[0]}" =~ ^[0-9a-f]{40}$ ]] || \
+       ! [[ "${fields[1]}" =~ ^[0-9]{3}_[a-z0-9][a-z0-9_]*$ ]] || \
+       ! [[ "${fields[2]}" =~ ^\{.*\}$ ]]; then
+        echo "DENIED: validated evidence metadata was not sanitised" >&2
+        return 1
+    fi
+    AVELREN_EXPECTED_JOURNAL=${fields[2]}
+
+    avelren_verify_production_database_journal || return
+    avelren_verify_production_roles_owners_grants || return
+    avelren_verify_production_sessions || return
 
     export AVELREN_VERIFIED_TARGET_COMMIT=${fields[0]}
     export AVELREN_VERIFIED_MIGRATION_PIN=${fields[1]}

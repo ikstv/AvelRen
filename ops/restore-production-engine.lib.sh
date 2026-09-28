@@ -17,5 +17,7 @@ avelren_restore_production_engine() {
     }
     local dump=$1 stack_dir=$2 compose_file=$3 compose_project=$4 db_service=$5
     _avelren_require_restore_admin || return
-    _avelren_restore_engine_primitive "$dump" avelren "$stack_dir" "$compose_file" "$compose_project" "$db_service"
+    AVELREN_COMPOSE_PROJECT_DIR="$stack_dir" \
+    AVELREN_COMPOSE_ENV_FILE="$stack_dir/.env" \
+      _avelren_restore_engine_primitive "$dump" avelren "$stack_dir" "$compose_file" "$compose_project" "$db_service"
 }
