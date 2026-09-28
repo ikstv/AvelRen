@@ -89,6 +89,11 @@ services:
       timeout: 2s
       retries: 30
   test:
+    # The private evidence directory belongs to the invoking test user.
+    # Root without DAC_OVERRIDE cannot write a different user's mode-0700 dir.
+    user: "$(id -u):$(id -g)"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     build:
       context: '$ROOT_FOR_COMPOSE'
       dockerfile: ops/Dockerfile.database-test
@@ -169,6 +174,7 @@ compose exec -T \
     -e AVELREN_DB_NAME="$SOURCE_DB" -e AVELREN_TEST_DB=1 \
     db bash /workspace/ops/postgres-bootstrap.sh fresh
 
+compose run --rm --no-deps -T test python ops/verify-python-container-security.py
 DATABASE_URL="$MIGRATOR_SOURCE_DSN" compose run --rm --no-deps -T \
     -e DATABASE_URL test python -m avelren.migrate db/migrations
 

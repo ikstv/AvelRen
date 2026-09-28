@@ -1,5 +1,24 @@
 # Що має дійти до телефона
 
+## Кандидат Python runtime (28.09.2026)
+
+У гілці `codex/python-base-refresh` узгоджено оновлено Python base обох
+Dockerfile. Локальні build/backend/DB/API/watchdog/restore перевірки пройшли;
+приймання CVE **не завершене**, merge та розгортання поки не виконуються.
+[Докази й залишки перевірки](PYTHON-BASE-UPDATE-2026-09-28.md).
+CI head `bcbccda`: api/core/repository/watchdog пройшли; database впав
+на Compose-контракті. SIGPIPE-причину виправлено з 4/4 локальними регресійними
+тестами; head `f8b78bf` має 5/5 успішних CI checks. Baseline CVE-порівняння
+показало покращення; системний review виявив залишкові SUID/NoNewPrivs=0.
+Посилення прав п'яти Python-контейнерів реалізовано через NNP/cap_drop;
+200 unit, 8/8 Compose регресій та фактичний runtime security guard пройшли.
+Інтеграційна матриця DB/API/watchdog/snapshot/restore також пройшла локально;
+CI нового head потрібно підтвердити окремо.
+Production не змінювався;
+Android-збірка, телефон і Play у цьому кроці не виконувалися.
+
+## Попередній запис цільової версії
+
 Цільова версія коду: **0.1.2, versionCode 5**. Це не підтвердження публікації.
 Нові зміни живуть у PR #1. Реєстр доповнено виправленням Play Update R07.
 Жодне встановлення на телефон або production-розгортання нового репозиторію

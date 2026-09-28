@@ -66,10 +66,18 @@ run_compose_config
 # The profile is load-bearing since #88 PR 2: it is what keeps a bare
 # `docker compose up -d` from applying and stamping the next migration. Guard
 # all three properties the profile relies on, each with a distinct failure.
-if docker compose -f "$ROOT/docker-compose.yml" config --services 2>/dev/null | grep -qx migrate; then
+# Capture the complete output before matching: grep -q on a live pipe can
+# close it early, giving Compose SIGPIPE (141) under pipefail.
+if ! DEFAULT_SERVICES=$(docker compose -f "$ROOT/docker-compose.yml" config --services 2>"$COMPOSE_ERROR"); then
+    fail 'default service discovery failed'
+fi
+if grep -qx migrate <<<"$DEFAULT_SERVICES"; then
     fail 'migrate is in the default service set — the #88 profile is gone'
 fi
-if ! docker compose --profile migrate -f "$ROOT/docker-compose.yml" config --services 2>/dev/null | grep -qx migrate; then
+if ! MIGRATION_SERVICES=$(docker compose --profile migrate -f "$ROOT/docker-compose.yml" config --services 2>"$COMPOSE_ERROR"); then
+    fail 'migration service discovery failed'
+fi
+if ! grep -qx migrate <<<"$MIGRATION_SERVICES"; then
     fail 'migrate is not reachable even with its profile'
 fi
 if ! docker compose -f "$ROOT/docker-compose.yml" config --quiet 2>/dev/null; then
@@ -162,6 +170,11 @@ for service_name, own_sentinel in expected.items():
     service = services.get(service_name)
     if not isinstance(service, dict):
         fail(f"service {service_name} missing")
+    security_options = {str(value).replace("=", ":") for value in service.get("security_opt", [])}
+    if "no-new-privileges:true" not in security_options:
+        fail(f"service {service_name} must enable no-new-privileges")
+    if "ALL" not in service.get("cap_drop", []) or service.get("cap_add") or service.get("privileged"):
+        fail(f"service {service_name} must drop all capabilities without overrides")
     if "env_file" in service:
         fail(f"service {service_name} uses env_file")
     environment = environment_mapping(service)

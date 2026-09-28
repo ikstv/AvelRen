@@ -17,6 +17,9 @@ services:
       retries: 40
     networks: [isolated]
   test:
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     build:
       context: ..
       dockerfile: ops/Dockerfile.database-test

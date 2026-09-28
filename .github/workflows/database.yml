@@ -84,7 +84,9 @@ jobs:
       - name: Повна restore-репетиція у тимчасовій TimescaleDB
         run: bash ops/restore-integration-test.sh
       - name: Контракт production Compose без запуску служб
-        run: bash ops/compose-production-contract-test.sh
+        run: |
+          python3 ops/compose-profile-regression-test.py
+          bash ops/compose-production-contract-test.sh
       - name: Контракт планового перезапуску без production
         run: |
           bash ops/maintenance-window-contract-test.sh
