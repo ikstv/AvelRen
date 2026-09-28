@@ -175,6 +175,28 @@ if not max(scan_indices) < verify_index < upload_index:
 verify_images = image_steps[verify_index]
 if not verify_images.get("run", "").startswith("python3 scripts/verify_runtime_image_sboms.py"):
     raise SystemExit("Runtime image SBOMs must be checked for package coverage")
+inventory_indices = [
+    index for index, step in enumerate(image_steps)
+    if "dpkg-query" in step.get("run", "")
+]
+if not inventory_indices:
+    raise SystemExit("Runtime image SBOM validation must compare installed package-manager inventories")
+inventory_index = inventory_indices[0]
+inventory_run = image_steps[inventory_index]["run"]
+for required in (
+    "--entrypoint apk",
+    "--network=no",
+    "info -v",
+    "avelren-candidate.deb.txt",
+    "timescaledb.apk.txt",
+    "caddy.apk.txt",
+):
+    if required not in inventory_run:
+        raise SystemExit(f"Runtime image package-manager inventory must include {required}")
+if not max(scan_indices) < inventory_index < verify_index:
+    raise SystemExit("Compare package-manager inventory after scans and before validation")
+if "runtime-image-sbom" not in verify_images["run"]:
+    raise SystemExit("Runtime image verifier must read package-manager inventory artifacts")
 image_upload = image_steps[upload_index]
 image_upload_with = image_upload.get("with", {})
 if image_upload_with.get("retention-days") != "30" or image_upload_with.get("if-no-files-found") != "error":

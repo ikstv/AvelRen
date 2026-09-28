@@ -78,7 +78,7 @@ Syft Python cataloger розпізнає `*requirements*.txt`; тому workflow
 Див. [підтримувані Python manifests Syft](https://oss.anchore.com/docs/capabilities/python/).
 
 Image-scan job створює окремі SBOM для candidate app, зафіксованого TimescaleDB
-та Caddy; валідація вимагає Python lock у app candidate, Debian packages у
-app і TimescaleDB та Alpine packages у Caddy. Candidate image не публікується і
-не розгортається. Через окрему повторну збірку його SBOM не є attestation для
-production image.
+та Caddy; валідація звіряє всі пакети з незалежним inventory `dpkg-query` для
+app і `apk` для TimescaleDB та Caddy, а також вимагає весь Python lock у app
+candidate. Candidate image не публікується і не розгортається. Через окрему
+повторну збірку його SBOM не є attestation для production image.

@@ -55,6 +55,10 @@ jobs:
           test "$embedded_commit" = "$GITHUB_SHA"
       - name: Підготувати каталог SBOM
         run: mkdir -p "$RUNNER_TEMP/runtime-image-sbom"
+      - name: Завантажити зафіксовані upstream images
+        run: |
+          docker pull timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9
+          docker pull caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
       - name: SBOM candidate образу застосунку
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
@@ -82,6 +86,14 @@ jobs:
           syft-version: v1.51.1
           upload-artifact: false
           upload-release-assets: false
+      - name: Зняти незалежні inventories пакетних менеджерів
+        run: |
+          app_image="avelren-candidate:${GITHUB_SHA}"
+          timescale_image="timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9"
+          caddy_image="caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b"
+          docker run --rm --network none --user 0 --entrypoint /usr/bin/dpkg-query "$app_image" -W -f='${db:Status-Abbrev}\t${Package}\t${Version}\n' > "$RUNNER_TEMP/runtime-image-sbom/avelren-candidate.deb.txt"
+          docker run --rm --network none --user 0 --entrypoint apk "$timescale_image" --network=no info -v > "$RUNNER_TEMP/runtime-image-sbom/timescaledb.apk.txt"
+          docker run --rm --network none --user 0 --entrypoint apk "$caddy_image" --network=no info -v > "$RUNNER_TEMP/runtime-image-sbom/caddy.apk.txt"
       - name: Перевірити Python і системні пакети в image SBOM
         run: python3 scripts/verify_runtime_image_sboms.py "$RUNNER_TEMP/runtime-image-sbom" services/backend/requirements.lock
       - name: Зберегти candidate image SBOMs
