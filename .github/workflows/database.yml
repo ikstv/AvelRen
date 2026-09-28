@@ -64,7 +64,10 @@ jobs:
           sudo install -D -o root -g root -m 0755 ops/telemetry-snapshot.sh /opt/avelren/ops/telemetry-snapshot.sh
           sudo systemd-analyze verify /etc/systemd/system/avelren-telemetry.service /etc/systemd/system/avelren-telemetry.timer
       - name: Контракт backup із фіктивними Docker і rclone
-        run: bash ops/backup-contract-test.sh
+        # Production backup and its receipt directory are root-owned. The
+        # ownership-denial fixture also needs CAP_CHOWN to create a foreign
+        # owner on the otherwise unprivileged GitHub runner.
+        run: sudo bash ops/backup-contract-test.sh
       - name: Контракти fail-closed restore
         run: |
           bash ops/restore-artifact-contract-test.sh
