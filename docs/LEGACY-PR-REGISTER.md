@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | [#190 — retention 90 днів](https://github.com/ikstv/AvelRen/pull/190) | **Замінено новою реалізацією** | В `ORIGINAL` є послідовна `012_device_retention`, worker з dry-run/apply та тести; це прийнято в PR #11. Старий `011_device_retention` не можна переносити: номер уже зайнятий, а applied migrations не редагуються. | Звірити staging/production adoption окремим явним GO; старий PR не merge. |
 | [#188 — daily status і telemetry](https://github.com/ikstv/AvelRen/pull/188) | **Замінено новою реалізацією** | `ORIGINAL` уже має watchdog/telemetry transfer (PR #3/#7) і тести `daily_status`. Legacy diff не відтворює повністю production watchdog та повертає політику термінових push, яку не слід вмикати механічно. | Окремо перенести лише погоджену production-семантику після staging/restore; не merge старий PR. |
-| [#185 — held-out forecast evaluation](https://github.com/ikstv/AvelRen/pull/185) | **Ще треба перенести** | MAE=0 уже виправлено в `ORIGINAL`: перевірка використовує `is not None`. Але оцінювання на відкладених останніх 7 днях ще не виділено з legacy stacked diff. | Окремо реалізувати і протестувати тільки forecast evaluation, без retention/UI. |
+| [#185 — held-out forecast evaluation](https://github.com/ikstv/AvelRen/pull/185) | **Замінено новою реалізацією** | `ORIGINAL` уже має bounded held-out evaluation: останні 7 днів виключені з training, а `test_quality_evaluation_holds_out_latest_week` перевіряє розбиття. MAE=0 також виправлено через `is not None`. | Старий stacked PR не merge; окремо надалі оцінювати якість моделі на реальних даних. |
 | [#184 — Premium copy](https://github.com/ikstv/AvelRen/pull/184) | **Свідомо відкинуто** | Premium-функції не затверджені як продуктова політика. Інші зміни цього stacked PR замінені retention та поточним UI. | Не переносити текст до окремого продуктового рішення. |
 | [#183 — legacy retention](https://github.com/ikstv/AvelRen/pull/183) | **Замінено новою реалізацією** | Див. PR #190: `ORIGINAL` має нову migration `012`, окремий worker і тести. | Не merge старий PR. |
 | [#173 — generated STATE.md](https://github.com/ikstv/AvelRen/pull/173) | **Свідомо відкинуто** | Це автоматично згенерований знімок старого репозиторію, не джерело актуального стану міграції. | Залишити як історичний запис. |
@@ -24,11 +24,11 @@
 
 ## Висновок
 
-З 11 відкритих legacy PR: 6 замінені новими реалізаціями, 2 свідомо
-відкинуті, 3 залишаються окремими контрольованими задачами. Отже старий
-`AvelRen` ще не можна видаляти: невиконаними лишаються held-out forecast
-evaluation і два перевірені dependency updates, а production migration
-backup/restore та ролей БД мають власні gates.
+З 11 відкритих legacy PR: 7 замінені новими реалізаціями, 2 свідомо
+відкинуті, 2 залишаються окремими контрольованими задачами — оновлення
+Compose-образів і GitHub Actions. Старий `AvelRen` усе ще не можна видаляти:
+production migration backup/restore та ролей БД мають власні gates, а їхні
+контрольні джерела треба зберегти до фінальної інвентаризації.
 
 Пов’язані документи: [реєстр legacy Issues](LEGACY-ISSUE-REGISTER.md),
 [аудит server drift](CONTROL-AUDIT.md) і [матриця production restore](PRODUCTION-RESTORE-GAP-MATRIX.md).
