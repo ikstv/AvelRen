@@ -44,8 +44,8 @@ PR [#56](https://github.com/ikstv/AvelRen-ORIGINAL/pull/56) злитий 28.09.2
 [Докази та залишкові ризики](PYTHON-BASE-UPDATE-2026-09-28.md).
 Legacy #138 закрито саме як пункт source-перенесення, не як production
 deployment чи усунення всіх CVE. Старі репозиторії та їх PR не змінювалися.
-У гілці `codex/caddy-image-refresh` підготовлено Caddy 2.11.4 та виправлення
-втрати IP-заголовка; локальні validate/routing пройшли на старому й новому
-образах. [Докази](CADDY-UPDATE-2026-09-28.md). До приймання потрібні CI і merge.
-Після цього — окрема TimescaleDB upgrade-репетиція; #143 поки не закрито.
+Caddy 2.11.4 та виправлення IP-заголовка злиті PR #58 у main `64511b8`;
+4/4 CI merge-коміту успішні. [Докази](CADDY-UPDATE-2026-09-28.md).
+Наступний кандидат — [ізольована TimescaleDB upgrade-репетиція](TIMESCALE-UPGRADE-2026-09-28.md)
+у `codex/timescale-upgrade-rehearsal`; production pins не змінені, #143 не закрито.
 Серверні операції мають окремі дозволи за AGENTS.md.

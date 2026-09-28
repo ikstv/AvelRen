@@ -1,0 +1,38 @@
+services:
+  test-db:
+    image: ${AVELREN_UPGRADE_IMAGE:?test image required}
+    command: [postgres, -c, timescaledb.telemetry_level=off]
+    environment:
+      POSTGRES_USER: avelren_admin
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: postgres
+      AVELREN_COMPOSE_ENV_GUARD: isolated
+    volumes:
+      - test-data:/var/lib/postgresql/data
+      - ${AVELREN_UPGRADE_ROOT:?test root required}:/workspace:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U avelren_admin -d postgres']
+      interval: 2s
+      timeout: 3s
+      retries: 40
+    networks: [isolated]
+  test:
+    user: '10001:10001'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    build:
+      context: ${AVELREN_UPGRADE_ROOT:?test root required}
+      dockerfile: ops/Dockerfile.database-test
+    environment:
+      AVELREN_DATABASE_TEST: '1'
+      DATABASE_URL: postgresql://avelren_migrator:ci-only@test-db:5432/avelren_database_test
+      PYTHONPATH: /workspace/services/backend/src
+    working_dir: /workspace
+    volumes:
+      - ${AVELREN_UPGRADE_ROOT:?test root required}:/workspace:ro
+    networks: [isolated]
+volumes:
+  test-data:
+networks:
+  isolated:
+    internal: true
