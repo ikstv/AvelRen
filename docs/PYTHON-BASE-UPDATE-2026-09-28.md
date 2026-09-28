@@ -161,3 +161,23 @@ config --services` повертає migrate. Причину відмінност
 потрібне відтворення з окремою фіксацією виходів Compose та pipeline.
 **PR лишається чернеткою.** Наступний крок — усунути підтверджену причину
 CI та завершити оцінку системних ризиків перед рішенням про merge.
+
+### Виправлення Compose guard (28.09.2026)
+
+На Linux із Compose v5.5.1 відтворено pipeline statuses `141 0` для
+`compose config --services | grep -qx migrate`, тоді як читання всього
+виводу в файл завершувалося кодом 0 і містило migrate. Причина — раннє
+закриття pipe командою grep, SIGPIPE у Compose та pipefail у сценарії.
+Це дефект перевірки, не доказ несправності production-конфігурації.
+
+Guard тепер повністю зчитує список сервісів, перевіряє exit status Compose
+і лише після цього шукає migrate. Помилки discovery мають окремі причини;
+приватний stderr не публікується. Production Compose не змінено.
+
+Додано `python3 ops/compose-profile-regression-test.py` у database CI:
+реальний Compose config з контрольованим потоком stdout, без запуску служб.
+Чотири сценарії: правильна конфігурація з потоковим виводом; помилка Compose;
+помилкова присутність migrate у default services; недоступний migrate profile.
+До виправлення: три failures із чотирьох. Після: **4/4 OK** у Linux
+контейнері з `--network none`, без Docker socket. GitHub CI має підтвердити
+новий head; CVE-приймання лишається окремим незавершеним етапом.

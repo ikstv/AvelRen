@@ -66,10 +66,18 @@ run_compose_config
 # The profile is load-bearing since #88 PR 2: it is what keeps a bare
 # `docker compose up -d` from applying and stamping the next migration. Guard
 # all three properties the profile relies on, each with a distinct failure.
-if docker compose -f "$ROOT/docker-compose.yml" config --services 2>/dev/null | grep -qx migrate; then
+# Capture the complete output before matching: grep -q on a live pipe can
+# close it early, giving Compose SIGPIPE (141) under pipefail.
+if ! DEFAULT_SERVICES=$(docker compose -f "$ROOT/docker-compose.yml" config --services 2>"$COMPOSE_ERROR"); then
+    fail 'default service discovery failed'
+fi
+if grep -qx migrate <<<"$DEFAULT_SERVICES"; then
     fail 'migrate is in the default service set — the #88 profile is gone'
 fi
-if ! docker compose --profile migrate -f "$ROOT/docker-compose.yml" config --services 2>/dev/null | grep -qx migrate; then
+if ! MIGRATION_SERVICES=$(docker compose --profile migrate -f "$ROOT/docker-compose.yml" config --services 2>"$COMPOSE_ERROR"); then
+    fail 'migration service discovery failed'
+fi
+if ! grep -qx migrate <<<"$MIGRATION_SERVICES"; then
     fail 'migrate is not reachable even with its profile'
 fi
 if ! docker compose -f "$ROOT/docker-compose.yml" config --quiet 2>/dev/null; then
