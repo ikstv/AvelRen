@@ -6,6 +6,16 @@
 в цьому етапі не виконувалося. Старі усні підтвердження іншої збірки не
 замінюють перевірки майбутнього APK.
 
+## Production restore source readiness (28.09.2026)
+
+У source підготовлено окремий manual fail-closed orchestrator, статичний
+migration/role evidence gate, verified safety-snapshot receipt, ordinary
+maintenance publisher і hardcoded production Timescale wrapper. Публічний
+`ops/restore.sh` як і раніше приймає лише `restore_test`. Fake-command
+контракти та ізольована Docker-репетиція не є deployment або дозволом на
+production restore. Наступні три незалежні дозволи: read-only evidence capture,
+deployment сценарію, а за реальної recovery-потреби — окремий GO на сам restore.
+
 ## Кандидат 0.1.2
 
 Реліз `0.1.2` готується як наступний patch після опублікованого `0.1.1`.

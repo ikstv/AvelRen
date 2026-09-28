@@ -47,7 +47,7 @@ jobs:
         run: python3 scripts/verify_core_provenance.py
       - name: Синтаксис сценаріїв
         run: |
-          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-artifact.lib.sh ops/restore-artifact-contract-test.sh ops/restore-production-identity.lib.sh ops/restore-production-identity-contract-test.sh ops/restore-engine.lib.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh ops/compose-production-contract-test.sh ops/maintenance-window.sh ops/maintenance-reboot.sh ops/maintenance-window-contract-test.sh ops/build-candidate-image.sh ops/candidate-image-attestation-contract-test.sh; do
+          for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-artifact.lib.sh ops/restore-artifact-contract-test.sh ops/restore-production-identity.lib.sh ops/restore-production-identity-contract-test.sh ops/restore-production-preflight.lib.sh ops/restore-production-preflight-contract-test.sh ops/restore-engine.lib.sh ops/restore-production-engine.lib.sh ops/restore-production-engine-contract-test.sh ops/restore-production.sh ops/restore-production-contract-test.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh ops/compose-production-contract-test.sh ops/maintenance-window.sh ops/maintenance-reboot.sh ops/maintenance-window-contract-test.sh ops/maintenance-works.sh ops/maintenance-works-contract-test.sh ops/build-candidate-image.sh ops/candidate-image-attestation-contract-test.sh; do
             bash -n "$script"
           done
       - name: Контракт telemetry systemd units
@@ -69,8 +69,13 @@ jobs:
         run: |
           bash ops/restore-artifact-contract-test.sh
           bash ops/restore-production-identity-contract-test.sh
+          python3 ops/restore-role-pin-contract-test.py
+          python3 -m py_compile ops/restore-role-pin.py ops/restore-role-pin-contract-test.py
+          bash ops/restore-production-preflight-contract-test.sh
           bash ops/restore-contract-test.sh
           bash ops/restore-engine-contract-test.sh
+          bash ops/restore-production-engine-contract-test.sh
+          bash ops/restore-production-contract-test.sh
           bash ops/restore-verify-guard-contract-test.sh
           python3 ops/restore-allowlist-contract-test.py
       - name: Повна restore-репетиція у тимчасовій TimescaleDB
@@ -78,6 +83,8 @@ jobs:
       - name: Контракт production Compose без запуску служб
         run: bash ops/compose-production-contract-test.sh
       - name: Контракт планового перезапуску без production
-        run: bash ops/maintenance-window-contract-test.sh
+        run: |
+          bash ops/maintenance-window-contract-test.sh
+          bash ops/maintenance-works-contract-test.sh
       - name: TimescaleDB, міграції, права та запис даних
         run: bash scripts/test_database.sh

@@ -48,7 +48,7 @@ SELECT (
         (SELECT jsonb_object_agg(version, sha256 ORDER BY version) FROM public.schema_migrations),
         '{}'::jsonb
     ) = :'expected_journal'::jsonb
-)::text;
+);
 SQL
 }
 
@@ -129,34 +129,34 @@ SELECT (
         WHERE (relkind = 'S' AND NOT has_sequence_privilege('avelren_backup', oid, 'SELECT'))
            OR (relkind <> 'S' AND NOT has_table_privilege('avelren_backup', oid, 'SELECT'))
     )
-)::text;
+);
 SQL
 }
 
 avelren_verify_production_sessions() {
     _avelren_preflight_sql sessions <<'SQL'
 -- preflight:sessions
-SELECT NOT EXISTS (
+SELECT (NOT EXISTS (
     SELECT 1
     FROM pg_stat_activity
     WHERE datname = current_database()
       AND pid <> pg_backend_pid()
       AND backend_type = 'client backend'
       AND usename NOT IN ('avelren_api', 'avelren_collector', 'avelren_notifier', 'avelren_watchdog')
-)::text;
+));
 SQL
 }
 
 avelren_verify_production_quiescent_sessions() {
     _avelren_preflight_sql quiescent-sessions <<'SQL'
 -- preflight:quiescent-sessions
-SELECT NOT EXISTS (
+SELECT (NOT EXISTS (
     SELECT 1
     FROM pg_stat_activity
     WHERE datname = current_database()
       AND pid <> pg_backend_pid()
       AND backend_type = 'client backend'
-)::text;
+));
 SQL
 }
 

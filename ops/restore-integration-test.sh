@@ -15,7 +15,14 @@ COMPOSE_FILE_POSIX=$(mktemp)
 COMPOSE_PROJECT_DIR_POSIX=$(mktemp -d)
 COMPOSE_ENV_FILE_POSIX="$COMPOSE_PROJECT_DIR_POSIX/compose.env"
 WORK=$(mktemp -d)
+BLOCKER_PID=
 readonly PROJECT COMPOSE_FILE_POSIX COMPOSE_PROJECT_DIR_POSIX COMPOSE_ENV_FILE_POSIX WORK
+
+WORK_FOR_COMPOSE=$WORK
+if command -v cygpath >/dev/null 2>&1; then
+    WORK_FOR_COMPOSE=$(cygpath -w "$WORK")
+fi
+readonly WORK_FOR_COMPOSE
 
 printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=isolated' >"$COMPOSE_ENV_FILE_POSIX"
 printf '%s\n' 'AVELREN_COMPOSE_ENV_GUARD=poison' >"$COMPOSE_PROJECT_DIR_POSIX/.env"
@@ -37,9 +44,20 @@ compose() {
         -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
 }
 
+require_log_text() {
+    local pattern=${1:?pattern is required}
+    local file=${2:?log file is required}
+    grep -q -- "$pattern" "$file" || {
+        echo "restore integration failed: expected log text not found: $pattern" >&2
+        cat "$file" >&2
+        return 1
+    }
+}
+
 cleanup() {
     local status=$?
     trap - EXIT
+    [ -z "$BLOCKER_PID" ] || { kill "$BLOCKER_PID" >/dev/null 2>&1 || true; wait "$BLOCKER_PID" 2>/dev/null || true; }
     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
     rm -f "$COMPOSE_FILE_POSIX"
     rm -rf "$COMPOSE_PROJECT_DIR_POSIX" "$WORK"
@@ -80,6 +98,7 @@ services:
       DATABASE_URL: postgresql://avelren_migrator:ci-only@db:5432/restore_test
     volumes:
       - '$ROOT_FOR_COMPOSE:/workspace:ro'
+      - '$WORK_FOR_COMPOSE:/evidence'
     working_dir: /workspace
     networks: [default]
     depends_on:
@@ -94,6 +113,8 @@ readonly SOURCE_DB=avelren_restore_source_test
 readonly TARGET_DB=restore_test
 readonly MARKER=restore-integration-marker-v2
 readonly DUMP="$WORK/source.sql.gz"
+readonly SIDECAR="$DUMP.sha256"
+readonly EVIDENCE="$WORK/recovery-evidence.json"
 readonly UNEXPECTED_DUMP="$WORK/source-unexpected.sql.gz"
 readonly MISSING_DUMP="$WORK/source-missing.sql.gz"
 readonly BOOTSTRAP_DSN='postgresql://avelren_admin:ci-only@localhost:5432/postgres'
@@ -104,18 +125,29 @@ readonly API_TARGET_DSN="postgresql://avelren_api:ci-only@db:5432/$TARGET_DB"
 
 run_restore() {
     local dump=$1
-    AVELREN_STACK_DIR="$ROOT" \
-    AVELREN_COMPOSE_FILE="$COMPOSE_FILE" \
-    AVELREN_COMPOSE_PROJECT="$PROJECT" \
     AVELREN_COMPOSE_PROJECT_DIR="$COMPOSE_PROJECT_DIR" \
     AVELREN_COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" \
-    AVELREN_DB_SERVICE=db \
     AVELREN_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-    AVELREN_COMPOSE_ENV_GUARD=isolated \
-    bash "$ROOT/ops/restore.sh" "$dump" --target "$TARGET_DB"
+    bash -c 'set -euo pipefail; source "$1"; _avelren_restore_engine_primitive "$2" "$3" "$4" "$5" "$6" db' \
+      bash "$ROOT/ops/restore-engine.lib.sh" "$dump" "$TARGET_DB" "$ROOT" "$COMPOSE_FILE" "$PROJECT"
 }
 
+[ "$PROJECT" != avelren ]
+[ "$TARGET_DB" != avelren ]
+[ "$COMPOSE_PROJECT_DIR_POSIX" != /opt/avelren ]
 compose up --detach --wait db
+if docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Names}}' | \
+   grep -qx 'avelren-db-1'; then
+    echo 'restore integration used the canonical production container name' >&2; exit 1
+fi
+if docker network ls --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Name}}' | \
+   grep -qx 'avelren_default'; then
+    echo 'restore integration used the canonical production network name' >&2; exit 1
+fi
+if docker volume ls --filter "label=com.docker.compose.project=$PROJECT" --format '{{.Name}}' | \
+   grep -qx 'avelren_db_data'; then
+    echo 'restore integration used the canonical production volume name' >&2; exit 1
+fi
 # The expression is evaluated inside the database container.
 # shellcheck disable=SC2016
 compose exec -T db sh -c '[ "$AVELREN_COMPOSE_ENV_GUARD" = isolated ]'
@@ -168,7 +200,7 @@ if run_restore "$UNEXPECTED_DUMP" >"$WORK/unexpected-restore.out" 2>&1; then
     echo 'restore integration failed: unexpected application relation passed ownership preflight' >&2
     exit 1
 fi
-grep -q 'restore application relation allowlist mismatch' "$WORK/unexpected-restore.out"
+require_log_text 'restore application relation allowlist mismatch' "$WORK/unexpected-restore.out"
 unexpected_state=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -At \
     -c "SELECT relation.relname || ':' || owner.rolname || ':' ||
@@ -195,6 +227,43 @@ PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
 PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
     pg_dump --no-owner -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$DUMP"
 
+dump_digest=$(sha256sum "$DUMP" | awk '{print $1}')
+printf '%s  %s\n' "$dump_digest" "$(basename "$DUMP")" >"$SIDECAR"
+target_commit=$(git -C "$ROOT" rev-parse HEAD)
+compose run --rm --no-deps -T test python - \
+  /evidence/recovery-evidence.json /workspace "$target_commit" "$dump_digest" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+output, root, target_commit, dump_sha = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+files = sorted((root / "db" / "migrations").glob("[0-9][0-9][0-9]_*.sql"))
+roles = {
+    "avelren_admin": {"login": True, "superuser": True},
+    "avelren_migrator": {"login": True, "superuser": False},
+    "avelren_backup": {"login": True, "superuser": False},
+    "avelren_collector": {"login": True, "superuser": False},
+    "avelren_notifier": {"login": True, "superuser": False},
+    "avelren_watchdog": {"login": True, "superuser": False},
+    "avelren_api": {"login": True, "superuser": False},
+}
+output.write_text(json.dumps({
+    "target_commit": target_commit,
+    "recovery_migration_pin": files[-1].stem,
+    "database_journal": {path.stem: hashlib.sha256(path.read_bytes()).hexdigest() for path in files},
+    "role_model": "least-privilege-v1",
+    "roles": roles,
+    "role_memberships": {role: [] for role in roles},
+    "ownership_and_grants_verified": True,
+    "backup_sha256": dump_sha,
+}), encoding="utf-8")
+PY
+bash -c 'source "$1"; avelren_verify_restore_artifact "$2" "$3"' \
+  bash "$ROOT/ops/restore-artifact.lib.sh" "$DUMP" "$SIDECAR"
+compose run --rm --no-deps -T test python /workspace/ops/restore-role-pin.py verify \
+  --record /evidence/recovery-evidence.json --source-root /workspace --dump-sha256 "$dump_digest"
+
 run_restore "$DUMP"
 
 restored=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
@@ -212,6 +281,39 @@ restored_owner=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     exit 1
 }
 
+# A live, otherwise valid client session must make the post-stop quiescence
+# predicate false. This session belongs only to the random disposable project.
+PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 \
+    -c "SET application_name='restore-integration-blocker'; SELECT pg_sleep(30);" \
+    >"$WORK/blocker.out" 2>&1 &
+BLOCKER_PID=$!
+for _ in $(seq 1 20); do
+    blocker_seen=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+        psql -U avelren_admin -d "$TARGET_DB" -At \
+        -c "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name='restore-integration-blocker');")
+    [ "$blocker_seen" != t ] || break
+    sleep 1
+done
+[ "$blocker_seen" = t ]
+quiescent=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -At \
+    -c "SELECT NOT EXISTS (
+          SELECT 1 FROM pg_stat_activity
+          WHERE datname=current_database() AND pid<>pg_backend_pid()
+            AND backend_type='client backend');")
+[ "$quiescent" = f ] || {
+    echo 'restore integration failed: active session was not refused' >&2; exit 1; }
+PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$TARGET_DB" -v ON_ERROR_STOP=1 -At \
+    -c "SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE application_name='restore-integration-blocker';" \
+    | grep -qx t
+kill "$BLOCKER_PID" >/dev/null 2>&1 || true
+wait "$BLOCKER_PID" 2>/dev/null || true
+BLOCKER_PID=
+
 PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q \
     -c 'DROP TABLE public.notification_cancels;'
@@ -221,7 +323,7 @@ if run_restore "$MISSING_DUMP" >"$WORK/missing-restore.out" 2>&1; then
     echo 'restore integration failed: missing expected relation passed ownership preflight' >&2
     exit 1
 fi
-grep -q 'restore application relation allowlist mismatch' "$WORK/missing-restore.out"
+require_log_text 'restore application relation allowlist mismatch' "$WORK/missing-restore.out"
 missing_owner_state=$(PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$TARGET_DB" -At \
     -c "SELECT tableowner FROM pg_tables
@@ -306,6 +408,6 @@ if AVELREN_STACK_DIR="$ROOT" \
     echo 'restore failure after pre_restore was expected' >&2
     exit 1
 fi
-grep -q 'primary restore failure' "$failure_log"
-grep -q 'timescaledb_post_restore cleanup succeeded' "$failure_log"
+require_log_text 'primary restore failure' "$failure_log"
+require_log_text 'timescaledb_post_restore cleanup succeeded' "$failure_log"
 echo 'restore failure cleanup passed: post_restore attempted, primary failure preserved'

@@ -139,4 +139,22 @@ if bash "$ROOT/ops/restore-production.sh" --artifact "$WORK/dump.sql.gz" \
     exit 1
 fi
 
+# psql's uncast boolean output is t/f, which is the exact protocol consumed by
+# the poll loop. Casting it to text would silently change it to true/false and
+# make a successful collector cycle time out.
+bash -c '
+  set -euo pipefail
+  source "$1"
+  avelren_compose() {
+    local sql
+    sql=$(cat)
+    [[ "$sql" == *"SELECT EXISTS ("* ]] || return 87
+    [[ "$sql" != *"::text"* ]] || return 88
+    printf "t\n"
+  }
+  AVELREN_ADMIN_PASSWORD=contract-secret
+  AVELREN_RESTORE_RUNTIME_STARTED_AT=2026-09-28T00:00:00Z
+  avelren_wait_for_collector_cycle
+' bash "$ROOT/ops/restore-production.sh"
+
 echo "production restore orchestrator contract: PASS"

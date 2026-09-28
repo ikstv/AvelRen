@@ -11,10 +11,17 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PROJECT="avelren-db-test-${RANDOM}-${RANDOM}"
 ENV_FILE=$(mktemp)
 readonly ROOT PROJECT ENV_FILE
+ROOT_FOR_COMPOSE=$ROOT
+ENV_FILE_FOR_COMPOSE=$ENV_FILE
+if command -v cygpath >/dev/null 2>&1; then
+    ROOT_FOR_COMPOSE=$(cygpath -w "$ROOT")
+    ENV_FILE_FOR_COMPOSE=$(cygpath -w "$ENV_FILE")
+fi
+readonly ROOT_FOR_COMPOSE ENV_FILE_FOR_COMPOSE
 
 compose() {
-    docker compose --env-file "$ENV_FILE" -p "$PROJECT" \
-        -f "$ROOT/ops/compose.database-test.yml" "$@"
+    MSYS_NO_PATHCONV=1 docker compose --env-file "$ENV_FILE_FOR_COMPOSE" -p "$PROJECT" \
+        -f "$ROOT_FOR_COMPOSE/ops/compose.database-test.yml" "$@"
 }
 
 cleanup() {

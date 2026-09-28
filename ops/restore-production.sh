@@ -183,7 +183,7 @@ SELECT EXISTS (
       AND error IS NULL
       AND derived_processed_at IS NOT NULL
       AND derived_error IS NULL
-)::text;
+);
 SQL
         ) || return 1
         [ "$result" != t ] || return 0
