@@ -1,7 +1,7 @@
 # Залишки перенесення
 
-Звірка 28.09.2026 після merge PR [#61](https://github.com/ikstv/AvelRen-ORIGINAL/pull/61),
-main `e793c075e219edc911a30a66588b683f32bc8d8f`; repository CI успішний.
+Звірка 28.09.2026 після merge PR [#66](https://github.com/ikstv/AvelRen-ORIGINAL/pull/66),
+main `c20ab3e0896bf0cbf2dbf985bb5dcc26796e2947`; repository і source-SBOM CI успішні.
 Це поточний контрольний список; датовані старі аудити зберігають історичний зміст.
 У цьому кроці сервер і телефон повторно не перевірялися.
 
@@ -18,7 +18,7 @@ main `e793c075e219edc911a30a66588b683f32bc8d8f`; repository CI успішний.
 
 | Блок | Конкретний результат для закриття |
 | --- | --- |
-| Supply-chain CI legacy #140 / issue #23 | Рішення та межі задокументовано в [дизайні supply-chain CI](SUPPLY-CHAIN-CI-DESIGN-2026-09-28.md). Наступна реалізація — source CycloneDX artifact у окремому workflow з мінімальними правами; runtime image SBOM — окремо після узгодження candidate build. CodeQL для приватного user-owned repo має ліцензійний блокер; решту issue #23 (locks, container audit, Gradle, Dependabot, cleanup) вести окремими пунктами. |
+| Supply-chain CI legacy #140 / issue #23 | Source SBOM у main; Python lock completeness перевіряється (PR #65/#66). Окремий candidate image job збирає app з перевірюваного SHA та сканує його, TimescaleDB і Caddy за digest; результат — 30-денні CycloneDX artifacts, без push/deploy. Це не доказ, що локально перебудований production image ідентичний CI candidate. Перед exact-image deployment потрібен окремий handoff immutable image/digest. CodeQL для приватного user-owned repo має ліцензійний блокер; інші залишки issue #23 вести окремо. |
 | Forecast issue #111 | Звірити семантику відсутнього wait_time та критерії якості. Held-out evaluation вже реалізовано; повторний перенос не потрібний. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
