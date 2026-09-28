@@ -1,8 +1,8 @@
 """Регресійні приклади поділу CI; перевіряємо YAML, не запускаємо збірки."""
 
+import re
 from fnmatch import fnmatchcase
 from pathlib import Path
-import re
 
 import yaml
 
