@@ -13,7 +13,7 @@ https://api.bordersignal.pp.ua {
 		uri strip_prefix /api
 		reverse_proxy api:8000 {
 			header_up -X-Forwarded-For
-			header_up -X-AvelRen-Client-IP
+			# Set замінює підроблені значення; Delete цього ж заголовка виконується після Set.
 			header_up X-AvelRen-Client-IP {http.request.remote.host}
 		}
 	}
