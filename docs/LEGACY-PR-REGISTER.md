@@ -16,18 +16,18 @@
 | [#184 — Premium copy](https://github.com/ikstv/AvelRen/pull/184) | **Свідомо відкинуто** | Premium-функції не затверджені як продуктова політика. Інші зміни цього stacked PR замінені retention та поточним UI. | Не переносити текст до окремого продуктового рішення. |
 | [#183 — legacy retention](https://github.com/ikstv/AvelRen/pull/183) | **Замінено новою реалізацією** | Див. PR #190: `ORIGINAL` має нову migration `012`, окремий worker і тести. | Не merge старий PR. |
 | [#173 — generated STATE.md](https://github.com/ikstv/AvelRen/pull/173) | **Свідомо відкинуто** | Це автоматично згенерований знімок старого репозиторію, не джерело актуального стану міграції. | Залишити як історичний запис. |
-| [#143 — Compose image updates](https://github.com/ikstv/AvelRen/pull/143) | **Ще треба перенести** | Залежності треба брати з актуального registry та перевіряти на current Compose/restore contract, а не переносити старі pins. | Окремий dependency-update PR після compatibility test. |
-| [#140 — GitHub Actions updates](https://github.com/ikstv/AvelRen/pull/140) | **Ще треба перенести** | Новий CI має іншу структуру; старий workflow diff не придатний для прямого merge. | Окремо перевірити актуальні версії Actions і оновити current workflows. |
+| [#143 — Compose image updates](https://github.com/ikstv/AvelRen/pull/143) | **Замінено новою реалізацією** | PR #58: Caddy 2.11.4 замість legacy 2.11.3; #59: ізольований TimescaleDB upgrade; #60: усі три pins 2.30.1-pg16. Main `ee31a7b` має 4/4 успішних CI checks. Повний diff legacy head `ea467895bd8270b17cfea443671ab3e094b8ed04` звірено. | Source-перенесення завершене; старий PR не merge і не закрито. Production upgrade, реальна backup-копія та план відкату — окреме приймання. |
+| [#140 — GitHub Actions updates](https://github.com/ikstv/AvelRen/pull/140) | **Ще треба перенести** | Старий diff оновлює SBOM/CodeQL jobs, яких немає в новому CI; заміна самих Action pins цього не вирішує. | Спроєктувати перенесення SBOM та перевірити доступність CodeQL для приватного репозиторію без зміни його видимості чи тарифу. |
 | [#138 — Python image](https://github.com/ikstv/AvelRen/pull/138) | **Замінено новою реалізацією** | ORIGINAL PR #56 злитий у main `08a16a2`: узгоджені Python image pins, CVE baseline review, NNP/cap_drop п'яти Python-служб; фінальний head `e6e5586` має 5/5 CI checks. | Старий PR не merge; production-приймання та залишкові CVE не вважати закритими. |
 | [#137 — server-status badge](https://github.com/ikstv/AvelRen/pull/137) | **Замінено новою реалізацією** | Контракт плашки реалізовано й прийнято через `ORIGINAL` PR #19, #20 та #46–#49: technical works → restart → online перевірено на телефоні під час реального reboot. | Старий PR не merge. |
 | [#123 — правила актуальності сигналу](https://github.com/ikstv/AvelRen/pull/123) | **Замінено новою реалізацією** | Принцип «перевіряти світ, а не старе твердження» застосовано в `CROSS-SOURCE-AUDIT`, `PRODUCTION-AUDIT` та release evidence. | Старий документ не переносити окремо. |
 
 ## Висновок
 
-З 11 legacy PR цього реєстру: 7 замінені новими реалізаціями, 2 свідомо
-відкинуті, 2 залишаються окремими контрольованими задачами. Отже старий
-`AvelRen` ще не можна видаляти: залишаються дві задачі залежностей
-(#143 Compose images, #140 Actions), а production migration,
+З 11 legacy PR цього реєстру: 8 замінені новими реалізаціями, 2 свідомо
+відкинуті, 1 залишається контрольованою задачею (#140 supply-chain CI).
+Це лічильник PR, не всіх залишків міграції. Старий
+`AvelRen` ще не можна видаляти: issues, фінальна інвентаризація, production migration,
 backup/restore та ролі БД мають власні критерії приймання.
 Попередня позначка #185 як неперенесеного була застарілою; її виправлено
 за кодом, а не лише за підсумковим лічильником. Єдиний список залишків —
@@ -39,5 +39,6 @@ backup/restore та ролі БД мають власні критерії пр�
 Звірку #143/#140/#138 завершено 28.09.2026:
 [точні pins, файли й критерії приймання](LEGACY-DEPENDENCY-AUDIT.md).
 #140 означає перенесення відсутніх SBOM/CodeQL jobs. Після merge #56
-legacy #138 позначено заміненим; #143 і #140 лишаються незавершеними.
+legacy #138 позначено заміненим; після #58–#60 так само позначено #143.
+#140 залишається незавершеним.
 Стани старих GitHub PR у цьому кроці не змінювались.

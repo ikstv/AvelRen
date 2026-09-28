@@ -1,7 +1,7 @@
 # Залишки перенесення
 
-Звірка 28.09.2026 після merge PR [#52](https://github.com/ikstv/AvelRen-ORIGINAL/pull/52)
-і [#53](https://github.com/ikstv/AvelRen-ORIGINAL/pull/53), main `ae4fc9c`.
+Звірка 28.09.2026 після merge PR [#60](https://github.com/ikstv/AvelRen-ORIGINAL/pull/60),
+main `ee31a7b3f808e0728945f2371d81bb8b23e3b720`, 4/4 CI успішні.
 Це поточний контрольний список; датовані старі аудити зберігають історичний зміст.
 У цьому кроці сервер і телефон повторно не перевірялися.
 
@@ -18,7 +18,7 @@
 
 | Блок | Конкретний результат для закриття |
 | --- | --- |
-| Залежності legacy #143/#140 | Python (#138) замінено в PR #56. Залишилися Caddy, окремий TimescaleDB upgrade rehearsal і supply-chain CI. Старі pins не копіювати автоматично. |
+| Supply-chain CI legacy #140 | Python (#138) замінено PR #56, образи (#143) — PR #58–#60. Залишилися SBOM та рішення щодо CodeQL для приватного репозиторію; налаштування Dependabot розглянути з issue #23. |
 | Forecast issue #111 | Звірити семантику відсутнього wait_time та критерії якості. Held-out evaluation вже реалізовано; повторний перенос не потрібний. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
@@ -30,12 +30,14 @@
 
 GitHub: AvelRen має 11 відкритих PR і 8 відкритих issues;
 AvelRen-ops — 0 відкритих PR та 0 відкритих issues.
-За [реєстром PR](LEGACY-PR-REGISTER.md): 7 замінені, 2 відкинуті з причиною,
-2 потребують завершення залежностей. Issue #195 закрита 26.09.2026.
+За [реєстром PR](LEGACY-PR-REGISTER.md): 8 замінені, 2 відкинуті з причиною,
+1 потребує перенесення supply-chain CI. Це не загальний лічильник усіх
+залишків: issues, приймання й фінальна інвентаризація ведуться окремо.
+Issue #195 закрита 26.09.2026.
 Відсутність відкритих питань у ops не означає завершеного перенесення файлів.
 
 Звірку трьох dependency PR завершено в [LEGACY-DEPENDENCY-AUDIT.md](LEGACY-DEPENDENCY-AUDIT.md):
-оновлення образів ще потрібні, а #140 стосується відсутніх SBOM/CodeQL jobs.
+source-оновлення образів прийняті, а #140 стосується відсутніх SBOM/CodeQL jobs.
 PR [#56](https://github.com/ikstv/AvelRen-ORIGINAL/pull/56) злитий 28.09.2026
 у main `08a16a254e25b67ce590475957380e66062de10d`. Фінальний head `e6e5586`
 має 5/5 успішних CI checks. Python pins узгоджено, CVE baseline review
@@ -47,7 +49,8 @@ deployment чи усунення всіх CVE. Старі репозиторії
 Caddy 2.11.4 та виправлення IP-заголовка злиті PR #58 у main `64511b8`;
 4/4 CI merge-коміту успішні. [Докази](CADDY-UPDATE-2026-09-28.md).
 [Ізольована TimescaleDB upgrade-репетиція](TIMESCALE-UPGRADE-2026-09-28.md)
-злита PR #59 (main `dc2b83e`, 4/4 CI успішні). У `codex/timescale-image-refresh`
-підготовлено три pins 2.30.1 для Compose/DB/restore. До завершення CI та merge
-#143 не закриваємо як source-залишок. Production deployment — окремий етап.
+злита PR #59 (main `dc2b83e`, 4/4 CI успішні). Три pins 2.30.1 для
+Compose/DB/restore прийняті PR #60 (main `ee31a7b`, 4/4 CI успішні).
+#143 завершено як source-пункт; сам старий GitHub PR лишився відкритим.
+Production deployment — окремий етап.
 Серверні операції мають окремі дозволи за AGENTS.md.
