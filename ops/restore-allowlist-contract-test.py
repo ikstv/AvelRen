@@ -23,6 +23,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESTORE_ENGINE = REPO_ROOT / "ops" / "restore-engine.lib.sh"
+PRODUCTION_ENGINE = REPO_ROOT / "ops" / "restore-production-engine.lib.sh"
 SCHEMA_VERIFY = REPO_ROOT / "services" / "backend" / "src" / "avelren" / "schema_verify.py"
 MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 
@@ -77,12 +78,16 @@ def _derive_sequences_from_migrations() -> set[str]:
 
 
 def main() -> int:
-    for required in (RESTORE_ENGINE, SCHEMA_VERIFY, MIGRATIONS_DIR):
+    for required in (RESTORE_ENGINE, PRODUCTION_ENGINE, SCHEMA_VERIFY, MIGRATIONS_DIR):
         if not required.exists():
             print(f"Required path not found: {required}", file=sys.stderr)
             return 2
 
     engine_text = RESTORE_ENGINE.read_text(encoding="utf-8")
+    production_text = PRODUCTION_ENGINE.read_text(encoding="utf-8")
+    if "_avelren_restore_engine_primitive \"$dump\" avelren" not in production_text:
+        print("Production restore wrapper does not hardcode target avelren.", file=sys.stderr)
+        return 1
     blocks = _parse_engine_allowlist(engine_text)
     if len(blocks) < 2:
         print(
