@@ -3,9 +3,7 @@
 import json
 import re
 import sys
-
 from pathlib import Path
-
 
 sbom_dir = Path(sys.argv[1])
 lock_path = Path(sys.argv[2])
