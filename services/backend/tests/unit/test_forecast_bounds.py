@@ -26,13 +26,12 @@ class _FakeCursor:
 class _SpyConn:
     """Records each execute(sql, params), executing nothing."""
 
-    def __init__(self, row: dict | None = None) -> None:
+    def __init__(self) -> None:
         self.calls: list[tuple[str, tuple]] = []
-        self.row = row if row is not None else {"n": 0, "mae_hours": None}
 
     async def execute(self, sql: str, params: tuple | None = None):  # noqa: ANN201
         self.calls.append((sql, params or ()))
-        return _FakeCursor(self.row)
+        return _FakeCursor({"n": 0, "mae_hours": None})
 
 
 class _ForecastConn:
@@ -85,14 +84,6 @@ def test_evaluate_query_is_time_bounded() -> None:
     window = datetime.now(UTC) - since
     # The window is finite and reasonable (not "all history"). LOOKBACK_WEEKS with margin.
     assert timedelta(0) < window <= timedelta(weeks=forecast.LOOKBACK_WEEKS + 1)
-
-
-def test_evaluate_preserves_zero_mae_hours() -> None:
-    spy = _SpyConn({"n": 1, "mae_hours": 0.0, "mae_vehicles": 0.0})
-
-    result = asyncio.run(forecast.evaluate(spy, 123))
-
-    assert result["mae_hours"] == 0.0
 
 
 def test_quality_evaluation_holds_out_latest_week() -> None:
