@@ -18,7 +18,7 @@ main `e793c075e219edc911a30a66588b683f32bc8d8f`; repository CI успішний.
 
 | Блок | Конкретний результат для закриття |
 | --- | --- |
-| Supply-chain CI legacy #140 / issue #23 | У ORIGINAL є окремі workflow компонентів, але немає legacy `ci.yml`/`codeql.yml` чи їхніх SBOM/CodeQL jobs. Старий #140 лише оновлює Action pins, він не переносить jobs. Потрібно визначити еквівалентну інтеграцію SBOM і доступність CodeQL у приватному репозиторії; решту issue #23 вести окремими пунктами (locks, container audit, Gradle, Dependabot, cleanup). |
+| Supply-chain CI legacy #140 / issue #23 | Рішення та межі задокументовано в [дизайні supply-chain CI](SUPPLY-CHAIN-CI-DESIGN-2026-09-28.md). Наступна реалізація — source CycloneDX artifact у окремому workflow з мінімальними правами; runtime image SBOM — окремо після узгодження candidate build. CodeQL для приватного user-owned repo має ліцензійний блокер; решту issue #23 (locks, container audit, Gradle, Dependabot, cleanup) вести окремими пунктами. |
 | Forecast issue #111 | Звірити семантику відсутнього wait_time та критерії якості. Held-out evaluation вже реалізовано; повторний перенос не потрібний. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
@@ -38,8 +38,9 @@ Issue #195 закрита 26.09.2026.
 
 Звірку трьох dependency PR завершено в [LEGACY-DEPENDENCY-AUDIT.md](LEGACY-DEPENDENCY-AUDIT.md):
 source-оновлення образів прийняті. Legacy #140 оновлює pins у старих CI workflow;
-у ORIGINAL відповідних SBOM/CodeQL jobs немає, тому їхню інтеграцію треба спроєктувати
-під чинну структуру workflow. Повний scope issue #23 ширший за #140.
+SBOM адаптацію та CodeQL ліцензійний блокер зафіксовано в
+[дизайні supply-chain CI](SUPPLY-CHAIN-CI-DESIGN-2026-09-28.md).
+Повний scope issue #23 ширший за #140.
 PR [#56](https://github.com/ikstv/AvelRen-ORIGINAL/pull/56) злитий 28.09.2026
 у main `08a16a254e25b67ce590475957380e66062de10d`. Фінальний head `e6e5586`
 має 5/5 успішних CI checks. Python pins узгоджено, CVE baseline review
