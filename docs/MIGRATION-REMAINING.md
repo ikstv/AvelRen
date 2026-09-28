@@ -1,7 +1,7 @@
 # Залишки перенесення
 
-Звірка 28.09.2026 після merge PR [#60](https://github.com/ikstv/AvelRen-ORIGINAL/pull/60),
-main `ee31a7b3f808e0728945f2371d81bb8b23e3b720`, 4/4 CI успішні.
+Звірка 28.09.2026 після merge PR [#61](https://github.com/ikstv/AvelRen-ORIGINAL/pull/61),
+main `e793c075e219edc911a30a66588b683f32bc8d8f`; repository CI успішний.
 Це поточний контрольний список; датовані старі аудити зберігають історичний зміст.
 У цьому кроці сервер і телефон повторно не перевірялися.
 
@@ -18,7 +18,7 @@ main `ee31a7b3f808e0728945f2371d81bb8b23e3b720`, 4/4 CI успішні.
 
 | Блок | Конкретний результат для закриття |
 | --- | --- |
-| Supply-chain CI legacy #140 | Python (#138) замінено PR #56, образи (#143) — PR #58–#60. Залишилися SBOM та рішення щодо CodeQL для приватного репозиторію; налаштування Dependabot розглянути з issue #23. |
+| Supply-chain CI legacy #140 / issue #23 | У ORIGINAL є окремі workflow компонентів, але немає legacy `ci.yml`/`codeql.yml` чи їхніх SBOM/CodeQL jobs. Старий #140 лише оновлює Action pins, він не переносить jobs. Потрібно визначити еквівалентну інтеграцію SBOM і доступність CodeQL у приватному репозиторії; решту issue #23 вести окремими пунктами (locks, container audit, Gradle, Dependabot, cleanup). |
 | Forecast issue #111 | Звірити семантику відсутнього wait_time та критерії якості. Held-out evaluation вже реалізовано; повторний перенос не потрібний. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
@@ -37,7 +37,9 @@ Issue #195 закрита 26.09.2026.
 Відсутність відкритих питань у ops не означає завершеного перенесення файлів.
 
 Звірку трьох dependency PR завершено в [LEGACY-DEPENDENCY-AUDIT.md](LEGACY-DEPENDENCY-AUDIT.md):
-source-оновлення образів прийняті, а #140 стосується відсутніх SBOM/CodeQL jobs.
+source-оновлення образів прийняті. Legacy #140 оновлює pins у старих CI workflow;
+у ORIGINAL відповідних SBOM/CodeQL jobs немає, тому їхню інтеграцію треба спроєктувати
+під чинну структуру workflow. Повний scope issue #23 ширший за #140.
 PR [#56](https://github.com/ikstv/AvelRen-ORIGINAL/pull/56) злитий 28.09.2026
 у main `08a16a254e25b67ce590475957380e66062de10d`. Фінальний head `e6e5586`
 має 5/5 успішних CI checks. Python pins узгоджено, CVE baseline review
