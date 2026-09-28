@@ -96,4 +96,94 @@ if upload_with.get("name") != "source-sbom-${{ github.sha }}":
 if upload_with.get("path") != "${{ runner.temp }}/avelren-source.cdx.json":
     raise SystemExit("SBOM artifact must upload the generated file from runner temp")
 
+image_job = supply_chain["jobs"].get("image-sbom")
+if image_job is None:
+    raise SystemExit("Supply-chain workflow must scan runtime image candidates")
+if image_job.get("permissions") != {"contents": "read"}:
+    raise SystemExit("Runtime image SBOM job must use contents: read only")
+image_steps = image_job["steps"]
+image_uses = [step.get("uses", "") for step in image_steps]
+for action in image_uses:
+    if action and not re.fullmatch(r"[^@]+@[0-9a-f]{40}", action):
+        raise SystemExit(f"Runtime image action is not pinned to a full SHA: {action}")
+
+image_checkout = next(
+    step for step in image_steps if step.get("uses", "").startswith("actions/checkout@")
+)
+if image_checkout.get("with", {}).get("persist-credentials") != "false":
+    raise SystemExit("Runtime image checkout must not persist credentials")
+build = next(step for step in image_steps if "docker build" in step.get("run", ""))
+build_run = build["run"]
+for required in (
+    "SOURCE_COMMIT=${GITHUB_SHA}",
+    "avelren-candidate:${GITHUB_SHA}",
+    "services/backend",
+    'test "$embedded_commit" = "$GITHUB_SHA"',
+):
+    if required not in build_run:
+        raise SystemExit(f"Runtime image candidate build must include {required}")
+
+image_scans = [
+    step for step in image_steps
+    if step.get("uses", "").startswith("anchore/sbom-action@")
+]
+build_index = image_steps.index(build)
+candidate_scan_indices = [
+    image_steps.index(step)
+    for step in image_scans
+    if step.get("with", {}).get("image", "").startswith("avelren-candidate:")
+]
+if any(index <= build_index for index in candidate_scan_indices):
+    raise SystemExit("Build and attest the app candidate before scanning it")
+expected_images = {
+    "avelren-candidate:${{ github.sha }}",
+    "timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9",
+    "caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b",
+}
+actual_images = set()
+image_sbom_paths = set()
+for step in image_scans:
+    image_with = step.get("with", {})
+    if image_with.get("format") != "cyclonedx-json":
+        raise SystemExit("Runtime image SBOMs must be CycloneDX JSON")
+    if image_with.get("syft-version") != "v1.51.1":
+        raise SystemExit("Runtime image SBOMs must use pinned Syft v1.51.1")
+    if image_with.get("upload-artifact") != "false" or image_with.get("upload-release-assets") != "false":
+        raise SystemExit("Anchore image scans must not upload their own artifacts")
+    if image_with.get("image"):
+        actual_images.add(image_with["image"])
+    output_file = image_with.get("output-file", "")
+    if not output_file.startswith("${{ runner.temp }}/runtime-image-sbom/"):
+        raise SystemExit("Each runtime image SBOM must be written to the runner temp directory")
+    image_sbom_paths.add(output_file)
+if actual_images != expected_images:
+    raise SystemExit(f"Runtime image scans mismatch: {actual_images} != {expected_images}")
+if len(image_scans) != 3 or len(image_sbom_paths) != 3:
+    raise SystemExit("Each runtime image must have one uniquely named SBOM output")
+
+verify_index = next(
+    index for index, step in enumerate(image_steps)
+    if "scripts/verify_runtime_image_sboms.py" in step.get("run", "")
+)
+upload_index = next(
+    index for index, step in enumerate(image_steps)
+    if step.get("uses", "").startswith("actions/upload-artifact@")
+)
+scan_indices = [image_steps.index(step) for step in image_scans]
+if not max(scan_indices) < verify_index < upload_index:
+    raise SystemExit("Generate all image SBOMs, validate them, then upload the artifact")
+verify_images = image_steps[verify_index]
+if not verify_images.get("run", "").startswith("python3 scripts/verify_runtime_image_sboms.py"):
+    raise SystemExit("Runtime image SBOMs must be checked for package coverage")
+image_upload = image_steps[upload_index]
+image_upload_with = image_upload.get("with", {})
+if image_upload_with.get("retention-days") != "30" or image_upload_with.get("if-no-files-found") != "error":
+    raise SystemExit("Runtime image SBOM artifact must fail if absent and expire after 30 days")
+if image_upload_with.get("name") != "runtime-image-sbom-${{ github.sha }}":
+    raise SystemExit("Runtime image SBOM artifact name must include the source commit SHA")
+if image_upload_with.get("path") != "${{ runner.temp }}/runtime-image-sbom/*.cdx.json":
+    raise SystemExit("Runtime image SBOM artifact must contain the generated CycloneDX files")
+if any("docker push" in step.get("run", "") for step in image_steps):
+    raise SystemExit("Candidate image job must not publish container images")
+
 print(f"CI scopes: {len(cases) * 2} examples passed; supply-chain workflow contract passed")

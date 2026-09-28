@@ -24,10 +24,13 @@ issue #23, видимість/власника репозиторію та по�
    `actions/upload-artifact`. Pin-ити обидва Actions повними SHA. На job
    встановити лише потрібний read scope, `persist-credentials: false`, без
    секретів і без dependency snapshot submission.
-5. Окремим майбутнім критерієм додати SBOM runtime images: TimescaleDB і Caddy
-   за їхніми точними digest, а `avelren-app` — після складання саме того
-   candidate image, який перевіряє release/deployment pipeline. Не видавати
-   source tree SBOM за image SBOM.
+5. Runtime image SBOMs виконуються окремим job: CI збирає непублікований
+   `avelren-candidate` з перевірюваного commit та перевіряє вбудований SHA;
+   TimescaleDB і Caddy скануються за Compose digest. Три CycloneDX файли
+   зберігаються як 30-денний artifact. Це candidate-only перевірка, не
+   production deployment і не доказ ідентичності образу, який пізніше окремо
+   перебудують на сервері. Перед вимогою exact deployment image потрібна окрема
+   зміна передачі immutable image/digest у deployment pipeline.
 
 Syft action вміє сканувати директорії та images, генерувати SPDX/CycloneDX,
 а його стандартне завантаження artifact використовує ширші permissions.
@@ -64,8 +67,7 @@ Gradle locking/checksum, Dependabot, audits і локальний test-stack cle
 потребують окремого інвентарного рішення.
 
 Поточна реалізація pin-ить Anchore SBOM Action `v0.24.2` і Syft `v1.51.1`,
-а також GitHub `upload-artifact v7.0.1` повними SHA. Container image SBOM
-винести в окремий етап після узгодження candidate image pipeline. CodeQL
+а також GitHub `upload-artifact v7.0.1` повними SHA. CodeQL
 пункт позначати blocked-by-license, а не як неготовий workflow.
 
 Перевірка фактичного artifact на main виявила, що Syft не підхопив 35 Python
@@ -74,3 +76,9 @@ Syft Python cataloger розпізнає `*requirements*.txt`; тому workflow
 створює поруч `requirements.txt` з точним вмістом hash-locked файла, валідує
 наявність кожного pinned пакета в CycloneDX і завжди прибирає копію.
 Див. [підтримувані Python manifests Syft](https://oss.anchore.com/docs/capabilities/python/).
+
+Image-scan job створює окремі SBOM для candidate app, зафіксованого TimescaleDB
+та Caddy; валідація вимагає Python lock у app candidate, Debian packages у
+app і TimescaleDB та Alpine packages у Caddy. Candidate image не публікується і
+не розгортається. Через окрему повторну збірку його SBOM не є attestation для
+production image.

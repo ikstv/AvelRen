@@ -1,5 +1,14 @@
 # Що має дійти до телефона
 
+## Supply-chain SBOM candidate (28.09.2026)
+
+Source SBOM у main містить перевірку повного Python lock і Android Maven
+залежностей. Окрема CI-гілка додає CycloneDX для зібраного, непублікованого
+app candidate та зафіксованих TimescaleDB/Caddy образів. Її artifact — доказ
+лише складу CI candidate; він не означає build, встановлення APK, розгортання
+чи ідентичність production image. Приймання цього кроку вимагає успішного
+GitHub CI та фактичної перевірки OS/Python package coverage у трьох файлах.
+
 ## Кандидат образу TimescaleDB (28.09.2026)
 
 **Актуальний стан:** PR #60 злитий у main `ee31a7b`, усі 4 CI checks
