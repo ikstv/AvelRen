@@ -35,3 +35,8 @@ backup/restore та ролі БД мають власні критерії пр�
 
 Пов’язані документи: [реєстр legacy Issues](LEGACY-ISSUE-REGISTER.md),
 [аудит server drift](CONTROL-AUDIT.md) і [матриця production restore](PRODUCTION-RESTORE-GAP-MATRIX.md).
+
+Звірку #143/#140/#138 завершено 28.09.2026:
+[точні pins, файли й критерії приймання](LEGACY-DEPENDENCY-AUDIT.md).
+#140 означає перенесення відсутніх SBOM/CodeQL jobs; усі три PR залишаються
+у статусі «ще треба перенести» до відповідної реалізації та перевірок.
