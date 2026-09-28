@@ -22,13 +22,10 @@ x-avelren-security: &avelren-security
 
 services:
   db:
-    # Reproducible builds (issue #23): external images are pinned to a digest,
-    # not just a tag. A tag like `2.17.2-pg16` can be re-pushed to a different
-    # image; the digest cannot. The human-readable tag is kept alongside for
-    # legibility, and Dependabot's docker ecosystem watches the digest and opens
-    # a PR when the upstream image is re-published. Digests captured from the
-    # images the production host is already running (2026-08-15).
-    image: timescale/timescaledb:2.17.2-pg16@sha256:4e459e217f00cbb09920c34d245501e63427e6767a495de57ce76823ff280f12
+    # Відтворюваність (issue #23): digest фіксує образ, tag залишено для читабельності.
+    # Кандидат звірено з registry та репетицією PR #59; це не образ, уже
+    # розгорнутий на сервері. Перед recreate потрібен окремий план upgrade/відкату.
+    image: timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9
     restart: unless-stopped
     # Resource ceilings so no single container can starve the host and take
     # PostgreSQL down with it (audit MED). db gets the largest share.

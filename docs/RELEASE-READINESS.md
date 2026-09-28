@@ -1,5 +1,21 @@
 # Що має дійти до телефона
 
+## Кандидат образу TimescaleDB (28.09.2026)
+
+Після merge PR #59 (main `dc2b83e`, 4/4 CI успішні) у гілці
+`codex/timescale-image-refresh` оновлено три pins до перевіреного
+`2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9`:
+production Compose, тестова БД та restore-репетиція. Старий образ у
+upgrade-тесті збережено як baseline. PostgreSQL залишається 16.
+Приймання нового head потребує повторного CI; зміна Compose у Git не є
+розгортанням. На сервері образ, extension, ролі й міграції не змінювалися.
+Перед production потрібні перевірка реальної копії, актуальних overrides,
+план переходу всіх БД/template1 та відновлення старої копії при невдачі.
+Не запускати старий образ над уже оновленим каталогом як «відкат».
+Локально з новими pins: 22 DB-тести, повний restore/schema/API smoke та
+перевірка cleanup після помилки пройшли. CI scopes (14 examples), provenance
+і Android source/assets checks успішні; це не замінює CI точного head.
+
 ## Репетиція TimescaleDB (28.09.2026)
 
 Гілка `codex/timescale-upgrade-rehearsal` додає ізольований перехід
