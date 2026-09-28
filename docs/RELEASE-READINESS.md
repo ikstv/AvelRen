@@ -8,8 +8,10 @@ Dockerfile. Локальні build/backend/DB/API/watchdog/restore переві�
 [Докази й залишки перевірки](PYTHON-BASE-UPDATE-2026-09-28.md).
 CI head `bcbccda`: api/core/repository/watchdog пройшли; database впав
 на Compose-контракті. SIGPIPE-причину виправлено з 4/4 локальними регресійними
-тестами; CI нового head ще має це підтвердити. Baseline CVE-порівняння показало
-покращення, але оцінка системних ризиків ще відкрита. Production не змінювався;
+тестами; head `f8b78bf` має 5/5 успішних CI checks. Baseline CVE-порівняння
+показало покращення; системний review виявив залишкові SUID/NoNewPrivs=0.
+Посилення прав Python-контейнерів запропоновано, ще не реалізовано;
+security gate лишається відкритим. Production не змінювався;
 Android-збірка, телефон і Play у цьому кроці не виконувалися.
 
 ## Попередній запис цільової версії

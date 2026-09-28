@@ -1,7 +1,8 @@
 # Кандидат оновлення Python — 28.09.2026
 
-Статус: функціональні перевірки пройшли, приймання безпеки ще не завершене.
-Не зливати й не розгортати до розбору знахідок нижче. Legacy PR #138 поки
+Статус: функціональні перевірки й первинний розбір CVE завершено; залишковий
+ризик SUID/capabilities ще потребує рішення й перевіреного посилення захисту.
+Не зливати й не розгортати до закриття цього gate. Legacy PR #138 поки
 залишається відкритим залишком перенесення.
 
 ## Зміна
@@ -181,3 +182,59 @@ Guard тепер повністю зчитує список сервісів, п
 До виправлення: три failures із чотирьох. Після: **4/4 OK** у Linux
 контейнері з `--network none`, без Docker socket. GitHub CI має підтвердити
 новий head; CVE-приймання лишається окремим незавершеним етапом.
+
+## Підсумок системного CVE review (28.09.2026)
+
+Для `f8b78bfd0e5d062ccc23acdbafcea14e1d3b5c01` пройшли всі п'ять GitHub
+checks: api, core, database, repository, watchdog. Помилку Compose guard
+закрито; database run `36408968768` також підтвердив restore та регресії.
+
+Перевірено локальний runtime `avelren-python-refresh:local`, без мережі,
+Docker socket, production mounts і запуску collector. Це не перевірка
+активного сервера чи його локальних Compose overrides.
+
+### Фактичні права й компоненти
+
+- UID/GID 10001; CapInh/CapPrm/CapEff/CapAmb — нуль.
+- CapBnd `00000000a80425fb`: CAP_SYS_ADMIN відсутня.
+- Seccomp 2; **NoNewPrivs 0** — заборона підвищення привілеїв не ввімкнена.
+- `/usr/bin/mount` і `/usr/bin/umount` мають SUID root. У runtime також
+  залишилися SUID/SGID утиліти керування обліковими записами.
+- `/etc/fstab` root-owned, mode 0644, не доступний UID10001 для запису;
+  містить лише UNCONFIGURED-коментар. nsenter не має SUID.
+- `systemd-homed` відсутній. `perl -MArchive::Tar` завершується відсутністю
+  модуля в усіх налаштованих `@INC`, а не лише в одному перевіреному каталозі.
+- infocmp та libacl залишаються в образі. Backend не містить викликів
+  subprocess/os.system, mount/nsenter, infocmp чи ACL-функцій.
+- Source Compose не додає privileged, cap_add, host PID namespace,
+  root user або writable fstab; для Python-служб немає й явних
+  `cap_drop: [ALL]` / `no-new-privileges`. Runtime defaults не замінюють
+  перевірку конкретного deployment на сервері.
+
+### Рішення по групах знахідок
+
+| Знахідка | Висновок для перевіреного кандидата |
+| --- | --- |
+| [systemd-homed CVE-2026-16742](https://security-tracker.debian.org/tracker/CVE-2026-16742) | Вразлива служба відсутня; встановлені бібліотеки systemd не означають наявності homed-сценарію. |
+| [Archive::Tar CVE-2026-9538](https://security-tracker.debian.org/tracker/CVE-2026-9538) | Вразливий Perl-модуль не встановлено в runtime `@INC`; шлях обробки tar цим модулем не доступний. |
+| [infocmp CVE-2025-69720](https://security-tracker.debian.org/tracker/CVE-2025-69720) | CLI присутній, прикладного шляху запуску не знайдено. Не позначати весь ncurses як виправлений. |
+| [libacl CVE-2026-54369](https://security-tracker.debian.org/tracker/CVE-2026-54369) | Привілейований ACL-виклик із керованим шляхом у backend не знайдено; бібліотека лишається вразливою за Debian tracker. Нуль CapEff не є універсальним захистом від SUID-сценаріїв. |
+| [mount CVE-2026-76642](https://security-tracker.debian.org/tracker/CVE-2026-76642), [CVE-2026-78409](https://security-tracker.debian.org/tracker/CVE-2026-78409), [CVE-2026-78410](https://security-tracker.debian.org/tracker/CVE-2026-78410) | Немає fstab-дозволів, CAP_SYS_ADMIN чи прикладного запуску mount. Передумови відомих сценаріїв у цьому запуску не виявлено, але SUID mount та NoNewPrivs=0 лишають зайву можливість підвищення привілеїв. |
+| [nsenter CVE-2026-78408](https://security-tracker.debian.org/tracker/CVE-2026-78408) | Потрібна привілейована операція nsenter; backend її не виконує, nsenter не SUID. Не використовувати root nsenter проти недовіреного target під час експлуатації. |
+
+Debian tracker підтверджує невиправлені trixie-пакети acl/util-linux;
+виправлення в unstable не є дозволом змішувати Debian releases у runtime.
+Не запускали експлойти, не знімали обмеження контейнера та не додавали
+scanner exclusions. Нижчі severity з raw scan також не оголошуються
+виправленими: цей розбір пріоритезує залишкові High.
+
+### Конкретний наступний крок
+
+Окремо підготувати й перевірити `no-new-privileges:true` та `cap_drop: [ALL]`
+для п'яти Python-служб (migrate, collector, notifier, watchdog, api),
+не поширюючи це механічно на PostgreSQL чи Caddy. Перевірити Compose
+контракти, runtime права, DB/API/watchdog і restore на ізольованих даних.
+Це запропоноване посилення, **ще не реалізоване**; воно зменшує можливість
+підвищення привілеїв, але не видаляє CVE з пакетів і не усуває DoS-класи.
+Після перевірок — окремо оцінити готовність merge; production deployment
+потребує власного GO та звірки фактичних overrides. PR #56 лишається draft.
