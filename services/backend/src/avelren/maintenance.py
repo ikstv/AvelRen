@@ -7,6 +7,8 @@ from pathlib import Path
 
 MAINTENANCE_PATH = Path(os.environ.get("AVELREN_MAINTENANCE_FILE", "/telemetry/maintenance.json"))
 BOOT_ID_PATH = Path(os.environ.get("AVELREN_BOOT_ID_FILE", "/proc/sys/kernel/random/boot_id"))
+MAX_ORDINARY_SECONDS = 21_600
+MAX_RESTART_SECONDS = 900
 
 
 def read_window(now: datetime) -> dict[str, str] | None:
@@ -19,7 +21,11 @@ def read_window(now: datetime) -> dict[str, str] | None:
         end = datetime.fromisoformat(payload["ends_at"])
         if start.tzinfo is None or end.tzinfo is None:
             return None
-        if not 0 < (end - start).total_seconds() <= 900:
+        restart_text = payload.get("restarts_at")
+        published_boot_id = payload.get("boot_id")
+        restart_requested = restart_text is not None or published_boot_id is not None
+        maximum = MAX_RESTART_SECONDS if restart_requested else MAX_ORDINARY_SECONDS
+        if not 0 < (end - start).total_seconds() <= maximum:
             return None
         if end <= now or start > now + timedelta(days=1):
             return None
@@ -27,8 +33,6 @@ def read_window(now: datetime) -> dict[str, str] | None:
             "starts_at": start.astimezone(UTC).isoformat(),
             "ends_at": end.astimezone(UTC).isoformat(),
         }
-        restart_text = payload.get("restarts_at")
-        published_boot_id = payload.get("boot_id")
         if restart_text is None and published_boot_id is None:
             return public  # Backward compatibility with an ordinary maintenance window.
         if not isinstance(restart_text, str) or not isinstance(published_boot_id, str):

@@ -103,16 +103,17 @@ class ServerStatusTest {
         )
     }
 
-    @Test fun legacyWindowStillNeedsObservedFailureToClaimRestart() {
-        val legacy = MaintenanceWindow(now.toString(), now.plusSeconds(180).toString())
+    @Test fun ordinaryMaintenanceNeverClaimsRestartOnResponseFailure() {
+        val ordinary = MaintenanceWindow(now.toString(), now.plusSeconds(21_600).toString())
         assertEquals(
             ServerStatus.MAINTENANCE,
-            status(success = true, maintenance = legacy, time = now.plusSeconds(75)),
+            status(success = true, maintenance = ordinary, time = now.plusSeconds(75)),
         )
         assertEquals(
-            ServerStatus.RESTARTING,
-            status(success = false, maintenance = legacy, time = now.plusSeconds(75)),
+            ServerStatus.MAINTENANCE,
+            status(success = false, maintenance = ordinary, time = now.plusSeconds(75)),
         )
+        assertEquals(360L, ordinary.remainingMinutes(now))
     }
 
     @Test fun futureWindowDoesNotSayWorkHasStarted() {
@@ -123,7 +124,9 @@ class ServerStatusTest {
         listOf(
             MaintenanceWindow("invalid", now.toString()),
             MaintenanceWindow(now.toString(), now.minusSeconds(1).toString()),
-            MaintenanceWindow(now.toString(), now.plusSeconds(901).toString()),
+            MaintenanceWindow(now.toString(), now.plusSeconds(21_601).toString()),
+            MaintenanceWindow(now.toString(), now.plusSeconds(901).toString(), now.plusSeconds(75).toString()),
+            MaintenanceWindow(now.toString(), now.plusSeconds(21_600).toString(), now.plusSeconds(75).toString()),
             MaintenanceWindow(now.plusSeconds(86401).toString(), now.plusSeconds(86500).toString()),
             MaintenanceWindow(now.toString(), now.plusSeconds(600).toString(), now.toString()),
             MaintenanceWindow(now.toString(), now.plusSeconds(600).toString(), now.plusSeconds(600).toString()),
