@@ -12,6 +12,18 @@ TimescaleDB production/test та Caddy; новий restore pin також узг
 Успіх цих кроків не підтверджує production deployment. Нижчі таблиці —
 історичний зріз до оновлення, не актуальні версії main.
 
+**Актуалізація #140, 28.09.2026:** legacy PR #140 змінює лише версії
+`anchore/sbom-action` у старому `.github/workflows/ci.yml` і
+`github/codeql-action/init|analyze` у старому `.github/workflows/codeql.yml`.
+Це не додавання jobs. У ORIGINAL main `e793c075e219edc911a30a66588b683f32bc8d8f`
+є компонентні workflow (`api`, `android`, `backend-core`, `database`, `watchdog`
+та `repository`), але немає `ci.yml`, `codeql.yml` чи SBOM/CodeQL jobs.
+Отже, потрібна адаптація функцій до структури ORIGINAL, а не механічне
+перенесення лише pins. Issue #23 ширша за #140: locks, pins, Gradle,
+Dependabot, аудити та cleanup мають окремо звірятися за наявним станом.
+Доступність CodeQL для приватного ORIGINAL і потрібний план/тариф ще не
+підтверджені; видимість репозиторію не змінювати.
+
 28.09.2026. База ORIGINAL: `c4ce7b9e36e0500e09f00574c19305dde9b08013`.
 Перевірено diff та точні head-коміти старих PR, поточні файли нового
 репозиторію, доступність запропонованих image manifests і Actions commits.
@@ -23,7 +35,7 @@ TimescaleDB production/test та Caddy; новий restore pin також узг
 | --- | --- | --- |
 | [#138](https://github.com/ikstv/AvelRen/pull/138), `8bd73748bc796d50416f7dbc532250749e6ddf13` | Python `3.14-slim` досі закріплено на `ce407646…`; PR пропонує `cad9a2c…`. Обидва місця: `services/backend/Dockerfile`, `ops/Dockerfile.database-test`. | Підготувати окреме узгоджене оновлення обох Dockerfile, rebuild та backend/DB/API/watchdog/restore перевірки. Перевірити вразливості кандидата. |
 | [#143](https://github.com/ikstv/AvelRen/pull/143), `ea467895bd8270b17cfea443671ab3e094b8ed04` | TimescaleDB `2.17.2-pg16` → `2.30.1-pg16`; Caddy `2.9.1-alpine` → `2.11.3-alpine` ще не враховані. | Розділити Caddy і TimescaleDB. Для Caddy потрібні validate та перевірка маршрутизації. Для TimescaleDB — DB/ACL/API/restore і окрема перевірка переходу зі старої версії на нову. Чистий init нової БД не доводить можливості оновлення наявної. |
-| [#140](https://github.com/ikstv/AvelRen/pull/140), `d9268902aac7631d8542daab0650190b42ef1727` | Diff оновлює `anchore/sbom-action` та дві дії CodeQL (`init`, `analyze`). Таких jobs у поточних workflows ORIGINAL немає. | Це залишок перенесення supply-chain перевірок issue #23, а не оновлення вже наявних Actions. Потрібен окремий CI-крок: SBOM та рішення щодо доступності CodeQL для приватного репозиторію. Наявний pin checkout не закриває #140. |
+| [#140](https://github.com/ikstv/AvelRen/pull/140), `d9268902aac7631d8542daab0650190b42ef1727` | Legacy diff оновлює лише pins SBOM action та CodeQL actions у старих workflow. У ORIGINAL main `e793c07` цих workflow/jobs немає; наявна структура поділена за компонентами. | Перенести потрібну SBOM/CodeQL поведінку як адаптовані jobs у чинну структуру ORIGINAL. Спершу визначити SBOM-покриття та перевірити план/доступність CodeQL у приватному репозиторії. Issue #23 значно ширша; кожен її пункт звіряти окремо. |
 
 ## Точні кандидати зі старих PR
 

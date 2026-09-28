@@ -17,7 +17,7 @@
 | [#183 — legacy retention](https://github.com/ikstv/AvelRen/pull/183) | **Замінено новою реалізацією** | Див. PR #190: `ORIGINAL` має нову migration `012`, окремий worker і тести. | Не merge старий PR. |
 | [#173 — generated STATE.md](https://github.com/ikstv/AvelRen/pull/173) | **Свідомо відкинуто** | Це автоматично згенерований знімок старого репозиторію, не джерело актуального стану міграції. | Залишити як історичний запис. |
 | [#143 — Compose image updates](https://github.com/ikstv/AvelRen/pull/143) | **Замінено новою реалізацією** | PR #58: Caddy 2.11.4 замість legacy 2.11.3; #59: ізольований TimescaleDB upgrade; #60: усі три pins 2.30.1-pg16. Main `ee31a7b` має 4/4 успішних CI checks. Повний diff legacy head `ea467895bd8270b17cfea443671ab3e094b8ed04` звірено. | Source-перенесення завершене; старий PR не merge і не закрито. Production upgrade, реальна backup-копія та план відкату — окреме приймання. |
-| [#140 — GitHub Actions updates](https://github.com/ikstv/AvelRen/pull/140) | **Ще треба перенести** | Старий diff оновлює SBOM/CodeQL jobs, яких немає в новому CI; заміна самих Action pins цього не вирішує. | Спроєктувати перенесення SBOM та перевірити доступність CodeQL для приватного репозиторію без зміни його видимості чи тарифу. |
+| [#140 — GitHub Actions updates](https://github.com/ikstv/AvelRen/pull/140) | **Ще треба перенести** | Legacy diff змінює лише pins `anchore/sbom-action` у старому `ci.yml` та `github/codeql-action` у старому `codeql.yml`; він не додає jobs. У ORIGINAL main `e793c07` немає ані цих workflow, ані відповідних SBOM/CodeQL jobs. | Перенести потрібну поведінку в структуру CI ORIGINAL: визначити охоплення SBOM та перевірити, чи доступний CodeQL для приватного репозиторію без зміни видимості/тарифу. Окремо звірити решту issue #23: залежності, контейнери, Gradle, Dependabot і cleanup. |
 | [#138 — Python image](https://github.com/ikstv/AvelRen/pull/138) | **Замінено новою реалізацією** | ORIGINAL PR #56 злитий у main `08a16a2`: узгоджені Python image pins, CVE baseline review, NNP/cap_drop п'яти Python-служб; фінальний head `e6e5586` має 5/5 CI checks. | Старий PR не merge; production-приймання та залишкові CVE не вважати закритими. |
 | [#137 — server-status badge](https://github.com/ikstv/AvelRen/pull/137) | **Замінено новою реалізацією** | Контракт плашки реалізовано й прийнято через `ORIGINAL` PR #19, #20 та #46–#49: technical works → restart → online перевірено на телефоні під час реального reboot. | Старий PR не merge. |
 | [#123 — правила актуальності сигналу](https://github.com/ikstv/AvelRen/pull/123) | **Замінено новою реалізацією** | Принцип «перевіряти світ, а не старе твердження» застосовано в `CROSS-SOURCE-AUDIT`, `PRODUCTION-AUDIT` та release evidence. | Старий документ не переносити окремо. |
@@ -38,7 +38,7 @@ backup/restore та ролі БД мають власні критерії пр�
 
 Звірку #143/#140/#138 завершено 28.09.2026:
 [точні pins, файли й критерії приймання](LEGACY-DEPENDENCY-AUDIT.md).
-#140 означає перенесення відсутніх SBOM/CodeQL jobs. Після merge #56
+#140 — це оновлення Actions у старих workflow; самі відповідні jobs ще треба перенести до ORIGINAL. Після merge #56
 legacy #138 позначено заміненим; після #58–#60 так само позначено #143.
 #140 залишається незавершеним.
 Стани старих GitHub PR у цьому кроці не змінювались.
