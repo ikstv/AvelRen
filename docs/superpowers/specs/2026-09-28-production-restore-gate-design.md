@@ -29,6 +29,10 @@ maintenance не впливають на запущений stack. Цей диз
    webhook або інший автоматичний запуск заборонені.
 5. Окремий явний GO власника потрібен перед server-side preflight,
    deployment або production restore.
+6. Звичайне maintenance-вікно без `restarts_at` може тривати до 6 годин.
+   Planned reboot лишається обмеженим 15 хвилинами. Після успіху ordinary
+   maintenance прибирається відразу; після помилки лишається активним до
+   ручного recovery або завершення погодженого вікна.
 
 ## Не входить у цей блок
 
@@ -61,6 +65,12 @@ RESTORE avelren YYYY-MM-DD
 Token читається з TTY, не передається в argv, environment або лог. Дата —
 поточна UTC-дата хоста. Неінтерактивний production-запуск заборонений;
 contract tests використовують окремий test-only input descriptor.
+
+Для restore використовується ordinary maintenance publisher без
+`restarts_at`/`boot_id`. API й Android приймають такі вікна тривалістю до
+21 600 секунд. Вікно з `restarts_at`/`boot_id` надалі має максимум 900 секунд,
+тому довге restore-вікно не може показати неправдивий стан «Перезапуск
+сервера».
 
 ### 2. Recovery evidence gate
 
@@ -219,6 +229,7 @@ Shell syntax, contract tests, allowlist test та Docker integration test вхо
 
 - `restore_test` і production entrypoint фізично розділені;
 - snapshot failure завжди блокує restore;
+- ordinary maintenance допускає не більше 6 годин, reboot — не більше 15 хв;
 - до maintenance немає side effects;
 - після maintenance немає автоматичного відкриття ingress при помилці;
 - жодного default/latest pin і жодних секретів у Git, argv або логах;
