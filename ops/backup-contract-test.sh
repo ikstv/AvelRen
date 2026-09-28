@@ -126,7 +126,15 @@ delete)
 *) exit 12 ;;
 esac
 SH
-    chmod +x "$bin/docker" "$bin/rclone"
+cat >"$bin/mv" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${FAKE_MV_LOG:?}"
+if [ "${FAKE_RECEIPT_MV_FAIL:-0}" = 1 ] && [[ "${*: -1}" == */receipt.json ]]; then
+    exit 18
+fi
+/bin/mv "$@"
+SH
+    chmod +x "$bin/docker" "$bin/rclone" "$bin/mv"
 }
 
 # Split from run_case so a case can seed the remote (or swap the script under
@@ -147,9 +155,11 @@ exec_case() {
         AVELREN_BACKUP_REMOTE="fake:$FAKE_REMOTE_PATH" \
         AVELREN_RCLONE_CONFIG="$case_dir/rclone.conf" \
         AVELREN_BACKUP_STAMP="$case_dir/stamp" \
+        AVELREN_BACKUP_RECEIPT="$case_dir/receipt.json" \
         AVELREN_BACKUP_PASSWORD=backup-contract-secret \
         EXPECTED_BACKUP_PASSWORD=backup-contract-secret \
         FAKE_CALL_LOG="$case_dir/calls.log" \
+        FAKE_MV_LOG="$case_dir/mv.log" \
         "$@" bash "${SCRIPT_UNDER_TEST:-$ROOT/ops/backup.sh}"
 }
 
@@ -188,6 +198,29 @@ run_case success
 [ -e "$WORK/success/stamp" ]
 assert_no_plaintext "$WORK/success/work"
 assert_remote_layout "$WORK/success/remote"
+python3 - "$WORK/success/receipt.json" "$WORK/success/remote" <<'PY'
+import hashlib
+import json
+import os
+import re
+import stat
+import sys
+from pathlib import Path
+
+receipt_path = Path(sys.argv[1])
+remote_root = Path(sys.argv[2])
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+assert set(receipt) == {"created_at", "remote_artifact", "remote_sidecar", "sha256", "bytes"}
+assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", receipt["created_at"])
+assert re.fullmatch(r"fake:avelren/(daily|weekly|monthly)/avelren-\d{8}-\d{6}\.sql\.gz", receipt["remote_artifact"])
+assert receipt["remote_sidecar"] == receipt["remote_artifact"] + ".sha256"
+remote_dump = remote_root / receipt["remote_artifact"].split(":", 1)[1]
+assert receipt["sha256"] == hashlib.sha256(remote_dump.read_bytes()).hexdigest()
+assert receipt["bytes"] == remote_dump.stat().st_size
+assert stat.S_IMODE(os.stat(receipt_path).st_mode) == 0o600
+assert not any(key in receipt for key in ("local_path", "config", "password", "credentials"))
+PY
+grep -Eq '^-f -- .*/\.receipt\.json\.[^ ]+ .*/receipt\.json$' "$WORK/success/mv.log"
 grep -q 'pg_dump --no-owner -U avelren_backup -d avelren' "$WORK/success/calls.log"
 grep -q -- '--no-owner' "$WORK/success/calls.log"
 ! grep -Eq 'pg_dump -U (avelren|avelren_admin|avelren_migrator)( |$)' "$WORK/success/calls.log"
@@ -206,6 +239,7 @@ do
     fi
     [ ! -s "$WORK/$name/calls.log" ]
     [ ! -e "$WORK/$name/stamp" ]
+    [ ! -e "$WORK/$name/receipt.json" ]
     assert_no_plaintext "$WORK/$name/work"
 done
 
@@ -217,13 +251,15 @@ for item in \
     'same-size:FAKE_SAME_SIZE_CORRUPTION=1' \
     'remote-cat:FAKE_REMOTE_CAT_FAIL=1' \
     'size:FAKE_SIZE_MISMATCH=1' \
-    'retention:FAKE_RETENTION_FAIL=1'
+    'retention:FAKE_RETENTION_FAIL=1' \
+    'receipt-mv:FAKE_RECEIPT_MV_FAIL=1'
 do
     name=${item%%:*}; flag=${item#*:}
     if run_case "$name" "$flag"; then
         echo "expected backup failure: $name" >&2; exit 1
     fi
     [ ! -e "$WORK/$name/stamp" ]
+    [ ! -e "$WORK/$name/receipt.json" ]
     assert_no_plaintext "$WORK/$name/work"
     if [ "$name" = same-size ] || [ "$name" = remote-cat ]; then
         ! grep -q RETENTION "$WORK/$name/calls.log" 2>/dev/null
@@ -235,6 +271,7 @@ if run_case not-crypt FAKE_REMOTE_NOT_CRYPT=1; then
     echo "expected non-crypt remote gate failure" >&2; exit 1
 fi
 [ ! -e "$WORK/not-crypt/stamp" ]
+[ ! -e "$WORK/not-crypt/receipt.json" ]
 [ ! -s "$WORK/not-crypt/calls.log" ]
 assert_no_plaintext "$WORK/not-crypt/work"
 
@@ -254,6 +291,40 @@ if exec_case gzip; then
 fi
 [ "$(grep -c '^GZIP_T_REACHED$' "$WORK/gzip/calls.log")" -eq 1 ]
 [ ! -e "$WORK/gzip/stamp" ]; assert_no_plaintext "$WORK/gzip/work"
+[ ! -e "$WORK/gzip/receipt.json" ]
+
+# A requested receipt is invalidated before work begins. A failed replacement
+# cannot leave yesterday's receipt looking like proof of a fresh snapshot.
+prepare_case stale-receipt
+printf '{"created_at":"yesterday"}\n' >"$WORK/stale-receipt/receipt.json"
+if exec_case stale-receipt AVELREN_BACKUP_PASSWORD=; then
+    echo "expected stale receipt replacement failure" >&2; exit 1
+fi
+[ ! -e "$WORK/stale-receipt/receipt.json" ]
+
+prepare_case missing-receipt-parent
+if exec_case missing-receipt-parent \
+    AVELREN_BACKUP_RECEIPT="$WORK/missing-receipt-parent/missing/receipt.json"; then
+    echo "expected missing receipt parent failure" >&2; exit 1
+fi
+[ ! -s "$WORK/missing-receipt-parent/calls.log" ]
+
+prepare_case receipt-in-work
+mkdir -p "$WORK/receipt-in-work/work"
+if exec_case receipt-in-work \
+    AVELREN_BACKUP_RECEIPT="$WORK/receipt-in-work/work/receipt.json"; then
+    echo "expected receipt inside plaintext work directory failure" >&2; exit 1
+fi
+[ ! -s "$WORK/receipt-in-work/calls.log" ]
+
+prepare_case unowned-receipt-parent
+mkdir -p "$WORK/unowned-receipt-parent/receipts"
+chown 1000 "$WORK/unowned-receipt-parent/receipts"
+if exec_case unowned-receipt-parent \
+    AVELREN_BACKUP_RECEIPT="$WORK/unowned-receipt-parent/receipts/receipt.json"; then
+    echo "expected non-root-owned receipt parent failure" >&2; exit 1
+fi
+[ ! -s "$WORK/unowned-receipt-parent/calls.log" ]
 
 # Cleanup is scoped: unrelated operator file survives every trap.
 mkdir -p "$WORK/unrelated/work"; printf keep >"$WORK/unrelated/work/operator-note"
@@ -334,5 +405,6 @@ fi
 unset SCRIPT_UNDER_TEST
 [ ! -e "$WORK/pre-fix/stamp" ] || {
     echo "counterfactual: the pre-fix script still stamped — wrong failure was reproduced" >&2; exit 1; }
+[ ! -e "$WORK/pre-fix/receipt.json" ]
 
 echo "backup contract tests: $CASES passed"

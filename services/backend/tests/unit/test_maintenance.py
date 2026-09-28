@@ -21,7 +21,8 @@ def window(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("offset,duration,valid", [(0, 180, True), (120, 180, True),
-    (-30, 180, True), (-180, 180, False), (86401, 180, False), (0, 901, False), (0, 0, False)])
+    (-30, 180, True), (-180, 180, False), (86401, 180, False),
+    (0, 21600, True), (0, 21601, False), (0, 0, False)])
 def test_bounded_window(window, offset, duration, valid):
     now = datetime(2026, 9, 22, 12, tzinfo=UTC)
     start = now + timedelta(seconds=offset)
@@ -34,6 +35,19 @@ def test_bounded_window(window, offset, duration, valid):
     assert (result is not None) == valid
     if result:
         assert set(result) == {"starts_at", "ends_at"}
+
+
+@pytest.mark.parametrize("duration", [901, 21600])
+def test_restart_window_keeps_short_limit(window, duration):
+    now = datetime(2026, 9, 27, 12, tzinfo=UTC)
+    window.write_text(json.dumps({
+        "starts_at": now.isoformat(),
+        "restarts_at": (now + timedelta(seconds=75)).isoformat(),
+        "ends_at": (now + timedelta(seconds=duration)).isoformat(),
+        "boot_id": "boot-before-restart",
+    }), encoding="utf-8")
+
+    assert maintenance.read_window(now) is None
 
 
 @pytest.mark.parametrize("payload", [None, [], {}, {"starts_at": False, "ends_at": 3},

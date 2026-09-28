@@ -6,7 +6,51 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     exit 2
 fi
 
+_avelren_require_restore_admin() {
+    local admin_db_user=${AVELREN_ADMIN_DB_USER:-avelren_admin}
+    local admin_db_password=${AVELREN_ADMIN_PASSWORD:-}
+    [ "$admin_db_user" = avelren_admin ] || {
+        echo "restore database role must be avelren_admin" >&2
+        return 2
+    }
+    [ -n "$admin_db_password" ] || {
+        echo "restore database password is required" >&2
+        return 2
+    }
+}
+
 avelren_restore_engine() {
+    [ "$#" -eq 6 ] || {
+        echo "DENIED: restore_test engine requires exactly six arguments" >&2
+        return 2
+    }
+    local dump=$1 target=$2 stack_dir=$3 compose_file=$4 compose_project=$5 db_service=$6
+    local -a args=(docker compose)
+
+    case "$target" in
+        restore_test) ;;
+        *) echo "DENIED: unsupported restore target: $target" >&2; return 2 ;;
+    esac
+    _avelren_require_restore_admin || return
+
+    [ -z "${AVELREN_COMPOSE_PROJECT_DIR:-}" ] || args+=(--project-directory "$AVELREN_COMPOSE_PROJECT_DIR")
+    [ -z "${AVELREN_COMPOSE_ENV_FILE:-}" ] || args+=(--env-file "$AVELREN_COMPOSE_ENV_FILE")
+    [ -z "$compose_file" ] || args+=(-f "$compose_file")
+    [ -z "$compose_project" ] || args+=(-p "$compose_project")
+    if ! (cd "$stack_dir" && "${args[@]}" exec -T "$db_service" sh \
+        -c '[ "${AVELREN_COMPOSE_ENV_GUARD:-}" = isolated ]'); then
+        echo "$(date -u +%FT%TZ) DENIED: database container is missing its isolated restore guard" >&2
+        return 2
+    fi
+
+    _avelren_restore_engine_primitive "$dump" "$target" "$stack_dir" "$compose_file" "$compose_project" "$db_service"
+}
+
+_avelren_restore_engine_primitive() {
+    [ "$#" -eq 6 ] || {
+        echo "DENIED: restore primitive requires exactly six arguments" >&2
+        return 2
+    }
     local dump=$1 target=$2 stack_dir=$3 compose_file=$4 compose_project=$5 db_service=$6
     local admin_db_user=${AVELREN_ADMIN_DB_USER:-avelren_admin}
     local admin_db_password=${AVELREN_ADMIN_PASSWORD:-}
@@ -18,19 +62,7 @@ avelren_restore_engine() {
     declare -g AVELREN_RESTORE_ADMIN_DB_USER="$admin_db_user"
     declare -g AVELREN_RESTORE_ADMIN_DB_PASSWORD="$admin_db_password"
 
-    case "$target" in
-        restore_test) ;;
-        *) echo "DENIED: unsupported restore target: $target" >&2; return 2 ;;
-    esac
-
-    [ "$admin_db_user" = avelren_admin ] || {
-        echo "restore database role must be avelren_admin" >&2
-        return 2
-    }
-    [ -n "$admin_db_password" ] || {
-        echo "restore database password is required" >&2
-        return 2
-    }
+    _avelren_require_restore_admin || return
 
     cd "$stack_dir"
     restore_compose() {
@@ -262,32 +294,7 @@ SQL
     }
     restore_log() { echo "$(date -u +%FT%TZ) $*"; }
 
-    # Invoked by the EXIT trap below.
-    # shellcheck disable=SC2329
-    restore_finalize() {
-        local primary_status=$?
-        trap - EXIT
-        if [ "$AVELREN_RESTORE_POST_PENDING" = true ]; then
-            set +e
-            restore_log "primary restore failure (exit=$primary_status); attempting timescaledb_post_restore"
-            restore_psql -d "$AVELREN_RESTORE_TARGET" -q -c "SELECT timescaledb_post_restore();"
-            local cleanup_status=$?
-            if [ "$cleanup_status" -eq 0 ]; then
-                restore_log "timescaledb_post_restore cleanup succeeded after primary failure"
-            else
-                restore_log "ERROR: primary restore failed (exit=$primary_status) and timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
-            fi
-        fi
-        exit "$primary_status"
-    }
-    trap restore_finalize EXIT
-
     restore_log "preparing database $target"
-    if ! restore_compose exec -T "$AVELREN_RESTORE_DB_SERVICE" sh \
-        -c '[ "${AVELREN_COMPOSE_ENV_GUARD:-}" = isolated ]'; then
-        restore_log "DENIED: database container is missing its isolated restore guard"
-        return 2
-    fi
     restore_db_tool dropdb --if-exists --maintenance-db=postgres \
         -U "$AVELREN_RESTORE_ADMIN_DB_USER" "$target"
     restore_db_tool createdb --maintenance-db=postgres \
@@ -299,7 +306,30 @@ SQL
     AVELREN_RESTORE_POST_PENDING=true
 
     restore_log "restoring data"
+    set +e
     gunzip -c "$dump" | restore_psql -d "$target" -q -v ON_ERROR_STOP=1
+    local -a ingest_status=("${PIPESTATUS[@]}")
+    set -e
+    local primary_status=0
+    if [ "${ingest_status[1]}" -ne 0 ]; then
+        primary_status=${ingest_status[1]}
+    elif [ "${ingest_status[0]}" -ne 0 ]; then
+        primary_status=${ingest_status[0]}
+    fi
+    if [ "$primary_status" -ne 0 ]; then
+        set +e
+        restore_log "primary restore failure (exit=$primary_status); attempting timescaledb_post_restore"
+        restore_psql -d "$AVELREN_RESTORE_TARGET" -q -c "SELECT timescaledb_post_restore();"
+        local cleanup_status=$?
+        set -e
+        AVELREN_RESTORE_POST_PENDING=false
+        if [ "$cleanup_status" -eq 0 ]; then
+            restore_log "timescaledb_post_restore cleanup succeeded after primary failure"
+        else
+            restore_log "ERROR: primary restore failed (exit=$primary_status) and timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
+        fi
+        return "$primary_status"
+    fi
 
     restore_log "timescaledb_post_restore"
     set +e

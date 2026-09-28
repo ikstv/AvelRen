@@ -1,7 +1,8 @@
 # Матриця розбіжностей для production restore
 
-**Статус: контрольний дизайн.** Документ не є runbook, не дозволяє
-production restore і не додає `avelren` до публічного `ops/restore.sh`.
+**Статус: source implementation з ізольованими контрактами.** Документ не є
+дозволом на deployment або production restore і не додає `avelren` до
+публічного `ops/restore.sh`.
 
 Він порівнює read-only старий кандидат
 `deploy/restore-production.sh` із `ikstv/AvelRen` commit
@@ -15,13 +16,13 @@ integration tests, але його пряме перенесення небез�
 | Публічний CLI | Окремий `deploy/restore-production.sh` приймає точний confirmation token | `ops/restore.sh` підтримує лише `restore_test` | Зберегти два незалежні entrypoint-и; ніколи не розширювати публічний CLI на `avelren`. |
 | Артефакт backup | Перевіряє наявність і `gzip -t` | Source-only `restore-artifact.lib.sh` перевіряє gzip і один безпечний SHA-256 sidecar рядок; контракт покриває підміну, шлях і формат | Майбутній internal-only orchestrator мусить викликати цей gate до першої stop-команди; provenance/decrypt лишається окремим дозволеним процесом. |
 | Compose-контекст | Приймає file і project, але не вимагає project directory, env file чи marker контейнера | Source-only identity gate читає лише Compose project/service/working-dir labels `avelren-db-1` і звіряє canonical `/opt/avelren`, Compose file та `.env` | Майбутній internal-only orchestrator мусить викликати цей read-only gate до maintenance; isolated guard не є substitute для production identity. |
-| Ролі й DSN | Перевіряє `avelren_admin`, password, три DSN і `current_user` до maintenance | Engine вимагає `avelren_admin` і password | Контракт evidence зафіксовано в `docs/PRODUCTION-RESTORE-ROLE-PIN-CONTRACT.md`: явний pin, окремий role model і read-only roles/grants evidence. Далі — parameterised gate лише після рішення про сумісну recovery-пару; не виводити DSN або секрети в argv чи логи. |
+| Ролі й DSN | Перевіряє `avelren_admin`, password, три DSN і `current_user` до maintenance | Static evidence validator і read-only preflight перевіряють точний набір ролей, membership, owners/grants та journal; password передається лише environment | Реальну recovery-пару все одно треба окремо зняти й схвалити на production. |
 | Схема до зупинки | Не фіксує фактичну верхню міграцію й relation inventory до maintenance | Allowlist перевіряється після restore | До maintenance перевіряти migration range/pin та сумісну schema/role модель. На зафіксованому аудиті 2026-09-23 production була на 001–009; це історичний факт, не припущення для майбутнього запуску. |
-| Maintenance | Зупиняє ingress, відомих DB-клієнтів і блокує невідомі активні сесії | Не має production side effects | Перенести лише після завершеного preflight. Після першої stop-команди будь-яка помилка лишає ingress і DB-клієнтів зупиненими. |
-| Pre-restore snapshot | Робить best-effort gzip snapshot і продовжує, якщо він не вдався | Відсутній | Власник має окремо прийняти правило: snapshot failure блокує restore або документовано не блокує recovery. Не залишати це неявним fallback. |
-| Timescale restore | Старий orchestrator викликає engine із `avelren` | Engine виконує Timescale pre/post restore лише для `restore_test` | Новий production engine має бути internal-only, перевіряти target/роль до `dropdb` і зберегти гарантію спроби `timescaledb_post_restore()` без маскування первинної помилки. |
+| Maintenance | Зупиняє ingress, відомих DB-клієнтів і блокує невідомі активні сесії | Новий manual orchestrator публікує ordinary maintenance, зупиняє Caddy/клієнтів і повторно вимагає повністю quiescent DB | Source-контракт завершено; server-side приймання не виконувалось. |
+| Pre-restore snapshot | Робить best-effort gzip snapshot і продовжує, якщо він не вдався | `backup.sh` атомарно видає `0600` receipt тільки після remote digest/size/retention verification; відмова блокує maintenance | Треба окремо перевірити на реальному `rclone crypt` після read-only/deployment GO. |
+| Timescale restore | Старий orchestrator викликає engine із `avelren` | Public engine лишився `restore_test`-only; окремий source-only wrapper жорстко задає `avelren` над спільною primitive | Production wrapper покрито fake-command контрактом, але на production він не запускався. |
 | Migration gate | Виконує `compose up -d migrate`, але без явної перевірки ефективного pin до maintenance | Disposable tests перевіряють обрану схему в ізольованому Compose | Перед destructive кроком зафіксувати очікувану версію/pin і після import перевірити точну історію міграцій та hash. |
-| Вихід із maintenance | Перевіряє schema/API, HTTPS readiness і новий collector run | Ізольований integration test перевіряє schema/API smoke | Зберегти порядок: DB-клієнти, ingress останнім; додати явну перевірку snapshot/API mount та fail-closed результати кожної післяrestore-перевірки. |
+| Вихід із maintenance | Перевіряє schema/API, HTTPS readiness і новий collector run | Orchestrator повторно перевіряє journal/roles, запускає клієнтів, чекає природний успішний collector cycle, перевіряє API/Caddy й лише тоді відкриває ingress | Будь-яка відмова або сигнал лишає Caddy закритим і maintenance активним; потрібне майбутнє staging/production приймання. |
 
 ## Вже підтверджено ізольовано
 
@@ -38,12 +39,13 @@ integration tests, але його пряме перенесення небез�
 різних контрактів і не доводять сумісність поточних production ролей, schema,
 backup-артефакту чи Compose runtime.
 
-## Наступний кодовий крок після review
+## Що лишається після source implementation
 
-Створити contract tests для migration/role pin, а потім internal-only production
-orchestrator, який викликає вже перевірені artifact та Compose identity gates
-до maintenance. Лише після цього переносити maintenance, snapshot, engine і
-post-restore checks до ізольованого integration test.
+Потрібні зелений CI і code review точного коміту, окремий source-only release
+candidate, окремий GO на read-only production evidence capture, review
+санітизованої recovery-пари, окремий GO на deployment сценарію та rehearsal з
+реальним розшифрованим backup лише в `restore_test`/staging. Production restore
+допустимий тільки за реальної recovery-потреби й нового окремого GO.
 
 Окреме явне GO власника все одно потрібне перед будь-яким server-side
 preflight, deployment або production restore.

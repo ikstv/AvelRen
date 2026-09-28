@@ -12,12 +12,18 @@ data class MaintenanceWindow(
     val ends_at: String,
     val restarts_at: String? = null,
 ) {
+    private companion object {
+        const val MAX_ORDINARY_SECONDS = 21_600L
+        const val MAX_RESTART_SECONDS = 900L
+    }
+
     fun bounds(now: Instant): Pair<Instant, Instant>? = runCatching {
         val start = Instant.parse(starts_at)
         val end = Instant.parse(ends_at)
         val restart = restarts_at?.let(Instant::parse)
         val duration = Duration.between(start, end).seconds
-        if (duration !in 1..900 || end <= now || start > now.plusSeconds(86400) ||
+        val maximum = if (restart == null) MAX_ORDINARY_SECONDS else MAX_RESTART_SECONDS
+        if (duration !in 1..maximum || end <= now || start > now.plusSeconds(86400) ||
             (restart != null && (restart <= start || restart >= end))) null
         else start to end
     }.getOrNull()
@@ -63,11 +69,6 @@ enum class ServerStatus(val label: String) {
             // With working device connectivity that makes a reboot truthful, not
             // a guess from stale data or a generic server outage.
             maintenance?.active(now) == true && maintenance.restartDue(now) -> RESTARTING
-            // Legacy two-field windows have no scheduled transition. Preserve
-            // their old fallback, but do not mislabel an unrelated /workload
-            // failure before a new-format planned reboot.
-            maintenance?.active(now) == true && maintenance.restarts_at == null &&
-                responseSucceeded == false -> RESTARTING
             maintenance?.active(now) == true -> MAINTENANCE
             responseSucceeded == null -> CHECKING
             !responseSucceeded && internet == InternetState.WEAK -> WEAK_INTERNET
