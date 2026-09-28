@@ -79,3 +79,85 @@ SBOM, оцінити vendored msgpack та системні знахідки. В
 або документоване обґрунтування непридатності до runtime; повторити скан
 і відповідні тести. Лише тоді завершувати #138 та переходити до Caddy.
 Production deployment залишається окремою погодженою операцією.
+
+## Порівняння та уточнення 28.09.2026
+
+Старий runtime повторно зібрано з digest `ce407646…`, тим самим source
+і `requirements.lock`. Інструкції baseline Dockerfile відповідають runtime
+Dockerfile, крім базового digest та коментарів. Це локальна реконструкція,
+не образ активного production-контейнера. PEP 517 build dependency лишається
+непінованою в обох варіантах — абсолютної відтворюваності build не заявляємо.
+Обидва runtime повертають **Python 3.14.7**: змінюється базовий образ і
+системні пакети (Debian 13.6 → 13.7), а не версія інтерпретатора.
+
+Baseline зібрано командою `docker build -t avelren-python-baseline:local
+-f dist/python-refresh-audit/Dockerfile.baseline services/backend`,
+експортовано `docker save -o dist/python-refresh-audit/baseline.tar
+avelren-python-baseline:local`. Скан — тими самими Trivy 0.74.0 і CVE DB
+07:15:22 UTC, з `--network none`, `--skip-db-update`, `--offline-scan`,
+`--scanners vuln`, `--input /audit/baseline.tar --format json`.
+
+| Увесь runtime, пакет × CVE | Старий | Кандидат |
+| --- | ---: | ---: |
+| Critical | 3 | 0 |
+| High | 86 | 46 |
+| Medium | 104 | 54 |
+| Low | 85 | 57 |
+| Unknown | 2 | 2 |
+
+Порівняння ключів `PkgName|VulnerabilityID|Severity`: **121 прибраний запис,
+0 нових**. Це зменшення scanner findings, не гарантія відсутності ризику.
+Baseline-звіт: `dist/python-refresh-audit/baseline-cves.json`, SHA-256
+`d41182265cf5304ca5d30e0c11da482ee10ceeb4cb7d0e49b910acd31b2c0053`.
+
+### Походження Python-знахідок
+
+Усі три Python-знахідки однакові в baseline і кандидата. Їх джерело —
+`/usr/local/lib/python3.14/site-packages/pip/_vendor/bom.cdx.json`.
+
+- Setuptools 70.3.0 у SBOM представляє vendored `pkg_resources`.
+  У site-packages немає `setuptools/package_index.py` і `filelist.py`,
+  як і імпортованого top-level setuptools. Для перевіреного runtime
+  відсутні конкретні компоненти, до яких віднесено дві CVE; це не
+  твердження про безпеку непінованого build-time setuptools.
+  [Advisory PackageIndex](https://github.com/pypa/setuptools/security/advisories/GHSA-5rjg-fvgr-3xxf).
+- Vendored msgpack 1.1.2 реально є, але `Unpacker.__module__` дорівнює
+  `pip._vendor.msgpack.fallback`: C-extension у цьому каталозі немає.
+  CacheControl використовує `msgpack.loads`, а реалізація `unpackb`
+  створює новий Unpacker на кожен виклик. Передумову повторного
+  використання Unpacker після помилки тут не виявлено. Backend не
+  імпортує pip/msgpack і не запускає subprocess.
+  [Передумови advisory](https://github.com/msgpack/msgpack-python/security/advisories/GHSA-6v7p-g79w-8964).
+  Сторінка автора ще називає 1.2.1 майбутнім виправленням, тоді як
+  CVE DB вказує FixedVersion 1.2.1; версію для оновлення окремо не перевіряли.
+
+### Системні High: попередня оцінка досяжності
+
+44 записи відповідають восьми унікальним CVE. Усі лишилися від baseline;
+у цій CVE DB немає готових FixedVersion.
+
+| CVE / компонент | Перевірені межі |
+| --- | --- |
+| CVE-2026-16742 / systemd-homed | У кандидата немає `/usr/lib/systemd/systemd-homed`; наявність бібліотек systemd сама по собі не доводить наявності цього сервісу. |
+| CVE-2026-9538 / Perl Archive::Tar | У `/usr/share/perl` не знайдено Tar.pm; backend не запускає Perl. Це вузька перевірка, не інвентаризація всіх шляхів Perl. |
+| CVE-2025-69720 / infocmp | Backend не запускає зовнішні команди; окрема експлуатація CLI не оцінювалась. |
+| CVE-2026-54369 / libacl | Потрібна перевірка привілейованих ACL-викликів; UID10001 сам по собі не виключає ризику. |
+| CVE-2026-76642, CVE-2026-78408/78409/78410 / util-linux | У кандидата fstab містить лише UNCONFIGURED-коментар. Потрібна окрема оцінка mount/nsenter, SUID/capabilities і реального deployment; production не перевірявся. |
+
+Не додавали ignore/VEX-виключень і не приховували raw findings.
+Висновок: кандидат покращує scanner baseline, але остаточне приймання
+залишкових системних ризиків ще відкрите.
+
+### Новий блокер CI
+
+Для head `bcbccda` пройшли api/core/repository/watchdog. Database CI
+[36406608133](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36406608133)
+зупинився на `compose-production-contract-test.sh`:
+`migrate is not reachable even with its profile`.
+Прямий локальний `docker compose --profile migrate -f docker-compose.yml
+config --services` повертає migrate. Причину відмінності CI ще не
+доведено; не приписуємо її Python чи самій production-конфігурації.
+Тест приховує stderr і використовує `grep -q` під pipefail, тому спочатку
+потрібне відтворення з окремою фіксацією виходів Compose та pipeline.
+**PR лишається чернеткою.** Наступний крок — усунути підтверджену причину
+CI та завершити оцінку системних ризиків перед рішенням про merge.

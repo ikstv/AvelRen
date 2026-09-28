@@ -6,7 +6,9 @@
 Dockerfile. Локальні build/backend/DB/API/watchdog/restore перевірки пройшли;
 приймання CVE **не завершене**, merge та розгортання поки не виконуються.
 [Докази й залишки перевірки](PYTHON-BASE-UPDATE-2026-09-28.md).
-GitHub CI має окремо підтвердити точний head PR. Production не змінювався;
+CI head `bcbccda`: api/core/repository/watchdog пройшли; database впав
+на Compose-контракті. Baseline CVE-порівняння показало покращення,
+але оцінка системних ризиків і виправлення CI ще відкриті. Production не змінювався;
 Android-збірка, телефон і Play у цьому кроці не виконувалися.
 
 ## Попередній запис цільової версії
