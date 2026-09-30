@@ -47,6 +47,17 @@ fingerprint() {
 legacy_journal() {
     sql "$1" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM (SELECT version,sha256,applied_at FROM schema_migrations WHERE version < '015') m;"
 }
+assert_restored_contract() {
+    local actual actual_journal statuses
+    actual=$(fingerprint restore_test)
+    actual_journal=$(legacy_journal restore_test)
+    statuses=$(sql restore_test "SELECT count(*) FROM observations WHERE wait_time_status='legacy_unknown'")
+    printf 'Restore fingerprint expected:\n%s\nactual:\n%s\n' "$before" "$actual"
+    printf 'Restore legacy journal expected=%s actual=%s; legacy rows=%s\n' "$journal_before" "$actual_journal" "$statuses"
+    [ "$actual" = "$before" ]
+    [ "$actual_journal" = "$journal_before" ]
+    [ "$statuses" = 50 ]
+}
 restore_dump() {
     AVELREN_COMPOSE_PROJECT_DIR="$PROJECT_DIR" AVELREN_COMPOSE_ENV_FILE="$ENV_FILE" \
     AVELREN_ADMIN_PASSWORD=ci-only bash -c \
@@ -130,9 +141,7 @@ sql postgres 'DROP DATABASE avelren_version_probe_test;'
 compose exec -T -e PGPASSWORD=ci-only test-db pg_dump -h 127.0.0.1 -U avelren_backup \
     -d avelren_database_test --no-owner | gzip >"$WORK/after.sql.gz"
 restore_dump "$WORK/after.sql.gz"
-[ "$(fingerprint restore_test)" = "$before" ]
-[ "$(legacy_journal restore_test)" = "$journal_before" ]
-[ "$(sql restore_test "SELECT count(*) FROM observations WHERE wait_time_status='legacy_unknown'")" = 50 ]
+assert_restored_contract
 for database in avelren_database_test restore_test; do
     compose run --rm --no-deps -T \
         -e DATABASE_URL="postgresql://avelren_migrator:ci-only@test-db:5432/$database" \
