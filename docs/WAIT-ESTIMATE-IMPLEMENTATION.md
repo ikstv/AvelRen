@@ -239,3 +239,33 @@ refresh і повторне стиснення на обох БД. Це дока
 причини. Тому загальний CI та PR досі не готові; наступний крок —
 переробити саме fixtures, зберігши перевірку старого runtime і
 відмови нового runtime на старій схемі. Production schema gate не послаблювати.
+
+### Старі API fixtures приведено до контракту 015
+
+На 64a78a7 додано окремий тест startup gate і компонентний клієнт для
+історичних схем. RED [API run 36744170331](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36744170331)
+показав, що 010/011/013 справді відхиляються, але після відмови лишається
+відкритий pool. Схема 009 відхиляється раніше через брак SELECT на
+schema_migrations під історичною API-роллю. Перша версія компонентного
+клієнта не врахувала вкладені маршрутизатори FastAPI; CI також відтворив
+цей дефект тестового scaffolding.
+
+На c65ac84 pool закривається через finally навіть при помилці schema gate.
+Компонентний клієнт бере справжні route handlers із трьох маршрутизаторів
+і власний test-only lifespan без startup gate; це перевіряє поведінку
+обробників на схемах 009/010/011/013, але не називається старим runtime.
+Окремий тест перевіряє відмову повного нового API, закритий pool та
+незмінний migration journal. Production startup gate не вимикався.
+
+На [API run 36744825236](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36744825236)
+60 passed, 2 попередні warnings. На
+[database run 36744825245](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36744825245)
+25 database passed; старий restore, image/extension upgrade, nullable 015
+і новий mixed restore пройшли; фінальний рекурсивний набір 94 passed,
+2 попередні warnings. На цьому кодовому head також пройшли core,
+repository, watchdog, Android і source SBOM workflows. Це закриває
+локальний блокер fixtures та задачу 2 в ізольованому середовищі.
+
+Справжній старий runtime над схемою 015 ще не перевірений; це окрема
+rollback-перевірка задачі 5 із зафіксованим base SHA. Задачі 3–5,
+production deployment і телефонне приймання лишаються попереду.
