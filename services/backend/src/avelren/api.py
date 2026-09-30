@@ -39,9 +39,11 @@ async def lifespan(app: FastAPI):
     # Fail-closed schema check (issue #88): the service does not start if the
     # recorded schema version is LOWER than the code's requirement. Placed right
     # after the pool opens — before the first useful work.
-    await assert_schema_at_least(pool)
-    yield
-    await pool.close()
+    try:
+        await assert_schema_at_least(pool)
+        yield
+    finally:
+        await pool.close()
 
 
 app = FastAPI(title="AvelRen", version="0.1.0", lifespan=lifespan)

@@ -24,8 +24,10 @@ class Installation:
 def old_schema_component_app():
     """Exercise actual route handlers on historical schema, not startup compatibility."""
     from avelren import db
+    from avelren.admin_access_api import router as access_router
     from avelren.api import app as production_app
     from avelren.config import settings
+    from avelren.subscriptions_api import router as subscriptions_router
 
     @asynccontextmanager
     async def component_lifespan(_app):
@@ -39,7 +41,10 @@ def old_schema_component_app():
     component = FastAPI(lifespan=component_lifespan)
     paths = {"/health", "/workload", "/admin/telemetry", "/admin/access"}
     component.router.routes.extend(
-        route for route in production_app.router.routes if route.path in paths
+        route
+        for source in (production_app.router, access_router, subscriptions_router)
+        for route in source.routes
+        if getattr(route, "path", None) in paths
     )
     return component
 
