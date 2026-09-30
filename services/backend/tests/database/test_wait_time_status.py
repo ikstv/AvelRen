@@ -41,8 +41,18 @@ def test_status_migration_preserves_compressed_legacy(database):
             == before
         )
         assert conn.execute("SELECT DISTINCT wait_time_status FROM observations").fetchall() == [
-            ("legacy_unknown",)
+            (None,)
         ]
+        assert conn.execute(
+            "SELECT count(*) FROM observations "
+            "WHERE COALESCE(wait_time_status,'legacy_unknown')='legacy_unknown'"
+        ).fetchone()[0] == 3
+        assert conn.execute(
+            "SELECT bool_or(a.atthasmissing) FROM pg_attribute a "
+            "JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE a.attname='wait_time_status' AND NOT a.attisdropped "
+            "AND n.nspname IN ('public','_timescaledb_internal')"
+        ).fetchone()[0] is False
         assert (
             conn.execute(
                 "SELECT count(*) FROM timescaledb_information.chunks "

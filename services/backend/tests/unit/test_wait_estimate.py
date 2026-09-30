@@ -59,6 +59,9 @@ def test_source_cannot_override_wait_status():
         (-1, "legacy_unknown", None),
         (-1, "reported", None),
         (3600, "future_status", None),
+        (0, None, None),
+        (3600, None, 3600),
+        (-1, None, None),
     ],
 )
 def test_wait_read_policy(seconds, status, expected):
@@ -83,3 +86,12 @@ def test_measured_wait_eta(seconds, status, paused, expected_seconds, expected_e
 
     result = measured_wait(datetime(2026, 9, 30, 12, tzinfo=UTC), seconds, status, paused)
     assert result == {"status": status, "seconds": expected_seconds, "entry_eta": expected_eta}
+
+
+def test_internal_legacy_null_has_explicit_public_status():
+    from avelren.wait_estimate import measured_wait
+
+    assert measured_wait(datetime(2026, 9, 30, 12, tzinfo=UTC), 3600, None, False) == {
+        "status": "legacy_unknown", "seconds": 3600,
+        "entry_eta": datetime(2026, 9, 30, 13, tzinfo=UTC),
+    }
