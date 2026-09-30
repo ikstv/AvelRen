@@ -12,9 +12,9 @@
 
 | Етап | Стан |
 | --- | --- |
-| Контракт | План погоджений; потрібен перегляд переходу старої TimescaleDB |
+| Контракт | Порядок upgrade перед 015 погоджений; потрібен перегляд restore-сумісності нової ознаки |
 | Product-код і міграція | Модель, INSERT/status і кандидат 015; API/Android ще не реалізовані. Не готово до merge/deploy |
-| CI реалізації | Локально 238 unit passed, Ruff/provenance; на 7405803 DB 24 passed, але upgrade rehearsal на 2.17.2 відхиляє 015. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
+| CI реалізації | Локально 238 unit passed, Ruff/provenance/CI scopes; на 18f680c DB 25 passed і upgrade→015 пройшов. Новий restore не зберігає 50/50 legacy статусів; API prefix fixtures теж red. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
 | Серверне розгортання | Не виконано; потрібен окремий GO |
 | Android-збірка | Не створена |
 | Телефон | Не перевірено |

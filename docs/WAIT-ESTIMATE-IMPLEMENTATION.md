@@ -58,3 +58,37 @@ ops/timescale-upgrade-test.sh: вона застосовує всі migrations �
 Останній локальний набір після мінімального ETA guard: 238 passed,
 2 попередні warnings; Ruff і provenance успішні. Новий pipeline test
 ще потребує CI на commit, який містить цей test і guard.
+
+### Перевірка погодженого порядку — 30.09.2026
+
+Власник погодив ізольований порядок: 001–014 на 2.17.2 → image та
+extension 2.30.1 → 015. Специфікацію й план уточнено; production GO
+не наданий. Репетиція не змінює runtime schema gate або старі SQL.
+
+CI на 18f680c, [database run 36735451208](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36735451208):
+- database suite 25 passed, включно з missing pipeline/derived phase;
+- старий compressed backup/restore успішний;
+- image/extension upgrade зберіг raw/aggregate/compressed fingerprint;
+- 015 після upgrade зберегла п'ять старих полів, compressed chunks,
+  журнал 001–014 (включно з checksum/applied_at); до dump усі 50 статусів
+  legacy_unknown;
+- новий restore повернув ті самі 50 raw rows, 49 hourly buckets і 2
+  compressed chunks; fingerprint та старий журнал збігаються;
+- але `WHERE wait_time_status='legacy_unknown'` після restore повертає
+  **1**, а не **50**. Gate зупинився з exit 1; пропуску assertions немає.
+
+Гіпотеза: новий DEFAULT у вже compressed rows не переноситься штатним
+dump/restore так само, як матеріалізовані значення. Розподіл решти
+49 статусів і причина на рівні каталогу ще не перевірені; не називати
+це доведеною втратою первинних wait/count даних або production-багом.
+Потрібен перегляд способу збереження ознаки/restore-сумісності;
+ніякого hidden UPDATE, decompress/backfill або послаблення gate.
+
+Окремо API CI на 38d208b має 2 failed/51 passed/3 errors: старі prefix
+fixtures 009/010/011/013 очікують запуск нового runtime без 015, який
+тепер правильно відмовляється через SchemaTooOldError. Coverage старого
+runtime й component-only optional-feature fallback треба зберегти при
+оновленні fixtures; production gate не послаблювати. Повного green немає.
+
+Локально на ed9024a: 238 unit passed, 2 попередні warnings; Ruff,
+provenance, CI scopes (14 examples) успішні. PR #72 лишається draft.
