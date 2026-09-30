@@ -46,8 +46,8 @@
 
 - WorkloadItem.wait_time: int | None = Field(default=None, strict=True, ge=0).
 - WorkloadItem.wait_time_status: read-only property str; None → missing, число → reported. Вхідне стороннє поле статусу не має підміняти цю властивість.
-- usable_wait_seconds(seconds: int, status: str) -> int | None у wait_estimate.py: reported невід'ємне → число; legacy_unknown позитивне → число; решта → None; невідомий статус → None.
-- measured_wait(at: datetime, seconds: int, status: str, is_paused: bool) -> dict: status, seconds за usable_wait_seconds, entry_eta datetime | None; ETA null при непридатній оцінці або paused/0.
+- usable_wait_seconds(seconds: int, status: str | None) -> int | None: reported невід'ємне → число; legacy_unknown/внутрішній NULL позитивне → число; решта → None; невідомий текстовий статус → None.
+- measured_wait(at: datetime, seconds: int, status: str | None, is_paused: bool) -> dict: внутрішній NULL нормалізується в публічний legacy_unknown; seconds за usable_wait_seconds; ETA null при непридатній оцінці або paused/0.
 
 - [ ] Написати параметризовані test_workload_preserves_missing_and_zero та test_workload_rejects_invalid_wait. Assertions: omitted/null → (None, missing); 0 → (0, reported); 3600 → (3600, reported); True/1.5/"3600"/-1 → ValidationError.
 - [ ] Додати test_wait_read_policy: usable_wait_seconds(0,"reported")==0; (0,"missing")==None; (0,"legacy_unknown")==None; (3600,"legacy_unknown")==3600; (-1,"legacy_unknown")==None.
@@ -67,9 +67,14 @@ Fingerprint історичних п'яти полів і журнал 001–014 
 
 **Файли:** створити db/migrations/015_wait_time_status.sql (лише якщо 015 досі вільна), tests/database/test_wait_time_status.py; змінити db.py, schema_verify.py, відповідні tests/database/test_migrations.py, test_permissions.py, test_pipeline.py, docs/DB-PROVENANCE.json та CORE-PROVENANCE.json.
 
-**Інтерфейси:** observations.wait_time_status text NOT NULL DEFAULT 'legacy_unknown'. INSERT записує (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused, wait_time_status); None мапиться на 0/missing. insert_observations(conn, at, items) зберігає сигнатуру й кількість рядків.
+**Інтерфейси:** observations.wait_time_status nullable text, ADD без DEFAULT;
+SET DEFAULT 'legacy_unknown' тільки для майбутніх INSERT. Історичний NULL
+нормалізується як legacy_unknown у SQL/helper, не переписується.
+INSERT записує (time, checkpoint_id, wait_time_seconds, vehicles_in_queue,
+is_paused, wait_time_status); відсутній source wait мапиться на 0/missing.
+insert_observations зберігає сигнатуру й кількість рядків.
 
-- [ ] Написати test_status_migration_preserves_compressed_legacy: окрема синтетична БД зі схемою до 015, compressed chunk із wait 0/3600/-1. Після міграції кількість, time, wait, vehicles незмінні; всі старі статуси legacy_unknown. Не застосовувати SQL до production.
+- [ ] Написати test_status_migration_preserves_compressed_legacy: окрема синтетична БД зі схемою до 015, compressed chunk із wait 0/3600/-1. Після міграції старі поля незмінні; фізичні статуси NULL без atthasmissing, канонічні legacy_unknown. Не застосовувати SQL до production.
 - [ ] Написати test_status_checks_and_old_insert: INSERT без статусу дає legacy_unknown; missing із seconds!=0 та reported із seconds<0 відхиляються; невідомий статус відхиляється; reported0 та legacy_unknown/-1 дозволені.
 - [ ] Запустити bash scripts/test_database.sh database; зафіксувати FAIL нових assertions, не існуючих baseline-перевірок.
 - [ ] Додати тільки нову міграцію: CHECK дозволених статусів, missing/0 і reported/nonnegative. Не змінювати continuous aggregate 001, compression policy або retention. Оновити version-annotated schema contract, щоб новий runtime відмовляв без потрібної колонки.

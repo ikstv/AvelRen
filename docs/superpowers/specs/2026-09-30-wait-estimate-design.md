@@ -45,6 +45,18 @@ wait_time_status зі значеннями reported, missing, legacy_unknown.
 Default — legacy_unknown, щоб старий collector після відкату залишався
 працездатним і не позначав свої записи як підтверджені новим контрактом.
 
+Уточнення збереження, погоджене власником після restore-діагностики:
+колонка всередині БД nullable і додається БЕЗ DEFAULT, щоб історія
+залишалася NULL без atthasmissing. Лише після ADD встановлюється DEFAULT
+legacy_unknown для майбутніх старих INSERT. Внутрішній NULL означає
+legacy_unknown, не missing; SQL COALESCE і shared reading helper явно
+нормалізують його. Публічний status завжди текстовий, не nullable.
+Новий collector пише reported/missing явно. CHECK допускає legacy NULL,
+але не довільний текст і не невалідні reported/missing числа.
+Перевірка restore порівнює всі шість сирих полів і канонічне читання
+через WHERE/GROUP/projection на mixed compressed fixture; не послаблює
+assertions шляхом маскування відмінностей після відновлення.
+
 Чинна wait_time_seconds лишається NOT NULL для сумісності:
 reported зберігає передане невід'ємне число, missing зберігає технічний 0.
 У новому коді число не читається без стану. CHECK обмежує дозволені
