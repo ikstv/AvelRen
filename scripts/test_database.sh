@@ -48,9 +48,16 @@ compose exec -T \
     test-db bash /workspace/ops/postgres-bootstrap.sh fresh </dev/null
 compose run --rm --no-deps -T test python -m avelren.migrate db/migrations </dev/null
 if [ "$SUITE" = api ] || [ "$SUITE" = watchdog ]; then
-    compose run --rm --no-deps -T test python -m pytest \
+    report_args=()
+    perf_args=()
+    # Surface EXPLAIN measurements from the passing API performance gate.
+    if [ "$SUITE" = api ]; then
+        report_args=(-rP)
+        perf_args=(-e AVELREN_PERF_REHEARSAL=1)
+    fi
+    compose run --rm --no-deps -T "${perf_args[@]}" test python -m pytest \
         -c services/backend/pytest.ini "services/backend/tests/database/$SUITE" \
-        -q -p no:cacheprovider </dev/null
+        -q "${report_args[@]}" -p no:cacheprovider </dev/null
 else
     compose run --rm --no-deps -T test python -m pytest \
         -c services/backend/pytest.ini services/backend/tests/database \
