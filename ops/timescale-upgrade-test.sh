@@ -39,9 +39,13 @@ cleanup() {
 trap cleanup EXIT
 sql() { compose exec -T test-db psql -X -U avelren_admin -d "${1:?database}" -v ON_ERROR_STOP=1 -At -c "${2:?query}"; }
 fingerprint() {
-    sql "$1" "SELECT count(*) || ':' || md5(string_agg(row_to_json(o)::text, ',' ORDER BY time, checkpoint_id)) FROM observations o;"
+    # Новий additive status не змінює fingerprint історичних п'яти полів.
+    sql "$1" "SELECT count(*) || ':' || md5(string_agg(row_to_json(o)::text, ',' ORDER BY time, checkpoint_id)) FROM (SELECT time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused FROM observations) o;"
     sql "$1" "SELECT count(*) || ':' || md5(string_agg(row_to_json(o)::text, ',' ORDER BY bucket, checkpoint_id)) FROM observations_hourly o;"
     sql "$1" "SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name='observations' AND is_compressed;"
+}
+legacy_journal() {
+    sql "$1" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM (SELECT version,sha256,applied_at FROM schema_migrations WHERE version < '015') m;"
 }
 restore_dump() {
     AVELREN_COMPOSE_PROJECT_DIR="$PROJECT_DIR" AVELREN_COMPOSE_ENV_FILE="$ENV_FILE" \
@@ -62,8 +66,20 @@ compose exec -T \
     -e AVELREN_NOTIFIER_PASSWORD=ci-only -e AVELREN_WATCHDOG_PASSWORD=ci-only \
     -e AVELREN_API_PASSWORD=ci-only \
     test-db bash /workspace/ops/postgres-bootstrap.sh fresh
-compose run --rm --no-deps -T test python -m avelren.migrate db/migrations
+# 015 потребує нової extension. Стару історію починаємо з явного prefix,
+# не послаблюючи migrate/schema_verify і не редагуючи файли міграцій.
+compose run --rm --no-deps -T test sh -eu -c '
+    prefix=$(mktemp -d)
+    trap '\''rm -f "$prefix"/*.sql; rmdir "$prefix"'\'' EXIT
+    for version in $(seq -w 1 14); do
+        cp db/migrations/0${version}_*.sql "$prefix/"
+    done
+    [ "$(find "$prefix" -name "*.sql" | wc -l)" -eq 14 ]
+    python -m avelren.migrate "$prefix"
+'
 [ "$(sql avelren_database_test "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.17.2 ]
+[ "$(sql avelren_database_test 'SELECT count(*) FROM schema_migrations')" = 14 ]
+journal_before=$(legacy_journal avelren_database_test)
 sql avelren_database_test "SELECT alter_job(job_id, scheduled => false) FROM timescaledb_information.jobs WHERE proc_name IN ('policy_compression','policy_refresh_continuous_aggregate');"
 sql avelren_database_test "INSERT INTO checkpoints(id,title,for_vehicle_type) VALUES(987654320,'upgrade-synthetic',1);
 INSERT INTO observations(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused)
@@ -80,6 +96,7 @@ compose exec -T -e PGPASSWORD=ci-only test-db pg_dump -h 127.0.0.1 -U avelren_ba
 # Спочатку доводимо відновлення старої копії на старій версії, а не downgrade каталогу.
 restore_dump "$WORK/before.sql.gz"
 [ "$(fingerprint restore_test)" = "$before" ]
+[ "$(legacy_journal restore_test)" = "$journal_before" ]
 echo 'PASS: old-version compressed backup/restore'
 # Обидві БД залишаються в тому самому одноразовому volume.
 compose stop test-db
@@ -93,6 +110,18 @@ done
 [ "$(fingerprint avelren_database_test)" = "$before" ]
 [ "$(fingerprint restore_test)" = "$before" ]
 echo 'PASS: in-place upgrade preserves raw/aggregate/compressed data'
+# Тільки після успішного upgrade на обох БД застосовуємо нову схему.
+for database in avelren_database_test restore_test; do
+    [ "$(sql "$database" "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.30.1 ]
+    compose run --rm --no-deps -T \
+        -e DATABASE_URL="postgresql://avelren_migrator:ci-only@test-db:5432/$database" \
+        test python -m avelren.migrate db/migrations
+    [ "$(sql "$database" 'SELECT count(*) FROM schema_migrations')" = 15 ]
+    [ "$(legacy_journal "$database")" = "$journal_before" ]
+    [ "$(fingerprint "$database")" = "$before" ]
+    [ "$(sql "$database" "SELECT count(*) FROM observations WHERE wait_time_status='legacy_unknown'")" = 50 ]
+done
+echo 'PASS: schema 015 after extension upgrade preserves legacy data/journal/compression'
 # Порожні тестові БД успадковують template1: не допустити хибного green на 2.17.2.
 sql postgres 'CREATE DATABASE avelren_version_probe_test;'
 [ "$(sql avelren_version_probe_test "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.30.1 ]
@@ -102,6 +131,8 @@ compose exec -T -e PGPASSWORD=ci-only test-db pg_dump -h 127.0.0.1 -U avelren_ba
     -d avelren_database_test --no-owner | gzip >"$WORK/after.sql.gz"
 restore_dump "$WORK/after.sql.gz"
 [ "$(fingerprint restore_test)" = "$before" ]
+[ "$(legacy_journal restore_test)" = "$journal_before" ]
+[ "$(sql restore_test "SELECT count(*) FROM observations WHERE wait_time_status='legacy_unknown'")" = 50 ]
 for database in avelren_database_test restore_test; do
     compose run --rm --no-deps -T \
         -e DATABASE_URL="postgresql://avelren_migrator:ci-only@test-db:5432/$database" \

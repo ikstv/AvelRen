@@ -59,6 +59,12 @@
 
 ## Задача 2: міграція та збереження
 
+Уточнення власника 30.09.2026: upgrade rehearsal застосовує 001–014
+на 2.17.2; після перевіреного image/extension upgrade до 2.30.1 — 015.
+Fingerprint історичних п'яти полів і журнал 001–014 мають лишитися
+незмінними; новий статус перевіряється окремо. Обидва backup/restore
+етапи зберігаються. Production upgrade потребує окремого GO.
+
 **Файли:** створити db/migrations/015_wait_time_status.sql (лише якщо 015 досі вільна), tests/database/test_wait_time_status.py; змінити db.py, schema_verify.py, відповідні tests/database/test_migrations.py, test_permissions.py, test_pipeline.py, docs/DB-PROVENANCE.json та CORE-PROVENANCE.json.
 
 **Інтерфейси:** observations.wait_time_status text NOT NULL DEFAULT 'legacy_unknown'. INSERT записує (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused, wait_time_status); None мапиться на 0/missing. insert_observations(conn, at, items) зберігає сигнатуру й кількість рядків.
