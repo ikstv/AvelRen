@@ -75,7 +75,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/models.py",
       "destination": "services/backend/src/avelren/models.py",
-      "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae"
+      "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+      "revision": {
+        "sha256": "1b6cdf050717dd30471d1252cfc4f9b59e29b68a7dbf8fb21ec38481269ec3d5",
+        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -121,7 +125,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/tests/test_echerha.py",
       "destination": "services/backend/tests/unit/test_echerha.py",
-      "sha256": "5789b2ba8b9d59874184eb47fdaaa3a8ac17468928a7b2cb588410f3ab505076"
+      "sha256": "5789b2ba8b9d59874184eb47fdaaa3a8ac17468928a7b2cb588410f3ab505076",
+      "revision": {
+        "sha256": "ef667190315a5427ad78e5ad9d1294ff9142ef288e21299c5b9ae625709d33c1",
+        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
