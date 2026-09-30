@@ -269,3 +269,36 @@ repository, watchdog, Android і source SBOM workflows. Це закриває
 Справжній старий runtime над схемою 015 ще не перевірений; це окрема
 rollback-перевірка задачі 5 із зафіксованим base SHA. Задачі 3–5,
 production deployment і телефонне приймання лишаються попереду.
+
+### Задача 3 — перший малий зріз: `/workload.wait_estimate`
+
+На cf125fc додано окремий об'єкт `wait_estimate` до відповіді `/workload`.
+Він бере статус із `observations.wait_time_status` і застосовує спільне
+правило `measured_wait`; старі `wait_time_seconds` та `entry_eta` лишаються
+без змін. Внутрішній статус не видається як окреме верхньорівневе поле.
+Для missing/legacy0 нові seconds і ETA дорівнюють null; reported0 за
+відсутності паузи може дати новий ETA, навіть коли старий ETA лишається null.
+Позитивна оцінка під час паузи не втрачається; paused0 не дає ETA.
+
+RED: [API run 36746635960](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36746635960)
+на тестовому коміті d62e520: 1 failed/60 passed; новий тест падав через
+відсутність `wait_estimate`. GREEN:
+[API run 36747241290](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36747241290)
+на cf125fc: 61 passed, 2 попередні deprecation warnings. На цьому самому
+коміті [database run 36747241222](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36747241222)
+дав 25 passed, пройшов старий та новий compressed backup/restore, а
+фінальний рекурсивний набір — 95 passed, 2 warnings. Усі сім workflows
+(repository, core, Android, watchdog, API, SBOM, database) успішні.
+Локально 242 unit passed; Ruff та provenance перевірені.
+
+Ruling: історичні component-only fixtures не викликають новий `/workload`
+над схемами 009–013, бо цей handler тепер вимагає 015; вони перевіряють
+старі health/admin handlers, а окремий тест — fail-closed запуск нового
+runtime. Якщо це рішення приховає регресію старого executable runtime,
+її має виявити окремий frozen-base rollback gate задачі 5; до нього
+сумісність старого runtime не заявляється.
+
+Це **частина задачі 3**, не її завершення. Raw/hourly history, незалежні
+`count_points`, ETA alerts, seasonal evaluation/MAE, Android DTO та
+rollback gate ще не реалізовані або не перевірені. PR #72 лишається draft;
+production, APK, телефон і Play не змінювалися.

@@ -13,8 +13,8 @@
 | Етап | Стан |
 | --- | --- |
 | Контракт | Upgrade перед 015 та nullable internal status погоджені; nullable DDL і нормалізація helper реалізовані на d204056 без переписування історії |
-| Product-код і міграція | Модель, INSERT/status і кандидат 015; API/Android ще не реалізовані. Не готово до merge/deploy |
-| CI реалізації | На c65ac84: API 60 passed; DB 25 passed, mixed-status restore та фінальний recursive database tree 94 passed. Core, repository, watchdog, Android і source SBOM workflows теж пройшли. Два попередні warnings у наборах API/DB. Це CI кроку 2; повний API/Android wait-контракт (задачі 3–4) і rollback старого runtime (задача 5) ще не перевірені. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
+| Product-код і міграція | Модель, INSERT/status, кандидат 015 і окремий `/workload.wait_estimate`; raw/hourly history, `count_points`, ETA alerts та Android DTO ще не готові. Не готово до merge/deploy |
+| CI реалізації | На cf125fc: API 61 passed; DB 25 passed, mixed-status restore та фінальний recursive database tree 95 passed. Core, repository, watchdog, Android і source SBOM workflows теж пройшли (7/7). Два попередні warnings у наборах API/DB. Це лише перший API-зріз задачі 3; решта API/Android wait-контракту (задачі 3–4) і rollback старого runtime (задача 5) ще не перевірені. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
 | Серверне розгортання | Не виконано; потрібен окремий GO |
 | Android-збірка | Не створена |
 | Телефон | Не перевірено |
