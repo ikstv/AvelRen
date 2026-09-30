@@ -151,3 +151,47 @@ def test_count_points_without_wait_slot(api_client, checkpoint, conn, monkeypatc
     assert all(point["vehicles_expected"] == 188 for point in result["count_points"])
     assert all(point["calibration_samples"] >= 4 for point in result["count_points"])
     assert all(point["wait_estimate"] is None for point in result["count_points"])
+
+
+def test_reported_zero_populates_new_wait_slot_without_changing_legacy_points(
+    api_client, checkpoint, conn, monkeypatch
+):
+    from avelren import forecast
+
+    fixed_now = datetime(2026, 6, 15, 9, tzinfo=UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(forecast, "datetime", Clock)
+    conn.execute(
+        "INSERT INTO observations "
+        "(time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused, wait_time_status) "
+        "SELECT t, %s, 0, 37, false, 'reported' "
+        "FROM generate_series(%s, %s, interval '1 hour') t",
+        (checkpoint, fixed_now - timedelta(weeks=10), fixed_now - timedelta(hours=1)),
+    )
+    conn.execute(
+        "INSERT INTO observations "
+        "(time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused, wait_time_status) "
+        "VALUES (%s, %s, 0, 188, false, 'reported')",
+        (fixed_now, checkpoint),
+    )
+
+    response = api_client.get(f"/forecast/{checkpoint}?hours=1")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "ready"
+    assert result["points"] == []
+    assert len(result["count_points"]) == 1
+    point = result["count_points"][0]
+    assert point["vehicles_expected"] == 188
+    assert point["calibration_samples"] >= 4
+    assert point["wait_estimate"] == {
+        "seconds_low": 0,
+        "seconds_expected": 0,
+        "seconds_high": 0,
+        "samples": 10,
+    }
