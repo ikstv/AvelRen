@@ -47,6 +47,13 @@ fingerprint() {
 legacy_journal() {
     sql "$1" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM (SELECT version,sha256,applied_at FROM schema_migrations WHERE version < '015') m;"
 }
+status_diagnostics() {
+    # Лише синтетичні дані. Це діагностика, не виправлення або backfill.
+    printf 'Status diagnostics: %s\n' "$1"
+    sql "$1" "SELECT tableoid::regclass,wait_time_status,count(*) FROM observations GROUP BY tableoid,wait_time_status ORDER BY 1,2;"
+    sql "$1" "SET timescaledb.enable_columnarscan=off; SELECT wait_time_status,count(*) FROM observations GROUP BY wait_time_status ORDER BY 1;"
+    sql "$1" "SELECT c.oid::regclass,a.atthasmissing,a.attmissingval,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attname='wait_time_status' AND NOT a.attisdropped AND n.nspname IN ('public','_timescaledb_internal') ORDER BY c.oid::regclass::text;"
+}
 assert_restored_contract() {
     local actual actual_journal statuses
     actual=$(fingerprint restore_test)
@@ -54,6 +61,7 @@ assert_restored_contract() {
     statuses=$(sql restore_test "SELECT count(*) FROM observations WHERE wait_time_status='legacy_unknown'")
     printf 'Restore fingerprint expected:\n%s\nactual:\n%s\n' "$before" "$actual"
     printf 'Restore legacy journal expected=%s actual=%s; legacy rows=%s\n' "$journal_before" "$actual_journal" "$statuses"
+    status_diagnostics restore_test
     [ "$actual" = "$before" ]
     [ "$actual_journal" = "$journal_before" ]
     [ "$statuses" = 50 ]
@@ -138,6 +146,7 @@ sql postgres 'CREATE DATABASE avelren_version_probe_test;'
 [ "$(sql avelren_version_probe_test "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.30.1 ]
 sql postgres 'DROP DATABASE avelren_version_probe_test;'
 # Новий dump відновлюється на тій самій новій версії, не змішуючи каталоги extension.
+status_diagnostics avelren_database_test
 compose exec -T -e PGPASSWORD=ci-only test-db pg_dump -h 127.0.0.1 -U avelren_backup \
     -d avelren_database_test --no-owner | gzip >"$WORK/after.sql.gz"
 restore_dump "$WORK/after.sql.gz"
