@@ -210,8 +210,34 @@ async def forecast(
             (checkpoint_id, since),
         )
     ).fetchall()
+    wait_rows = await (
+        await conn.execute(
+            """
+            WITH usable_hourly AS (
+                SELECT time_bucket(INTERVAL '1 hour', time) AS bucket,
+                       avg(wait_time_seconds)::integer AS avg_wait_seconds
+                FROM observations
+                WHERE checkpoint_id = %s AND time >= %s AND time < %s
+                  AND (wait_time_status = 'reported'
+                       OR (wait_time_status IS DISTINCT FROM 'missing'
+                           AND wait_time_seconds > 0))
+                GROUP BY bucket
+            )
+            SELECT EXTRACT(dow FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS dow,
+                   EXTRACT(hour FROM bucket AT TIME ZONE 'Europe/Kyiv')::int AS hour,
+                   percentile_cont(0.25) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p25,
+                   percentile_cont(0.50) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p50,
+                   percentile_cont(0.75) WITHIN GROUP (ORDER BY avg_wait_seconds) AS p75,
+                   count(*) AS samples
+            FROM usable_hourly
+            GROUP BY dow, hour
+            """,
+            (checkpoint_id, since, now),
+        )
+    ).fetchall()
 
     by_slot = {(r["dow"], r["hour"]): r for r in rows}
+    wait_by_slot = {(r["dow"], r["hour"]): r for r in wait_rows}
     min_slot_samples = (
         MIN_SAMPLES_READY if state.status == "ready" else MIN_SAMPLES_PRELIMINARY
     )
@@ -222,12 +248,21 @@ async def forecast(
         # above (AT TIME ZONE 'Europe/Kyiv'). `at` stays an absolute moment
         # (UTC) for the "time" field.
         at_local = at.astimezone(KYIV)
-        if at in counts:
-            result["count_points"].append(
-                {"time": at, **counts[at], "wait_estimate": None}
-            )
         # Python: Monday = 0, Sunday = 6. PostgreSQL: Sunday = 0, Saturday = 6.
         pg_dow = (at_local.weekday() + 1) % 7
+        if at in counts:
+            wait_slot = wait_by_slot.get((pg_dow, at_local.hour))
+            wait_estimate = None
+            if wait_slot is not None and wait_slot["samples"] >= min_slot_samples:
+                wait_estimate = {
+                    "seconds_low": int(wait_slot["p25"]),
+                    "seconds_expected": int(wait_slot["p50"]),
+                    "seconds_high": int(wait_slot["p75"]),
+                    "samples": wait_slot["samples"],
+                }
+            result["count_points"].append(
+                {"time": at, **counts[at], "wait_estimate": wait_estimate}
+            )
         slot = by_slot.get((pg_dow, at_local.hour))
         # A long overall span does not prove that this particular Kyiv weekday
         # and hour has enough observations. Gate every forecast point itself.
