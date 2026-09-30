@@ -323,3 +323,30 @@ RED: [API run 36749608290](https://github.com/ikstv/AvelRen-ORIGINAL/actions/run
 фінальний рекурсивний набір 96 passed, 2 попередні warnings. Усі сім
 workflows на кодовому head успішні. Performance EXPLAIN для 12-тижневої
 історії та решта задачі 3 ще попереду.
+
+### Задача 3 — третій малий зріз: `forecast.count_points`
+
+Новий масив точок кількості авто не залежить від wait-слота, але зберігає
+readiness, вимогу свіжого виміру і мінімум сусідів `predict_counts`.
+Кожна точка має час, межі/очікуване число авто, `calibration_samples`
+і окремий `wait_estimate`: null без придатного слота або сезонні секунди
+з власним `samples`. Новий wait-слот читає reported0 та позитивний
+legacy_unknown; старий `points` не змінює правило нульових оцінок.
+
+RED [API run 36753674968](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36753674968):
+3 failed/60 passed через відсутній `count_points`; перший GREEN
+[run 36754072422](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36754072422):
+63 passed. Наступний RED
+[run 36754508137](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36754508137):
+1 failed/63 passed — reported0 повертав null замість нульової wait-оцінки.
+Після окремого status-aware SQL [API run 36755041610](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36755041610)
+на f4bb19f: 64 passed, 2 попередні warnings. У тесті count-only
+24 точки існують при повністю missing wait, а reported0 дає новий
+wait-слот із 10 погодинних повторів, не додаючи legacy point.
+
+[Database run 36755041607](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36755041607)
+на f4bb19f: 25 database passed, old/new compressed backup/restore PASS,
+фінальний рекурсивний набір 98 passed, 2 попередні warnings. Усі сім
+workflows на цьому кодовому head успішні. ETA alerts, seasonal evaluation/MAE,
+SQL performance gate, Android і frozen-base rollback — окремі незавершені
+частини; це не готовність до merge/deployment.
