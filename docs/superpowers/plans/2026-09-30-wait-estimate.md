@@ -98,7 +98,8 @@
 Api.CountHistoryHour(time, avg_vehicles: Double, samples: Int) та Api.WaitHistoryHour(time, avg_wait_seconds: Double, max_wait_seconds: Int, samples: Int), обидва масиви History nullable за аналогічним правилом fallback.
 
 ForecastPresentation.displayPoints(forecast: Api.Forecast) -> List<Api.CountForecastPoint>: повернути count_points, якщо не null; інакше адаптувати points, без твердження про нову калібрацію (для адаптера calibration_samples=0 як відсутність нового доказу, UI не називає його фактичним числом сусідів).
-Нові функції next24CountHours(points, now) та countPeak(points) зберігають чинні часові/peak правила; старі helpers лишаються для legacy tests.
+Нові функції next24CountHours(points: List<Api.CountForecastPoint>, now: Instant): List<Api.CountForecastPoint> та countPeak(points: List<Api.CountForecastPoint>): Api.CountForecastPoint? зберігають чинні часові/peak правила; старі helpers лишаються для legacy tests.
+WaitPresentation.label(estimate: Api.WaitEstimate?): String?: null повертає null для legacy UI fallback; missing/legacy0 повертають текст відсутності; reported0 повертає текст нуля; позитивне число форматується в дні/год/хв, legacy_unknown має підпис «За історичними даними». Невідомий майбутній status показує відсутність підтвердженої оцінки, а не reported; додати це до testWaitLabels.
 
 - [ ] Написати testNewAndLegacyJsonDecode: старий JSON без нових полів декодується; новий з missing/null декодується; зафіксована стара DTO з ignoreUnknownKeys декодує новий JSON.
 - [ ] Написати testEmptyCountPointsDoesNotFallback: count_points=[] та непорожній points → displayPoints порожній; count_points=null → legacy fallback.
