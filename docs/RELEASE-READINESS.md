@@ -13,8 +13,8 @@
 | Етап | Стан |
 | --- | --- |
 | Контракт | Upgrade перед 015 та nullable internal status погоджені; nullable DDL і нормалізація helper реалізовані на d204056 без переписування історії |
-| Product-код і міграція | Модель, INSERT/status, кандидат 015, `/workload.wait_estimate`, незалежні raw/hourly history, `forecast.count_points` і ETA alerts зі спільним правилом; seasonal evaluation/MAE та Android DTO ще не готові. Не готово до merge/deploy |
-| CI реалізації | На 4f4c7c9 локально 244 unit passed, Ruff/provenance успішні; GitHub: API 64 passed, DB 25 passed, old/new compressed restore і recursive database tree 98 passed. Усі 7 workflows успішні. Це частина задачі 3; quality, performance gate, Android і rollback старого runtime ще не перевірені. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
+| Product-код і міграція | Модель, INSERT/status, кандидат 015, `/workload.wait_estimate`, незалежні raw/hourly history, `forecast.count_points`, ETA alerts і сезонна quality зі спільним правилом; Android DTO ще не готовий. Не готово до merge/deploy |
+| CI реалізації | На 453b8de локально 245 unit passed, Ruff/provenance успішні; GitHub: DB 25 passed, old/new compressed restore і recursive database tree 99 passed. Усі 7 workflows успішні. Це частина задачі 3; SQL performance gate, Android і rollback старого runtime ще не перевірені. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
 | Серверне розгортання | Не виконано; потрібен окремий GO |
 | Android-збірка | Не створена |
 | Телефон | Не перевірено |

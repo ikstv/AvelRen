@@ -370,3 +370,25 @@ deprecation warnings. Ruff та перевірка provenance успішні.
 workflows на кодовому head успішні. Seasonal evaluation/MAE, SQL
 performance gate, Android і rollback не виконані. PR #72 лишається draft,
 production і доставка повідомлень не змінювалися.
+
+### Задача 3 — п'ятий малий зріз: сезонна оцінка якості
+
+На 453b8de `/forecast/{id}/quality` бере для wait лише `reported`
+(включно з 0) або позитивні legacy-оцінки. Missing та неоднозначний
+історичний 0 не забруднюють `mae_hours`; кількість авто водночас
+оцінюється за всіма годинами й має окремий `count_samples`. Поле `samples`
+позначає тільки придатні відкладені wait-години. `method=seasonal_naive`
+залишився незмінним: ці MAE не оцінюють нову модель
+`current_anchored_neighbors_v1`.
+
+Локальний RED: новий SQL-контракт упав через відсутність
+`wait_time_status` у старому запиті. Після правки повний unit-набір —
+245 passed, 2 попередні warnings; Ruff і provenance успішні. Окремий
+наявний тест підтверджує, що справжній `MAE=0` уже повертав 0, а не null;
+це не нововиявлений баг. На ізольованій БД новий тест зі справжнім
+reported0, missing та неоднозначним legacy0 перевірив незалежні
+`samples=1`, `count_samples=2` і обидва MAE. [Database run 36760002705](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36760002705):
+25 database passed, old/new compressed backup/restore PASS, фінальний
+рекурсивний набір 99 passed і 2 попередні warnings. На цьому commit усі
+сім workflows успішні. SQL performance gate, Android DTO та frozen-base
+rollback ще попереду; production не змінювали.
