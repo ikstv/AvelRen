@@ -170,9 +170,11 @@ sql avelren_database_test "INSERT INTO observations VALUES
 ('2020-01-10 00:01Z',987654320,0,81,false,'missing'),
 ('2020-01-10 00:02Z',987654320,3600,82,false,'reported');
 INSERT INTO observations(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused)
-VALUES('2020-01-10 00:03Z',987654320,180,83,false);
-CALL refresh_continuous_aggregate('observations_hourly','2020-01-10'::timestamptz,'2020-01-11'::timestamptz);
-SELECT compress_chunk(c,if_not_compressed=>true) FROM show_chunks('observations',older_than=>'2021-01-01'::timestamptz) c;"
+VALUES('2020-01-10 00:03Z',987654320,180,83,false);"
+# CALL має окремий top-level запит: psql -c із кількома statements
+# створює transaction block, у якому TimescaleDB забороняє refresh.
+sql avelren_database_test "CALL refresh_continuous_aggregate('observations_hourly','2020-01-10'::timestamptz,'2020-01-11'::timestamptz);"
+sql avelren_database_test "SELECT compress_chunk(c,if_not_compressed=>true) FROM show_chunks('observations',older_than=>'2021-01-01'::timestamptz) c;"
 before=$(fingerprint avelren_database_test)
 status_before=$(status_fingerprint avelren_database_test)
 assert_status_queries avelren_database_test
