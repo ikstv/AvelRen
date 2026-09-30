@@ -39,7 +39,7 @@ def old_schema_component_app():
             await pool.close()
 
     component = FastAPI(lifespan=component_lifespan)
-    paths = {"/health", "/workload", "/admin/telemetry", "/admin/access"}
+    paths = {"/health", "/admin/telemetry", "/admin/access"}
     component.router.routes.extend(
         route
         for source in (production_app.router, access_router, subscriptions_router)

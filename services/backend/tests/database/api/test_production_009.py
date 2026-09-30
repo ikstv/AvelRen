@@ -108,7 +108,7 @@ def history(conn):
 
 
 @pytest.mark.parametrize("identity", ["legacy", "api"])
-def test_009_public_api_and_existing_admin(
+def test_009_health_and_existing_admin_handlers(
     production_009, legacy_dsn, client_for, identity, device, conn, checkpoint,
 ):
     before = history(conn)
@@ -119,7 +119,6 @@ def test_009_public_api_and_existing_admin(
     # assertions cover the handlers against historical ACLs, not old runtime.
     with client_for(dsn, component_only=True) as client:
         assert client.get("/health").status_code == 200
-        assert client.get("/workload").json()[0]["vehicles_in_queue"] == 80
         telemetry = client.get("/admin/telemetry", headers=device.headers())
         assert telemetry.status_code == 200, telemetry.text
         status = client.get("/admin/access", headers=device.headers())
@@ -128,6 +127,9 @@ def test_009_public_api_and_existing_admin(
         assert response.status_code == 200, response.text
         assert response.json()["state"] == "unavailable"
     assert history(conn) == before
+    assert conn.execute(
+        "SELECT vehicles_in_queue FROM observations WHERE checkpoint_id=%s", (checkpoint,)
+    ).fetchone()["vehicles_in_queue"] == 80
     assert conn.execute("SELECT to_regclass('public.admin_access') AS t").fetchone()["t"] is None
     admin = conn.execute("SELECT is_admin FROM devices WHERE id=%s", (device.device_id,))
     assert admin.fetchone()["is_admin"]

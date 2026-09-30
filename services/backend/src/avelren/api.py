@@ -22,6 +22,7 @@ from .limits import BodySizeLimitMiddleware, ConcurrencyGate
 from .ratelimit import check as rate_check
 from .schema_gate import assert_schema_at_least
 from .subscriptions_api import router as subscriptions_router
+from .wait_estimate import measured_wait
 
 log = logging.getLogger("avelren.api")
 
@@ -170,6 +171,7 @@ async def workload(request: Request) -> list[dict]:
                     o.checkpoint_id, c.title, c.country_id, c.country_name,
                     c.flag_emoji, c.lat, c.lng,
                     o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused,
+                    o.wait_time_status,
                     -- Same rule as eta.py and forecast.py (#127): a zero wait is
                     -- "no estimate", not "enter now", both when the queue is
                     -- paused and when cars are still queued (#111 writes a
@@ -185,6 +187,11 @@ async def workload(request: Request) -> list[dict]:
                 """
             )
         ).fetchall()
+    for row in rows:
+        status = row.pop("wait_time_status")
+        row["wait_estimate"] = measured_wait(
+            row["time"], row["wait_time_seconds"], status, row["is_paused"]
+        )
     return rows
 
 

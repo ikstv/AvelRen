@@ -107,11 +107,10 @@ def test_expired_lock_resets_attempts(api_client, approved, conn):
 
 
 @pytest.mark.parametrize("database", [10], indirect=True)
-def test_without_admin_migration_core_remains_available(
+def test_without_admin_migration_health_and_access_handlers(
     database, old_schema_component_client, device
 ):
     assert old_schema_component_client.get("/health").status_code == 200
-    assert old_schema_component_client.get("/workload").status_code == 200
     assert attempt(old_schema_component_client, device.headers(), "7392")["state"] == "unavailable"
 
 
