@@ -33,3 +33,28 @@ RED: isolated database CI на bf495415 — 2 нові тести failed, 22 pas
 Після правки 237 unit passed, Ruff успішний. Compressed DDL, повний
 pipeline, API/Android і restore/rollback ще не підтверджені.
 Цей кандидат не готовий до merge або production deployment.
+
+Мінімальний guard None у ETA перенесено до кроку 2, бо інакше
+новий валідний вимір спричиняє TypeError у derived phase. Unit-тест
+до правки відтворив timedelta(None); політика zero/paused ще незмінна.
+
+### Блокер старої TimescaleDB
+
+На commit 7405803 isolated database suite: 24 passed, включно з
+test_status_migration_preserves_compressed_legacy; сучасний pin 2.30.1.
+Але workflow database run 36733384982 завершився failure у репетиції
+ops/timescale-upgrade-test.sh: вона застосовує всі migrations ще на
+старому pin 2.17.2. Міграція 015 відхилена з повідомленням
+`operation not supported on hypertables that have compression enabled`.
+Лог містить весь SQL batch, тому конкретний ALTER ще не локалізований.
+
+Це не failure збереження даних на 2.30.1 і не доказ стану production.
+За STOP-критерієм погодженого плану подальшу реалізацію призупинено
+до перегляду сумісності/порядку переходу. Не розпаковувати історію,
+не пропускати upgrade gate і не застосовувати 015 до production.
+Потрібно окремо погодити шлях: старі 001–014 на 2.17.2 → репетиція
+оновлення extension/image → 015 на 2.30.1; або іншу сумісну схему.
+
+Останній локальний набір після мінімального ETA guard: 238 passed,
+2 попередні warnings; Ruff і provenance успішні. Новий pipeline test
+ще потребує CI на commit, який містить цей test і guard.

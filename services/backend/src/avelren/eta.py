@@ -37,7 +37,8 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
     eta_by_checkpoint = {
         i.id: entry_eta(at, i.wait_time)
         for i in items
-        if not (i.wait_time == 0 and (i.is_paused or i.vehicles_in_queue > 0))
+        if i.wait_time is not None
+        and not (i.wait_time == 0 and (i.is_paused or i.vehicles_in_queue > 0))
     }
     if not eta_by_checkpoint:
         return 0

@@ -14,6 +14,39 @@ from avelren.models import WorkloadItem, WorkloadResponse
 from avelren.schema_gate import assert_schema_at_least
 
 
+def test_missing_wait_pipeline_keeps_count_and_run(database, monkeypatch):
+    item = WorkloadItem(
+        id=900000002, title="Оцінка відсутня", for_vehicle_type=1,
+        vehicle_in_active_queues_counts=80,
+    )
+    monkeypatch.setattr(collector, "fetch_workload", AsyncMock(return_value=SimpleNamespace(
+        error=None, http_status=200, duration_ms=10, body_sha256="missing-fixture",
+        response=WorkloadResponse(data=[item]),
+    )))
+
+    async def run():
+        async with AsyncConnectionPool(
+            database("collector"), open=False, kwargs={"row_factory": dict_row}
+        ) as pool:
+            monkeypatch.setattr(collector, "get_pool", lambda: pool)
+            await assert_schema_at_least(pool)
+            await collector.run_cycle(object())
+
+    asyncio.run(run())
+    with psycopg.connect(database("admin")) as conn:
+        assert conn.execute(
+            "SELECT vehicles_in_queue,wait_time_seconds,wait_time_status FROM observations"
+        ).fetchall() == [(80, 0, "missing")]
+        assert conn.execute("SELECT rows_written,error FROM collector_runs").fetchall() == [
+            (1, None)
+        ]
+        processed, error = conn.execute(
+            "SELECT derived_processed_at,derived_error FROM collector_runs"
+        ).fetchone()
+        assert processed is not None
+        assert error is None
+
+
 def test_observations_and_notification_under_service_roles(database, monkeypatch):
     instant = datetime.now(UTC).replace(microsecond=0)
 
