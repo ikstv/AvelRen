@@ -350,3 +350,23 @@ wait-слот із 10 погодинних повторів, не додаючи
 workflows на цьому кодовому head успішні. ETA alerts, seasonal evaluation/MAE,
 SQL performance gate, Android і frozen-base rollback — окремі незавершені
 частини; це не готовність до merge/deployment.
+
+### Задача 3 — четвертий малий зріз: ETA-сповіщення
+
+На 4f4c7c9 створення ETA-alert використовує спільний `measured_wait`,
+той самий, що `/workload.wait_estimate`. Якщо оцінка відсутня, запит
+цілей не виконується. Явний reported0 на непризупиненому КПП допускає
+ETA в момент виміру навіть за наявності авто; paused0 не створює ETA.
+Позитивний wait під час паузи не змінювався. Це лише створення запису
+за чинним target/tolerance/dedup-контрактом, не надсилання реального push.
+
+Локальний RED: `test_reported_zero_with_cars_creates_measured_eta_alert`
+повернув 0 замість 1; два інші тести пройшли. Після правки цільовий
+набір — 3 passed, повний unit-набір — 244 passed і два попередні
+deprecation warnings. Ruff та перевірка provenance успішні.
+[Database run 36757646583](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36757646583)
+на 4f4c7c9: 25 database passed, old/new compressed backup/restore PASS,
+фінальний рекурсивний набір 98 passed, 2 попередні warnings. Усі сім
+workflows на кодовому head успішні. Seasonal evaluation/MAE, SQL
+performance gate, Android і rollback не виконані. PR #72 лишається draft,
+production і доставка повідомлень не змінювалися.
