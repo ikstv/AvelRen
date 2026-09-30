@@ -65,6 +65,15 @@ assert_status_queries() {
 status_diagnostics() {
     # Лише синтетичні дані. Це діагностика, не виправлення або backfill.
     printf 'Status diagnostics: %s\n' "$1"
+    local columnarscan columnarindexscan
+    for columnarscan in on off; do
+        for columnarindexscan in on off; do
+            printf 'Scan settings: columnarscan=%s columnarindexscan=%s\n' "$columnarscan" "$columnarindexscan"
+            sql "$1" "SET timescaledb.enable_columnarscan=$columnarscan; SET timescaledb.enable_columnarindexscan=$columnarindexscan; SELECT count(*) FROM observations;"
+            sql "$1" "SET timescaledb.enable_columnarscan=$columnarscan; SET timescaledb.enable_columnarindexscan=$columnarindexscan; SELECT tableoid::regclass,COALESCE(wait_time_status,'legacy_unknown'),count(*) FROM observations GROUP BY 1,2 ORDER BY 1,2;"
+            sql "$1" "SET timescaledb.enable_columnarscan=$columnarscan; SET timescaledb.enable_columnarindexscan=$columnarindexscan; EXPLAIN (VERBOSE,COSTS OFF) SELECT COALESCE(wait_time_status,'legacy_unknown'),count(*) FROM observations GROUP BY 1 ORDER BY 1;"
+        done
+    done
     sql "$1" "SELECT tableoid::regclass,wait_time_status,count(*) FROM observations GROUP BY tableoid,wait_time_status ORDER BY 1,2;"
     sql "$1" "SET timescaledb.enable_columnarscan=off; SELECT wait_time_status,count(*) FROM observations GROUP BY wait_time_status ORDER BY 1;"
     sql "$1" "SELECT c.oid::regclass,a.atthasmissing,a.attmissingval,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attname='wait_time_status' AND NOT a.attisdropped AND n.nspname IN ('public','_timescaledb_internal') ORDER BY c.oid::regclass::text;"
@@ -177,8 +186,8 @@ sql avelren_database_test "CALL refresh_continuous_aggregate('observations_hourl
 sql avelren_database_test "SELECT compress_chunk(c,if_not_compressed=>true) FROM show_chunks('observations',older_than=>'2021-01-01'::timestamptz) c;"
 before=$(fingerprint avelren_database_test)
 status_before=$(status_fingerprint avelren_database_test)
-assert_status_queries avelren_database_test
 status_diagnostics avelren_database_test
+assert_status_queries avelren_database_test
 compose exec -T -e PGPASSWORD=ci-only test-db pg_dump -h 127.0.0.1 -U avelren_backup \
     -d avelren_database_test --no-owner | gzip >"$WORK/after.sql.gz"
 restore_dump "$WORK/after.sql.gz"
