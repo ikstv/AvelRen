@@ -1,9 +1,13 @@
 # Залишки перенесення
 
-Звірка 28.09.2026 після merge PR [#66](https://github.com/ikstv/AvelRen-ORIGINAL/pull/66),
-main `c20ab3e0896bf0cbf2dbf985bb5dcc26796e2947`; repository і source-SBOM CI успішні.
+Документальна звірка 30.09.2026 на базі main
+`01e467c0dcf711067c6b0afa831652e4b305060b` після merge PR
+[#67](https://github.com/ikstv/AvelRen-ORIGINAL/pull/67): repository,
+source-sbom та image-sbom checks цього коміту успішні.
 Це поточний контрольний список; датовані старі аудити зберігають історичний зміст.
-У цьому кроці сервер і телефон повторно не перевірялися.
+Перенесено [серверний аудит 28.09](audits/PRODUCTION-IMAGE-PARITY-2026-09-28.md)
+із AvelRen-ops PR #1 зі збереженням походження. Цей перенос не є новою
+перевіркою сервера або телефона; наведений runtime-стан датований 28.09.
 
 ## Уже є в новому репозиторії
 
@@ -13,32 +17,64 @@ main `c20ab3e0896bf0cbf2dbf985bb5dcc26796e2947`; repository і source-SBOM CI у
   із перевірками та зупинкою процедури при невідповідності передумов.
 - PR #53: шість успішних CI checks для `f52f68e`; локально 200 backend unit,
   22 database tests, Android unit/compile та ізольований restore rehearsal.
+- Source SBOM із перевіркою Python lock completeness (PR #65/#66) та
+  candidate image SBOM для app, TimescaleDB і Caddy (PR #67). Перевіряється
+  Python/OS package coverage; artifacts зберігаються 30 днів без push/deploy.
 
 ## Відкриті роботи
 
 | Блок | Конкретний результат для закриття |
 | --- | --- |
-| Supply-chain CI legacy #140 / issue #23 | Source SBOM у main; Python lock completeness перевіряється (PR #65/#66). Окремий candidate image job збирає app з перевірюваного SHA та сканує його, TimescaleDB і Caddy за digest; результат — 30-денні CycloneDX artifacts, без push/deploy. Це не доказ, що локально перебудований production image ідентичний CI candidate. Перед exact-image deployment потрібен окремий handoff immutable image/digest. CodeQL для приватного user-owned repo має ліцензійний блокер; інші залишки issue #23 вести окремо. |
+| Supply-chain legacy #140 / issue #23 | Source та candidate image SBOM уже реалізовані й мають успішні checks; повторно переносити їх не потрібно. Залишилися рішення по Gradle artifact checksums, Dependabot, dependency/container vulnerability audits і CodeQL із ліцензійним блокером для приватного user-owned repo. Перед exact-image deployment потрібен окремий handoff immutable image/digest: SBOM CI candidate не засвідчує окремо перебудований production image. |
+| Production adoption прав БД, issue #15 | Перенести або явно замінити комплект старих `deploy/postgres-adopt.sh`, `postgres-ownership.lib.sh`, `postgres-privilege-gate.sh` і пов'язаних контрактних/integration-тестів. Їхніх відповідників у новому дереві немає. `ops/postgres-bootstrap.sh` готує fresh install або disposable-only roles-acl, але не забезпечує перехід живої БД з forward/inverse rollback. Приймання потребує ізольованих перевірок; застосування на production — окремого явного дозволу. |
 | Forecast issue #111 | Звірити семантику відсутнього wait_time та критерії якості. Held-out evaluation вже реалізовано; повторний перенос не потрібний. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
-| Ops і recovery | Завершити звірку актуальних runbooks, доступів/key escrow, матеріалів Play та унікальних серверних змін із новим кодом. Наявність архіву не доводить відновлення. |
+| Ops і recovery | Аудит із AvelRen-ops PR #1 перенесено; сам старий PR лишився відкритим. Завершити звірку deployment/recovery runbooks, доступів/key escrow, матеріалів Play та унікальних серверних змін із новим кодом. Історичні документи потребують рішення про збереження або заміну. Наявність архіву не доводить відновлення. |
 | Приймання на сервері та телефоні | За погодженими операціями зняти свіжі докази runtime/ролей/міграцій, перевірити реальний backup лише в ізольованій БД, сумісність APK↔API та спосіб відкату. Злиття #53 цього не виконує. |
 | Закриття міграції | Звірити гілки без PR, теги, releases, issues та унікальні файли обох джерел. Після приймання — окреме рішення про архівування чи видалення. |
 
+## Серверний стан, який потрібно перевірити заново
+
+За [аудитом 28.09](audits/PRODUCTION-IMAGE-PARITY-2026-09-28.md) сервер
+використовував checkout `/opt/avelren` на `81e5b04` із чотирма зміненими
+tracked-файлами та п'ятьма untracked backup-файлами. Runtime мав різні
+локальні образи й стару Compose-модель із overrides; notifier додатково
+використовував `deploy-013.yml`. TimescaleDB 2.17.2 і Caddy 2.9.1 старіші
+за pins нового main 2.30.1 і 2.11.4. Це не дозвіл їх оновлювати.
+
+Наступний read-only зріз має підтвердити:
+
+- Фактичні image IDs і походження коду кожного контейнера. Для collector
+  running image `f52aad81…` відрізнявся від `latest` (`978ec2d9…`), а старий
+  image object не знаходився; перед recreate потрібен recovery plan.
+- Повний effective Compose із усіма overrides, dirty checkout і host pin.
+- SHA всього журналу міграцій, фізичну схему, runtime-ролі та права БД.
+  Остання позначка 014 у старому зрізі не доводить повної сумісності схеми.
+- Хеші встановлених host-скриптів, backup-стан і доступність recovery-артефакту.
+- Функціональні відповіді API та роботу collector/notifier/watchdog.
+  `running`, `healthy` БД і revision labels не замінюють ці перевірки.
+
+Наявність API/watchdog/notifier revisions в історії нового main не доводить
+тотожності їхніх окремих production-збірок CI candidate або його SBOM.
+
 ## Контроль інвентаризації
 
-GitHub: AvelRen має 11 відкритих PR і 8 відкритих issues;
-AvelRen-ops — 0 відкритих PR та 0 відкритих issues.
+Зріз GitHub 30.09.2026: AvelRen має 11 відкритих PR і 8 відкритих issues,
+19 гілок включно з main; AvelRen-ops — 1 відкритий PR
+[#1](https://github.com/ikstv/AvelRen-ops/pull/1), 0 відкритих issues і
+2 гілки включно з main. Попередній запис «0 PR в ops» був застарілим.
 За [реєстром PR](LEGACY-PR-REGISTER.md): 8 замінені, 2 відкинуті з причиною,
-1 потребує перенесення supply-chain CI. Це не загальний лічильник усіх
+1 (#140) тепер частково замінений: SBOM реалізовано, а CodeQL потребує
+окремого ліцензійного рішення. Старий рядок реєстру про неперенесений SBOM
+замінений цією звіркою. Це не загальний лічильник усіх
 залишків: issues, приймання й фінальна інвентаризація ведуться окремо.
 Issue #195 закрита 26.09.2026.
 Відсутність відкритих питань у ops не означає завершеного перенесення файлів.
 
 Звірку трьох dependency PR завершено в [LEGACY-DEPENDENCY-AUDIT.md](LEGACY-DEPENDENCY-AUDIT.md):
 source-оновлення образів прийняті. Legacy #140 оновлює pins у старих CI workflow;
-SBOM адаптацію та CodeQL ліцензійний блокер зафіксовано в
+SBOM адаптацію завершено PR #65–#67, а CodeQL ліцензійний блокер описано в
 [дизайні supply-chain CI](SUPPLY-CHAIN-CI-DESIGN-2026-09-28.md).
 Повний scope issue #23 ширший за #140.
 PR [#56](https://github.com/ikstv/AvelRen-ORIGINAL/pull/56) злитий 28.09.2026
