@@ -3,7 +3,7 @@
 import psycopg
 import pytest
 
-from conftest import MIGRATIONS
+from .conftest import MIGRATIONS
 
 
 @pytest.mark.parametrize("database", [14], indirect=True)
@@ -61,7 +61,8 @@ def test_status_checks_and_old_insert(database):
         assert ("wait_time_status",) in columns
         conn.execute("INSERT INTO checkpoints(id,title,for_vehicle_type) VALUES (123,'fixture',1)")
         old = conn.execute(
-            "INSERT INTO observations(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused) "
+            "INSERT INTO observations "
+            "(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused) "
             "VALUES(now(),123,0,80,false) RETURNING wait_time_status"
         ).fetchone()
         assert old == ("legacy_unknown",)
