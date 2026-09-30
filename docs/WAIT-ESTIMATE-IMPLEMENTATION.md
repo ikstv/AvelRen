@@ -140,3 +140,52 @@ legacy_unknown:1 навіть ДО dump, тоді як GROUP BY tableoid,status 
 
 Product-код, міграція 015 та restore engine у цій діагностиці не змінені.
 Потрібне погодження зміни внутрішнього контракту перед implementation.
+
+### Погоджений nullable-контракт — реалізовано в кандидатові 30.09.2026
+
+Попередній заголовок «ще НЕ реалізовано» описує минулий зріз.
+Власник погодив nullable internal status; на d204056 кандидат 015 додає
+колонку без DEFAULT, потім окремо встановлює default для майбутніх INSERT.
+Helper нормалізує внутрішній NULL у публічний legacy_unknown. Історія
+не переписується; міграції 001–014 незмінні. API/Android ще не підключені.
+
+RED на 61e8c1e: helper 2 failed/28 passed; ізольований DB run 36737844434
+дав 1 failed/24 passed — старий compressed status був legacy_unknown
+замість очікуваного NULL. Лише після цього змінено draft 015, не застосовану
+на production або іншій постійній БД.
+
+На d204056 [run 36738550092](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36738550092)
+пройшли старий restore, image/extension upgrade та 015 зі збереженням
+історії/журналу/compression. До нового dump сценарій зупинився:
+refresh_continuous_aggregate не дозволяє transaction block. Причина —
+INSERT і CALL були в одному psql -c, не nullable DDL. На 8c5f9d4 CALL
+винесено в окремий top-level запит, як у попередніх етапах сценарію.
+Усі assertions збережені. Повний новий restore ще потребує результату CI.
+
+Локально на 8c5f9d4: 242 unit passed, 2 попередні deprecation warnings;
+Ruff/provenance/CI scopes (14 examples) і bash syntax успішні.
+PR #72 лишається draft; production, APK, телефон і Play не змінювалися.
+
+### STOP: nullable DDL не закрив query-path gate
+
+На 8c5f9d4 [database run 36739447276](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36739447276)
+database suite дала 25 passed. Старий compressed restore, image/extension
+upgrade і nullable 015 зі збереженням історії/журналу пройшли.
+Виправлений top-level refresh виконався. Однак assert_status_queries
+зупинив сценарій **до нового dump**:
+
+- scan=on пройшов групування `legacy_unknown|51`, `missing|1`, `reported|2`
+  і перевірки WHERE (51 канонічний legacy, 50 внутрішніх NULL);
+- scan=off повернув тільки `legacy_unknown|1` замість цих трьох груп.
+
+Отже nullable-схема сама по собі не закрила приймання різних query paths.
+Чи це дефект конкретного optimizer node, поведінка GUC або інший механізм,
+поки не встановлено; даних для такого висновку недостатньо. Новий mixed
+backup/restore не запускався, його успіх не заявляється. За STOP-критерієм
+задача 2 незавершена; задачі 3–5 не початі. Потрібно переглянути контракт
+після EXPLAIN/діагностики точного шляху читання, не прибирати assertions,
+не додавати приховане decompress/backfill і не змінювати production.
+
+На цьому самому head core, repository, watchdog і source SBOM CI успішні;
+database та API workflows failure. Старі API prefix fixtures залишаються
+окремим відомим блокером, а не доказом цього query-path дефекту.

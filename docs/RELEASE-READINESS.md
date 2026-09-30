@@ -12,9 +12,9 @@
 
 | Етап | Стан |
 | --- | --- |
-| Контракт | Upgrade перед 015 погоджений; причину втрати missing-value metadata підтверджено на d540300. Пропозиція nullable internal status із нормалізацією ще чекає погодження |
+| Контракт | Upgrade перед 015 та nullable internal status погоджені; nullable DDL і нормалізація helper реалізовані на d204056 без переписування історії |
 | Product-код і міграція | Модель, INSERT/status і кандидат 015; API/Android ще не реалізовані. Не готово до merge/deploy |
-| CI реалізації | Локально 238 unit passed, Ruff/provenance/CI scopes; на 18f680c DB 25 passed і upgrade→015 пройшов. Новий restore не зберігає 50/50 legacy статусів; API prefix fixtures теж red. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
+| CI реалізації | На 8c5f9d4 локально 242 unit passed, Ruff/provenance/CI scopes; DB suite 25 passed, старий restore та upgrade→nullable 015 пройшли. STOP до нового dump: scan=off GROUP бачить лише 1 рядок замість змішаної історії; новий restore не підтверджений. API prefix fixtures теж red. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
 | Серверне розгортання | Не виконано; потрібен окремий GO |
 | Android-збірка | Не створена |
 | Телефон | Не перевірено |
