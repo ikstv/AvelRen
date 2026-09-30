@@ -83,6 +83,46 @@ def test_stale_forecast_and_independent_quality(api_client, checkpoint, conn, mo
     assert quality.json()["validation_days"] == 7
 
 
+def test_quality_scores_reported_zero_and_count_only_hours(
+    api_client, checkpoint, conn, monkeypatch
+):
+    from avelren import forecast
+
+    fixed_now = datetime(2026, 6, 15, 9, tzinfo=UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(forecast, "datetime", Clock)
+    target = fixed_now - timedelta(days=1, hours=1)
+    samples = (
+        (target - timedelta(weeks=2), 0, 10, "reported"),
+        (target, 0, 20, "reported"),
+        (target - timedelta(weeks=2, hours=1), 0, 30, "missing"),
+        (target - timedelta(hours=1), 0, 40, "missing"),
+        (target - timedelta(weeks=2, hours=1) + timedelta(minutes=1), 0, 50, None),
+        (target - timedelta(hours=1) + timedelta(minutes=1), 0, 60, None),
+    )
+    for at, seconds, vehicles, status in samples:
+        conn.execute(
+            "INSERT INTO observations "
+            "(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused,wait_time_status) "
+            "VALUES (%s,%s,%s,%s,false,%s)",
+            (at, checkpoint, seconds, vehicles, status),
+        )
+
+    response = api_client.get(f"/forecast/{checkpoint}/quality")
+    assert response.status_code == 200
+    quality = response.json()
+    assert quality["method"] == "seasonal_naive"
+    assert quality["samples"] == 1
+    assert quality["mae_hours"] == 0.0
+    assert quality["count_samples"] == 2
+    assert quality["mae_vehicles"] == 10.0
+
+
 def test_live_count_anchors_real_sql_forecast(api_client, checkpoint, conn, monkeypatch):
     from avelren import forecast
 

@@ -50,7 +50,7 @@
       "destination": "services/backend/src/avelren/forecast.py",
       "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
       "revision": {
-        "sha256": "ad6a6dfc15da39b0b8c9526640da3f1446bbf2fde2886ca5a94056430f7f7949",
+        "sha256": "f823c8a8288064ed5a7caf4a66b33bbf3c130dcea219dfde3316658f4da894ab",
         "notes": "docs/forecast.md"
       }
     },
@@ -118,7 +118,7 @@
       "destination": "services/backend/tests/unit/test_forecast_bounds.py",
       "sha256": "6eee86856d5498ba7e10099f53f893decc6ed49c538666098d3dfebee582610c",
       "revision": {
-        "sha256": "b95f94dd163a56796bdf8e8ff81e7468d321b81b68f042ffdc594cf264a721d6",
+        "sha256": "3f9f40ee93e748d6bb53cbbe5c0af30b23d0afc6a6130ccc3a7201c35baeb01f",
         "notes": "docs/forecast.md"
       }
     },

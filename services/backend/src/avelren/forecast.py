@@ -294,17 +294,20 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
     row = await (
         await conn.execute(
             """
-            -- Same clean_hourly and #111 contamination filter as forecast().
-            -- The latest seven days are validation only; older rows in the bounded
-            -- window train the seasonal median, so no observation predicts itself.
+            -- Vehicle counts use every observation; wait uses only confirmed
+            -- reports or positive legacy estimates. The latest seven days are
+            -- validation only, so no observation predicts itself.
             WITH clean_hourly AS (
                 SELECT
                     time_bucket(INTERVAL '1 hour', time) AS bucket,
-                    avg(wait_time_seconds)::integer AS avg_wait_seconds,
+                    avg(wait_time_seconds) FILTER (
+                        WHERE wait_time_status = 'reported'
+                           OR (wait_time_status IS DISTINCT FROM 'missing'
+                               AND wait_time_seconds > 0)
+                    )::integer AS avg_wait_seconds,
                     avg(vehicles_in_queue)::integer AS avg_vehicles
                 FROM observations
                 WHERE checkpoint_id = %s AND time >= %s AND time < %s
-                  AND NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)
                 GROUP BY bucket
             ),
             actual AS (
@@ -325,8 +328,11 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
                        percentile_cont(0.5) WITHIN GROUP (ORDER BY avg_vehicles) AS p50_vehicles
                 FROM training GROUP BY dow, hour
             )
-            SELECT count(*) AS n,
+            SELECT count(*) FILTER (
+                       WHERE a.avg_wait_seconds IS NOT NULL AND p.p50_wait IS NOT NULL
+                   ) AS n,
                    avg(abs(a.avg_wait_seconds - p.p50_wait)) / 3600.0 AS mae_hours,
+                   count(*) AS count_samples,
                    avg(abs(a.avg_vehicles - p.p50_vehicles)) AS mae_vehicles
             FROM validation a JOIN predicted p ON p.dow = a.dow AND p.hour = a.hour
             """,
@@ -338,6 +344,7 @@ async def evaluate(conn: AsyncConnection, checkpoint_id: int) -> dict:
         "checkpoint_id": checkpoint_id,
         "method": "seasonal_naive",
         "samples": row["n"] if row else 0,
+        "count_samples": row.get("count_samples", 0) if row else 0,
         "mae_hours": round(float(row["mae_hours"]), 2)
         if row and row["mae_hours"] is not None
         else None,
