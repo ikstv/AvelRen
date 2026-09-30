@@ -2,10 +2,12 @@
 
 import hashlib
 import secrets
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import psycopg
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
@@ -17,6 +19,29 @@ class Installation:
 
     def headers(self):
         return {"X-Device-Id": self.device_id, "X-Device-Secret": self.device_secret}
+
+
+def old_schema_component_app():
+    """Exercise actual route handlers on historical schema, not startup compatibility."""
+    from avelren import db
+    from avelren.api import app as production_app
+    from avelren.config import settings
+
+    @asynccontextmanager
+    async def component_lifespan(_app):
+        pool = db.get_pool(settings.api_statement_timeout_ms)
+        await pool.open(wait=True, timeout=30)
+        try:
+            yield
+        finally:
+            await pool.close()
+
+    component = FastAPI(lifespan=component_lifespan)
+    paths = {"/health", "/workload", "/admin/telemetry", "/admin/access"}
+    component.router.routes.extend(
+        route for route in production_app.router.routes if route.path in paths
+    )
+    return component
 
 
 @pytest.fixture
@@ -78,6 +103,23 @@ def api_client(database, monkeypatch):
         with TestClient(app) as client:
             yield client
         assert db._pool is not None and db._pool.closed, "API lifespan must close its pool"
+    finally:
+        db._pool = None
+        ratelimit._hits.clear()
+
+
+@pytest.fixture
+def old_schema_component_client(database, monkeypatch):
+    from avelren import db, ratelimit
+    from avelren.config import settings
+
+    monkeypatch.setattr(settings, "database_url", database("api"))
+    monkeypatch.setattr(db, "_pool", None)
+    ratelimit._hits.clear()
+    try:
+        with TestClient(old_schema_component_app()) as client:
+            yield client
+        assert db._pool is not None and db._pool.closed
     finally:
         db._pool = None
         ratelimit._hits.clear()

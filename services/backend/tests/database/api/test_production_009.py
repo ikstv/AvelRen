@@ -14,6 +14,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 
 from ..conftest import MIGRATIONS
+from .conftest import old_schema_component_app
 
 EVIDENCE = json.loads(
     (Path(__file__).parents[1] / "fixtures/production_009_admin_acl.json").read_text(
@@ -83,13 +84,14 @@ def client_for(monkeypatch):
     from avelren.config import settings
 
     @contextmanager
-    def open_client(dsn):
+    def open_client(dsn, *, component_only=False):
         with monkeypatch.context() as patch:
             patch.setattr(settings, "database_url", dsn)
             patch.setattr(db, "_pool", None)
             ratelimit._hits.clear()
             try:
-                with TestClient(app) as client:
+                test_app = old_schema_component_app() if component_only else app
+                with TestClient(test_app) as client:
                     yield client
                 assert db._pool.closed
             finally:
@@ -113,7 +115,9 @@ def test_009_public_api_and_existing_admin(
     conn.execute("UPDATE devices SET is_admin=true WHERE id=%s", (device.device_id,))
     conn.execute("INSERT INTO observations VALUES (now(), %s, 3600, 80, false)", (checkpoint,))
     dsn = legacy_dsn if identity == "legacy" else production_009("api")
-    with client_for(dsn) as client:
+    # The installed new service refuses schema 009 at startup. These route
+    # assertions cover the handlers against historical ACLs, not old runtime.
+    with client_for(dsn, component_only=True) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/workload").json()[0]["vehicles_in_queue"] == 80
         telemetry = client.get("/admin/telemetry", headers=device.headers())
