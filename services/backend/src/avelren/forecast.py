@@ -127,6 +127,7 @@ async def forecast(
         "method": "current_anchored_neighbors_v1",
         "wait_method": "seasonal_naive",
         "points": [],
+        "count_points": [],
     }
 
     if state.status == "collecting":
@@ -221,6 +222,10 @@ async def forecast(
         # above (AT TIME ZONE 'Europe/Kyiv'). `at` stays an absolute moment
         # (UTC) for the "time" field.
         at_local = at.astimezone(KYIV)
+        if at in counts:
+            result["count_points"].append(
+                {"time": at, **counts[at], "wait_estimate": None}
+            )
         # Python: Monday = 0, Sunday = 6. PostgreSQL: Sunday = 0, Saturday = 6.
         pg_dow = (at_local.weekday() + 1) % 7
         slot = by_slot.get((pg_dow, at_local.hour))

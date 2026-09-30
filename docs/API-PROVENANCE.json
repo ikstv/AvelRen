@@ -50,7 +50,7 @@
       "destination": "services/backend/src/avelren/forecast.py",
       "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
       "revision": {
-        "sha256": "411a902fb7b87871bd26ad75b2466adecaa3c3055d9721f133f220addcd955c4",
+        "sha256": "e275a18758bff295934d46248957e6dff9c08d0fd5a704243bb82c86a9cae2b4",
         "notes": "docs/forecast.md"
       }
     },
