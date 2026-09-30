@@ -217,3 +217,25 @@ columnarindexscan; `scan=off` збережено лише як пояснюва�
 старий journal, compressed chunks і ролі. Ця зміна критерію ще потребує
 нового CI результату. Висновок обмежений перевіреним pin і fixture;
 production GUC/версія не перевірялися.
+
+### Mixed restore підтверджено; загальний CI ще red
+
+На 6f6531e [database run 36741443092](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36741443092)
+ізольований database suite: 25 passed. Upgrade/restore gate пройшов
+старий compressed backup/restore, in-place image/extension upgrade, 015,
+а потім новий mixed-status dump/restore. До/після збіглися fingerprints
+54 сирих п'ятипольних рядків, 50 hourly buckets і трьох compressed chunks;
+окремий fingerprint усіх шести полів і журнал 001–014 також збіглися.
+У source і restore канонічний GROUP дав legacy_unknown 51, missing 1,
+reported 2; старих внутрішніх NULL 50. Пройшли schema verification,
+читання під API-роллю, старий п'ятипольний INSERT під collector-роллю,
+refresh і повторне стиснення на обох БД. Це доказ лише синтетичної
+репетиції на перевіреному pin, не production backup/restore.
+
+Фінальний запуск **усього** database tree у цьому workflow: 85 passed,
+2 failed, 3 errors. Усі п'ять невдач — давні API prefix fixtures
+009/010/011/013: новий runtime правильно відхиляє БД без обов'язкової 015
+(`SchemaTooOldError`). API workflow окремо лишається red із тієї самої
+причини. Тому загальний CI та PR досі не готові; наступний крок —
+переробити саме fixtures, зберігши перевірку старого runtime і
+відмови нового runtime на старій схемі. Production schema gate не послаблювати.
