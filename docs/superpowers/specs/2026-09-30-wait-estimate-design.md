@@ -56,6 +56,13 @@ legacy_unknown, не missing; SQL COALESCE і shared reading helper явно
 Перевірка restore порівнює всі шість сирих полів і канонічне читання
 через WHERE/GROUP/projection на mixed compressed fixture; не послаблює
 assertions шляхом маскування відмінностей після відновлення.
+Уточнення 30.09.2026 після EXPLAIN на pin 2.30.1: acceptance читає
+compressed історію з увімкненим `enable_columnarscan` (штатний default)
+і перевіряє обидва режими `enable_columnarindexscan`. Якщо
+`enable_columnarscan=off`, план робить Seq Scan порожніх rowstore частин
+compressed chunks; такий запит показує 1 із 54 рядків fixture і не є
+перевіркою збереження compressed даних. Його результат лишається
+діагностикою. На production значення GUC потрібно звірити окремо.
 
 Чинна wait_time_seconds лишається NOT NULL для сумісності:
 reported зберігає передане невід'ємне число, missing зберігає технічний 0.

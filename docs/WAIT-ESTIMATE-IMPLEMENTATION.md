@@ -189,3 +189,31 @@ backup/restore не запускався, його успіх не заявля�
 На цьому самому head core, repository, watchdog і source SBOM CI успішні;
 database та API workflows failure. Старі API prefix fixtures залишаються
 окремим відомим блокером, а не доказом цього query-path дефекту.
+
+### Розбір scan=off — 30.09.2026
+
+На a1cf0ce [database run 36740545909](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36740545909)
+EXPLAIN і чотири поєднання scan/indexscan дали однозначний результат у
+цьому disposable fixture:
+
+| columnarscan | columnarindexscan | count(*) | План compressed chunks |
+| --- | --- | ---: | --- |
+| on | on | 54 | ColumnarScan, три compressed chunks видимі |
+| on | off | 54 | ColumnarScan, ті самі рядки видимі |
+| off | on | 1 | Seq Scan rowstore частин; 53 compressed rows не читаються |
+| off | off | 1 | Такий самий Seq Scan |
+
+GROUP BY tableoid/status при `on` показав 24+25 старих compressed,
+1 старий uncompressed, а також 1 legacy, 1 missing і 2 reported в новому
+compressed chunk. При `off` лишився тільки uncompressed legacy1.
+Це стосується навіть `count(*)`, без status-предиката. Отже відмінність
+спричинена тим, що вимкнений ColumnarScan не читає compressed storage
+цього fixture. Вона не є свідченням втрати 53 рядків від nullable DDL.
+
+Критерій `scan=off` для compressed історії був хибним. У специфікації,
+плані й gate його замінено на штатний ColumnarScan з обома режимами
+columnarindexscan; `scan=off` збережено лише як пояснювальну діагностику.
+Решта gate залишається: шість полів, GROUP/WHERE/projection, backup/restore,
+старий journal, compressed chunks і ролі. Ця зміна критерію ще потребує
+нового CI результату. Висновок обмежений перевіреним pin і fixture;
+production GUC/версія не перевірялися.

@@ -64,6 +64,12 @@
 Fingerprint історичних п'яти полів і журнал 001–014 мають лишитися
 незмінними; новий статус перевіряється окремо. Обидва backup/restore
 етапи зберігаються. Production upgrade потребує окремого GO.
+Після EXPLAIN на 2.30.1: `enable_columnarscan=off` сканує порожні
+rowstore частини compressed chunks і не є допустимою перевіркою
+compressed історії. Acceptance використовує штатний `columnarscan=on`,
+перевіряє `columnarindexscan=on/off`, GROUP/WHERE/projection і всі шість
+полів до/після restore. Режим `columnarscan=off` лишається діагностикою;
+production GUC має бути перевірений перед окремо погодженим deployment.
 
 **Файли:** створити db/migrations/015_wait_time_status.sql (лише якщо 015 досі вільна), tests/database/test_wait_time_status.py; змінити db.py, schema_verify.py, відповідні tests/database/test_migrations.py, test_permissions.py, test_pipeline.py, docs/DB-PROVENANCE.json та CORE-PROVENANCE.json.
 
