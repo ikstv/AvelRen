@@ -12,7 +12,7 @@
 
 | Етап | Стан |
 | --- | --- |
-| Контракт | Порядок upgrade перед 015 погоджений; потрібен перегляд restore-сумісності нової ознаки |
+| Контракт | Upgrade перед 015 погоджений; причину втрати missing-value metadata підтверджено на d540300. Пропозиція nullable internal status із нормалізацією ще чекає погодження |
 | Product-код і міграція | Модель, INSERT/status і кандидат 015; API/Android ще не реалізовані. Не готово до merge/deploy |
 | CI реалізації | Локально 238 unit passed, Ruff/provenance/CI scopes; на 18f680c DB 25 passed і upgrade→015 пройшов. Новий restore не зберігає 50/50 legacy статусів; API prefix fixtures теж red. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
 | Серверне розгортання | Не виконано; потрібен окремий GO |

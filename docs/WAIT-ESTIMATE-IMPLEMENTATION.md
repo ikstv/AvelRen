@@ -92,3 +92,51 @@ runtime й component-only optional-feature fallback треба зберегти 
 
 Локально на ed9024a: 238 unit passed, 2 попередні warnings; Ruff,
 provenance, CI scopes (14 examples) успішні. PR #72 лишається draft.
+
+### Причина та пропозиція — 30.09.2026, ще НЕ реалізовано
+
+На d540300 [database run 36736530764](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36736530764)
+повторив failure. Діагностика окремого disposable fixture:
+
+| Зріз | Два compressed chunks | Uncompressed chunk | pg_attribute старих chunks |
+| --- | --- | --- | --- |
+| До dump, GROUP BY tableoid,status | legacy_unknown: 24+25 | legacy_unknown: 1 | atthasmissing=true, attmissingval={legacy_unknown} |
+| Після restore, той самий SELECT | NULL: 24+25 | legacy_unknown: 1 | atthasmissing=false, attmissingval=NULL |
+
+NOT NULL і DEFAULT у визначеннях старих chunks після restore лишаються,
+але не замінюють втрачене missing-value metadata під час читання compressed
+історії. Це доведений механізм цього fixture, не твердження про всі версії
+TimescaleDB. PostgreSQL описує це metadata для доданих DEFAULT-колонок:
+[pg_attribute](https://www.postgresql.org/docs/16/catalog-pg-attribute.html).
+
+Додатково GROUP BY status із enable_columnarscan=off повертає лише
+legacy_unknown:1 навіть ДО dump, тоді як GROUP BY tableoid,status показує
+50. Отже, недостатньо виправити тільки restore: канонічне читання має
+перевірятися різними query paths. Конкретний optimizer node ще не визначений;
+ця розбіжність не доводить, що одного перемикання GUC досить для виправлення.
+
+**Рекомендований перегляд збереження (потребує погодження):**
+
+1. Додати nullable status без DEFAULT під час ADD COLUMN. Старі рядки
+   фізично/логічно лишаються NULL; не створювати atthasmissing default і
+   не переписувати/декомпресувати їх.
+2. Окремим ALTER COLUMN SET DEFAULT 'legacy_unknown' забезпечити тільки
+   майбутні INSERT старого collector без нового поля.
+3. NULL у цьому внутрішньому полі означає лише legacy_unknown. Межа SQL/API
+   нормалізує його через COALESCE; публічний status ніколи не стає NULL.
+   Це не missing: новий collector завжди явно пише reported або missing.
+4. CHECK допускає внутрішній legacy NULL, але відхиляє невідомі текстові
+   значення, missing/nonzero та reported/negative. Інші старі поля незмінні.
+5. Acceptance: перед/після dump і restore порівняти всі шість сирих полів
+   та канонічні статуси, а не просто послабити старий assertion. Додати
+   reported0, missing0, reported positive і старий INSERT до стиснених
+   fixture; перевірити GROUP/WHERE/projection з scan налаштуваннями on/off,
+   legacy ETA, backup SELECT і старий runtime. Ніякого production GO.
+
+Альтернативи: окрема status-таблиця (більше join/FK/retention/restore
+контрактів) або upstream fix з повторною перевіркою pin (зовнішня залежність,
+не гарантія строків). Рекомендація nullable+нормалізація є гіпотезою для
+нової ізольованої репетиції, не вже доведеним виправленням.
+
+Product-код, міграція 015 та restore engine у цій діагностиці не змінені.
+Потрібне погодження зміни внутрішнього контракту перед implementation.
