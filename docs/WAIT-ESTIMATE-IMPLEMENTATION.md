@@ -20,6 +20,16 @@ HTTP тільки MockTransport; production та upstream не використ�
 CORE-PROVENANCE зберігає вихідні SHA-256 і додає revision для моделі
 та HTTP-тестів. Нові helper і unit-test файли — власний код проєкту.
 
-Схема, DB persistence, API/Android, restore/rollback ще потребують
-виконання наступних кроків. Nullable-модель не розгортати окремо:
-старий insert_observations не зберігає статус і не приймає None.
+## Крок 2 — кандидат, перевірка БД ще триває
+
+Новий INSERT зберігає missing як технічний 0 з окремим статусом,
+не гублячи кількість автомобілів. Міграція 015 додає статус із default
+legacy_unknown та CHECK; старі міграції й історія не редагуються.
+Schema contract піднімає вимогу нового runtime до 015.
+CORE-PROVENANCE зберігає джерело та фіксує revisions db/schema_verify.
+
+RED: isolated database CI на bf495415 — 2 нові тести failed, 22 passed
+(колонка відсутня); локальні тести запису — 3 failed.
+Після правки 237 unit passed, Ruff успішний. Compressed DDL, повний
+pipeline, API/Android і restore/rollback ще не підтверджені.
+Цей кандидат не готовий до merge або production deployment.

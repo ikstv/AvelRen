@@ -61,7 +61,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/db.py",
       "destination": "services/backend/src/avelren/db.py",
-      "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309"
+      "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+      "revision": {
+        "sha256": "8b363ef2b09adb73c3bc3cea7e7718c54bca9c01c16b052b068e970864d51adf",
+        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -95,8 +99,8 @@
       "destination": "services/backend/src/avelren/schema_verify.py",
       "sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
       "revision": {
-        "sha256": "166bc543df4920f626430ddfb4a1d7fe691643495396037bf79178fb945d34dd",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "f6b8bcb4b7fda1d1d3561eaf0de9ef418951d3d6c6f6e144f356b584a961b661",
+        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
       }
     },
     {

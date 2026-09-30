@@ -110,11 +110,22 @@ async def insert_observations(
     await conn.cursor().executemany(
         """
         INSERT INTO observations
-            (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused)
-        VALUES (%s, %s, %s, %s, %s)
+            (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused,
+             wait_time_status)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (checkpoint_id, time) DO NOTHING
         """,
-        [(at, i.id, i.wait_time, i.vehicles_in_queue, i.is_paused) for i in items],
+        [
+            (
+                at,
+                i.id,
+                0 if i.wait_time is None else i.wait_time,
+                i.vehicles_in_queue,
+                i.is_paused,
+                i.wait_time_status,
+            )
+            for i in items
+        ],
     )
     return len(items)
 

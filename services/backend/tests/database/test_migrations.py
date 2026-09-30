@@ -25,7 +25,7 @@ def test_valid_009_upgrades_to_candidate_without_rewriting_history(database):
         after = conn.execute(
             "SELECT version,sha256,applied_at FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert len(after) == 14
+        assert len(after) == 15
         assert after[:9] == before
 
 
