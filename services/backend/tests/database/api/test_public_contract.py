@@ -31,6 +31,7 @@ def test_measurements_history_forecast_and_freshness(api_client, checkpoint, con
     assert forecast.status_code == 200
     assert forecast.json()["status"] == "collecting"
     assert forecast.json()["points"] == []
+    assert forecast.json()["count_points"] == []
     assert api_client.get(f"/forecast/{checkpoint}/quality").status_code == 200
 
     async def broken_probe(_conn):
