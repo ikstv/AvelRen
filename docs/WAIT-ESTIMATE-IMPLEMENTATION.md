@@ -392,3 +392,33 @@ reported0, missing та неоднозначним legacy0 перевірив н
 рекурсивний набір 99 passed і 2 попередні warnings. На цьому commit усі
 сім workflows успішні. SQL performance gate, Android DTO та frozen-base
 rollback ще попереду; production не змінювали.
+
+### Задача 3 — шостий малий зріз: SQL performance gate
+
+На f77d813 API CI виконав старий і новий `/forecast/{id}/quality` SQL
+через `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` на однаковій синтетичній
+12-тижневій історії одного КПП: один запис за хвилину, тобто 120 960
+вимірів, із сумішшю reported0, missing0 та позитивних legacy-оцінок.
+Порівняння стосується **плану й вартості запиту**, а не тотожності їхніх
+результатів: старий SQL помилково відкидав частину нулів. Запити виконано
+під обмеженою API-роллю. Для нового запиту діяв чинний
+`statement_timeout=5000ms`; старому базису для діагностики дозволено
+30 секунд.
+
+| Запит | Execution Time | Shared Hit Blocks | Shared Read Blocks |
+| --- | ---: | ---: | ---: |
+| До зміни | 41,75 мс | 1007 | 0 |
+| Після зміни | 48,30 мс | 996 | 0 |
+
+Новий запит уклався в 5-секундний ліміт; на цій фікстурі він **не став
+швидшим**. Нуль shared reads означає, що це вимір на прогрітому кеші,
+а не холодне читання з диска. Фікстура не має production-конкуренції,
+38 КПП чи стиснених історичних chunks; тому результат не переносимо на
+робочий сервер. [API run 36762025415](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36762025415):
+66 passed, 2 попередні warnings. Окремий
+[database run 36762025398](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36762025398):
+old/new compressed restore PASS, 99 passed, 1 очікуваний skip цього
+важкого performance-тесту при повторному рекурсивному прогоні, 2 warnings.
+Усі сім workflows на f77d813 успішні. Production SELECT/EXPLAIN не
+виконувався. Незалежний backtest кількісної моделі, Android і rollback
+ще попереду; PR #72 лишається draft.
