@@ -14,7 +14,8 @@
 | --- | --- |
 | Контракт | Upgrade перед 015 та nullable internal status погоджені; nullable DDL і нормалізація helper реалізовані на d204056 без переписування історії |
 | Product-код і міграція | Модель, INSERT/status, кандидат 015, `/workload.wait_estimate`, незалежні raw/hourly history, `forecast.count_points`, ETA alerts і сезонна quality зі спільним правилом; Android DTO ще не готовий. Не готово до merge/deploy |
-| CI реалізації | На f77d813 локально 245 unit passed, Ruff/provenance успішні; API 66 passed, 12-тижневий EXPLAIN нового quality SQL 48,30 мс під timeout 5000 мс, old/new compressed restore PASS і recursive database tree 99 passed/1 очікуваний skip. Усі 7 workflows успішні. Це частина задачі 3; backtest кількісної моделі, Android і rollback старого runtime ще не перевірені. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
+| CI реалізації | На f77d813 локально 245 unit passed, Ruff/provenance успішні; API 66 passed, 12-тижневий EXPLAIN нового quality SQL 48,30 мс під timeout 5000 мс, old/new compressed restore PASS і recursive database tree 99 passed/1 очікуваний skip. Усі 7 workflows того head успішні. Backtest guard ведеться окремим зрізом нижче; Android і rollback старого runtime також не перевірені. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
+| Backtest кількісної моделі | У draft-гілці інструмент має явні межі, відмовляється оцінювати holdout зі старих wait-фільтрованих `points` і пропускає неповні модельні вікна. Чинний публічний API не має `count_hours`, тому незалежна оцінка точності **ще не отримана**. Це не причина передчасного production deployment |
 | Серверне розгортання | Не виконано; потрібен окремий GO |
 | Android-збірка | Не створена |
 | Телефон | Не перевірено |
