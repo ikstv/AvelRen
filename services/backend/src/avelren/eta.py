@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from psycopg import AsyncConnection
 
 from .models import WorkloadItem
+from .wait_estimate import measured_wait
 
 log = logging.getLogger("avelren.eta")
 
@@ -27,19 +28,15 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
     if not items:
         return 0
 
-    # A zero wait is not "entry right now" whenever it means "no estimate".
-    # Two shapes say that, and until #127 only the first was filtered:
-    #   paused with zero wait      — the queue is stopped, there is no forecast;
-    #   zero wait, cars still queued — the source writes a missing estimate as 0
-    #                                  (#111), which forecast.py already discards.
-    # This path feeds notifier.py, so an unfiltered zero becomes a push telling a
-    # driver to register now. Do not wake the user over missing data.
-    eta_by_checkpoint = {
-        i.id: entry_eta(at, i.wait_time)
-        for i in items
-        if i.wait_time is not None
-        and not (i.wait_time == 0 and (i.is_paused or i.vehicles_in_queue > 0))
-    }
+    # Use the same measured-wait semantics as /workload. Missing estimates
+    # never create alerts; an explicitly reported zero is valid unless paused.
+    eta_by_checkpoint = {}
+    for item in items:
+        if item.wait_time is None:
+            continue
+        estimate = measured_wait(at, item.wait_time, item.wait_time_status, item.is_paused)
+        if estimate["entry_eta"] is not None:
+            eta_by_checkpoint[item.id] = (estimate["entry_eta"], estimate["seconds"])
     if not eta_by_checkpoint:
         return 0
 
@@ -56,12 +53,11 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
 
     created = 0
     for target in rows:
-        eta = eta_by_checkpoint[target["checkpoint_id"]]
+        eta, wait = eta_by_checkpoint[target["checkpoint_id"]]
         drift = abs((eta - target["target_at"]).total_seconds())
         if drift > target["tolerance_seconds"]:
             continue
 
-        wait = next(i.wait_time for i in items if i.id == target["checkpoint_id"])
         created += await _fire(conn, target["id"], target["checkpoint_id"], eta, wait)
 
     if created:

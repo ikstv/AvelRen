@@ -35,7 +35,7 @@
       "destination": "services/backend/src/avelren/eta.py",
       "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
       "revision": {
-        "sha256": "40220023e93f62e2c5a5f523d656185fabacc3c411186fc9f93c129cc9766eb5",
+        "sha256": "03fe7fb62e9741bb72d3d24fe2885cc7c3189bd4fc136b2b3523aad1bf822483",
         "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
       }
     },
