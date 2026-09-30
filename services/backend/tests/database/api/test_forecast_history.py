@@ -3,6 +3,52 @@
 from datetime import UTC, datetime, timedelta
 
 
+def test_history_separates_count_and_wait_samples(api_client, checkpoint, conn):
+    """A missing estimate cannot erase a valid vehicle-count sample."""
+    hour = (datetime.now(UTC) - timedelta(hours=1)).replace(minute=10, second=0, microsecond=0)
+    samples = (
+        (0, 10, 0, "reported"),
+        (1, 20, 0, "missing"),
+        (2, 30, 0, None),
+        (3, 40, 3600, None),
+    )
+    for minute, vehicles, seconds, status in samples:
+        conn.execute(
+            "INSERT INTO observations "
+            "(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused,wait_time_status) "
+            "VALUES (%s,%s,%s,%s,false,%s)",
+            (hour + timedelta(minutes=minute), checkpoint, seconds, vehicles, status),
+        )
+
+    raw_response = api_client.get(f"/history/{checkpoint}?hours=24")
+    assert raw_response.status_code == 200
+    raw = raw_response.json()
+    assert raw["resolution"] == "raw"
+    assert [(p["vehicles_in_queue"], p["wait_time_status"], p["wait_estimate_seconds"])
+            for p in raw["points"]] == [
+        (10, "reported", 0),
+        (20, "missing", None),
+        (30, "legacy_unknown", None),
+        (40, "legacy_unknown", 3600),
+    ]
+    assert [p["wait_time_seconds"] for p in raw["points"]] == [0, 0, 0, 3600]
+
+    hourly_response = api_client.get(f"/history/{checkpoint}?hours=72")
+    assert hourly_response.status_code == 200
+    hourly = hourly_response.json()
+    assert hourly["resolution"] == "hourly"
+    assert len(hourly["count_hours"]) == len(hourly["wait_hours"]) == 1
+    assert hourly["count_hours"][0]["samples"] == 4
+    assert hourly["count_hours"][0]["avg_vehicles"] == 25
+    assert hourly["wait_hours"][0]["samples"] == 2
+    assert hourly["wait_hours"][0]["avg_wait_seconds"] == 1800
+    assert hourly["wait_hours"][0]["max_wait_seconds"] == 3600
+    assert len(hourly["points"]) == 1
+    assert hourly["points"][0]["samples"] == 1
+    assert hourly["points"][0]["avg_wait_seconds"] == 3600
+    assert isinstance(hourly["points"][0]["avg_vehicles"], int)
+
+
 def test_stale_forecast_and_independent_quality(api_client, checkpoint, conn, monkeypatch):
     from avelren import forecast
 
