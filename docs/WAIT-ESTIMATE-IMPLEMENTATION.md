@@ -302,3 +302,24 @@ runtime. Якщо це рішення приховає регресію стар
 `count_points`, ETA alerts, seasonal evaluation/MAE, Android DTO та
 rollback gate ще не реалізовані або не перевірені. PR #72 лишається draft;
 production, APK, телефон і Play не змінювалися.
+
+### Задача 3 — другий малий зріз: незалежна історія
+
+На e751360 сирий `/history` додає канонічний `wait_time_status` і nullable
+`wait_estimate_seconds`, залишаючи старе числове `wait_time_seconds`.
+Погодинна відповідь додає `count_hours` з усіх вимірів кількості авто й
+`wait_hours` лише з придатних оцінок (reported, включно з 0, або
+позитивний legacy_unknown). Старий масив `points` зберігає свою чинну
+проєкцію й типи; нові масиви не видаються за його заміну.
+
+RED: [API run 36749608290](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36749608290)
+на 3976d32: 1 failed/61 passed; тест відтворив відсутність статусу у
+сирому history. GREEN: [API run 36750228655](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36750228655)
+на e751360: 62 passed, 2 попередні warnings. Синтетичний слот із чотирма
+записами дає count samples=4, wait samples=2 та avg_wait_seconds=1800;
+усі чотири сирі записи лишаються видимими. Provenance перевірено локально.
+[Database run 36750229200](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/36750229200)
+на e751360: 25 database passed, old/new compressed backup/restore PASS,
+фінальний рекурсивний набір 96 passed, 2 попередні warnings. Усі сім
+workflows на кодовому head успішні. Performance EXPLAIN для 12-тижневої
+історії та решта задачі 3 ще попереду.
