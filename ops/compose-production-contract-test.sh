@@ -194,5 +194,32 @@ for setting_name, (expected_owners, sentinel) in functional_setting_owners.items
     if seen_owners != expected_owners:
         fail(f"functional setting {setting_name} has forbidden ownership")
 
+
+def test_collector_spool_volume_is_private_and_persistent() -> None:
+    volume_name = "collector_spool"
+    target = "/var/lib/avelren/collector-spool"
+    if volume_name not in config.get("volumes", {}):
+        fail("collector spool named volume missing")
+    for service_name, service in services.items():
+        mounts = service.get("volumes", [])
+        owned = [
+            mount for mount in mounts
+            if isinstance(mount, dict) and mount.get("target") == target
+        ]
+        if service_name == "collector":
+            if len(owned) != 1 or owned[0].get("source") != volume_name:
+                fail("collector spool must be one dedicated named volume")
+            if owned[0].get("type") != "volume" or owned[0].get("read_only"):
+                fail("collector spool must be a writable persistent volume")
+        elif owned:
+            fail(f"{service_name} can access collector spool")
+        if service_name == "collector" and any(
+            str(entry).split(":", 1)[0] == target for entry in service.get("tmpfs", [])
+        ):
+            fail("collector spool must not be tmpfs")
+
+
+test_collector_spool_volume_is_private_and_persistent()
+
 print("compose security contract ok")
 PY

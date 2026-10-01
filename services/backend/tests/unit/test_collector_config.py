@@ -96,7 +96,8 @@ def test_invalid_startup_stops_before_signal_database_or_http(
     def unexpected_side_effect(*_args: object, **_kwargs: object) -> None:
         pytest.fail("collector startup reached a database or HTTP side effect")
 
-    monkeypatch.setattr(collector, "get_pool", unexpected_side_effect)
+    monkeypatch.setattr(collector, "SpoolStore", unexpected_side_effect)
+    monkeypatch.setattr(collector, "_new_writer_pool", unexpected_side_effect)
     monkeypatch.setattr(collector.httpx, "AsyncClient", unexpected_side_effect)
     monkeypatch.setattr(collector.asyncio, "get_running_loop", unexpected_side_effect)
 

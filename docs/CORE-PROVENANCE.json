@@ -12,7 +12,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/collector.py",
       "destination": "services/backend/src/avelren/collector.py",
-      "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661"
+      "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
+      "revision": {
+        "sha256": "11a70733d93238c69cf23179be85b970be11e1ecf5da53b67a24357627ee107f",
+        "notes": "ops/COLLECTOR-SPOOL.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -128,7 +132,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/tests/test_collector_config.py",
       "destination": "services/backend/tests/unit/test_collector_config.py",
-      "sha256": "f695279f0009387e448c32486faef2c7892e32d223c57dc8edd982babd9411a7"
+      "sha256": "f695279f0009387e448c32486faef2c7892e32d223c57dc8edd982babd9411a7",
+      "revision": {
+        "sha256": "670a68ebd430153bcd4fbaaef7647d3765d45a1fa6199c7b3b5ea1dd467c9c72",
+        "notes": "ops/COLLECTOR-SPOOL.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

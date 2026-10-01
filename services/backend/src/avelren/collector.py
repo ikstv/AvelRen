@@ -1,25 +1,25 @@
+"""One source poll every 60 seconds, independently of PostgreSQL replay."""
+
 import asyncio
 import logging
 import signal
+from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
-from . import alerts, eta
+from .collector_replay import ReplayConflict, replay_loop
+from .collector_spool import SpoolStore
 from .config import settings, validate_collector_settings
-from .db import (
-    get_pool,
-    insert_observations,
-    record_derived,
-    record_run,
-    upsert_checkpoints,
-    upsert_countries,
-)
 from .echerha import describe_exception, fetch_workload
 from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.collector")
-
+SPOOL_PATH = Path("/var/lib/avelren/collector-spool/cycles.sqlite3")
 _stop = asyncio.Event()
 
 
@@ -28,66 +28,118 @@ def _request_stop(*_: object) -> None:
     _stop.set()
 
 
-async def run_cycle(client: httpx.AsyncClient) -> None:
+async def run_cycle(client: httpx.AsyncClient, store: SpoolStore) -> None:
+    """Capture before any DB activity; never fetch twice after a write failure."""
     at = datetime.now(UTC).replace(microsecond=0)
+    seq = store.begin(at)
     result = await fetch_workload(client)
+    store.finish(seq, result, settings.echerha_vehicle_type)
+    log.info("cycle %s captured in spool as %s", at.isoformat(), seq)
 
-    rows = 0
-    error = result.error
 
-    # The scope for now is trucks only; the source may mix in other types.
-    items = (
-        [i for i in result.response.data if i.for_vehicle_type == settings.echerha_vehicle_type]
-        if result.response is not None
-        else []
+async def poll_loop(
+    client: httpx.AsyncClient,
+    store: SpoolStore,
+    stop: asyncio.Event,
+    clock: Callable[[], float] | None = None,
+) -> None:
+    """Measure 60 seconds between starts, with no catch-up source requests."""
+    loop = asyncio.get_running_loop()
+    clock = clock or loop.time
+    next_start = clock()
+    while not stop.is_set():
+        await run_cycle(client, store)
+        next_start += settings.poll_interval_seconds
+        delay = next_start - clock()
+        if delay < 0:
+            log.warning("cycle exceeded the interval by %.1f s", -delay)
+            next_start = clock() + settings.poll_interval_seconds
+            delay = settings.poll_interval_seconds
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=delay)
+        except TimeoutError:
+            pass
+
+
+def _new_writer_pool() -> AsyncConnectionPool:
+    return AsyncConnectionPool(
+        settings.database_dsn, min_size=1, max_size=1, timeout=5,
+        open=False, kwargs={"row_factory": dict_row},
     )
 
-    countries = result.response.filters.countries if result.response is not None else []
 
-    # The primary write (observations + journal) is committed SEPARATELY from
-    # the alert logic. Otherwise a failure of the secondary — say, an error in
-    # eta.evaluate — would roll back the most valuable thing: the per-minute
-    # observation, which the source will not give a second time (audit R-06).
-    try:
-        async with get_pool().connection() as conn:
-            if items:
-                await upsert_countries(conn, countries)
-                await upsert_checkpoints(conn, items, countries)
-                rows = await insert_observations(conn, at, items)
-            await record_run(
-                conn, at, result.http_status, result.duration_ms, result.body_sha256, rows, error
-            )
-        if rows:
-            log.info("cycle ok: %s queues written", rows)
-    except Exception as exc:  # DB is down — not a reason to kill the collector
-        # There is nowhere to record the reason, so the log is this cycle's only trace.
-        log.error("cycle %s lost, DB unavailable: %s", at.isoformat(), exc)
-        return
+async def stop_writer(pool: AsyncConnectionPool, task: asyncio.Task, store: SpoolStore) -> None:
+    """Acknowledge capture-only only after the DB task and pool are closed."""
+    task.cancel()
+    with suppress(asyncio.CancelledError, Exception):
+        await task
+    await pool.close()
+    store.set_mode_ack(True)
 
-    # Alerts are a separate transaction: their failure costs at most a delayed
-    # notification, which the next cycle makes up for. The observation is already
-    # in the DB (we do not roll back the R-06 split). But now the result of this
-    # phase is durable: previously a failure went only to the log, and the
-    # watchdog did not see it — the secondary pipeline could quietly die while
-    # observations stayed fresh (audit OBS-1).
+
+async def _wait_for_change(stop: asyncio.Event, seconds: float) -> None:
     try:
-        async with get_pool().connection() as conn:
-            if items:
-                await alerts.evaluate(conn, items)
-                await alerts.expire_stale(conn)
-                await eta.evaluate(conn, at, items)
-                await eta.expire_passed(conn)
-            # An empty cycle is also successfully processed: there was no work.
-            await record_derived(conn, at, error=None)
-    except Exception as exc:
-        log.error("alerts for cycle %s skipped: %s", at.isoformat(), exc)
-        # Separate transaction: the previous one rolled back, we write the status
-        # on a clean connection so the watchdog sees exactly the derived error.
-        try:
-            async with get_pool().connection() as conn:
-                await record_derived(conn, at, error=describe_exception(exc)[:500])
-        except Exception as exc2:
-            log.error("failed to record derived error for cycle %s: %s", at.isoformat(), exc2)
+        await asyncio.wait_for(stop.wait(), timeout=seconds)
+    except TimeoutError:
+        pass
+
+
+async def writer_supervisor(store: SpoolStore, stop: asyncio.Event) -> None:
+    """Database failures pause only replay; producer remains scheduled."""
+    pool: AsyncConnectionPool | None = None
+    writer: asyncio.Task | None = None
+    conflict_blocked = False
+    try:
+        while not stop.is_set():
+            if store.capture_only():
+                conflict_blocked = False
+                if pool is not None and writer is not None:
+                    await stop_writer(pool, writer, store)
+                    pool = writer = None
+                elif store.status().mode_ack is not True:
+                    store.set_mode_ack(True)
+            else:
+                if writer is not None and writer.done():
+                    error = writer.exception()
+                    if error:
+                        store.record_replay_error(describe_exception(error))
+                        log.critical("DB writer stopped: %s", error)
+                        if isinstance(error, ReplayConflict):
+                            conflict_blocked = True
+                    await pool.close()
+                    pool = writer = None
+                if conflict_blocked:
+                    await _wait_for_change(stop, 1)
+                    continue
+                if pool is None:
+                    candidate = None
+                    try:
+                        candidate = _new_writer_pool()
+                        await candidate.open(wait=True, timeout=5)
+                        await assert_schema_at_least(candidate)
+                    except Exception as exc:
+                        log.error("DB writer unavailable; capture continues: %s", exc)
+                        store.record_replay_error(describe_exception(exc))
+                        if candidate is not None:
+                            await candidate.close()
+                        await _wait_for_change(stop, 5)
+                        continue
+                    pool = candidate
+                    writer = asyncio.create_task(replay_loop(store, pool, stop))
+                if store.status().mode_ack is not False:
+                    store.set_mode_ack(False)
+            await _wait_for_change(stop, 0.25)
+    finally:
+        if writer is not None:
+            if not writer.done():
+                writer.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await writer
+            else:
+                with suppress(asyncio.CancelledError, Exception):
+                    writer.result()
+        if pool is not None:
+            await pool.close()
 
 
 async def main() -> None:
@@ -96,44 +148,30 @@ async def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     validate_collector_settings(settings)
+    store = SpoolStore(SPOOL_PATH)
+    store.recover_started()
+    store.prune_acked(datetime.now(UTC))
+    _stop.clear()
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _request_stop)
-
-    pool = get_pool()
-    await pool.open(wait=True, timeout=30)
-    # Fail-closed schema check (issue #88): the service does not start if the
-    # recorded schema version is LOWER than the code's requirement. Placed right
-    # after the pool opens — before the first useful work.
-    await assert_schema_at_least(pool)
     log.info(
         "collector started: %s, interval %s s",
-        settings.workload_url,
-        settings.poll_interval_seconds,
+        settings.workload_url, settings.poll_interval_seconds,
     )
 
-    interval = settings.poll_interval_seconds
-    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
-        # Count from cycle starts, not after the work — otherwise the interval drifts.
-        next_start = loop.time()
-        while not _stop.is_set():
-            await run_cycle(client)
-
-            next_start += interval
-            delay = next_start - loop.time()
-            if delay < 0:
-                # The cycle did not fit the interval: we do not catch up, we realign.
-                log.warning("cycle exceeded the interval by %.1f s", -delay)
-                next_start = loop.time() + interval
-                delay = interval
-            try:
-                await asyncio.wait_for(_stop.wait(), timeout=delay)
-            except TimeoutError:
-                pass
-
-    await pool.close()
-    log.info("collector stopped")
+    supervisor = asyncio.create_task(writer_supervisor(store, _stop))
+    try:
+        async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
+            await poll_loop(client, store, _stop)
+    finally:
+        _stop.set()
+        supervisor.cancel()
+        with suppress(asyncio.CancelledError):
+            await supervisor
+        store.close()
+        log.info("collector stopped")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,8 @@ ARG SOURCE_COMMIT=""
 ENV AVELREN_GIT_SHA=${SOURCE_COMMIT}
 
 # We do not run as root in the container.
-RUN useradd --create-home --uid 10001 avelren
+RUN useradd --create-home --uid 10001 avelren \
+    && install -d -o avelren -g avelren -m 0700 /var/lib/avelren/collector-spool
 USER avelren
 
 CMD ["python", "-m", "avelren.collector"]
