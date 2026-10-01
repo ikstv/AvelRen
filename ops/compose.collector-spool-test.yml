@@ -1,0 +1,19 @@
+services:
+  collector-test:
+    build:
+      context: ../services/backend
+      dockerfile: Dockerfile
+    command: ["sleep", "infinity"]
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - collector_spool_test:/var/lib/avelren/collector-spool
+    networks: [isolated]
+
+volumes:
+  collector_spool_test:
+
+networks:
+  isolated:
+    internal: true

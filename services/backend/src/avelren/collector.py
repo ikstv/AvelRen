@@ -12,7 +12,7 @@ import httpx
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from .collector_replay import replay_loop
+from .collector_replay import ReplayConflict, replay_loop
 from .collector_spool import SpoolStore
 from .config import settings, validate_collector_settings
 from .echerha import fetch_workload
@@ -71,7 +71,7 @@ def _new_writer_pool() -> AsyncConnectionPool:
 async def stop_writer(pool: AsyncConnectionPool, task: asyncio.Task, store: SpoolStore) -> None:
     """Acknowledge capture-only only after the DB task and pool are closed."""
     task.cancel()
-    with suppress(asyncio.CancelledError):
+    with suppress(asyncio.CancelledError, Exception):
         await task
     await pool.close()
     store.set_mode_ack(True)
@@ -88,9 +88,11 @@ async def writer_supervisor(store: SpoolStore, stop: asyncio.Event) -> None:
     """Database failures pause only replay; producer remains scheduled."""
     pool: AsyncConnectionPool | None = None
     writer: asyncio.Task | None = None
+    conflict_blocked = False
     try:
         while not stop.is_set():
             if store.capture_only():
+                conflict_blocked = False
                 if pool is not None and writer is not None:
                     await stop_writer(pool, writer, store)
                     pool = writer = None
@@ -102,8 +104,13 @@ async def writer_supervisor(store: SpoolStore, stop: asyncio.Event) -> None:
                     if error:
                         store.record_replay_error(str(error))
                         log.critical("DB writer stopped: %s", error)
+                        if isinstance(error, ReplayConflict):
+                            conflict_blocked = True
                     await pool.close()
                     pool = writer = None
+                if conflict_blocked:
+                    await _wait_for_change(stop, 1)
+                    continue
                 if pool is None:
                     candidate = None
                     try:
@@ -124,9 +131,13 @@ async def writer_supervisor(store: SpoolStore, stop: asyncio.Event) -> None:
             await _wait_for_change(stop, 0.25)
     finally:
         if writer is not None:
-            writer.cancel()
-            with suppress(asyncio.CancelledError):
-                await writer
+            if not writer.done():
+                writer.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await writer
+            else:
+                with suppress(asyncio.CancelledError, Exception):
+                    writer.result()
         if pool is not None:
             await pool.close()
 

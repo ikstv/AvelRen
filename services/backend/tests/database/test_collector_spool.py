@@ -1,6 +1,8 @@
 """Replay against disposable TimescaleDB under the collector role."""
 
 import asyncio
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 
 import psycopg
@@ -87,3 +89,47 @@ def test_time_collision_retains_pending(database, tmp_path):
     with pytest.raises(ReplayConflict):
         _run(database("collector"), store, AT + timedelta(minutes=3))
     assert store.next_pending().seq == seq
+
+
+def test_spool_outage_restart_and_replay(database, tmp_path):
+    path = tmp_path / "cycles.sqlite3"
+    # A separate process captures five synthetic cycles without opening PostgreSQL.
+    subprocess.run(
+        [sys.executable, "-c", """
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+import sys
+from avelren.collector_spool import SpoolStore
+from avelren.echerha import FetchResult
+from avelren.models import WorkloadResponse
+store = SpoolStore(Path(sys.argv[1]))
+for minute in range(5):
+    at = datetime(2026, 10, 1, 12, 0, tzinfo=UTC) + timedelta(minutes=minute)
+    response = WorkloadResponse.model_validate({
+        'filters': {'countries': [{'id': 1, 'name': 'Poland'}]},
+        'data': [{'id': 7, 'title': 'Truck', 'country_id': 1,
+                  'for_vehicle_type': 1, 'wait_time': minute * 60,
+                  'vehicle_in_active_queues_counts': minute}],
+    })
+    seq = store.begin(at)
+    store.finish(seq, FetchResult(response, 200, 9, 'a' * 64, None), 1)
+store.close()
+""", str(path)],
+        check=True,
+    )
+    store = SpoolStore(path)
+    assert store.status().pending_count == 5
+    for _ in range(5):
+        assert _run(database("collector"), store, AT + timedelta(minutes=10))
+    with psycopg.connect(database("collector")) as conn:
+        rows = conn.execute(
+            "SELECT time,wait_time_seconds,vehicles_in_queue FROM observations ORDER BY time"
+        ).fetchall()
+        derived = conn.execute(
+            "SELECT derived_error FROM collector_runs ORDER BY time"
+        ).fetchall()
+    assert rows == [
+        (AT + timedelta(minutes=minute), minute * 60, minute) for minute in range(5)
+    ]
+    assert all("delayed_replay" in row[0] for row in derived)
+    assert store.status().pending_count == 0

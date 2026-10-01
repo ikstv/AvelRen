@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from avelren import collector
+from avelren.collector_replay import ReplayConflict
 from avelren.collector_spool import SpoolStore
 from avelren.echerha import FetchResult
 
@@ -122,3 +123,33 @@ def test_run_cycle_records_utc_start_before_fetch(tmp_path, monkeypatch):
     assert len(started) == 1
     assert started[0].tzinfo == UTC
     assert isinstance(started[0], datetime)
+
+
+def test_replay_conflict_blocks_writer_restarts(tmp_path, monkeypatch):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    opened = []
+
+    class Pool:
+        async def open(self, **kwargs):
+            opened.append(1)
+
+        async def close(self):
+            pass
+
+    async def conflict(*args):
+        raise ReplayConflict("different cycle")
+
+    monkeypatch.setattr(collector, "_new_writer_pool", Pool)
+    monkeypatch.setattr(collector, "assert_schema_at_least", AsyncMock())
+    monkeypatch.setattr(collector, "replay_loop", conflict)
+
+    async def scenario():
+        stop = asyncio.Event()
+        supervisor = asyncio.create_task(collector.writer_supervisor(store, stop))
+        await asyncio.sleep(0.8)
+        stop.set()
+        await supervisor
+
+    asyncio.run(scenario())
+    assert len(opened) == 1
+    assert "different cycle" in store.status().last_error

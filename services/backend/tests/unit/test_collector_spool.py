@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import shutil
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -139,3 +140,39 @@ def test_spool_permissions_and_no_secrets(tmp_path: Path):
     assert b"X-Device-Id" not in raw
     assert b"DATABASE_URL" not in raw
     assert hashlib.sha256(raw).digest()  # The file has actual durable content.
+
+
+def test_corrupt_or_full_spool_blocks_maintenance(tmp_path: Path):
+    path = tmp_path / "cycles.sqlite3"
+    store = SpoolStore(path)
+    seq = store.begin(AT)
+    store.finish(seq, _success(), 1)
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE cycles SET payload_sha256=? WHERE seq=?", ("0" * 64, seq))
+    with pytest.raises(SpoolUnavailable, match="checksum"):
+        store.maintenance_preflight(60)
+    store.close()
+    full = SpoolStore(tmp_path / "full.sqlite3", max_bytes=1)
+    with pytest.raises(SpoolUnavailable, match="quota"):
+        full.maintenance_preflight(60)
+
+
+def test_online_backup_keeps_pending_wal_rows(tmp_path: Path):
+    path = tmp_path / "cycles.sqlite3"
+    store = SpoolStore(path)
+    seq = store.begin(AT)
+    store.finish(seq, _success(), 1)
+    backup_path = tmp_path / "online-backup.sqlite3"
+    store.backup_to(backup_path)
+    backup = SpoolStore(backup_path)
+    assert backup.next_pending().seq == seq
+    assert backup.next_pending().body_sha256 == "a" * 64
+    backup.close()
+    # A bare main-file copy is not the supported recovery method while WAL is live.
+    bare_path = tmp_path / "bare-copy.sqlite3"
+    shutil.copyfile(path, bare_path)
+    try:
+        bare = SpoolStore(bare_path)
+    except SpoolUnavailable:
+        return
+    assert bare.status().pending_count != store.status().pending_count

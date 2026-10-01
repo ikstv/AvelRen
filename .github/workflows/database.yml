@@ -38,7 +38,7 @@ permissions:
 jobs:
   database:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -87,6 +87,10 @@ jobs:
         run: |
           python3 ops/compose-profile-regression-test.py
           bash ops/compose-production-contract-test.sh
+      - name: Черга collector у тимчасовому Docker volume
+        run: |
+          bash -n ops/collector-spool-integration-test.sh
+          bash ops/collector-spool-integration-test.sh
       - name: Маршрутизація Caddy в ізольованій мережі
         run: |
           bash -n ops/caddy-integration-test.sh

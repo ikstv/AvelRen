@@ -283,6 +283,13 @@ class SpoolStore:
             raise ValueError("maintenance window must be positive")
         if self.conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise SpoolUnavailable("spool integrity check failed")
+        for seq, version, payload, digest in self.conn.execute(
+            "SELECT seq,payload_version,payload,payload_sha256 FROM cycles WHERE state='pending'"
+        ):
+            if version != SCHEMA_VERSION or not isinstance(payload, bytes):
+                raise SpoolUnavailable(f"unknown or incomplete payload for cycle {seq}")
+            if hashlib.sha256(payload).hexdigest() != digest:
+                raise SpoolUnavailable(f"payload checksum mismatch for cycle {seq}")
         status = self.status()
         if shutil.disk_usage(self.path.parent).free < MIN_MAINTENANCE_FREE_BYTES:
             raise SpoolUnavailable("insufficient free disk space for maintenance")

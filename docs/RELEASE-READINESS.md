@@ -1,5 +1,17 @@
 # Що має дійти до телефона
 
+## Черга collector під час недоступності БД (01.10.2026)
+
+Source-кандидат у `codex/collector-durable-spool`: локальний SQLite WAL,
+FIFO replay з read-back, режим `capture-only`, окремий постійний том і
+[recovery-процедура](../ops/COLLECTOR-SPOOL.md). Стани приймання окремі:
+код — PR ще не злитий; CI — перевірити на точному head; серверне
+розгортання — не виконано; ізольована репетиція на сервері — не виконана;
+Android/телефон — не змінювалися. Зелений unit-тест не доводить готовності
+production. Перед використанням під час переходу прав БД потрібні окремий
+GO, перевірений backup SQLite, `pending=0` після replay і доказ 60-секундного
+ритму на реальному сервері.
+
 ## Supply-chain SBOM candidate (28.09.2026)
 
 Source SBOM у main містить перевірку повного Python lock і Android Maven
