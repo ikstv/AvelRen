@@ -150,6 +150,7 @@ async def main() -> None:
     validate_collector_settings(settings)
     store = SpoolStore(SPOOL_PATH)
     store.recover_started()
+    store.prune_acked(datetime.now(UTC))
     _stop.clear()
 
     loop = asyncio.get_running_loop()

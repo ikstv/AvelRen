@@ -10,6 +10,7 @@ import pytest
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
+from avelren import collector
 from avelren.collector_replay import ReplayConflict, replay_once
 from avelren.collector_spool import SpoolStore
 from avelren.echerha import FetchResult
@@ -91,6 +92,25 @@ def test_time_collision_retains_pending(database, tmp_path):
     assert store.next_pending().seq == seq
 
 
+def test_time_collision_does_not_mutate_observations(database, tmp_path):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    seq = store.begin(AT)
+    store.finish(seq, _result(), 1)
+    dsn = database("collector")
+    with psycopg.connect(dsn) as conn:
+        conn.execute(
+            "INSERT INTO collector_runs(time,http_status,duration_ms,rows_written,error) "
+            "VALUES (%s,429,4,0,'HTTP 429')", (AT,)
+        )
+    with pytest.raises(ReplayConflict):
+        _run(dsn, store, AT + timedelta(minutes=3))
+    with psycopg.connect(dsn) as conn:
+        assert conn.execute("SELECT count(*) FROM observations").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM checkpoints").fetchone()[0] == 0
+        assert conn.execute("SELECT http_status FROM collector_runs").fetchone()[0] == 429
+    assert store.next_pending().seq == seq
+
+
 def test_spool_outage_restart_and_replay(database, tmp_path):
     path = tmp_path / "cycles.sqlite3"
     # A separate process captures five synthetic cycles without opening PostgreSQL.
@@ -133,3 +153,53 @@ store.close()
     ]
     assert all("delayed_replay" in row[0] for row in derived)
     assert store.status().pending_count == 0
+
+
+def test_producer_continues_while_writer_database_unavailable(database, tmp_path, monkeypatch):
+    """One fake upstream request per explicit cycle while writer fails independently."""
+    from unittest.mock import AsyncMock
+
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    fetch = AsyncMock(return_value=_result())
+    monkeypatch.setattr(collector, "fetch_workload", fetch)
+
+    class Clock:
+        at = datetime.now(UTC) - timedelta(minutes=10)
+
+        @classmethod
+        def now(cls, tz):
+            value = cls.at
+            cls.at += timedelta(minutes=1)
+            return value
+
+    monkeypatch.setattr(collector, "datetime", Clock)
+
+    class UnavailablePool:
+        async def open(self, **kwargs):
+            raise RuntimeError("DB unavailable")
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(collector, "_new_writer_pool", UnavailablePool)
+
+    async def capture():
+        stop = asyncio.Event()
+        writer = asyncio.create_task(collector.writer_supervisor(store, stop))
+        await asyncio.sleep(0)
+        for _ in range(5):
+            await collector.run_cycle(object(), store)
+        stop.set()
+        await writer
+
+    asyncio.run(capture())
+    assert fetch.await_count == 5
+    assert store.status().pending_count == 5
+    store.close()
+    restored = SpoolStore(tmp_path / "cycles.sqlite3")
+    for _ in range(5):
+        assert _run(database("collector"), restored, datetime.now(UTC) + timedelta(minutes=3))
+    with psycopg.connect(database("collector")) as conn:
+        assert conn.execute("SELECT count(*) FROM collector_runs").fetchone()[0] == 5
+        assert conn.execute("SELECT count(*) FROM observations").fetchone()[0] == 5
+    assert restored.status().pending_count == 0

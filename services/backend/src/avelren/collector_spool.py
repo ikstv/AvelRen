@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -69,6 +70,7 @@ class SpoolStore:
             self.conn = sqlite3.connect(self.path, timeout=10, isolation_level=None)
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=FULL")
+            self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             self.conn.execute("PRAGMA busy_timeout=10000")
             self.conn.execute("PRAGMA foreign_keys=ON")
             self.conn.execute("""
@@ -88,11 +90,14 @@ class SpoolStore:
                     value TEXT NOT NULL
                 )
             """)
-            self.conn.execute(
-                "INSERT OR IGNORE INTO meta(key,value) VALUES ('schema_version',?)",
-                (str(SCHEMA_VERSION),),
-            )
-            self.conn.execute("INSERT OR IGNORE INTO meta(key,value) VALUES ('capture_only','0')")
+            with self._transaction():
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO meta(key,value) VALUES ('schema_version',?)",
+                    (str(SCHEMA_VERSION),),
+                )
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO meta(key,value) VALUES ('capture_only','0')"
+                )
             if self._meta("schema_version") != str(SCHEMA_VERSION):
                 raise SpoolUnavailable("unknown spool schema version")
             if self.conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
@@ -107,6 +112,21 @@ class SpoolStore:
 
     def close(self) -> None:
         self.conn.close()
+
+    @contextmanager
+    def _transaction(self):
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+            except BaseException:
+                self.conn.rollback()
+                raise
+            else:
+                self.conn.commit()
+        except sqlite3.Error as exc:
+            self.conn.rollback()
+            raise SpoolUnavailable(f"spool transaction failed: {exc}") from exc
 
     def _meta(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
@@ -126,7 +146,7 @@ class SpoolStore:
     def begin(self, at: datetime) -> int:
         self._check_quota()
         try:
-            with self.conn:
+            with self._transaction():
                 cursor = self.conn.execute(
                     "INSERT INTO cycles(at,state) VALUES (?, 'started')", (_utc(at).isoformat(),)
                 )
@@ -152,7 +172,7 @@ class SpoolStore:
         digest = hashlib.sha256(payload).hexdigest()
         self._check_quota(len(payload))
         try:
-            with self.conn:
+            with self._transaction():
                 cursor = self.conn.execute(
                     """UPDATE cycles SET state='pending', payload_version=?, payload=?,
                        payload_sha256=? WHERE seq=? AND state='started'""",
@@ -175,7 +195,7 @@ class SpoolStore:
             "error": "interrupted_before_durable_result", "countries": [], "items": [],
         })
         try:
-            with self.conn:
+            with self._transaction():
                 self.conn.execute(
                     """UPDATE cycles SET state='pending', payload_version=?, payload=?,
                        payload_sha256=? WHERE state='started'""",
@@ -213,7 +233,7 @@ class SpoolStore:
 
     def ack(self, seq: int) -> None:
         try:
-            with self.conn:
+            with self._transaction():
                 cursor = self.conn.execute(
                     "UPDATE cycles SET state='acked',acked_at=? WHERE seq=? AND state='pending'",
                     (datetime.now(UTC).isoformat(), seq),
@@ -225,16 +245,19 @@ class SpoolStore:
 
     def prune_acked(self, now: datetime) -> None:
         try:
-            with self.conn:
-                self.conn.execute(
+            with self._transaction():
+                deleted = self.conn.execute(
                     "DELETE FROM cycles WHERE state='acked' AND acked_at < ?",
                     ((_utc(now) - timedelta(hours=24)).isoformat(),),
-                )
+                ).rowcount
+            if deleted:
+                self.conn.execute("PRAGMA incremental_vacuum")
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except sqlite3.Error as exc:
             raise SpoolUnavailable(f"cannot prune cycles: {exc}") from exc
 
     def set_capture_only(self, enabled: bool) -> None:
-        with self.conn:
+        with self._transaction():
             self.conn.execute(
                 "INSERT OR REPLACE INTO meta(key,value) VALUES ('capture_only',?)",
                 ("1" if enabled else "0",),
@@ -245,14 +268,15 @@ class SpoolStore:
         return self._meta("capture_only") == "1"
 
     def set_mode_ack(self, enabled: bool) -> None:
-        with self.conn:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO meta(key,value) VALUES ('mode_ack',?)",
-                ("1" if enabled else "0",),
-            )
+        with self._transaction():
+            if self.capture_only() == enabled:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO meta(key,value) VALUES ('mode_ack',?)",
+                    ("1" if enabled else "0",),
+                )
 
     def record_replay_error(self, message: str | None) -> None:
-        with self.conn:
+        with self._transaction():
             if message is None:
                 self.conn.execute("DELETE FROM meta WHERE key='last_error'")
             else:
@@ -291,6 +315,8 @@ class SpoolStore:
             if hashlib.sha256(payload).hexdigest() != digest:
                 raise SpoolUnavailable(f"payload checksum mismatch for cycle {seq}")
         status = self.status()
+        if status.max_cycle_bytes == 0:
+            raise SpoolUnavailable("no measured collector cycle for maintenance capacity")
         if shutil.disk_usage(self.path.parent).free < MIN_MAINTENANCE_FREE_BYTES:
             raise SpoolUnavailable("insufficient free disk space for maintenance")
         if status.spool_bytes + 2 * status.max_cycle_bytes * window_minutes >= self.max_bytes:

@@ -7,6 +7,7 @@ that a retry wrote the same observation.
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 
 from psycopg import AsyncConnection
@@ -29,6 +30,13 @@ DELAYED_REPLAY_ERROR = "delayed_replay_over_120s: derived alerts skipped"
 
 class ReplayConflict(RuntimeError):
     """PostgreSQL has different data for a cycle's original timestamp."""
+
+
+async def _cycle_exists(conn: AsyncConnection, at: datetime) -> bool:
+    row = await (
+        await conn.execute("SELECT time FROM collector_runs WHERE time=%s FOR UPDATE", (at,))
+    ).fetchone()
+    return row is not None
 
 
 async def verify_committed_cycle(conn: AsyncConnection, cycle: CapturedCycle) -> None:
@@ -75,6 +83,7 @@ async def _derived_processed(conn: AsyncConnection, at: datetime) -> bool:
 
 async def replay_once(store: SpoolStore, pool: AsyncConnectionPool, now: datetime) -> bool:
     """Replay the oldest cycle, returning False only if paused or empty."""
+    replay_started = time.monotonic()
     if store.capture_only():
         return False
     cycle = store.next_pending()
@@ -83,20 +92,24 @@ async def replay_once(store: SpoolStore, pool: AsyncConnectionPool, now: datetim
 
     # Primary rows must commit together, then be read back in a new transaction.
     async with pool.connection() as conn:
-        if cycle.items:
-            await upsert_countries(conn, list(cycle.countries))
-            await upsert_checkpoints(conn, list(cycle.items), list(cycle.countries))
-            await insert_observations(conn, cycle.at, list(cycle.items))
-        await record_run(
-            conn, cycle.at, cycle.http_status, cycle.duration_ms, cycle.body_sha256,
-            len(cycle.items), cycle.error,
-        )
+        if await _cycle_exists(conn, cycle.at):
+            # Crash after commit-before-ack: verify before any new mutation.
+            await verify_committed_cycle(conn, cycle)
+        else:
+            if cycle.items:
+                await upsert_countries(conn, list(cycle.countries))
+                await upsert_checkpoints(conn, list(cycle.items), list(cycle.countries))
+                await insert_observations(conn, cycle.at, list(cycle.items))
+            await record_run(
+                conn, cycle.at, cycle.http_status, cycle.duration_ms, cycle.body_sha256,
+                len(cycle.items), cycle.error,
+            )
     async with pool.connection() as conn:
         await verify_committed_cycle(conn, cycle)
         processed = await _derived_processed(conn, cycle.at)
 
     if not processed:
-        age_seconds = (now - cycle.at).total_seconds()
+        age_seconds = (now - cycle.at).total_seconds() + (time.monotonic() - replay_started)
         if age_seconds > 120:
             async with pool.connection() as conn:
                 await record_derived(conn, cycle.at, error=DELAYED_REPLAY_ERROR)
@@ -114,6 +127,7 @@ async def replay_once(store: SpoolStore, pool: AsyncConnectionPool, now: datetim
                 async with pool.connection() as conn:
                     await record_derived(conn, cycle.at, error=describe_exception(exc)[:500])
     store.ack(cycle.seq)
+    store.prune_acked(now)
     store.record_replay_error(None)
     return True
 

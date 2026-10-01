@@ -122,7 +122,10 @@ def test_maintenance_preflight_rejects_low_space_or_quota(tmp_path: Path, monkey
     with pytest.raises(SpoolUnavailable, match="free"):
         store.maintenance_preflight(60)
     monkeypatch.setattr(module.shutil, "disk_usage", real_usage)
-    limited = SpoolStore(tmp_path / "limited.sqlite3", max_bytes=1)
+    limited = SpoolStore(tmp_path / "limited.sqlite3")
+    limited_seq = limited.begin(AT)
+    limited.finish(limited_seq, _success(), 1)
+    limited.max_bytes = 1
     with pytest.raises(SpoolUnavailable, match="quota"):
         limited.maintenance_preflight(60)
 
@@ -152,7 +155,10 @@ def test_corrupt_or_full_spool_blocks_maintenance(tmp_path: Path):
     with pytest.raises(SpoolUnavailable, match="checksum"):
         store.maintenance_preflight(60)
     store.close()
-    full = SpoolStore(tmp_path / "full.sqlite3", max_bytes=1)
+    full = SpoolStore(tmp_path / "full.sqlite3")
+    full_seq = full.begin(AT)
+    full.finish(full_seq, _success(), 1)
+    full.max_bytes = 1
     with pytest.raises(SpoolUnavailable, match="quota"):
         full.maintenance_preflight(60)
 
@@ -176,3 +182,60 @@ def test_online_backup_keeps_pending_wal_rows(tmp_path: Path):
     except SpoolUnavailable:
         return
     assert bare.status().pending_count != store.status().pending_count
+
+
+def test_prune_reclaims_file_quota(tmp_path: Path):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    for minute in range(30):
+        seq = store.begin(AT + timedelta(minutes=minute))
+        error = "source error " + ("x" * 5000) + str(minute)
+        store.finish(seq, FetchResult(None, 500, 3, None, error), 1)
+        store.ack(seq)
+    before = store.status().spool_bytes
+    store.conn.execute("UPDATE cycles SET acked_at=?", (AT.isoformat(),))
+    store.prune_acked(AT + timedelta(hours=25))
+    assert store.status().acked_count == 0
+    assert store.status().spool_bytes < before
+
+
+def test_capture_mode_switch_is_atomic_for_second_connection(tmp_path: Path):
+    path = tmp_path / "cycles.sqlite3"
+    store = SpoolStore(path)
+    store.set_mode_ack(False)
+    observer = SpoolStore(path)
+    real = store.conn
+    seen = []
+
+    class Probe:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def __enter__(self):
+            real.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return real.__exit__(*args)
+
+        def execute(self, sql, params=()):
+            result = real.execute(sql, params)
+            if "VALUES ('capture_only',?)" in sql:
+                seen.append((observer.capture_only(), observer.status().mode_ack))
+            return result
+
+    store.conn = Probe()
+    store.set_capture_only(True)
+    assert seen == [(False, False)]
+    assert observer.capture_only() is True
+    assert observer.status().mode_ack is None
+
+
+def test_maintenance_preflight_requires_measured_cycle(tmp_path: Path, monkeypatch):
+    import avelren.collector_spool as module
+
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    monkeypatch.setattr(
+        module.shutil, "disk_usage", lambda _: SimpleNamespace(free=3_000_000_000)
+    )
+    with pytest.raises(SpoolUnavailable, match="measured"):
+        store.maintenance_preflight(60)
