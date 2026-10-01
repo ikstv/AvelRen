@@ -15,7 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 from .collector_replay import ReplayConflict, replay_loop
 from .collector_spool import SpoolStore
 from .config import settings, validate_collector_settings
-from .echerha import fetch_workload
+from .echerha import describe_exception, fetch_workload
 from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.collector")
@@ -102,7 +102,7 @@ async def writer_supervisor(store: SpoolStore, stop: asyncio.Event) -> None:
                 if writer is not None and writer.done():
                     error = writer.exception()
                     if error:
-                        store.record_replay_error(str(error))
+                        store.record_replay_error(describe_exception(error))
                         log.critical("DB writer stopped: %s", error)
                         if isinstance(error, ReplayConflict):
                             conflict_blocked = True
@@ -119,7 +119,7 @@ async def writer_supervisor(store: SpoolStore, stop: asyncio.Event) -> None:
                         await assert_schema_at_least(candidate)
                     except Exception as exc:
                         log.error("DB writer unavailable; capture continues: %s", exc)
-                        store.record_replay_error(str(exc))
+                        store.record_replay_error(describe_exception(exc))
                         if candidate is not None:
                             await candidate.close()
                         await _wait_for_change(stop, 5)

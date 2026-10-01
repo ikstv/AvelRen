@@ -89,6 +89,7 @@ jobs:
           bash ops/compose-production-contract-test.sh
       - name: Черга collector у тимчасовому Docker volume
         run: |
+          python3 -m py_compile ops/collector-spool-daemon-test.py
           bash -n ops/collector-spool-integration-test.sh
           bash ops/collector-spool-integration-test.sh
       - name: Маршрутизація Caddy в ізольованій мережі

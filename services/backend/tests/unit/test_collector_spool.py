@@ -8,8 +8,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from psycopg.conninfo import conninfo_to_dict
 
+from avelren import echerha
 from avelren.collector_spool import SpoolStore, SpoolUnavailable
 from avelren.echerha import FetchResult
 from avelren.models import WorkloadResponse
@@ -191,11 +194,70 @@ def test_prune_reclaims_file_quota(tmp_path: Path):
         error = "source error " + ("x" * 5000) + str(minute)
         store.finish(seq, FetchResult(None, 500, 3, None, error), 1)
         store.ack(seq)
-    before = store.status().spool_bytes
+    # Flush WAL first: reclamation must shrink the main file, not just WAL.
+    store.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    before = store.path.stat().st_size
     store.conn.execute("UPDATE cycles SET acked_at=?", (AT.isoformat(),))
     store.prune_acked(AT + timedelta(hours=25))
     assert store.status().acked_count == 0
-    assert store.status().spool_bytes < before
+    assert store.path.stat().st_size < before
+    assert store.conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+
+
+def test_invalid_source_body_is_not_persisted(tmp_path: Path, monkeypatch):
+    import asyncio
+
+    sentinel = "RAW_BODY_SENTINEL"
+    monkeypatch.setattr(
+        echerha.settings, "echerha_device_id", "11111111-1111-4111-8111-111111111111",
+    )
+
+    async def fetch():
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"data": sentinel}),
+        )
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await echerha.fetch_workload(client)
+
+    result = asyncio.run(fetch())
+    assert result.response is None and result.error.startswith("parse:")
+    store = SpoolStore(tmp_path / "private" / "cycles.sqlite3")
+    seq = store.begin(AT)
+    store.finish(seq, result, 1)
+    cycle = store.next_pending()
+    assert cycle.items == () and cycle.http_status == 200
+    assert cycle.error.startswith("parse:")
+    raw = b"".join(p.read_bytes() for p in store.path.parent.iterdir() if p.is_file())
+    assert sentinel.encode() not in raw
+
+
+def test_existing_spool_without_reclamation_needs_offline_conversion(tmp_path: Path):
+    path = tmp_path / "legacy.sqlite3"
+    store = SpoolStore(path)
+    seq = store.begin(AT)
+    store.finish(seq, _success(), 1)
+    store.conn.execute("PRAGMA journal_mode=DELETE")
+    store.conn.execute("PRAGMA auto_vacuum=NONE")
+    store.conn.execute("VACUUM")
+    store.close()
+    with pytest.raises(SpoolUnavailable, match="offline"):
+        SpoolStore(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT seq,state FROM cycles").fetchall() == [(seq, "pending")]
+
+
+def test_replay_diagnostics_do_not_persist_connection_input(tmp_path: Path):
+    store = SpoolStore(tmp_path / "private" / "cycles.sqlite3")
+    sentinel = "DSN_SECRET_SENTINEL"
+    try:
+        conninfo_to_dict(f"not-a-dsn:{sentinel}")
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {exc}"
+    assert sentinel in message
+    store.record_replay_error(message)
+    assert store.status().last_error == "ProgrammingError"
+    raw = b"".join(p.read_bytes() for p in store.path.parent.iterdir() if p.is_file())
+    assert sentinel.encode() not in raw
 
 
 def test_capture_mode_switch_is_atomic_for_second_connection(tmp_path: Path):

@@ -7,6 +7,7 @@ short synchronous transactions so neither can observe a partially captured cycle
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 from contextlib import contextmanager
@@ -59,6 +60,30 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def _source_error(result: FetchResult) -> str | None:
+    """Persist a reason, never an exception's rejected input or transport details."""
+    if result.error is None:
+        return None
+    if result.error.startswith("parse:"):
+        return "parse: invalid workload response"
+    if result.error in {
+        "configuration: ECHERHA_DEVICE_ID must be a valid non-nil UUID",
+        "configuration: ECHERHA_DEVICE_NAME must be 1–120 printable ASCII characters",
+    }:
+        return result.error
+    if result.http_status is not None and result.http_status != 200:
+        return f"HTTP {result.http_status}"
+    kind = result.error.partition(":")[0]
+    if kind in {
+        "ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout",
+        "ReadError", "ConnectError", "WriteError", "CloseError",
+        "RemoteProtocolError", "LocalProtocolError", "ProxyError",
+        "UnsupportedProtocol", "DecodingError", "TooManyRedirects",
+    }:
+        return kind
+    return "source_error"
+
+
 class SpoolStore:
     def __init__(self, path: Path, max_bytes: int = 1_073_741_824) -> None:
         self.path = Path(path)
@@ -68,9 +93,12 @@ class SpoolStore:
             os.chmod(self.path.parent, 0o700)
         try:
             self.conn = sqlite3.connect(self.path, timeout=10, isolation_level=None)
+            self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+            if self.conn.execute("PRAGMA auto_vacuum").fetchone()[0] != 2:
+                self.conn.close()
+                raise SpoolUnavailable("spool needs offline incremental-vacuum conversion")
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=FULL")
-            self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             self.conn.execute("PRAGMA busy_timeout=10000")
             self.conn.execute("PRAGMA foreign_keys=ON")
             self.conn.execute("""
@@ -165,7 +193,7 @@ class SpoolStore:
             "http_status": result.http_status,
             "duration_ms": result.duration_ms,
             "body_sha256": result.body_sha256,
-            "error": result.error,
+            "error": _source_error(result),
             "countries": [country.model_dump(exclude={"flag_emoji"}) for country in countries],
             "items": [item.model_dump(by_alias=True) for item in items],
         })
@@ -252,7 +280,7 @@ class SpoolStore:
                     ((_utc(now) - timedelta(hours=24)).isoformat(),),
                 ).rowcount
             if deleted:
-                self.conn.execute("PRAGMA incremental_vacuum")
+                self.conn.execute("PRAGMA incremental_vacuum").fetchall()
                 self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except sqlite3.Error as exc:
             raise SpoolUnavailable(f"cannot prune cycles: {exc}") from exc
@@ -281,9 +309,14 @@ class SpoolStore:
             if message is None:
                 self.conn.execute("DELETE FROM meta WHERE key='last_error'")
             else:
+                kind, separator, _ = message.partition(":")
+                safe_reason = (
+                    kind if separator and re.fullmatch(r"[A-Z][A-Za-z0-9_]{0,79}", kind)
+                    else "replay_error"
+                )
                 self.conn.execute(
                     "INSERT OR REPLACE INTO meta(key,value) VALUES ('last_error',?)",
-                    (message[:500],),
+                    (safe_reason,),
                 )
 
     def status(self) -> SpoolStatus:

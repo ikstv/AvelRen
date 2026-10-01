@@ -152,4 +152,4 @@ def test_replay_conflict_blocks_writer_restarts(tmp_path, monkeypatch):
 
     asyncio.run(scenario())
     assert len(opened) == 1
-    assert "different cycle" in store.status().last_error
+    assert store.status().last_error == "ReplayConflict"

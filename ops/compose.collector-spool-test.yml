@@ -1,18 +1,40 @@
 services:
+  test-db:
+    image: timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9
+    command: [postgres, -c, timescaledb.telemetry_level=off]
+    environment:
+      POSTGRES_USER: avelren_admin
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: postgres
+    volumes:
+      - ..:/workspace:ro
+      - collector_spool_db_test:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U avelren_admin -d postgres']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [isolated]
   collector-test:
     build:
       context: ../services/backend
       dockerfile: Dockerfile
-    command: ["sleep", "infinity"]
+    command: [python, /workspace/ops/collector-spool-daemon-test.py, run]
     user: "10001:10001"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     volumes:
       - collector_spool_test:/var/lib/avelren/collector-spool
+      - ..:/workspace:ro
+    environment:
+      DATABASE_URL: postgresql://avelren_collector:ci-only@test-db:5432/avelren_spool_test
+      ECHERHA_DEVICE_ID: 11111111-1111-4111-8111-111111111111
+      ECHERHA_DEVICE_NAME: AvelRen synthetic collector
     networks: [isolated]
 
 volumes:
   collector_spool_test:
+  collector_spool_db_test:
 
 networks:
   isolated:

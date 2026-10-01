@@ -139,7 +139,7 @@ async def replay_loop(store: SpoolStore, pool: AsyncConnectionPool, stop: asynci
         try:
             wrote = await replay_once(store, pool, datetime.now(UTC))
         except ReplayConflict as exc:
-            store.record_replay_error(str(exc))
+            store.record_replay_error(describe_exception(exc))
             log.critical("replay conflict; pending cycle retained: %s", exc)
             raise
         except Exception as exc:

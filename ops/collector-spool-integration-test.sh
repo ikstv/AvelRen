@@ -1,53 +1,57 @@
 #!/usr/bin/env bash
-# Disposable Docker project: volume permissions + restart persistence, no upstream.
+# Real collector daemon and disposable DB; only HTTP transport is synthetic.
 set -euo pipefail
-
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PROJECT="avelren-spool-test-${RANDOM}-${RANDOM}"
-readonly ROOT PROJECT
-
+ROOT_FOR_COMPOSE=$ROOT
+if command -v cygpath >/dev/null 2>&1; then ROOT_FOR_COMPOSE=$(cygpath -w "$ROOT"); fi
+readonly ROOT PROJECT ROOT_FOR_COMPOSE
 compose() {
-    docker compose -p "$PROJECT" -f "$ROOT/ops/compose.collector-spool-test.yml" "$@"
+    MSYS_NO_PATHCONV=1 docker compose -p "$PROJECT" -f "$ROOT_FOR_COMPOSE/ops/compose.collector-spool-test.yml" "$@"
 }
-
 cleanup() {
     local status=$?
     trap - EXIT
+    if [ "$status" -ne 0 ]; then compose logs --tail 30 collector-test test-db || true; fi
     compose down --volumes --remove-orphans || status=1
     exit "$status"
 }
 trap cleanup EXIT
-
+driver=/workspace/ops/collector-spool-daemon-test.py
+admin_dsn=postgresql://avelren_admin:ci-only@test-db:5432/avelren_spool_test
 compose build collector-test
+compose up -d --wait test-db
+compose exec -T \
+    -e AVELREN_TEST_DB=1 -e AVELREN_DB_NAME=avelren_spool_test \
+    -e AVELREN_ADMIN_DSN=postgresql://avelren_admin:ci-only@127.0.0.1:5432/postgres \
+    -e AVELREN_ADMIN_PASSWORD=ci-only -e AVELREN_MIGRATOR_PASSWORD=ci-only \
+    -e AVELREN_BACKUP_PASSWORD=ci-only -e AVELREN_COLLECTOR_PASSWORD=ci-only \
+    -e AVELREN_NOTIFIER_PASSWORD=ci-only -e AVELREN_WATCHDOG_PASSWORD=ci-only \
+    -e AVELREN_API_PASSWORD=ci-only \
+    test-db bash /workspace/ops/postgres-bootstrap.sh fresh </dev/null
+compose run --rm --no-deps -T \
+    -e DATABASE_URL=postgresql://avelren_migrator:ci-only@test-db:5432/avelren_spool_test \
+    collector-test python -m avelren.migrate /workspace/db/migrations </dev/null
+compose run --rm --no-deps -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" seed </dev/null
+compose stop test-db
 compose up -d collector-test
-compose exec -T collector-test python - <<'PY'
-import os
-from datetime import UTC, datetime
-from pathlib import Path
-
-from avelren.collector_spool import SpoolStore
-from avelren.echerha import FetchResult
-
-path = Path('/var/lib/avelren/collector-spool/cycles.sqlite3')
-assert os.geteuid() == 10001
-store = SpoolStore(path)
-seq = store.begin(datetime(2026, 10, 1, 12, 0, tzinfo=UTC))
-store.finish(seq, FetchResult(None, 429, 1, None, 'HTTP 429'), 1)
-assert path.parent.stat().st_mode & 0o777 == 0o700
-assert path.stat().st_mode & 0o777 == 0o600
-store.close()
-PY
-
-compose restart collector-test
-compose exec -T collector-test python - <<'PY'
-from pathlib import Path
-
-from avelren.collector_spool import SpoolStore
-
-store = SpoolStore(Path('/var/lib/avelren/collector-spool/cycles.sqlite3'))
-cycle = store.next_pending()
-assert cycle is not None and cycle.seq == 1 and cycle.error == 'HTTP 429'
-store.close()
-PY
-
-printf '%s\n' 'collector spool volume restart contract ok'
+compose exec -T collector-test python "$driver" wait-cycles 2 90
+compose kill -s SIGKILL collector-test
+# Preserve 60s between requests while restarting the disposable process.
+compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/null
+compose start collector-test
+compose exec -T collector-test python "$driver" wait-cycles 5 150
+compose exec -T collector-test python -m avelren.collector_control capture-only on
+compose kill -s SIGKILL collector-test
+compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/null
+compose start collector-test
+compose exec -T collector-test python "$driver" wait-cycles 6 30
+compose exec -T collector-test python "$driver" wait-aged
+compose up -d --wait test-db
+compose exec -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" paused
+compose exec -T collector-test python "$driver" backup
+compose exec -T collector-test python -m avelren.collector_control capture-only off
+compose exec -T collector-test python "$driver" wait-empty
+compose exec -T collector-test python -m avelren.collector_control capture-only on
+compose exec -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" verify
+printf '%s\n' 'collector daemon outage/restart/capture-only/FIFO/recovery contract: PASS'

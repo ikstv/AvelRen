@@ -14,7 +14,7 @@
       "destination": "services/backend/src/avelren/collector.py",
       "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
       "revision": {
-        "sha256": "9f799c485c80812893ea644913bd4fad027c6fef0377cf8fa524a99fd5e757a3",
+        "sha256": "11a70733d93238c69cf23179be85b970be11e1ecf5da53b67a24357627ee107f",
         "notes": "ops/COLLECTOR-SPOOL.md"
       }
     },
