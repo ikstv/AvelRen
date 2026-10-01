@@ -9,6 +9,8 @@
 уже містять [SERVER-FILES.csv](SERVER-FILES.csv) та
 [SERVER-IMPORT-INVENTORY.csv](SERVER-IMPORT-INVENTORY.csv); тут — функціональна
 звірка, а не повторний перелік файлів.
+Вихідна задача — legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15),
+не однойменний номер issue у новому репозиторії.
 
 | Контракт старого дерева | Стан у ORIGINAL | Висновок |
 | --- | --- | --- |
