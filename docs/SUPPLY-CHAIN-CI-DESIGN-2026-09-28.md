@@ -62,9 +62,24 @@ API не повернув `security_and_analysis` налаштувань для 
 Legacy PR #140 лише оновлює pins SBOM/CodeQL Actions у workflow старого
 репозиторію. Він не є готовою реалізацією для компонентної CI-структури
 ORIGINAL і не підтверджує право запускати CodeQL на приватному коді.
-Issue #23 ширша: Python hashes і container digests уже частково прийняті;
-Gradle locking/checksum, Dependabot, audits і локальний test-stack cleanup
-потребують окремого інвентарного рішення.
+Issue #23 ширша за legacy PR #140; її пунктову звірку наведено нижче.
+
+### Пунктова звірка issue #23 станом на 01.10.2026
+
+Це звірка **дерева ORIGINAL**, а не повторне приймання старих PR чи
+production-образів. Статус «є в коді» не означає, що відповідна перевірка
+виконана для поточного production deployment.
+
+| Вимога старої issue | Стан в ORIGINAL та доказ | Залишок |
+| --- | --- | --- |
+| Hashed Python lock | `services/backend/requirements.lock`; Dockerfile встановлює з `--require-hashes`. | Окремо звірити фактичний deployed image з кандидатом. |
+| Pinned container digests та GitHub Actions | TimescaleDB/Caddy у `docker-compose.yml` за `@sha256`; Python base у Dockerfile за digest; `uses:` у `.github/workflows/` за повними SHA. | Pins самі по собі не виявляють нові вразливості. |
+| Gradle locking / artifact checksums | `apps/android/build.gradle.kts` вмикає locking; два `gradle.lockfile` є. `verification-metadata.xml` немає. | Контрольні суми генерувати й перевіряти в належному build-середовищі, а не складати вручну. |
+| Dependabot | `.github/dependabot.yml` в ORIGINAL немає; налаштування старого репозиторію не переносяться автоматично. | Окремо погодити екосистеми, графік та обсяг PR. |
+| CodeQL | Немає workflow в ORIGINAL; для поточного приватного user-owned репозиторію діє ліцензійний блокер вище. | Рішення власника про ліцензований шлях або допустимий альтернативний аналізатор. |
+| Dependency/container vulnerability audits | У поточних workflow немає окремого періодичного аудиту залежностей чи сканування CVE образів. | Окремо погодити інструмент, політику порогів і регулярний запуск; SBOM не є vulnerability audit. |
+| Source та image SBOM | `.github/workflows/supply-chain.yml` формує source SBOM і SBOM трьох candidate images з перевіркою покриття. | Для production потрібен handoff того самого immutable image/digest. |
+| Cleanup локального backend test stack | `scripts/test_database.sh` має `trap cleanup EXIT` і `compose down --volumes --remove-orphans`. | Це локальний тестовий контракт, не процедура очищення production. |
 
 Поточна реалізація pin-ить Anchore SBOM Action `v0.24.2` і Syft `v1.51.1`,
 а також GitHub `upload-artifact v7.0.1` повними SHA. CodeQL
