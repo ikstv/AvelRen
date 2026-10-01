@@ -1,75 +1,124 @@
-"""Порядок запису циклу без PostgreSQL і запитів до джерела."""
+"""Collector keeps the 60-second source contract without a live DB/HTTP client."""
 
 import asyncio
-from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
-
 from avelren import collector
+from avelren.collector_spool import SpoolStore
+from avelren.echerha import FetchResult
 
 
-@pytest.mark.parametrize("source_error", [None, "HTTP 500", "HTTP 429", "timeout"])
-def test_cycle_records_once_without_retry(monkeypatch, source_error):
-    transactions = []
-
-    @asynccontextmanager
-    async def connection():
-        transactions.append("begin")
-        yield object()
-        transactions.append("commit")
-
-    result = SimpleNamespace(
-        error=source_error, response=None, http_status=500 if source_error else 200,
-        duration_ms=10, body_sha256=None,
-    )
-    fetch = AsyncMock(return_value=result)
-    record = AsyncMock()
+def test_one_fetch_per_cycle_when_db_down(tmp_path, monkeypatch):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    fetch = AsyncMock(return_value=FetchResult(None, 429, 7, None, "HTTP 429"))
     monkeypatch.setattr(collector, "fetch_workload", fetch)
-    monkeypatch.setattr(collector, "get_pool", lambda: SimpleNamespace(connection=connection))
-    monkeypatch.setattr(collector, "record_run", record)
-    monkeypatch.setattr(collector, "record_derived", AsyncMock())
-    asyncio.run(collector.run_cycle(object()))
+    asyncio.run(collector.run_cycle(object(), store))
     fetch.assert_awaited_once()
-    record.assert_awaited_once()
-    assert record.await_args.args[-1] == source_error
-    assert transactions == ["begin", "commit", "begin", "commit"]
+    assert store.next_pending().error == "HTTP 429"
 
 
-def test_alert_failure_keeps_primary_commit(monkeypatch):
+def test_startup_without_db_still_captures(tmp_path, monkeypatch):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    result = FetchResult(None, None, 0, None, "timeout")
+    monkeypatch.setattr(
+        collector, "fetch_workload", AsyncMock(return_value=result)
+    )
+    monkeypatch.setattr(
+        collector, "_new_writer_pool", lambda: (_ for _ in ()).throw(RuntimeError("DB down"))
+    )
+    async def scenario():
+        stop = asyncio.Event()
+        writer = asyncio.create_task(collector.writer_supervisor(store, stop))
+        await asyncio.sleep(0)
+        await collector.run_cycle(object(), store)
+        stop.set()
+        await writer
+
+    asyncio.run(scenario())
+    assert store.status().pending_count == 1
+
+
+def test_start_times_remain_60_seconds_apart(tmp_path, monkeypatch):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    times = []
+    clock = SimpleNamespace(value=0.0)
+
+    async def fetch(_):
+        times.append(clock.value)
+        clock.value += 5.0
+        return FetchResult(None, 429, 4, None, "HTTP 429")
+
+    async def wait_for(coro, timeout):
+        coro.close()
+        clock.value += timeout
+        raise TimeoutError
+
+    monkeypatch.setattr(collector, "fetch_workload", fetch)
+    monkeypatch.setattr(collector.asyncio, "wait_for", wait_for)
+
+    class Stop:
+        def is_set(self):
+            return len(times) >= 3
+
+        async def wait(self):
+            return None
+
+    asyncio.run(collector.poll_loop(object(), store, Stop(), clock=lambda: clock.value))
+    assert times == [0.0, 60.0, 120.0]
+
+
+def test_capture_only_survives_restart(tmp_path):
+    path = tmp_path / "cycles.sqlite3"
+    store = SpoolStore(path)
+    store.set_capture_only(True)
+    store.close()
+    assert SpoolStore(path).capture_only() is True
+
+
+def test_control_acks_only_after_pool_close(tmp_path):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    store.set_capture_only(True)
     events = []
 
-    @asynccontextmanager
-    async def connection():
-        events.append("begin")
-        try:
-            yield object()
-        except Exception:
-            events.append("rollback")
-            raise
-        else:
-            events.append("commit")
+    class Pool:
+        async def close(self):
+            events.append("closed")
 
-    result = SimpleNamespace(
-        error=None, http_status=200, duration_ms=10, body_sha256=None,
-        response=SimpleNamespace(
-            data=[SimpleNamespace(for_vehicle_type=1)],
-            filters=SimpleNamespace(countries=[]),
-        ),
-    )
-    monkeypatch.setattr(collector, "get_pool", lambda: SimpleNamespace(connection=connection))
+    async def writer():
+        await asyncio.Event().wait()
+
+    async def scenario():
+        task = asyncio.create_task(writer())
+        await asyncio.sleep(0)
+        await collector.stop_writer(Pool(), task, store)
+
+    original = store.set_mode_ack
+
+    def acknowledge(enabled):
+        events.append("ack")
+        original(enabled)
+
+    store.set_mode_ack = acknowledge
+    asyncio.run(scenario())
+    assert events == ["closed", "ack"]
+    assert store.status().mode_ack is True
+
+
+def test_run_cycle_records_utc_start_before_fetch(tmp_path, monkeypatch):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    started = []
+    original = store.begin
+
+    def begin(at):
+        started.append(at)
+        return original(at)
+
+    store.begin = begin
+    result = FetchResult(None, 429, 1, None, "HTTP 429")
     monkeypatch.setattr(collector, "fetch_workload", AsyncMock(return_value=result))
-    for name in ("upsert_countries", "upsert_checkpoints", "record_run"):
-        monkeypatch.setattr(collector, name, AsyncMock())
-    insert = AsyncMock(return_value=1)
-    monkeypatch.setattr(collector, "insert_observations", insert)
-    monkeypatch.setattr(
-        collector.alerts, "evaluate", AsyncMock(side_effect=RuntimeError("alert failure"))
-    )
-    derived = AsyncMock()
-    monkeypatch.setattr(collector, "record_derived", derived)
-    asyncio.run(collector.run_cycle(object()))
-    insert.assert_awaited_once()
-    assert events == ["begin", "commit", "begin", "rollback", "begin", "commit"]
-    assert "alert failure" in derived.await_args.kwargs["error"]
+    asyncio.run(collector.run_cycle(object(), store))
+    assert len(started) == 1
+    assert started[0].tzinfo == UTC
+    assert isinstance(started[0], datetime)
