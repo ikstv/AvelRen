@@ -239,3 +239,16 @@ def test_maintenance_preflight_requires_measured_cycle(tmp_path: Path, monkeypat
     )
     with pytest.raises(SpoolUnavailable, match="measured"):
         store.maintenance_preflight(60)
+
+
+def test_error_only_cycles_do_not_size_maintenance_window(tmp_path: Path, monkeypatch):
+    import avelren.collector_spool as module
+
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    seq = store.begin(AT)
+    store.finish(seq, FetchResult(None, 429, 4, None, "HTTP 429"), 1)
+    monkeypatch.setattr(
+        module.shutil, "disk_usage", lambda _: SimpleNamespace(free=3_000_000_000)
+    )
+    with pytest.raises(SpoolUnavailable, match="measured"):
+        store.maintenance_preflight(60)

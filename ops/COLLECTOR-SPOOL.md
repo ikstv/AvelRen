@@ -34,7 +34,8 @@ python -m avelren.collector_control capture-only off
 Перед maintenance потрібні `PRAGMA integrity_check`, перевірка digest кожного
 pending payload, щонайменше 2 GiB вільного місця на filesystem тому та запас
 у квоті 1 GiB, більший за `2 × max_cycle_bytes × кількість хвилин вікна`.
-`max_cycle_bytes` — виміряний максимум, не довільна оцінка. Для запуску
+`max_cycle_bytes` — виміряний максимум успішного циклу з чергами, не розмір
+короткої відповіді `429` і не довільна оцінка. Для запуску
 preflight використати `SpoolStore.maintenance_preflight(window_minutes)` у
 поточному контейнері та зберегти його результат у журналі зміни.
 

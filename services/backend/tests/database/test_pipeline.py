@@ -10,11 +10,13 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from avelren import collector, fcm, notifier
+from avelren.collector_replay import replay_once
+from avelren.collector_spool import SpoolStore
 from avelren.models import WorkloadItem, WorkloadResponse
 from avelren.schema_gate import assert_schema_at_least
 
 
-def test_observations_and_notification_under_service_roles(database, monkeypatch):
+def test_observations_and_notification_under_service_roles(database, monkeypatch, tmp_path):
     instant = datetime.now(UTC).replace(microsecond=0)
 
     class Clock:
@@ -41,15 +43,16 @@ def test_observations_and_notification_under_service_roles(database, monkeypatch
     monkeypatch.setattr(collector, "datetime", Clock)
     monkeypatch.setattr(collector, "fetch_workload", fetch)
     monkeypatch.setattr(fcm, "send", send)
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
 
     async def run():
         nonlocal instant
         async with AsyncConnectionPool(
             database("collector"), open=False, kwargs={"row_factory": dict_row}
         ) as pool:
-            monkeypatch.setattr(collector, "get_pool", lambda: pool)
             await assert_schema_at_least(pool)
-            await collector.run_cycle(object())
+            await collector.run_cycle(object(), store)
+            assert await replay_once(store, pool, instant)
             with psycopg.connect(database("admin")) as admin:
                 device = admin.execute(
                     "INSERT INTO devices(fcm_token,secret_hash) "
@@ -61,7 +64,8 @@ def test_observations_and_notification_under_service_roles(database, monkeypatch
                     (device, item.id),
                 )
             instant += timedelta(seconds=60)
-            await collector.run_cycle(object())
+            await collector.run_cycle(object(), store)
+            assert await replay_once(store, pool, instant)
             instant += timedelta(seconds=60)
             fetch.return_value = SimpleNamespace(
                 error="HTTP 500",
@@ -70,7 +74,8 @@ def test_observations_and_notification_under_service_roles(database, monkeypatch
                 body_sha256="fixture-error",
                 response=None,
             )
-            await collector.run_cycle(object())
+            await collector.run_cycle(object(), store)
+            assert await replay_once(store, pool, instant)
         async with AsyncConnectionPool(
             database("notifier"), open=False, kwargs={"row_factory": dict_row}
         ) as pool:
@@ -79,6 +84,7 @@ def test_observations_and_notification_under_service_roles(database, monkeypatch
             assert await notifier.run_cycle(object()) == 1
 
     asyncio.run(run())
+    store.close()
     assert fetch.await_count == 3
     send.assert_awaited_once()
     assert send.await_args.args[1] == "synthetic-token"

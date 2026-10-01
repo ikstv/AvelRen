@@ -180,11 +180,12 @@ class SpoolStore:
                 )
                 if cursor.rowcount != 1:
                     raise SpoolUnavailable("cycle not in started state")
-                max_bytes = int(self._meta("max_cycle_bytes") or "0")
-                self.conn.execute(
-                    "INSERT OR REPLACE INTO meta(key,value) VALUES ('max_cycle_bytes',?)",
-                    (str(max(max_bytes, len(payload))),),
-                )
+                if result.error is None and items:
+                    max_bytes = int(self._meta("max_cycle_bytes") or "0")
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO meta(key,value) VALUES ('max_cycle_bytes',?)",
+                        (str(max(max_bytes, len(payload))),),
+                    )
         except sqlite3.Error as exc:
             raise SpoolUnavailable(f"cannot finish cycle: {exc}") from exc
         self._check_quota()

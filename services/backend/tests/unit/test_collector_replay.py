@@ -136,7 +136,7 @@ def test_old_cycle_skips_push(tmp_path, monkeypatch):
 def test_fresh_cycle_runs_derived(tmp_path, monkeypatch):
     store, _ = _pending(tmp_path)
     calls = _patch_db(monkeypatch)
-    assert asyncio.run(collector_replay.replay_once(store, Pool(), AT + timedelta(seconds=120)))
+    assert asyncio.run(collector_replay.replay_once(store, Pool(), AT + timedelta(seconds=110)))
     assert calls["record_derived"].await_args.kwargs["error"] is None
 
 
