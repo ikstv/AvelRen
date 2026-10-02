@@ -93,3 +93,16 @@ Compose/DB/restore прийняті PR #60 (main `ee31a7b`, 4/4 CI успішн�
 #143 завершено як source-пункт; сам старий GitHub PR лишився відкритим.
 Production deployment — окремий етап.
 Серверні операції мають окремі дозволи за AGENTS.md.
+
+## Звірка restore після репетиції 02.10.2026
+
+Для [issue #41](https://github.com/ikstv/AvelRen-ORIGINAL/issues/41) реальну
+копію backup із міграціями 001–014 відновлено локально, потім у disposable
+Compose-проєкті на сервері. Native ownership/schema finalization і API smoke
+exact main `857eb61e` успішні; ресурси й копії видалено,
+робочі контейнери/checkout незмінні.
+[Доказ](audits/RESTORE-REAL-BACKUP-2026-10-02.md).
+Залишилося окремо узгодити встановлений restore runtime із перевіреним
+кодом; старі host-скрипти не змінені, issue #41 не закрита.
+Production adoption та production restore зі spool залишаються окремими
+неприйнятими етапами; зелений disposable restore не закриває їх.
