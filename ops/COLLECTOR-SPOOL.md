@@ -16,6 +16,13 @@ FIFO у PostgreSQL. `pending > 0` означає, що історія в БД н
 
 ## Операторський режим
 
+Для окремого Compose після приймання переходу використовувати
+[collector runtime control](COLLECTOR-RUNTIME.md). До обслуговування БД:
+maintenance preflight, Online Backup поза томом, `capture-only on` із writer
+ack. Після повернення БД: `off` із schema/writer ack, FIFO replay і pending=0.
+Помилка ack зупиняє перехід, pending не очищається. Повний restore старого
+snapshot потребує окремого узгодження зі spool та не є цим maintenance.
+
 Лише всередині контейнера collector:
 
 ```sh

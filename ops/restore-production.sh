@@ -30,6 +30,13 @@ avelren_compose() {
       -f "$AVELREN_PRODUCTION_COMPOSE" -p "$AVELREN_PRODUCTION_PROJECT" "$@"
 }
 
+avelren_require_supported_collector_topology() {
+    python3 "$SCRIPT_DIR/collector-runtime-preflight.py" --restore-topology >/dev/null || {
+        echo "DENIED: restore collector topology is unsupported; see ops/COLLECTOR-RUNTIME.md" >&2
+        return 1
+    }
+}
+
 avelren_confirm_production_restore() {
     local input_fd=${1:?input descriptor is required} answer expected
     expected="RESTORE avelren $(date -u +%F)"
@@ -260,6 +267,7 @@ avelren_restore_production_main() {
     trap 'exit 143' TERM
 
     avelren_require_production_operator
+    avelren_require_supported_collector_topology
     local input mode
     for input in "$sidecar" "$evidence"; do
         [ -f "$input" ] && [ ! -L "$input" ] && [ -r "$input" ] || {

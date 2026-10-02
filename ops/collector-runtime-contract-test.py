@@ -140,6 +140,20 @@ class RuntimeContract(unittest.TestCase):
         cfg['volumes']['collector_spool']['external'] = False
         self.assertIn('unsafe_compose_resources', self.verdict(cfg, [item]))
 
+    def test_legacy_restore_topology(self):
+        _, item = self.runtime()
+        item['Name'] = '/avelren-collector-1'
+        item['Config']['Labels']['com.docker.compose.project'] = 'avelren'
+        item['Mounts'] = []
+        self.assertEqual(load_module().require_legacy_restore_topology([item]), [])
+
+    def test_separate_restore_topology_denied(self):
+        _, item = self.runtime()
+        self.assertTrue(load_module().require_legacy_restore_topology([item]))
+
+    def test_empty_restore_topology_denied(self):
+        self.assertTrue(load_module().require_legacy_restore_topology([]))
+
 
 if __name__ == '__main__':
     unittest.main()

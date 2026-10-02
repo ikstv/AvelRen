@@ -167,6 +167,24 @@ def inspect_inventory() -> list[dict]:
     return json.loads(run(['docker', 'inspect', *identifiers])) if identifiers else []
 
 
+def require_legacy_restore_topology(inventory: list[dict]) -> list[str]:
+    candidates = [x for x in inventory if is_collector(x)]
+    canonical = [x for x in candidates if x.get('Name') == '/avelren-collector-1']
+    if len(canonical) != 1:
+        return ['unsupported_restore_topology']
+    labels = canonical[0].get('Config', {}).get('Labels') or {}
+    if labels.get('com.docker.compose.project') != 'avelren' or labels.get('com.docker.compose.service') != 'collector':
+        return ['unsupported_restore_topology']
+    if any(x.get('State', {}).get('Running') and x not in canonical for x in candidates):
+        return ['additional_running_collector']
+    # A stopped independent spool container still represents a separate recovery state.
+    if any(x not in canonical and any(m.get('Destination') == SPOOL_DIR for m in x.get('Mounts', [])) for x in candidates):
+        return ['unsupported_restore_spool']
+    if any(m.get('Destination') == SPOOL_DIR for m in canonical[0].get('Mounts', [])):
+        return ['unsupported_restore_spool']
+    return []
+
+
 def preflight(manifest: dict, *, require_managed=True) -> tuple[dict, dict]:
     command, env = compose_command(manifest)
     effective = json.loads(run([*command, 'config', '--format', 'json', '--no-env-resolution'], env=env))
@@ -210,10 +228,18 @@ def status(manifest: dict, target: dict) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--manifest', type=Path, required=True)
+    parser.add_argument('--manifest', type=Path)
+    parser.add_argument('--restore-topology', action='store_true')
     parser.add_argument('--phase', choices=['config', 'status', 'managed'], default='managed')
     args = parser.parse_args()
     try:
+        if args.restore_topology:
+            if require_legacy_restore_topology(inspect_inventory()):
+                raise ValueError('unsupported_restore_topology')
+            print(json.dumps({'status': 'legacy_restore_topology_verified'}))
+            return 0
+        if args.manifest is None:
+            raise ValueError('manifest_required')
         manifest, target = preflight(load_manifest(args.manifest), require_managed=args.phase != 'config')
         print(json.dumps(status(manifest, target) if args.phase == 'status' else {'status': 'verified'}))
         return 0
