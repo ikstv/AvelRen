@@ -22,6 +22,9 @@ run_case() {
           if [ "${FAIL_STAGE:-}" = "$1" ]; then return 71; fi
         }
         avelren_require_production_operator() { step confirm; }
+        avelren_require_supported_collector_topology() {
+          case "${FAIL_STAGE:-}" in unsupported-collector-topology|docker-unavailable) return 71 ;; esac
+        }
         avelren_verify_production_preflight() {
           step preflight || return
           AVELREN_VERIFIED_TARGET_COMMIT=$(printf "a%.0s" {1..40})
@@ -73,6 +76,13 @@ for stage in confirm preflight snapshot maintenance; do
     status=$(run_case "before-$stage" "$stage")
     [ "$status" -ne 0 ]
     ! grep -Eq '^(maintenance|stop|engine|start-caddy|clear-maintenance|fail-closed)$' "$WORK/before-$stage.trace"
+done
+
+for stage in unsupported-collector-topology docker-unavailable; do
+    status=$(run_case "$stage" "$stage")
+    [ "$status" -ne 0 ]
+    [ "$(cat "$WORK/$stage.trace")" = confirm ]
+    ! grep -q 'restore-contract-secret' "$WORK/$stage.out"
 done
 
 chmod 0666 "$WORK/dump.sql.gz"

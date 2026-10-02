@@ -1,0 +1,27 @@
+# Collector-only runtime. Значення передає перевірений приватний manifest.
+services:
+  collector:
+    image: ${COLLECTOR_IMAGE_ID:?immutable image ID is required}
+    container_name: ${COLLECTOR_CONTAINER_NAME:?container name is required}
+    command: [python, -m, avelren.collector]
+    user: '10001:10001'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    tmpfs: ['/tmp:rw,nosuid,nodev,noexec,size=64m']
+    pids_limit: 128
+    restart: unless-stopped
+    env_file:
+      - path: ${COLLECTOR_ENV_FILE:?private env file is required}
+        format: raw
+    volumes:
+      - collector_spool:/var/lib/avelren/collector-spool
+    networks: [runtime]
+volumes:
+  collector_spool:
+    external: true
+    name: ${COLLECTOR_VOLUME:?existing volume is required}
+networks:
+  runtime:
+    external: true
+    name: ${COLLECTOR_NETWORK:?existing network is required}

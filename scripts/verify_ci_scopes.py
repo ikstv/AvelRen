@@ -24,6 +24,12 @@ cases = {
     "services/backend/src/avelren/maintenance.py": backend | {"android"},
     "docs/API-PROVENANCE.json": backend,
     "docs/RELEASE-READINESS.md": set(),
+    "ops/collector-runtime-control.py": {"api", "database", "watchdog"},
+    "ops/collector-runtime-control.sh": {"api", "database", "watchdog"},
+    "ops/collector-runtime-preflight.py": {"api", "database", "watchdog"},
+    "ops/compose.collector-runtime.yml": {"api", "database", "watchdog"},
+    "ops/collector-runtime-integration-test.sh": {"api", "database", "watchdog"},
+    "ops/Dockerfile.collector-runtime-test-controller": {"api", "database", "watchdog"},
 }
 for event in ("pull_request", "push"):
     for file, expected in cases.items():
@@ -33,6 +39,13 @@ for event in ("pull_request", "push"):
         }
         if actual != expected:
             raise SystemExit(f"CI scope mismatch: {event} {file}: {actual} != {expected}")
+
+database_runs = '\n'.join(step.get('run', '') for step in workflows['database']['jobs']['database']['steps'])
+for check in ('python3 ops/collector-runtime-contract-test.py',
+              'bash ops/collector-runtime-control-contract-test.sh',
+              'bash ops/collector-runtime-integration-test.sh'):
+    if check not in database_runs:
+        raise SystemExit('Missing collector runtime CI gate: ' + check)
 
 supply_chain = yaml.load(
     (root / ".github/workflows/supply-chain.yml").read_text(encoding="utf-8"),
