@@ -3,8 +3,8 @@ set -euo pipefail
 
 SUITE=${1:-database}
 case "$SUITE" in
-    database|api|watchdog) ;;
-    *) echo 'Expected database, api or watchdog' >&2; exit 2 ;;
+    database|api|watchdog|surge) ;;
+    *) echo 'Expected database, api, watchdog or surge' >&2; exit 2 ;;
 esac
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,9 +19,14 @@ if command -v cygpath >/dev/null 2>&1; then
 fi
 readonly ROOT_FOR_COMPOSE ENV_FILE_FOR_COMPOSE
 
+overlay_args=()
+if [ "$SUITE" = surge ]; then
+    overlay_args=(-f "$ROOT_FOR_COMPOSE/ops/compose.surge-test.yml")
+fi
+
 compose() {
     MSYS_NO_PATHCONV=1 docker compose --env-file "$ENV_FILE_FOR_COMPOSE" -p "$PROJECT" \
-        -f "$ROOT_FOR_COMPOSE/ops/compose.database-test.yml" "$@"
+        -f "$ROOT_FOR_COMPOSE/ops/compose.database-test.yml" "${overlay_args[@]}" "$@"
 }
 
 cleanup() {
@@ -47,7 +52,16 @@ compose exec -T \
     -e AVELREN_API_PASSWORD=ci-only \
     test-db bash /workspace/ops/postgres-bootstrap.sh fresh </dev/null
 compose run --rm --no-deps -T test python -m avelren.migrate db/migrations </dev/null
-if [ "$SUITE" = api ] || [ "$SUITE" = watchdog ]; then
+if [ "$SUITE" = surge ]; then
+    compose run --rm --no-deps -T test python -m pytest \
+        -c services/backend/pytest.ini \
+        services/backend/tests/database/test_surge_schema.py \
+        services/backend/tests/database/test_surge_pipeline.py \
+        services/backend/tests/database/test_surge_cleanup.py \
+        services/backend/tests/database/test_surge_delivery.py \
+        services/backend/tests/database/api/test_surge_end_to_end.py \
+        -q -p no:cacheprovider </dev/null
+elif [ "$SUITE" = api ] || [ "$SUITE" = watchdog ]; then
     report_args=()
     perf_args=()
     # Surface EXPLAIN measurements from the passing API performance gate.

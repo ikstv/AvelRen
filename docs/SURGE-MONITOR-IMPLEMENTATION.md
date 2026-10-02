@@ -132,3 +132,13 @@ reconciliation доповнюють одне одного.
 02.10.2026 compile/JVM/lint/assemble пройшли. Офлайн емулятор API36: Google TTS успішно bound, uk voice недоступний — service завершився без crash, текст лишився, причина показана в UI. Фактичний full-ID collision/cancel перевірено. Priority/queue/ACK/expiry перевірено JVM; background handler probe не підтвердив OS rejection і не вважається доказом цього сценарію. Фонову доставку реального FCM, screen-lock, audio-focus refusal, жіночий голос і repeat5min перевіряємо перед релізом на телефоні; зараз не підтверджено.
 
 Джерела Android API: [обмеження FGS](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start), [тип mediaPlayback](https://developer.android.com/develop/background-work/services/fgs/service-types), [TextToSpeech](https://developer.android.com/reference/android/speech/tts/TextToSpeech). Preview лишається debug-only/offline/no Firebase; POST_NOTIFICATIONS збережено для локального probe. Сервіс/type повторено в test overlay, бо lint аналізує overlay окремо від merged manifest.
+
+## Runtime та інтеграційне приймання
+
+Окремий profile surge, власний DSN, false за замовчуванням для API/notifier/worker.
+Журнал після зовнішнього commit: cycle timestamp, processed, failed, model_version.
+Контракт Compose перевіряється справжнім parser без запуску контейнерів.
+Синтетична історія з реальною frozen моделлю, фактом, notifier payload, API ACK,
+cancel і новими worker-з’єднаннями перевіряється разом на внутрішній мережі.
+Restore fixture охоплює ACK/UUID та всі шість нових таблиць. Ці перевірки
+не підтверджують точність, реальну FCM-доставку або телефонний жіночий голос.

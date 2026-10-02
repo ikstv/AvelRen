@@ -141,6 +141,7 @@ services:
     cpus: 0.5
     environment:
       DATABASE_URL: ${AVELREN_NOTIFIER_DSN}
+      SURGE_ENABLED: ${SURGE_ENABLED:-false}
       FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH}
       ALERT_RESEND_SECONDS: ${ALERT_RESEND_SECONDS}
       HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS}
@@ -151,6 +152,21 @@ services:
       migrate:
         condition: service_completed_successfully
         required: false
+
+  # Окремий worker читає лише нашу БД; запускається після погодженого deploy.
+  surge_worker:
+    <<: *avelren-security
+    build: *avelren-build
+    image: avelren-app:latest
+    restart: "on-failure:3"
+    profiles: ["surge"]
+    command: ["python", "-m", "avelren.surge_worker"]
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      DATABASE_URL: ${AVELREN_SURGE_DSN:-}
+      SURGE_ENABLED: ${SURGE_ENABLED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
   # Notices that the system has gone silent. The most dangerous failure is a
   # quiet one.
@@ -190,6 +206,7 @@ services:
     cpus: 1.0
     environment:
       DATABASE_URL: ${AVELREN_API_DSN}
+      SURGE_ENABLED: ${SURGE_ENABLED:-false}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS}
       ECHERHA_VEHICLE_TYPE: ${ECHERHA_VEHICLE_TYPE}
     volumes:

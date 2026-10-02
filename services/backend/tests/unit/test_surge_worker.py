@@ -52,3 +52,20 @@ def test_cycle_lock_and_checkpoint_failure_isolation(monkeypatch, locked):
     assert process.await_count == (2 if locked else 0)
     pool.assert_called_once_with(statement_timeout_ms=5000)
     gate.assert_awaited_once_with(conn)
+
+
+def test_cycle_reports_committed_count_and_failures(monkeypatch, caplog):
+    import logging
+
+    conn = Connection(True)
+    monkeypatch.setattr(surge_worker.settings, "surge_enabled", True)
+    monkeypatch.setattr(surge_worker, "get_pool", lambda **kw: conn)
+    monkeypatch.setattr(surge_worker, "assert_surge_schema", AsyncMock())
+    monkeypatch.setattr(
+        surge_store, "process_checkpoint", AsyncMock(side_effect=[ValueError("fixture"), None])
+    )
+    with caplog.at_level(logging.INFO, logger="avelren.surge_worker"):
+        asyncio.run(surge_worker.run_cycle(datetime(2026, 10, 2, tzinfo=UTC)))
+    assert "surge cycle committed" in caplog.text
+    assert "processed=1 failed=1" in caplog.text
+    assert "model=surge_24h_v1" in caplog.text

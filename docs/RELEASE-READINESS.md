@@ -307,8 +307,8 @@ FCM-токенів і нуль підписок на чинному Admin-ID. В
 
 | Етап | Стан |
 | --- | --- |
-| Код | Реалізація в `codex/experimental-surge-monitor`: frozen модель, залежність PR #72, схема 016, optional gate, права, епізоди, worker, API та стійка FCM-доставка, Android API/local ACK, UI та голосовий сервіс; інтеграційне приймання ще в роботі |
-| Локальні перевірки | 338 unit, 52 database, 74 API, 161 Android JVM, офлайн UI на емуляторі, синтетичний restore та allowlist пройшли; не означає CI |
+| Код | Реалізація в `codex/experimental-surge-monitor`: frozen модель, залежність PR #72, схема 016, optional gate, права, епізоди, worker, API та стійка FCM-доставка, Android API/local ACK, UI та голосовий сервіс, runtime й повний синтетичний сценарій; review/пакет установлення ще в роботі |
+| Локальні перевірки | 339 unit, 52 database, 75 API, 22 surge integration, 161 Android JVM, офлайн UI на емуляторі, синтетичний restore та allowlist пройшли; не означає CI |
 | CI | Не запускався для нової гілки |
 | Сервер | Не розгорнуто; потрібен окремий конкретний дозвіл на пакет/міграції/роль/служби та відкат |
 | Android-збірка | Нового APK/AAB немає |

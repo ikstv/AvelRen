@@ -1,0 +1,5 @@
+# Використовується лише з compose.database-test.yml, внутрішня disposable мережа.
+services:
+  test:
+    environment:
+      SURGE_ENABLED: 'true'

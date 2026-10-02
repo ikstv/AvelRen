@@ -8,6 +8,7 @@ on:
       - 'services/backend/src/avelren/subscriptions_api.py'
       - 'services/backend/src/avelren/admin_access_api.py'
       - 'services/backend/src/avelren/maintenance.py'
+      - 'services/backend/src/avelren/surge*.py'
       - 'docs/ANDROID-PROVENANCE.json'
       - 'docs/ASSETS.md'
       - 'scripts/verify_android.py'
@@ -22,6 +23,7 @@ on:
       - 'services/backend/src/avelren/subscriptions_api.py'
       - 'services/backend/src/avelren/admin_access_api.py'
       - 'services/backend/src/avelren/maintenance.py'
+      - 'services/backend/src/avelren/surge*.py'
       - 'docs/ANDROID-PROVENANCE.json'
       - 'docs/ASSETS.md'
       - 'scripts/verify_android.py'
@@ -51,4 +53,4 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
       - name: Компіляція та JVM-тести без ключів
         working-directory: apps/android
-        run: bash gradlew -PavelrenUiPreview=true :app:testDebugUnitTest :app:compileDebugKotlin --no-daemon --max-workers=2
+        run: bash gradlew -PavelrenUiPreview=true :app:testDebugUnitTest :app:compileDebugKotlin :app:lintDebug --no-daemon --max-workers=2

@@ -38,7 +38,7 @@ permissions:
 jobs:
   database:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -124,6 +124,11 @@ jobs:
           bash ops/maintenance-works-contract-test.sh
       - name: TimescaleDB, міграції, права та запис даних
         run: bash scripts/test_database.sh
+      - name: Напливи — профіль, повна зв’язка й синтетичне відновлення
+        run: |
+          python3 ops/surge-runtime-contract-test.py
+          bash -n ops/surge-integration-test.sh
+          bash ops/surge-integration-test.sh
       - name: Ізольоване оновлення TimescaleDB зі стисненими даними
         run: |
           bash -n ops/timescale-upgrade-test.sh
