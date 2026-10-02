@@ -11,6 +11,7 @@ and the app being killed.
 import asyncio
 import logging
 import signal
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -122,10 +123,18 @@ async def run_cycle(client: httpx.AsyncClient) -> int:
 
             await _mark_sent(conn, r["kind"], r["id"])
             sent += 1
-            log.info(
-                "sent %s alert %s (attempt %s)", r["kind"], r["id"], r["send_count"] + 1
-            )
+            log.info("sent %s alert %s (attempt %s)", r["kind"], r["id"], r["send_count"] + 1)
 
+    # Commit legacy writes before taking a second pool connection. In particular,
+    # legacy dead-token UPDATE must not hold a device lock across surge delivery.
+    from .surge_delivery import send_due
+
+    try:
+        async with asyncio.timeout(30):
+            sent += await send_due(client, datetime.now(UTC))
+    except Exception as exc:
+        log.warning("surge phase failed: %s", type(exc).__name__)
+    async with get_pool().connection() as conn:
         # Cancels — AFTER the normal pushes in the same cycle. Order matters: if
         # an alert expired in the middle of the normal phase, the cancel is sent
         # after its own normal push and with the same collapse_key supersedes it —

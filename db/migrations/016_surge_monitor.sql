@@ -125,3 +125,7 @@ GRANT EXECUTE ON FUNCTION discard_disabled_surge_alert(bigint,uuid)
     TO avelren_surge,avelren_api;
 
 GRANT SELECT(notification_capabilities) ON devices TO avelren_api;
+
+GRANT SELECT(notification_capabilities) ON devices TO avelren_notifier;
+GRANT INSERT ON notification_cancels TO avelren_notifier;
+GRANT USAGE ON SEQUENCE notification_cancels_id_seq TO avelren_notifier;

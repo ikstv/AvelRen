@@ -82,3 +82,31 @@ performance gate. AST-перевірка rate limit бачить усі шіст
 Походження попереднього wait-time контракту збережено в
 [описі PR #72](WAIT-ESTIMATE-IMPLEMENTATION.md); поточні revisions
 у manifests посилаються на цей спільний журнал подальших змін.
+
+
+## Доставка FCM
+
+Спроба з UUID записується та commit виконується до HTTP. Повтор після
+втраченої відповіді використовує той самий UUID у п'ятихвилинному інтервалі.
+Наступне заплановане нагадування отримує новий ordinal, навіть коли
+попередня відповідь лишилась невідомою; стару не позначаємо accepted.
+Після підтвердженого прийняття Google наступне нагадування через 300 секунд.
+ACK/expiry зупиняють резервування. Пізній normal callback повторно ставить
+cancel у чергу, не повертаючи ACK у pending. Підтвердження Google не є
+підтвердженням показу на телефоні.
+
+`notifier.py` commit-ить legacy-зміни перед окремою surge-фазою, щоб не
+очікувати власного lock на devices через другу pool connection. Нова фаза
+має межу 30 секунд, потім працюють cancels; помилка surge не припиняє їх.
+Мертвий токен очищається тільки якщо він досі збігається з токеном спроби.
+Payload має окремий surge_alert_id, attempt_id, ordinal, created_at, expiry
+і experimental, без legacy alert_id. TTL до 360 секунд і не довший за expiry.
+Android має перевіряти ordinal, ACK/cancel та expiry перед текстом/голосом.
+
+[Офіційний контракт FCM collapse](https://firebase.google.com/docs/cloud-messaging/customize-messages/collapsible-message-types)
+не гарантує порядок і зберігає лише чотири collapse keys для одного токена.
+Тому не обіцяємо доставку всіх offline push; повтори, TTL та foreground
+reconciliation доповнюють одне одного.
+[Строк актуальності FCM](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan).
+
+Новий cancel має `cancel_surge_alert_id`, а не legacy `cancel_alert_id`: старий Android ігнорує невідомий тип і не скасовує повідомлення здоров’я сервера з тим самим числовим ID. Чинний threshold/eta payload не змінено.

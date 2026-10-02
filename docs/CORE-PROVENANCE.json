@@ -23,7 +23,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/notifier.py",
       "destination": "services/backend/src/avelren/notifier.py",
-      "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2"
+      "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
+      "revision": {
+        "sha256": "2e52bed4c28bcac6607ae630d03f3495f693136dc32f6b93f2844d38e6414bc8",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -59,7 +63,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/fcm.py",
       "destination": "services/backend/src/avelren/fcm.py",
-      "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4"
+      "sha256": "05149a58ed8f6fd24a5813c398f998f0ee10b5bae049d3764ba210edcced18e4",
+      "revision": {
+        "sha256": "c80d55eaeea5ff004b0f92f2be40e4284ad3fb3817777fac55f447994d21e1de",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

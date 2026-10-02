@@ -211,8 +211,11 @@ def cancel_payload(kind: str, alert_id: int) -> dict[str, str]:
     reaches `data["alert_id"] ?: return` and silently ignores the cancel.
     Collapse_key still evicts the queued normal push. (audit A-02 / B1)
     """
-    return {
-        "type": "cancel",
-        "kind": kind,
-        "cancel_alert_id": str(alert_id),
-    }
+    # Older clients map unknown kinds into their health notification namespace.
+    # A separate ID field makes them ignore surge cancels entirely.
+    id_field = (
+        "cancel_surge_alert_id"
+        if kind in {"surge_forecast", "surge_started"}
+        else "cancel_alert_id"
+    )
+    return {"type": "cancel", "kind": kind, id_field: str(alert_id)}
