@@ -17,7 +17,7 @@ import ua.avelren.app.ui.AdminAccessClient
 import ua.avelren.app.ui.SettingsDeveloperFooter
 import ua.avelren.app.ui.SettingsScreen
 import ua.avelren.app.ui.theme.AvelRenTheme
-import ua.avelren.app.ui.theme.DarkColors
+import ua.avelren.app.ui.theme.AppBackground
 import java.time.Instant
 
 /** Offline visual check: a separate package, no Firebase or production credentials. */
@@ -27,7 +27,7 @@ class PreviewActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AvelRenTheme {
-                MaterialTheme(colorScheme = DarkColors) {
+                MaterialTheme {
                     val surgeMode = intent.getStringExtra("surge_mode")
                     if (surgeMode != null) {
                         val client = remember { DemoSurgeClient(surgeMode) }
@@ -39,7 +39,7 @@ class PreviewActivity : ComponentActivity() {
                     }
                     val demo = remember { DemoAccess() }
                     Column(
-                        Modifier.fillMaxSize().background(Color(0xFF0A0A0A))
+                        Modifier.fillMaxSize().background(AppBackground)
                             .windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 20.dp),
                     ) {
                         Text(

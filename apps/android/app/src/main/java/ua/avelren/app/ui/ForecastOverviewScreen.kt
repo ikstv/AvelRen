@@ -1,6 +1,7 @@
 package ua.avelren.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
@@ -121,7 +122,7 @@ internal fun ForecastOverviewScreen(
         }
     }
     BackHandler { if (picker) picker = false else onBack() }
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+    Column(Modifier.fillMaxSize().background(AppBackground).windowInsetsPadding(WindowInsets.systemBars)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 20.dp, top = 18.dp),
             verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад до Моніторингу", tint = AppAccent) }
