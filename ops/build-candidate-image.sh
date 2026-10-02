@@ -54,5 +54,10 @@ if [ "$embedded_commit" != "$commit" ]; then
     exit 68
 fi
 
+# Source-mounted tests cannot prove that package data reached the wheel.
+# Verify the installed model in the actual candidate, without source or network.
+docker run --rm -i --network none --entrypoint python "$image" - \
+    < "$ROOT/ops/verify-installed-model.py" >/dev/null
+
 printf '{"source_commit":"%s","image_ref":"%s","image_digest":"%s"}\n' \
     "$commit" "$image" "$image_id"

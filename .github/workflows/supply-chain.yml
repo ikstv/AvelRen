@@ -53,6 +53,10 @@ jobs:
           docker build --build-arg "SOURCE_COMMIT=${GITHUB_SHA}" --tag "$image" services/backend
           embedded_commit=$(docker run --rm --network none --entrypoint python "$image" -c 'import os; print(os.environ.get("AVELREN_GIT_SHA", ""))')
           test "$embedded_commit" = "$GITHUB_SHA"
+      - name: Перевірити frozen модель встановленого wheel
+        run: |
+          image="avelren-candidate:${GITHUB_SHA}"
+          docker run --rm -i --network none --entrypoint python "$image" - < ops/verify-installed-model.py
       - name: Підготувати каталог SBOM
         run: mkdir -p "$RUNNER_TEMP/runtime-image-sbom"
       - name: Завантажити зафіксовані upstream images
