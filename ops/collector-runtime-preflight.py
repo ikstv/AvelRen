@@ -164,6 +164,13 @@ def validate_runtime(
         if item.get("Name", "").lstrip("/") == manifest["container_name"]
     ]
     for item in inventory:
+        labels = item.get("Config", {}).get("Labels") or {}
+        if (
+            item not in targets
+            and labels.get("com.docker.compose.project") == manifest["project"]
+            and labels.get("com.docker.compose.service") == "collector"
+        ):
+            errors.append("additional_managed_collector")
         if (
             item.get("State", {}).get("Running")
             and is_collector(item)

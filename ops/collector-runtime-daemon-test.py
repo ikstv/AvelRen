@@ -467,6 +467,50 @@ def main(source):
             print(
                 "handoff standalone → Compose using real 60s operator delay", flush=True
             )
+            # Compose selects all project/service labels, including renamed stopped rollback.
+            duplicate = command(
+                [
+                    "docker",
+                    "create",
+                    "--name",
+                    prefix + "-duplicate",
+                    "--network",
+                    "none",
+                    "--label",
+                    "com.docker.compose.project=" + prefix,
+                    "--label",
+                    "com.docker.compose.service=collector",
+                    image,
+                    "python",
+                    "-c",
+                    "pass",
+                ]
+            ).strip()
+            containers.append(duplicate)
+            denied = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "ops/collector-runtime-control.sh"),
+                    "--manifest",
+                    str(manifest_path),
+                    "--test-mode",
+                    "start",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert denied.returncode != 0
+            assert "LITERAL_SENTINEL" not in denied.stdout + denied.stderr
+            assert not any(
+                item["State"]["Running"]
+                for item in json.loads(
+                    command(["docker", "inspect", managed_id, duplicate])
+                )
+            )
+            command(["docker", "rm", "-v", duplicate])
+            containers.remove(duplicate)
+            evidence["duplicate_stopped_service_denied_before_start"] = True
             control("start")
             evidence["handoffs"].append(
                 {"kind": "compose", "pause_seconds": time.monotonic() - stopped_at}

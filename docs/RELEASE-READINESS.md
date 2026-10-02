@@ -9,8 +9,8 @@
 і [план реалізації](superpowers/plans/2026-10-02-collector-compose-control.md)
 схвалено власником; реалізацію виконано в цій сесії. Source-кандидат:
 окремий Compose, приватний manifest/preflight, серіалізований control,
-60-секундна пауза та ранній restore guard. Локально: 16 runtime-контрактів,
-10 Linux control-контрактів зі справжнім flock, 3 cleanup regressions,
+60-секундна пауза та ранній restore guard. Локально: 17 runtime-контрактів,
+11 Linux control-контрактів зі справжнім flock, 3 cleanup regressions,
 28 DB-тестів, restore orchestration/preflight/identity, Ruff/provenance.
 Ізольована репетиція до фінального коміту: 6 циклів, фактичний FIFO,
 pending=0, без дублів/застарілих alerts; паузи перемикання/відкату

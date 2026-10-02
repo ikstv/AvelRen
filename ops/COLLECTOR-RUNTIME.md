@@ -41,6 +41,13 @@ recreate/up. Кожен start після stop витримує повні 60 mon
 незалежно від годинника/наявності state; незавершений restart не запускає
 fallback. State `stop.json` пишеться атомарно й зберігається після сигналу.
 
+Інший контейнер із такими самими project/service labels блокує control,
+навіть якщо він stopped: Compose start може вибрати також його. Не
+зберігати managed rollback цього самого project як звичайний другий
+service-контейнер; для майбутнього оновлення потрібен окремий перевірений
+план збереження відкату. Поточний standalone rollback не має цих labels,
+а legacy rollback належить іншому project.
+
 Control не підходить для первинного перенесення standalone-контейнера:
 immutable labels потребують create нового контейнера. Первинний create,
 зміна manifest/image/env, будь-який production stop/start/capture-only —

@@ -80,6 +80,20 @@ class ControlContract(unittest.TestCase):
             self.invoke("restart", fail=True)
         self.assertEqual(self.trace, ["guard"])
 
+    def test_duplicate_stopped_service_no_start(self):
+        obj = module()
+        with (
+            patch.object(
+                obj.runtime,
+                "preflight",
+                side_effect=ValueError("additional_managed_collector"),
+            ),
+            patch.object(obj.runtime, "run") as run,
+            self.assertRaises(ValueError),
+        ):
+            obj.execute(self.manifest, "start", [])
+        run.assert_not_called()
+
     def test_stop_start_delay(self):
         self.invoke("stop")
         self.invoke("start")

@@ -168,6 +168,13 @@ class RuntimeContract(unittest.TestCase):
         legacy["Config"]["Labels"]["com.docker.compose.project"] = "avelren"
         self.assertEqual(self.verdict(cfg, [item, legacy]), [])
 
+    def test_duplicate_stopped_managed_service_denied(self):
+        cfg, item = self.runtime()
+        item["State"]["Running"] = False
+        other = deepcopy(item)
+        other.update(Name="/renamed-managed-rollback", Id="d" * 64)
+        self.assertIn("additional_managed_collector", self.verdict(cfg, [item, other]))
+
     def test_foreign_canonical_container_denied(self):
         cfg, item = self.runtime()
         item["Config"]["Labels"] = {}
