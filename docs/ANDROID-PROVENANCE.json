@@ -229,8 +229,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "6104ced49ffc74a591edec023277cafb979a016d03a5f8413deb7cf1a3eac1d8",
-        "notes": "docs/BANNER-FOUR-STATES.md"
+        "sha256": "ea4390464b77233c7bd1c6dec2a2fc94b4239455d334c408c94bf2fc5fef917f",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
       }
     },
     {
@@ -347,7 +347,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/preview/java/ua/avelren/app/PreviewActivity.kt",
       "destination": "apps/android/app/src/preview/java/ua/avelren/app/PreviewActivity.kt",
-      "sha256": "3b6b2394563e5c0c0b7d0866b5bc05d2dfef8f6acda0fc246a169b7f3db26357"
+      "sha256": "3b6b2394563e5c0c0b7d0866b5bc05d2dfef8f6acda0fc246a169b7f3db26357",
+      "revision": {
+        "sha256": "f5b75ae41ee04b014b2ee59955f23223b98a1e48372cf980cdfaad0dcb83fbf5",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

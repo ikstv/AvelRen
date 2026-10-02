@@ -224,6 +224,8 @@ fun AvelRenScreen(
     var showEtaCpPicker by remember { mutableStateOf(false) }
     var pendingEtaCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Прогноз — read-only потік: вибір КПП відкриває окремий екран.
+    var surgeOpen by remember { mutableStateOf(false) }
+    val surgeRepository = remember(installation) { ua.avelren.app.data.SurgeRepository(installation) }
     var showAiCpPicker by remember { mutableStateOf(false) }
     var pendingAiCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Гейт беззвучної підписки (#117 крок 2): коли дозволу нема, вибір порога
@@ -428,8 +430,8 @@ fun AvelRenScreen(
 
     val onMonitor = activeTab == "monitor"
     val onSettings = activeTab == "settings"
-    val forecastOpen = pendingAiCp != null
-    BackHandler(enabled = forecastOpen) { pendingAiCp = null }
+    val forecastOpen = pendingAiCp != null || surgeOpen
+    BackHandler(enabled = forecastOpen) { pendingAiCp = null; surgeOpen = false }
     val bottomChromePadding = if (updateAvailable) 182.dp else 136.dp
 
     // Головна — фото на всю площу; моніторинг і налаштування мають рівний
@@ -453,7 +455,15 @@ fun AvelRenScreen(
             )
         }
 
-    if (forecastOpen) {
+    if (surgeOpen && pendingAiCp == null) {
+        SurgeMonitorScreen(
+            repository = surgeRepository,
+            onBack = { surgeOpen = false },
+            notificationsAllowed = !notificationsSilent,
+            onOpenNotificationSettings = onOpenNotificationSettings,
+            onCountForecast = { id -> pendingAiCp = workload.firstOrNull { it.checkpoint_id == id } },
+        )
+    } else if (forecastOpen) {
         pendingAiCp?.let { cp ->
             ForecastScreen(
                 checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
@@ -499,9 +509,9 @@ fun AvelRenScreen(
                 icon = { TileIcon(Icons.Filled.HourglassEmpty) },
             )
             ActionTile(
-                title = "Прогноз черги",
-                subtitle = "Прогноз черги на наступні 24 години",
-                onClick = { showAiCpPicker = true },
+                title = "Прогноз і напливи",
+                subtitle = "Кілька КПП · прогноз, початок зростання та голос",
+                onClick = { surgeOpen = true },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 icon = { TileIcon(Icons.Filled.AutoAwesome) },
             )

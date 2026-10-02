@@ -116,3 +116,9 @@ reconciliation доповнюють одне одного.
 Окремі DTO та API для моніторингу; registration і token refresh передають `surge_v1`. Локальний preferences ledger має синхронний commit і спільний process lock: підтвердження, cancel tombstone, UUID/ordinal переживають створення нового store. Збій запису або пошкоджений ledger не дозволяє показ. Відома активна фактична подія блокує пізній прогноз того самого КПП.
 
 «Зрозуміло» спершу записує local ACK, відразу прибирає notification і зберігає pending до WorkManager з network constraint та backoff. Успіх або own-alert 404 після recovery завершує pending; 503/offline не завершує. Startup/foreground відновлює pending. Legacy threshold/eta paths збережено; active-alerts має окремі нові списки. Stop voice буде підключено разом із голосовим сервісом. Це JVM-перевірки persistence boundary, а не доказ перевірки на реальному телефоні.
+
+## Інтерфейс моніторингу
+
+Третя плитка відкриває моніторинг кількох КПП з окремими forecast/fact налаштуваннями, глобальною local voice preference та чинним count forecast як окремою дією. Стиль звірено з AvelRen: Overpass, жовтий F5C400, темні картки 0A0A0A, тонка біла рамка38FFFFFF, кути16dp, поля20dp. Footer закріплено Scaffold.
+
+02.10.2026 офлайн preview (без INTERNET) перевірено на окремому емуляторі API36: вибрані два КПП, loading, error, довгий scroll, font_scale1.5, відсутність sample button, footer видимий. Останню версію карток повторно оглянуто на screenshot style-final. Це синтетичні стани UI, не доказ доставки push або перевірки телефона.

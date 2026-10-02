@@ -28,6 +28,14 @@ class PreviewActivity : ComponentActivity() {
         setContent {
             AvelRenTheme {
                 MaterialTheme(colorScheme = DarkColors) {
+                    val surgeMode = intent.getStringExtra("surge_mode")
+                    if (surgeMode != null) {
+                        val client = remember { DemoSurgeClient(surgeMode) }
+                        ua.avelren.app.ui.SurgeMonitorScreen(
+                            repository = client, onBack = { finish() }, notificationsAllowed = false,
+                        )
+                        return@MaterialTheme
+                    }
                     val demo = remember { DemoAccess() }
                     Column(
                         Modifier.fillMaxSize().background(Color(0xFF0A0A0A))
@@ -69,4 +77,31 @@ private class DemoAccess : AdminAccessClient {
         }
         return Api.AdminAccess("invalid_pin", attempts_remaining = 3 - failures)
     }
+}
+
+
+private class DemoSurgeClient(private val mode: String) : ua.avelren.app.data.SurgeMonitorClient {
+    private val cps = listOf(
+        ua.avelren.app.data.SurgeCheckpoint(17, "Чоп", "Угорщина", "🇭🇺", true, true, true),
+        ua.avelren.app.data.SurgeCheckpoint(6, "Краківець", "Польща", "🇵🇱", true, true, true),
+    ) + (40..51).map { ua.avelren.app.data.SurgeCheckpoint(it, "Тестовий КПП $it", fact_supported = true) }
+    private var subs = cps.take(2).map { ua.avelren.app.data.SurgeSubscription(it.checkpoint_id, it.title, true, true) }
+    override suspend fun checkpoints(): List<ua.avelren.app.data.SurgeCheckpoint> {
+        if (mode == "loading") kotlinx.coroutines.delay(Long.MAX_VALUE)
+        if (mode == "error") error("synthetic offline")
+        return cps
+    }
+    override suspend fun subscriptions() = subs
+    override suspend fun snapshot(checkpointId: Int) = ua.avelren.app.data.SurgeStatus(
+        checkpointId, if (checkpointId == 17) "started" else "risk",
+        window_start = Instant.now().plusSeconds(3600).toString(),
+        window_end = Instant.now().plusSeconds(86400).toString(),
+        expires_at = Instant.now().plusSeconds(3600).toString(), forecast_supported = true,
+    )
+    override suspend fun setSubscription(checkpointId: Int, forecast: Boolean, fact: Boolean) {
+        val cp = cps.first { it.checkpoint_id == checkpointId }
+        subs = subs.filterNot { it.checkpoint_id == checkpointId } +
+            ua.avelren.app.data.SurgeSubscription(checkpointId, cp.title, forecast, fact)
+    }
+    override suspend fun removeSubscription(checkpointId: Int) { subs = subs.filterNot { it.checkpoint_id == checkpointId } }
 }
