@@ -104,6 +104,18 @@ def test_quality_evaluation_holds_out_latest_week() -> None:
     assert params[2] - params[3] == timedelta(days=7)
 
 
+def test_quality_uses_independent_wait_and_count_samples() -> None:
+    spy = _SpyConn()
+    asyncio.run(forecast.evaluate(spy, 123))
+
+    sql, _ = spy.calls[0]
+    assert "wait_time_status" in sql
+    assert "FILTER (" in sql
+    assert "WHERE wait_time_status = 'reported'" in sql
+    assert "count_samples" in sql
+    assert "NOT (wait_time_seconds = 0 AND vehicles_in_queue > 0)" not in sql
+
+
 def test_ready_forecast_is_demoted_by_a_large_collection_gap() -> None:
     state = asyncio.run(
         forecast.readiness(_ReadinessConn(timedelta(minutes=6)), 123)

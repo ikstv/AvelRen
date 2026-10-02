@@ -47,7 +47,7 @@ object NotificationReconciler {
             //    snapshot, so reconciliation will not dismiss it. We dismiss only
             //    what was shown at the moment before the request.
             val snapshot = nm.activeNotifications.map { sbn ->
-                ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras))
+                ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras), sbn.tag)
             }
 
             // 2. Only now do we ask the server — through the repository, so a 401
@@ -58,6 +58,8 @@ object NotificationReconciler {
                 buildSet {
                     server.threshold.forEach { add(AlertKey("threshold", it)) }
                     server.eta.forEach { add(AlertKey("eta", it)) }
+                    server.surge_forecast.forEach { add(AlertKey("surge_forecast", it)) }
+                    server.surge_started.forEach { add(AlertKey("surge_started", it)) }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "не вдалося отримати active-alerts, лишаю все як є: ${e.message}")
@@ -67,9 +69,16 @@ object NotificationReconciler {
             // 3. FAIL-SAFE: serverKeys==null (fetch/recovery failed) → we dismiss
             //    nothing. Diff the snapshot (not a fresh read) against the server state.
             val stale = AlertReconciliation.staleNotificationIdsOrNothing(snapshot, serverKeys)
-            for (id in stale) {
-                nm.cancel(id)
-                Log.i(TAG, "погашено застаріле сповіщення id=$id")
+            val store = SurgeLocalStore(context)
+            for (notification in snapshot) {
+                val key = notification.key
+                if (notification.notificationId !in stale) continue
+                if (key != null && key.kind in surgeKinds) {
+                    if (serverKeys == null || key in serverKeys) continue
+                    if (!store.cancel(key.alertId)) continue
+                    SurgeVoiceService.stopAlert(context, key.alertId)
+                    nm.cancel(notification.tag, notification.notificationId)
+                } else nm.cancel(notification.notificationId)
             }
         }
     }

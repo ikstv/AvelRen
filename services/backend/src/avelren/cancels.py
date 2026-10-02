@@ -122,7 +122,30 @@ async def active_alert_keys(conn: AsyncConnection, device_id: str) -> dict[str, 
             (device_id,),
         )
     ).fetchall()
-    return {
+    result = {
         "threshold": [r["id"] for r in threshold],
         "eta": [r["id"] for r in eta],
     }
+
+    from .config import settings
+    from .schema_gate import SchemaTooOldError, assert_surge_schema
+
+    if settings.surge_enabled:
+        try:
+            await assert_surge_schema(conn)
+        except SchemaTooOldError:
+            return result
+        rows = await (
+            await conn.execute(
+                """
+            SELECT a.id,e.kind FROM surge_alerts a JOIN surge_events e ON e.id=a.event_id
+            WHERE a.device_id=%s AND a.status='pending'
+                AND e.closed_at IS NULL AND e.expires_at>now()
+            ORDER BY a.id
+        """,
+                (device_id,),
+            )
+        ).fetchall()
+        for kind in ("surge_forecast", "surge_started"):
+            result[kind] = [r["id"] for r in rows if r["kind"] == kind]
+    return result

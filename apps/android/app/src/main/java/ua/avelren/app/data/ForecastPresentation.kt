@@ -10,6 +10,22 @@ import java.time.ZoneId
 object ForecastPresentation {
     private val kyiv = ZoneId.of("Europe/Kyiv")
 
+    /** Явно порожній count_points не підміняється старими wait-фільтрованими точками. */
+    fun displayPoints(forecast: Api.Forecast): List<Api.CountForecastPoint> =
+        forecast.count_points ?: forecast.points.map {
+            Api.CountForecastPoint(it.time, it.vehicles_low, it.vehicles_expected, it.vehicles_high)
+        }
+
+    fun next24CountHours(points: List<Api.CountForecastPoint>, now: Instant): List<Api.CountForecastPoint> =
+        points.mapNotNull { point ->
+            runCatching { OffsetDateTime.parse(point.time).toInstant() }.getOrNull()
+                ?.takeIf { it > now && it <= now.plus(Duration.ofHours(24)) }
+                ?.let { it to point }
+        }.sortedBy { it.first }.distinctBy { it.first }.map { it.second }
+
+    fun countPeak(points: List<Api.CountForecastPoint>): Api.CountForecastPoint? =
+        points.maxByOrNull { it.vehicles_expected }
+
     /** Rolling 24 elapsed hours, including tomorrow and Kyiv DST transitions. */
     fun next24Hours(points: List<Api.ForecastPoint>, now: Instant): List<Api.ForecastPoint> =
         points.mapNotNull { point ->

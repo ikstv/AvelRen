@@ -36,12 +36,36 @@ log = logging.getLogger("avelren.schema_verify")
 
 # Optional features enforce their exact migration at their own entry point.
 # Their absence must not stop collector/notifier or the existing public API.
-FEATURE_MIGRATIONS = frozenset({
-    "011_admin_access",
-    "012_device_retention",
-    "013_admin_installation_lock",
-    "014_admin_pin_rebind",
-})
+FEATURE_MIGRATIONS = frozenset(
+    {
+        "011_admin_access",
+        "012_device_retention",
+        "013_admin_installation_lock",
+        "014_admin_pin_rebind",
+        "016_surge_monitor",
+    }
+)
+
+SURGE_CLEANUP_SAFETY_QUERY = """
+    SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig,
+        has_function_privilege('avelren_api',p.oid,'EXECUTE'),
+        has_function_privilege('avelren_surge',p.oid,'EXECUTE'),
+        NOT EXISTS (SELECT 1 FROM aclexplode(
+            COALESCE(p.proacl,acldefault('f',p.proowner))) acl
+            WHERE acl.privilege_type='EXECUTE' AND acl.grantee NOT IN (
+                p.proowner,(SELECT oid FROM pg_roles WHERE rolname='avelren_api'),
+                (SELECT oid FROM pg_roles WHERE rolname='avelren_surge')))
+    FROM pg_proc p
+    WHERE p.oid=to_regprocedure('public.discard_disabled_surge_alert(bigint,uuid)')
+"""
+SURGE_CLEANUP_SAFETY_RESULT = (
+    True,
+    "avelren_migrator",
+    ["search_path=pg_catalog, pg_temp"],
+    True,
+    True,
+    True,
+)
 
 # --- Version-annotated physical contract ------------------------------------
 # Format: (since_version | None, ...object details)
@@ -49,6 +73,12 @@ FEATURE_MIGRATIONS = frozenset({
 # The prefix gate in migrate.py filters by recorded_versions.
 
 _TABLES_V: list[tuple[str | None, str]] = [
+    ("016_surge_monitor", "surge_subscriptions"),
+    ("016_surge_monitor", "surge_predictions"),
+    ("016_surge_monitor", "surge_events"),
+    ("016_surge_monitor", "surge_alerts"),
+    ("016_surge_monitor", "surge_delivery_attempts"),
+    ("016_surge_monitor", "surge_checkpoint_state"),
     ("011_admin_access", "admin_access"),
     ("001_init", "checkpoints"),
     ("001_init", "observations"),
@@ -62,11 +92,13 @@ _TABLES_V: list[tuple[str | None, str]] = [
     ("005_eta_targets", "eta_alerts"),
     ("006_admin_devices", "health_alerts"),
     ("008_notification_cancels", "notification_cancels"),
-    ("001_init", "observations_hourly"),   # continuous aggregate, 001_init
+    ("001_init", "observations_hourly"),  # continuous aggregate, 001_init
     (None, "schema_migrations"),
 ]
 
 _COLUMNS_V: list[tuple[str | None, str, str]] = [
+    ("016_surge_monitor", "devices", "notification_capabilities"),
+    ("015_wait_time_status", "observations", "wait_time_status"),
     ("013_admin_installation_lock", "devices", "admin_blocked_until"),
     ("011_admin_access", "admin_access", "approved_device_id"),
     ("011_admin_access", "admin_access", "pin_hash"),
@@ -92,23 +124,97 @@ _COLUMNS_V: list[tuple[str | None, str, str]] = [
     ("008_notification_cancels", "notification_cancels", "abandoned_at"),
 ]
 
+# Full optional-column contract is shared with the feature startup gate.
+SURGE_COLUMNS = {
+    "surge_subscriptions": ("id", "device_id", "checkpoint_id", "forecast_enabled", "fact_enabled"),
+    "surge_predictions": (
+        "id",
+        "checkpoint_id",
+        "issued_at",
+        "window_start",
+        "window_end",
+        "model_version",
+        "score",
+        "reason",
+    ),
+    "surge_events": (
+        "id",
+        "checkpoint_id",
+        "kind",
+        "started_at",
+        "updated_at",
+        "expires_at",
+        "closed_at",
+        "close_reason",
+        "prediction_id",
+        "growth",
+    ),
+    "surge_alerts": ("id", "event_id", "device_id", "status", "next_attempt_at", "acknowledged_at"),
+    "surge_delivery_attempts": (
+        "id",
+        "attempt_id",
+        "alert_id",
+        "ordinal",
+        "accepted_at",
+        "abandoned_at",
+        "last_attempt_at",
+        "attempt_count",
+    ),
+    "surge_checkpoint_state": (
+        "checkpoint_id",
+        "last_observation_at",
+        "last_forecast_hour",
+        "forecast_armed",
+        "last_growth_at",
+    ),
+    "devices": ("notification_capabilities",),
+}
+_COLUMNS_V.extend(
+    ("016_surge_monitor", table, column)
+    for table, columns in SURGE_COLUMNS.items()
+    for column in columns
+)
+
 # Invariant-guarding indexes: we check the exact semantic definition —
 # table + columns + partial predicate. The same name with different columns or a
 # different WHERE is no longer the same invariant (e.g. "one pending" stops being
 # guaranteed).
 # (version, index_name, table, columns, predicate_expr_normalized)
 _UNIQUE_PARTIAL_INDEXES_V: list[tuple[str, str, str, tuple[str, ...], str]] = [
+    (
+        "016_surge_monitor",
+        "surge_events_one_active",
+        "surge_events",
+        ("checkpoint_id", "kind"),
+        "(closed_at IS NULL)",
+    ),
     ("011_admin_access", "devices_one_admin", "devices", ("is_admin",), "is_admin"),
-    ("004_alerts", "alerts_one_pending_per_subscription", "alerts",
-     ("subscription_id",), "(status = 'pending'::text)"),
-    ("005_eta_targets", "eta_alerts_one_pending_per_target", "eta_alerts",
-     ("target_id",), "(status = 'pending'::text)"),
-    ("006_admin_devices", "health_alerts_one_open_per_kind", "health_alerts",
-     ("kind",), "(resolved_at IS NULL)"),
+    (
+        "004_alerts",
+        "alerts_one_pending_per_subscription",
+        "alerts",
+        ("subscription_id",),
+        "(status = 'pending'::text)",
+    ),
+    (
+        "005_eta_targets",
+        "eta_alerts_one_pending_per_target",
+        "eta_alerts",
+        ("target_id",),
+        "(status = 'pending'::text)",
+    ),
+    (
+        "006_admin_devices",
+        "health_alerts_one_open_per_kind",
+        "health_alerts",
+        ("kind",),
+        "(resolved_at IS NULL)",
+    ),
 ]
 
 # Regular (non-unique) indexes: existence check only.
 _INDEXES_V: list[tuple[str, str]] = [
+    ("016_surge_monitor", "surge_alerts_pending"),
     ("008_notification_cancels", "notification_cancels_open_idx"),
 ]
 
@@ -116,10 +222,48 @@ _INDEXES_V: list[tuple[str, str]] = [
 # if a constraint was lost in the restore or has different columns — a POST fails.
 # (version, constraint_name, table, columns)
 _CONSTRAINTS_V: list[tuple[str, str, str, tuple[str, ...]]] = [
-    ("004_alerts", "subscriptions_device_id_checkpoint_id_threshold_key",
-     "subscriptions", ("device_id", "checkpoint_id", "threshold")),
-    ("008_notification_cancels", "notification_cancels_kind_alert_id_key",
-     "notification_cancels", ("kind", "alert_id")),
+    (
+        "016_surge_monitor",
+        "surge_subscriptions_device_id_checkpoint_id_key",
+        "surge_subscriptions",
+        ("device_id", "checkpoint_id"),
+    ),
+    (
+        "016_surge_monitor",
+        "surge_predictions_checkpoint_id_issued_at_model_version_key",
+        "surge_predictions",
+        ("checkpoint_id", "issued_at", "model_version"),
+    ),
+    (
+        "016_surge_monitor",
+        "surge_alerts_event_id_device_id_key",
+        "surge_alerts",
+        ("event_id", "device_id"),
+    ),
+    (
+        "016_surge_monitor",
+        "surge_delivery_attempts_alert_id_ordinal_key",
+        "surge_delivery_attempts",
+        ("alert_id", "ordinal"),
+    ),
+    (
+        "016_surge_monitor",
+        "surge_delivery_attempts_attempt_id_key",
+        "surge_delivery_attempts",
+        ("attempt_id",),
+    ),
+    (
+        "004_alerts",
+        "subscriptions_device_id_checkpoint_id_threshold_key",
+        "subscriptions",
+        ("device_id", "checkpoint_id", "threshold"),
+    ),
+    (
+        "008_notification_cancels",
+        "notification_cancels_kind_alert_id_key",
+        "notification_cancels",
+        ("kind", "alert_id"),
+    ),
 ]
 
 _HYPERTABLES_V: list[tuple[str, str]] = [
@@ -185,6 +329,7 @@ def verify_contract(
     prefix gate: detect a corrupt restore BEFORE applying new files).
     """
     problems: list[str] = []
+
     def want(since: str | None) -> bool:
         return _want(since, recorded_versions)
 
@@ -239,22 +384,16 @@ def verify_contract(
             continue
         table_name, is_unique, is_partial, predicate, columns = row
         if table_name != want_table:
-            problems.append(
-                f"index {index} is on table {table_name}, expected {want_table}"
-            )
+            problems.append(f"index {index} is on table {table_name}, expected {want_table}")
         if not is_unique:
             problems.append(f"index {index} is not UNIQUE (invariant violated)")
         if not is_partial:
             problems.append(f"index {index} is not partial — no WHERE clause")
         actual_cols = tuple(columns or ())
         if actual_cols != want_cols:
-            problems.append(
-                f"index {index}: columns {actual_cols}, expected {want_cols}"
-            )
+            problems.append(f"index {index}: columns {actual_cols}, expected {want_cols}")
         if is_partial and predicate != want_pred:
-            problems.append(
-                f"index {index}: predicate {predicate!r}, expected {want_pred!r}"
-            )
+            problems.append(f"index {index}: predicate {predicate!r}, expected {want_pred!r}")
 
     for since, index in _INDEXES_V:
         if not want(since):
@@ -291,18 +430,14 @@ def verify_contract(
             continue
         contype, table_name, columns = row
         if contype != "u":
-            problems.append(
-                f"constraint {constraint}: contype={contype!r}, expected 'u' (UNIQUE)"
-            )
+            problems.append(f"constraint {constraint}: contype={contype!r}, expected 'u' (UNIQUE)")
         if table_name != want_table:
             problems.append(
                 f"constraint {constraint} is on table {table_name}, expected {want_table}"
             )
         actual_cols = tuple(columns or ())
         if actual_cols != want_cols:
-            problems.append(
-                f"constraint {constraint}: columns {actual_cols}, expected {want_cols}"
-            )
+            problems.append(f"constraint {constraint}: columns {actual_cols}, expected {want_cols}")
 
     for since, ht in _HYPERTABLES_V:
         if not want(since):
@@ -324,13 +459,21 @@ def verify_contract(
         if not row:
             problems.append(f"missing continuous aggregate {cagg}")
 
+    if want("016_surge_monitor"):
+        row = conn.execute(SURGE_CLEANUP_SAFETY_QUERY).fetchone()
+        if row != SURGE_CLEANUP_SAFETY_RESULT:
+            problems.append("surge cleanup function missing or unsafe owner/search_path/grants")
+
     if want("011_admin_access"):
         row = conn.execute(
             "SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig "
             "FROM pg_proc p WHERE p.oid=to_regprocedure('public.activate_approved_admin(uuid)')"
         ).fetchone()
-        if not row or not row[0] or row[1] != "avelren_migrator" or (
-            "search_path=pg_catalog, pg_temp" not in (row[2] or [])
+        if (
+            not row
+            or not row[0]
+            or row[1] != "avelren_migrator"
+            or ("search_path=pg_catalog, pg_temp" not in (row[2] or []))
         ):
             problems.append("admin activation function missing or unsafe owner/search_path")
 
@@ -345,7 +488,11 @@ def verify_contract(
             "FROM pg_proc p WHERE p.oid=to_regprocedure('public.activate_admin_after_pin(uuid)')"
         ).fetchone()
         if row != (
-            True, "avelren_migrator", ["search_path=pg_catalog, pg_temp"], True, True,
+            True,
+            "avelren_migrator",
+            ["search_path=pg_catalog, pg_temp"],
+            True,
+            True,
         ):
             problems.append("PIN rebind function missing or unsafe owner/search_path/grants")
     if want("012_device_retention"):
@@ -353,8 +500,11 @@ def verify_contract(
             "SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig "
             "FROM pg_proc p WHERE p.oid=to_regprocedure('public.prune_inactive_devices(boolean)')"
         ).fetchone()
-        if not row or not row[0] or row[1] != "avelren_migrator" or (
-            "search_path=pg_catalog, pg_temp" not in (row[2] or [])
+        if (
+            not row
+            or not row[0]
+            or row[1] != "avelren_migrator"
+            or ("search_path=pg_catalog, pg_temp" not in (row[2] or []))
         ):
             problems.append("device retention function missing or unsafe owner/search_path")
 
@@ -369,10 +519,7 @@ def verify(conn: psycopg.Connection, directory: Path) -> list[str]:
     e.g. in tests), verify must not require objects of future migrations. A
     divergence between the files and what is recorded is caught by verify_history."""
     history_problems = verify_history(conn, directory)
-    recorded = {
-        row[0]
-        for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
-    }
+    recorded = {row[0] for row in conn.execute("SELECT version FROM schema_migrations").fetchall()}
     return history_problems + verify_contract(conn, recorded_versions=recorded)
 
 

@@ -1,7 +1,9 @@
 """Offline rolling 24h evaluation of the exact current-anchored implementation.
 
-Pass a directory of public history JSON files named by checkpoint ID. No network,
-no database writes. Hourly proxies cannot prove minute-level/live accuracy.
+Pass a directory of public history JSON files named by checkpoint ID. Explicit
+holdouts require independent ``count_hours`` from the new API; legacy ``points``
+are only allowed for exploratory runs. No network or database writes. Hourly
+proxies cannot prove minute-level/live accuracy.
 """
 
 import argparse
@@ -19,23 +21,43 @@ def slot(at):
     return local.weekday(), local.hour
 
 
-def evaluate(path):
+def aware_datetime(value):
+    try:
+        result = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected ISO datetime with timezone") from exc
+    if result.tzinfo is None or result.utcoffset() is None:
+        raise argparse.ArgumentTypeError("holdout datetime requires a timezone")
+    return result
+
+
+def evaluate(path, *, holdout_start=None, holdout_end=None):
     payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("resolution") == "hourly" and "count_hours" in payload:
+        source_name = "count_hours"
+    elif holdout_start is not None:
+        raise ValueError("explicit holdout requires independent count_hours history")
+    else:
+        source_name = "points"
     history = {
         datetime.fromisoformat(p["time"].replace("Z", "+00:00")): p["avg_vehicles"]
-        for p in payload["points"]
+        for p in payload[source_name]
         if p.get("avg_vehicles") is not None
     }
     end = min(
-        max(history), datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        max(history),
+        datetime.now(UTC).replace(minute=0, second=0, microsecond=0),
+        holdout_end or datetime.max.replace(tzinfo=UTC),
     )
     errors = defaultdict(list)
     peaks = defaultdict(list)
     cases = 0
+    first_origin = holdout_start or end - timedelta(days=14)
     for origin in sorted(history):
         if (
-            not timedelta(hours=24) <= end - origin <= timedelta(days=14)
+            end - origin < timedelta(hours=24)
             or origin.hour % 12
+            or origin < first_origin
         ):
             continue
         past = {t: v for t, v in history.items() if t < origin}
@@ -54,6 +76,8 @@ def evaluate(path):
         predicted = predict_counts(
             past, origin, past[anchor_at], targets, current_at=anchor_at
         )
+        if any(t not in predicted for t in targets):
+            continue
         values = {
             "seasonal": [median(groups[slot(t)]) for t in targets],
             "persistence": [past[anchor_at]] * 24,
@@ -74,17 +98,38 @@ def evaluate(path):
         cases += 1
     return {
         "checkpoint": int(path.stem),
-        "history_hours": len(history),
+        "method": "current_anchored_neighbors_v1",
+        "history_source": source_name,
+        "holdout_start": holdout_start.isoformat() if holdout_start else None,
+        "holdout_end": end.isoformat(),
+        "history_hours": sum(at <= end for at in history),
         "cases": cases,
         "mae": {k: round(mean(v), 2) for k, v in errors.items()},
         "peak_mae_hours": {k: round(mean(v), 2) for k, v in peaks.items()},
-        "limitation": "exploratory evaluation; hourly average is proxy for live count; not untouched holdout",
+        "limitation": (
+            "operator-defined post-selection window; hourly average is proxy for live "
+            "count; overlapping forecast windows are not independent samples"
+            if holdout_start is not None
+            else "exploratory evaluation; hourly average is proxy for live count; "
+            "not untouched holdout"
+        ),
     }
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--checkpoint", type=int, action="append")
+    parser.add_argument("--holdout-start", type=aware_datetime)
+    parser.add_argument("--holdout-end", type=aware_datetime)
     args = parser.parse_args()
-    for cp in (17, 1, 29, 6):
-        print(json.dumps(evaluate(args.directory / f"{cp}.json")), flush=True)
+    for cp in args.checkpoint or (17, 1, 29, 6):
+        try:
+            result = evaluate(
+                args.directory / f"{cp}.json",
+                holdout_start=args.holdout_start,
+                holdout_end=args.holdout_end,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(json.dumps(result), flush=True)

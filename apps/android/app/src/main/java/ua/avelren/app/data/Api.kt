@@ -54,7 +54,7 @@ object Api {
             requestTimeoutMillis = requestTimeoutMs
         }
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
+            json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
         }
         // Without this, Ktor 3 returns non-2xx as "success" — calls without body<>()
         // (updateToken, ack, delete) would not notice a 401 at all, and after a DB
@@ -101,6 +101,7 @@ object Api {
         // old fixtures/JSON without the field stay compatible. We compute freshness
         // from it, not from the HTTP request time (AND-4).
         val time: String? = null,
+        val wait_estimate: WaitEstimate? = null,
     )
 
     @Serializable
@@ -278,6 +279,8 @@ object Api {
     data class ActiveAlerts(
         val threshold: List<Long> = emptyList(),
         val eta: List<Long> = emptyList(),
+        val surge_forecast: List<Long> = emptyList(),
+        val surge_started: List<Long> = emptyList(),
     )
 
     @Serializable
@@ -289,6 +292,27 @@ object Api {
         val target_at: String,
         val tolerance_seconds: Int,
         val is_active: Boolean,
+    )
+
+    @Serializable
+    data class WaitEstimate(val status: String, val seconds: Int? = null, val entry_eta: String? = null)
+
+    @Serializable
+    data class ForecastWaitEstimate(
+        val seconds_low: Int,
+        val seconds_expected: Int,
+        val seconds_high: Int,
+        val samples: Int,
+    )
+
+    @Serializable
+    data class CountForecastPoint(
+        val time: String,
+        val vehicles_low: Int? = null,
+        val vehicles_expected: Int,
+        val vehicles_high: Int? = null,
+        val calibration_samples: Int = 0,
+        val wait_estimate: ForecastWaitEstimate? = null,
     )
 
     @Serializable
@@ -312,6 +336,7 @@ object Api {
         val weeks_needed: Int,
         val ready_at: String? = null,
         val points: List<ForecastPoint> = emptyList(),
+        val count_points: List<CountForecastPoint>? = null,
     )
 
     /** Одна точка історії черги (сире спостереження щохвилини). */
@@ -320,6 +345,17 @@ object Api {
         val time: String,
         val vehicles_in_queue: Int = 0,
         val is_paused: Boolean = false,
+        val wait_time_status: String? = null,
+        val wait_estimate_seconds: Int? = null,
+    )
+
+    @Serializable
+    data class CountHistoryHour(val time: String, val avg_vehicles: Double, val samples: Int)
+
+    @Serializable
+    data class WaitHistoryHour(
+        val time: String, val avg_wait_seconds: Double?,
+        val max_wait_seconds: Int?, val samples: Int,
     )
 
     @Serializable
@@ -327,17 +363,21 @@ object Api {
         /** raw (≤48 год) — точки щохвилини; hourly — погодинні агрегати. */
         val resolution: String = "raw",
         val points: List<HistoryPoint> = emptyList(),
+        val count_hours: List<CountHistoryHour>? = null,
+        val wait_hours: List<WaitHistoryHour>? = null,
     )
 
     @Serializable
-    private data class DeviceIn(val fcm_token: String, val platform: String = "android")
+    private data class DeviceIn(val fcm_token: String, val platform: String = "android",
+        val notification_capabilities: List<String> = listOf("surge_v1"))
 
     /** The server returns the secret ONLY once — in response to POST /devices. */
     @Serializable
     private data class DeviceOut(val device_id: String, val device_secret: String)
 
     @Serializable
-    private data class TokenIn(val fcm_token: String)
+    private data class TokenIn(val fcm_token: String,
+        val notification_capabilities: List<String> = listOf("surge_v1"))
 
     /**
      * Adds both installation authentication headers to the request. The server no

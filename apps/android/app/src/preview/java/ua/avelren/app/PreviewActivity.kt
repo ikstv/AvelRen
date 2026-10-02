@@ -17,7 +17,7 @@ import ua.avelren.app.ui.AdminAccessClient
 import ua.avelren.app.ui.SettingsDeveloperFooter
 import ua.avelren.app.ui.SettingsScreen
 import ua.avelren.app.ui.theme.AvelRenTheme
-import ua.avelren.app.ui.theme.DarkColors
+import ua.avelren.app.ui.theme.AppBackground
 import java.time.Instant
 
 /** Offline visual check: a separate package, no Firebase or production credentials. */
@@ -27,10 +27,19 @@ class PreviewActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AvelRenTheme {
-                MaterialTheme(colorScheme = DarkColors) {
+                MaterialTheme {
+                    val surgeMode = intent.getStringExtra("surge_mode")
+                    if (surgeMode != null) {
+                        val client = remember { DemoSurgeClient(surgeMode) }
+                        ua.avelren.app.ui.SurgeMonitorScreen(
+                            repository = client, onBack = { finish() },
+                            notificationsAllowed = ua.avelren.app.notify.Notifications.surgeChannelAllowed(this@PreviewActivity),
+                        )
+                        return@MaterialTheme
+                    }
                     val demo = remember { DemoAccess() }
                     Column(
-                        Modifier.fillMaxSize().background(Color(0xFF0A0A0A))
+                        Modifier.fillMaxSize().background(AppBackground)
                             .windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 20.dp),
                     ) {
                         Text(
@@ -69,4 +78,39 @@ private class DemoAccess : AdminAccessClient {
         }
         return Api.AdminAccess("invalid_pin", attempts_remaining = 3 - failures)
     }
+}
+
+
+private class DemoSurgeClient(private val mode: String) : ua.avelren.app.data.SurgeMonitorClient {
+    private val cps = listOf(
+        ua.avelren.app.data.SurgeCheckpoint(17, "Чоп", "Угорщина", "🇭🇺", true, true, true),
+        ua.avelren.app.data.SurgeCheckpoint(6, "Краківець", "Польща", "🇵🇱", true, true, true),
+    ) + (40..51).map { ua.avelren.app.data.SurgeCheckpoint(it, "Тестовий КПП $it", fact_supported = true) }
+    private var subs = cps.take(2).map { cp ->
+        val kind = if (cp.checkpoint_id == 17) "surge_started" else "surge_forecast"
+        val body = if (cp.checkpoint_id == 17) "Почалось зростання черги на Чопі"
+            else "Можливий початок масової реєстрації на Краківці"
+        ua.avelren.app.data.SurgeSubscription(cp.checkpoint_id, cp.title, true, true,
+            alerts = listOf(ua.avelren.app.data.SurgeAlert(99000L + cp.checkpoint_id,
+                cp.checkpoint_id.toLong(), cp.checkpoint_id, kind,
+                Instant.now().plusSeconds(3600).toString(), cp.title, body)))
+    }
+    override suspend fun checkpoints(): List<ua.avelren.app.data.SurgeCheckpoint> {
+        if (mode == "loading") kotlinx.coroutines.delay(Long.MAX_VALUE)
+        if (mode == "error") error("synthetic offline")
+        return cps
+    }
+    override suspend fun subscriptions() = subs
+    override suspend fun snapshot(checkpointId: Int) = ua.avelren.app.data.SurgeStatus(
+        checkpointId, if (checkpointId == 17) "started" else "risk",
+        window_start = Instant.now().plusSeconds(3600).toString(),
+        window_end = Instant.now().plusSeconds(86400).toString(),
+        expires_at = Instant.now().plusSeconds(3600).toString(), forecast_supported = true,
+    )
+    override suspend fun setSubscription(checkpointId: Int, forecast: Boolean, fact: Boolean) {
+        val cp = cps.first { it.checkpoint_id == checkpointId }
+        subs = subs.filterNot { it.checkpoint_id == checkpointId } +
+            ua.avelren.app.data.SurgeSubscription(checkpointId, cp.title, forecast, fact)
+    }
+    override suspend fun removeSubscription(checkpointId: Int) { subs = subs.filterNot { it.checkpoint_id == checkpointId } }
 }

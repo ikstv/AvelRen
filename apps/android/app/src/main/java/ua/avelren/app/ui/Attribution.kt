@@ -14,13 +14,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.sp
-import ua.avelren.app.ui.theme.SignWarn
+import ua.avelren.app.ui.theme.AppAccent as SignWarn
+import ua.avelren.app.ui.theme.AppInk
 
 /**
- * Атрибуція джерела держданих — вимога Google Play (Misleading Claims): на
- * головному екрані, моніторингу та головному виборі КПП має бути ВИДИМИЙ
- * рядок про джерело і те, що застосунок неофіційний. У кроках налаштування
- * порога, часу та прогнозу власник вирішив не повторювати цей рядок.
+ * Атрибуція джерела держданих показується на головній. За рішенням
+ * власника її не повторюємо в Моніторингу та списку КПП.
  *
  * `echerha.gov.ua` — це ТЕКСТ атрибуції й посилання, яке відкриває офіційний
  * сайт у браузері (ACTION_VIEW через Compose LinkAnnotation). Це НЕ мережевий
@@ -29,7 +28,7 @@ import ua.avelren.app.ui.theme.SignWarn
  * легальний UI-текст його не завалював — див. .github/workflows/ci.yml.
  */
 object Attribution {
-    const val PREFIX = "Неофіційний застосунок · дані: єЧерга ("
+    const val PREFIX = "AvelRen є неофіційним застосунком. Усі дані беруться з єЧерги ("
     const val LINK_LABEL = "echerha.gov.ua"
     const val SUFFIX = ")"
     const val URL = "https://echerha.gov.ua"
@@ -40,7 +39,7 @@ object Attribution {
 
 // Читабельний, а не ледь помітний: Google вимагає «easy-to-see disclaimer».
 // ~80% білого (не 60%), посилання явно як посилання — акцент + підкреслення.
-private val AttributionInk = Color(0xCCFFFFFF)
+private val AttributionInk: Color @Composable get() = AppInk.copy(alpha = 0.8f)
 
 /**
  * Закріплений рядок атрибуції. Розміщується прибитим до низу екрана (над

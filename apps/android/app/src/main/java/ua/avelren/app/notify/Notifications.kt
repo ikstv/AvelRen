@@ -55,6 +55,7 @@ private fun canPostNotifications(context: Context): Boolean {
 object Notifications {
 
     const val CHANNEL_ID = "avelren_alerts"
+    const val SURGE_CHANNEL_ID = "avelren_surge"
     const val INFO_CHANNEL_ID = "avelren_info"
 
     // The full kind + alertId in the notification's extras. Reconciliation reads
@@ -74,6 +75,8 @@ object Notifications {
         val kindCode = when (kind) {
             "threshold" -> 1
             "eta" -> 2
+            "surge_forecast" -> 4
+            "surge_started" -> 5
             else -> 3
         }
         return kindCode * 10_000_000 + (alertId % 10_000_000).toInt()
@@ -102,7 +105,19 @@ object Notifications {
                 context, Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
 
+    fun surgeChannelAllowed(context: Context): Boolean = canPostNotifications(context) &&
+        context.getSystemService(NotificationManager::class.java).getNotificationChannel(SURGE_CHANNEL_ID)
+            ?.importance?.let { it != NotificationManager.IMPORTANCE_NONE } == true
+
     fun ensureChannel(context: Context) {
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(SURGE_CHANNEL_ID, "Зростання черги", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Прогноз і фактичний початок різкого зростання черги"
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+            }
+        )
         val channel = NotificationChannel(
             CHANNEL_ID,
             context.getString(R.string.alert_channel_name),
@@ -130,12 +145,17 @@ object Notifications {
     // justified — this is not a lint baseline.
     @SuppressLint("MissingPermission")
     fun show(context: Context, alertId: Long, kind: String, title: String, body: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
         ensureChannel(context)
 
         val notifId = notificationId(kind, alertId)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
         val ackIntent = Intent(context, AckReceiver::class.java).apply {
+            if (kind in surgeKinds) action = "$kind:$alertId"
             putExtra(AckReceiver.EXTRA_ALERT_ID, alertId)
             putExtra(AckReceiver.EXTRA_KIND, kind)
         }
@@ -157,24 +177,27 @@ object Notifications {
             putLong(EXTRA_ALERT_ID, alertId)
         }
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val visibleBody = if (kind in surgeKinds) SurgeDeliveryPolicy.notificationBody(body) else body
+        val notification = NotificationCompat.Builder(context, if (kind in surgeKinds) SURGE_CHANNEL_ID else CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentText(visibleBody)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(visibleBody))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             // Not swipeable — dismissed only by the "OK" button.
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(openPending)
-            .addAction(0, context.getString(R.string.ok), ackPending)
+            .addAction(0, if (kind in surgeKinds) "Зрозуміло" else context.getString(R.string.ok), ackPending)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addExtras(extras)
             .build()
 
         if (canPostNotifications(context)) {
-            NotificationManagerCompat.from(context).notify(notifId, notification)
+            if (kind in surgeKinds)
+                NotificationManagerCompat.from(context).notify("$kind:$alertId", notifId, notification)
+            else NotificationManagerCompat.from(context).notify(notifId, notification)
         }
     }
 
@@ -187,6 +210,10 @@ object Notifications {
      */
     @SuppressLint("MissingPermission")
     fun showInfo(context: Context, title: String, body: String, openStore: Boolean = false) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
         ensureChannel(context)
         val channel = NotificationChannel(
             INFO_CHANNEL_ID,
@@ -222,6 +249,8 @@ object Notifications {
     }
 
     fun cancel(context: Context, kind: String, alertId: Long) {
-        NotificationManagerCompat.from(context).cancel(notificationId(kind, alertId))
+        if (kind in surgeKinds)
+            NotificationManagerCompat.from(context).cancel("$kind:$alertId", notificationId(kind, alertId))
+        else NotificationManagerCompat.from(context).cancel(notificationId(kind, alertId))
     }
 }

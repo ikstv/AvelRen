@@ -11,7 +11,7 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
 BASE = "avelren_database_test"
-ROLES = ("migrator", "backup", "collector", "notifier", "watchdog", "api")
+ROLES = ("migrator", "backup", "collector", "notifier", "watchdog", "api", "surge")
 MIGRATIONS = Path(__file__).resolve().parents[4] / "db/migrations"
 
 

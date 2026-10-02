@@ -106,6 +106,17 @@ BEGIN
             ('public', 'eta_alerts', 'r'),
             ('public', 'health_alerts', 'r'),
             ('public', 'notification_cancels', 'r'),
+            ('public', 'surge_subscriptions', 'r'),
+            ('public', 'surge_predictions', 'r'),
+            ('public', 'surge_events', 'r'),
+            ('public', 'surge_alerts', 'r'),
+            ('public', 'surge_delivery_attempts', 'r'),
+            ('public', 'surge_checkpoint_state', 'r'),
+            ('public', 'surge_subscriptions_id_seq', 'S'),
+            ('public', 'surge_predictions_id_seq', 'S'),
+            ('public', 'surge_events_id_seq', 'S'),
+            ('public', 'surge_alerts_id_seq', 'S'),
+            ('public', 'surge_delivery_attempts_id_seq', 'S'),
             ('public', 'schema_migrations', 'r'),
             ('public', 'alerts_id_seq', 'S'),
             ('public', 'eta_alerts_id_seq', 'S'),
@@ -138,9 +149,11 @@ BEGIN
         SELECT 'missing'::text AS issue, missing.*
         FROM (
             SELECT expected.* FROM expected
-            WHERE relation_name <> 'admin_access' OR EXISTS (
+            WHERE (relation_name <> 'admin_access' OR EXISTS (
                 SELECT 1 FROM public.schema_migrations WHERE version = '011_admin_access'
-            )
+            )) AND (relation_name NOT LIKE 'surge_%' OR EXISTS (
+                SELECT 1 FROM public.schema_migrations WHERE version = '016_surge_monitor'
+            ))
             EXCEPT
             SELECT actual.* FROM actual
         ) AS missing
@@ -150,9 +163,11 @@ BEGIN
             SELECT actual.* FROM actual
             EXCEPT
             SELECT expected.* FROM expected
-            WHERE relation_name <> 'admin_access' OR EXISTS (
+            WHERE (relation_name <> 'admin_access' OR EXISTS (
                 SELECT 1 FROM public.schema_migrations WHERE version = '011_admin_access'
-            )
+            )) AND (relation_name NOT LIKE 'surge_%' OR EXISTS (
+                SELECT 1 FROM public.schema_migrations WHERE version = '016_surge_monitor'
+            ))
         ) AS unexpected
     )
     SELECT string_agg(
@@ -213,6 +228,17 @@ WITH expected(schema_name, relation_name, relation_kind) AS (
         ('public', 'eta_alerts', 'r'),
         ('public', 'health_alerts', 'r'),
         ('public', 'notification_cancels', 'r'),
+        ('public', 'surge_subscriptions', 'r'),
+        ('public', 'surge_predictions', 'r'),
+        ('public', 'surge_events', 'r'),
+        ('public', 'surge_alerts', 'r'),
+        ('public', 'surge_delivery_attempts', 'r'),
+        ('public', 'surge_checkpoint_state', 'r'),
+        ('public', 'surge_subscriptions_id_seq', 'S'),
+        ('public', 'surge_predictions_id_seq', 'S'),
+        ('public', 'surge_events_id_seq', 'S'),
+        ('public', 'surge_alerts_id_seq', 'S'),
+        ('public', 'surge_delivery_attempts_id_seq', 'S'),
         ('public', 'schema_migrations', 'r'),
         ('public', 'alerts_id_seq', 'S'),
         ('public', 'eta_alerts_id_seq', 'S'),
@@ -255,6 +281,11 @@ BEGIN
         ALTER FUNCTION public.prune_inactive_devices(boolean) OWNER TO avelren_migrator;
     ELSIF to_regprocedure('public.prune_inactive_devices(boolean)') IS NOT NULL THEN
         RAISE EXCEPTION 'device retention function exists without its migration';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.schema_migrations WHERE version = '016_surge_monitor') THEN
+        ALTER FUNCTION public.discard_disabled_surge_alert(bigint,uuid) OWNER TO avelren_migrator;
+    ELSIF to_regprocedure('public.discard_disabled_surge_alert(bigint,uuid)') IS NOT NULL THEN
+        RAISE EXCEPTION 'surge cleanup function exists without its migration';
     END IF;
     IF EXISTS (SELECT 1 FROM public.schema_migrations WHERE version = '014_admin_pin_rebind') THEN
         ALTER FUNCTION public.activate_admin_after_pin(uuid) OWNER TO avelren_migrator;

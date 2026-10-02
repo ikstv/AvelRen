@@ -37,11 +37,64 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-sql() { compose exec -T test-db psql -X -U avelren_admin -d "${1:?database}" -v ON_ERROR_STOP=1 -At -c "${2:?query}"; }
+sql() { compose exec -T test-db psql -X -U avelren_admin -d "${1:?database}" -v ON_ERROR_STOP=1 -qAt -c "${2:?query}"; }
 fingerprint() {
-    sql "$1" "SELECT count(*) || ':' || md5(string_agg(row_to_json(o)::text, ',' ORDER BY time, checkpoint_id)) FROM observations o;"
+    # Новий additive status не змінює fingerprint історичних п'яти полів.
+    sql "$1" "SELECT count(*) || ':' || md5(string_agg(row_to_json(o)::text, ',' ORDER BY time, checkpoint_id)) FROM (SELECT time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused FROM observations) o;"
     sql "$1" "SELECT count(*) || ':' || md5(string_agg(row_to_json(o)::text, ',' ORDER BY bucket, checkpoint_id)) FROM observations_hourly o;"
     sql "$1" "SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name='observations' AND is_compressed;"
+}
+legacy_journal() {
+    sql "$1" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM (SELECT version,sha256,applied_at FROM schema_migrations WHERE version < '015') m;"
+}
+status_fingerprint() {
+    sql "$1" "SELECT md5(string_agg(row_to_json(o)::text, ',' ORDER BY time,checkpoint_id)) FROM (SELECT time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused,wait_time_status FROM observations) o;"
+}
+assert_status_queries() {
+    local indexscan counts
+    [ "$(sql "$1" 'SHOW timescaledb.enable_columnarscan')" = on ]
+    # Вимкнений ColumnarScan не читає compressed storage цього fixture:
+    # його Seq Scan бачить тільки rowstore. Він залишається діагностикою.
+    for indexscan in on off; do
+        [ "$(sql "$1" "SET timescaledb.enable_columnarindexscan=$indexscan; SELECT count(*) FROM observations;")" = 54 ]
+        counts=$(sql "$1" "SET timescaledb.enable_columnarindexscan=$indexscan; SELECT COALESCE(wait_time_status,'legacy_unknown'),count(*) FROM observations GROUP BY 1 ORDER BY 1;")
+        [ "$counts" = $'legacy_unknown|51\nmissing|1\nreported|2' ] || {
+            printf 'Unexpected status groups (%s,indexscan=%s):\n%s\n' "$1" "$indexscan" "$counts" >&2
+            return 1
+        }
+        [ "$(sql "$1" "SET timescaledb.enable_columnarindexscan=$indexscan; SELECT count(*) FROM observations WHERE COALESCE(wait_time_status,'legacy_unknown')='legacy_unknown';")" = 51 ]
+        [ "$(sql "$1" "SET timescaledb.enable_columnarindexscan=$indexscan; SELECT count(*) FROM observations WHERE wait_time_status IS NULL;")" = 50 ]
+    done
+}
+status_diagnostics() {
+    # Лише синтетичні дані. Це діагностика, не виправлення або backfill.
+    printf 'Status diagnostics: %s\n' "$1"
+    local columnarscan columnarindexscan
+    for columnarscan in on off; do
+        for columnarindexscan in on off; do
+            printf 'Scan settings: columnarscan=%s columnarindexscan=%s\n' "$columnarscan" "$columnarindexscan"
+            sql "$1" "SET timescaledb.enable_columnarscan=$columnarscan; SET timescaledb.enable_columnarindexscan=$columnarindexscan; SELECT count(*) FROM observations;"
+            sql "$1" "SET timescaledb.enable_columnarscan=$columnarscan; SET timescaledb.enable_columnarindexscan=$columnarindexscan; SELECT tableoid::regclass,COALESCE(wait_time_status,'legacy_unknown'),count(*) FROM observations GROUP BY 1,2 ORDER BY 1,2;"
+            sql "$1" "SET timescaledb.enable_columnarscan=$columnarscan; SET timescaledb.enable_columnarindexscan=$columnarindexscan; EXPLAIN (VERBOSE,COSTS OFF) SELECT COALESCE(wait_time_status,'legacy_unknown'),count(*) FROM observations GROUP BY 1 ORDER BY 1;"
+        done
+    done
+    sql "$1" "SELECT tableoid::regclass,wait_time_status,count(*) FROM observations GROUP BY tableoid,wait_time_status ORDER BY 1,2;"
+    sql "$1" "SET timescaledb.enable_columnarscan=off; SELECT wait_time_status,count(*) FROM observations GROUP BY wait_time_status ORDER BY 1;"
+    sql "$1" "SELECT c.oid::regclass,a.atthasmissing,a.attmissingval,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attname='wait_time_status' AND NOT a.attisdropped AND n.nspname IN ('public','_timescaledb_internal') ORDER BY c.oid::regclass::text;"
+}
+assert_restored_contract() {
+    local actual actual_journal statuses
+    actual=$(fingerprint restore_test)
+    actual_journal=$(legacy_journal restore_test)
+    statuses=$(sql restore_test "SELECT count(*) FROM observations WHERE COALESCE(wait_time_status,'legacy_unknown')='legacy_unknown'")
+    printf 'Restore fingerprint expected:\n%s\nactual:\n%s\n' "$before" "$actual"
+    printf 'Restore legacy journal expected=%s actual=%s; legacy rows=%s\n' "$journal_before" "$actual_journal" "$statuses"
+    status_diagnostics restore_test
+    [ "$actual" = "$before" ]
+    [ "$actual_journal" = "$journal_before" ]
+    [ "$statuses" = 51 ]
+    [ "$(status_fingerprint restore_test)" = "$status_before" ]
+    assert_status_queries restore_test
 }
 restore_dump() {
     AVELREN_COMPOSE_PROJECT_DIR="$PROJECT_DIR" AVELREN_COMPOSE_ENV_FILE="$ENV_FILE" \
@@ -62,8 +115,20 @@ compose exec -T \
     -e AVELREN_NOTIFIER_PASSWORD=ci-only -e AVELREN_WATCHDOG_PASSWORD=ci-only \
     -e AVELREN_API_PASSWORD=ci-only \
     test-db bash /workspace/ops/postgres-bootstrap.sh fresh
-compose run --rm --no-deps -T test python -m avelren.migrate db/migrations
+# 015 потребує нової extension. Стару історію починаємо з явного prefix,
+# не послаблюючи migrate/schema_verify і не редагуючи файли міграцій.
+compose run --rm --no-deps -T test sh -eu -c '
+    prefix=$(mktemp -d)
+    trap '\''rm -f "$prefix"/*.sql; rmdir "$prefix"'\'' EXIT
+    for version in $(seq -w 1 14); do
+        cp db/migrations/0${version}_*.sql "$prefix/"
+    done
+    [ "$(find "$prefix" -name "*.sql" | wc -l)" -eq 14 ]
+    python -m avelren.migrate "$prefix"
+'
 [ "$(sql avelren_database_test "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.17.2 ]
+[ "$(sql avelren_database_test 'SELECT count(*) FROM schema_migrations')" = 14 ]
+journal_before=$(legacy_journal avelren_database_test)
 sql avelren_database_test "SELECT alter_job(job_id, scheduled => false) FROM timescaledb_information.jobs WHERE proc_name IN ('policy_compression','policy_refresh_continuous_aggregate');"
 sql avelren_database_test "INSERT INTO checkpoints(id,title,for_vehicle_type) VALUES(987654320,'upgrade-synthetic',1);
 INSERT INTO observations(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused)
@@ -80,6 +145,7 @@ compose exec -T -e PGPASSWORD=ci-only test-db pg_dump -h 127.0.0.1 -U avelren_ba
 # Спочатку доводимо відновлення старої копії на старій версії, а не downgrade каталогу.
 restore_dump "$WORK/before.sql.gz"
 [ "$(fingerprint restore_test)" = "$before" ]
+[ "$(legacy_journal restore_test)" = "$journal_before" ]
 echo 'PASS: old-version compressed backup/restore'
 # Обидві БД залишаються в тому самому одноразовому volume.
 compose stop test-db
@@ -93,30 +159,58 @@ done
 [ "$(fingerprint avelren_database_test)" = "$before" ]
 [ "$(fingerprint restore_test)" = "$before" ]
 echo 'PASS: in-place upgrade preserves raw/aggregate/compressed data'
+# Тільки після успішного upgrade на обох БД застосовуємо нову схему.
+for database in avelren_database_test restore_test; do
+    [ "$(sql "$database" "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.30.1 ]
+    compose run --rm --no-deps -T \
+        -e DATABASE_URL="postgresql://avelren_migrator:ci-only@test-db:5432/$database" \
+        test python -m avelren.migrate db/migrations
+    [ "$(sql "$database" 'SELECT count(*) FROM schema_migrations')" = 16 ]
+    [ "$(legacy_journal "$database")" = "$journal_before" ]
+    [ "$(fingerprint "$database")" = "$before" ]
+    [ "$(sql "$database" "SELECT count(*) FROM observations WHERE wait_time_status IS NULL")" = 50 ]
+    [ "$(sql "$database" "SELECT count(*) FROM observations WHERE COALESCE(wait_time_status,'legacy_unknown')='legacy_unknown'")" = 50 ]
+done
+echo 'PASS: schema 015/016 after extension upgrade preserves legacy data/journal/compression'
 # Порожні тестові БД успадковують template1: не допустити хибного green на 2.17.2.
 sql postgres 'CREATE DATABASE avelren_version_probe_test;'
 [ "$(sql avelren_version_probe_test "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.30.1 ]
 sql postgres 'DROP DATABASE avelren_version_probe_test;'
 # Новий dump відновлюється на тій самій новій версії, не змішуючи каталоги extension.
+# Старі NULL плюс явно записані нові стани в окремому compressed chunk.
+sql avelren_database_test "INSERT INTO observations VALUES
+('2020-01-10 00:00Z',987654320,0,80,false,'reported'),
+('2020-01-10 00:01Z',987654320,0,81,false,'missing'),
+('2020-01-10 00:02Z',987654320,3600,82,false,'reported');
+INSERT INTO observations(time,checkpoint_id,wait_time_seconds,vehicles_in_queue,is_paused)
+VALUES('2020-01-10 00:03Z',987654320,180,83,false);"
+# CALL має окремий top-level запит: psql -c із кількома statements
+# створює transaction block, у якому TimescaleDB забороняє refresh.
+sql avelren_database_test "CALL refresh_continuous_aggregate('observations_hourly','2020-01-10'::timestamptz,'2020-01-11'::timestamptz);"
+sql avelren_database_test "SELECT compress_chunk(c,if_not_compressed=>true) FROM show_chunks('observations',older_than=>'2021-01-01'::timestamptz) c;"
+before=$(fingerprint avelren_database_test)
+status_before=$(status_fingerprint avelren_database_test)
+status_diagnostics avelren_database_test
+assert_status_queries avelren_database_test
 compose exec -T -e PGPASSWORD=ci-only test-db pg_dump -h 127.0.0.1 -U avelren_backup \
     -d avelren_database_test --no-owner | gzip >"$WORK/after.sql.gz"
 restore_dump "$WORK/after.sql.gz"
-[ "$(fingerprint restore_test)" = "$before" ]
+assert_restored_contract
 for database in avelren_database_test restore_test; do
     compose run --rm --no-deps -T \
         -e DATABASE_URL="postgresql://avelren_migrator:ci-only@test-db:5432/$database" \
         test python -m avelren.schema_verify db/migrations
     count=$(compose exec -T -e PGPASSWORD=ci-only test-db psql -X -h 127.0.0.1 \
         -U avelren_api -d "$database" -v ON_ERROR_STOP=1 -At -c 'SELECT count(*) FROM observations;')
-    [ "$count" = 50 ]
+    [ "$count" = 54 ]
     # Перевіряємо життєвий цикл саме перенесених об'єктів, не лише нових pytest-БД.
     compose exec -T -e PGPASSWORD=ci-only test-db psql -X -h 127.0.0.1 \
         -U avelren_collector -d "$database" -v ON_ERROR_STOP=1 -q \
         -c "INSERT INTO observations VALUES('2020-01-20'::timestamptz,987654320,180,4,false);"
     sql "$database" "CALL refresh_continuous_aggregate('observations_hourly','2020-01-01'::timestamptz,'2020-01-21'::timestamptz);"
     sql "$database" "SELECT compress_chunk(c,if_not_compressed=>true) FROM show_chunks('observations',older_than=>'2021-01-01'::timestamptz) c;"
-    [ "$(sql "$database" 'SELECT count(*) FROM observations')" = 51 ]
-    [ "$(sql "$database" 'SELECT count(*) FROM observations_hourly')" = 50 ]
+    [ "$(sql "$database" 'SELECT count(*) FROM observations')" = 55 ]
+    [ "$(sql "$database" 'SELECT count(*) FROM observations_hourly')" = 51 ]
     [ "$(sql "$database" "SELECT wait_time_seconds FROM observations WHERE time='2020-01-20'::timestamptz AND checkpoint_id=987654320")" = 180 ]
 done
 echo 'PASS: new-version compressed backup/restore, schema/API read, collector write/refresh/compression'

@@ -3,6 +3,8 @@ package ua.avelren.app.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import ua.avelren.app.ui.theme.ThemeChoice
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -12,7 +14,28 @@ import kotlinx.coroutines.flow.map
 private val Context.uiPrefs by preferencesDataStore("ui_prefs")
 private val ONBOARDING_KEY = booleanPreferencesKey("onboarding_seen")
 
+private val FORECAST_IDS = stringPreferencesKey("forecast_preview_checkpoints")
+private val THEME_KEY = stringPreferencesKey("theme")
+
 object UiPrefs {
+    fun forecastIdsFlow(ctx: Context): Flow<List<Int>> =
+        ctx.uiPrefs.data.map { ForecastSelection.parse(it[FORECAST_IDS]) }
+
+    suspend fun changeForecastCheckpoint(ctx: Context, id: Int, selected: Boolean) {
+        ctx.uiPrefs.edit { prefs ->
+            val current = ForecastSelection.parse(prefs[FORECAST_IDS])
+            val next = if (selected) ForecastSelection.add(current, id) else ForecastSelection.remove(current, id)
+            prefs[FORECAST_IDS] = next.joinToString(",")
+        }
+    }
+
+    fun themeFlow(ctx: Context): Flow<ThemeChoice> =
+        ctx.uiPrefs.data.map { ThemeChoice.fromStored(it[THEME_KEY]) }
+
+    suspend fun setTheme(ctx: Context, theme: ThemeChoice) {
+        ctx.uiPrefs.edit { it[THEME_KEY] = theme.name }
+    }
+
     fun onboardingSeenFlow(ctx: Context): Flow<Boolean> =
         ctx.uiPrefs.data.map { it[ONBOARDING_KEY] ?: false }
 

@@ -92,10 +92,10 @@ def _route_handlers():
     """Every HTTP handler, including prefixed routers, paired with its AST body."""
     import ast
 
-    from avelren import admin_access_api, api, subscriptions_api
+    from avelren import admin_access_api, api, subscriptions_api, surge_api
 
     for module, prefix in (
-        (api, ""), (subscriptions_api, ""),
+        (api, ""), (subscriptions_api, ""), (surge_api, ""),
         (admin_access_api, admin_access_api.router.prefix),
     ):
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))

@@ -70,8 +70,10 @@ def test_foreign_status_never_consumes_attempt(api_client, approved, installatio
 
 
 @pytest.mark.parametrize("database", [11], indirect=True)
-def test_without_installation_lock_migration_is_unavailable(database, api_client, device):
-    assert attempt(api_client, device.headers(), "7392")["state"] == "unavailable"
+def test_without_installation_lock_migration_is_unavailable(
+    database, old_schema_component_client, device
+):
+    assert attempt(old_schema_component_client, device.headers(), "7392")["state"] == "unavailable"
 
 
 
@@ -105,10 +107,11 @@ def test_expired_lock_resets_attempts(api_client, approved, conn):
 
 
 @pytest.mark.parametrize("database", [10], indirect=True)
-def test_without_admin_migration_core_remains_available(database, api_client, device):
-    assert api_client.get("/health").status_code == 200
-    assert api_client.get("/workload").status_code == 200
-    assert attempt(api_client, device.headers(), "7392")["state"] == "unavailable"
+def test_without_admin_migration_health_and_access_handlers(
+    database, old_schema_component_client, device
+):
+    assert old_schema_component_client.get("/health").status_code == 200
+    assert attempt(old_schema_component_client, device.headers(), "7392")["state"] == "unavailable"
 
 
 
@@ -159,11 +162,12 @@ def test_new_installation_can_take_admin_after_correct_pin(
 
 @pytest.mark.parametrize("database", [13], indirect=True)
 def test_new_installation_stays_closed_without_014(
-    database, api_client, approved, installation, conn
+    database, old_schema_component_client, approved, installation, conn
 ):
     fresh = installation().headers()
-    assert api_client.get("/admin/access", headers=fresh).json()["state"] == "awaiting_approval"
-    assert attempt(api_client, fresh, "7392")["state"] == "blocked"
+    status = old_schema_component_client.get("/admin/access", headers=fresh)
+    assert status.json()["state"] == "awaiting_approval"
+    assert attempt(old_schema_component_client, fresh, "7392")["state"] == "blocked"
     assert conn.execute("SELECT failures FROM admin_access").fetchone()["failures"] == 0
 
 

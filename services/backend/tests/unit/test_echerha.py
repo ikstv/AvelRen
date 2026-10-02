@@ -158,6 +158,68 @@ def test_empty_exception_message_still_records_class(monkeypatch: pytest.MonkeyP
 # --- Device ID: fail-closed, no request ------------------------------------
 
 
+@pytest.mark.parametrize("extra", [{}, {"wait_time": None}, {"wait_time": 0}])
+def test_fetch_missing_wait_keeps_response(monkeypatch, extra):
+    monkeypatch.setattr(echerha, "settings", _settings())
+
+    async def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": 123,
+                        "title": "Тест",
+                        "for_vehicle_type": 1,
+                        "vehicle_in_active_queues_counts": 80,
+                        **extra,
+                    }
+                ],
+                "filters": {"countries": []},
+            },
+            request=request,
+        )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await echerha.fetch_workload(client)
+
+    result = asyncio.run(run())
+    assert result.error is None
+    assert result.response is not None
+    item = result.response.data[0]
+    assert item.vehicles_in_queue == 80
+    assert item.wait_time == extra.get("wait_time")
+    assert item.wait_time_status == (
+        "reported" if extra.get("wait_time") is not None else "missing"
+    )
+
+
+@pytest.mark.parametrize("value", [True, 1.5, "3600", -1])
+def test_fetch_invalid_wait_records_parse_error(monkeypatch, value):
+    monkeypatch.setattr(echerha, "settings", _settings())
+
+    async def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": 123, "title": "Тест", "for_vehicle_type": 1, "wait_time": value}],
+                "filters": {"countries": []},
+            },
+            request=request,
+        )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await echerha.fetch_workload(client)
+
+    result = asyncio.run(run())
+    assert result.response is None
+    assert result.http_status == 200
+    assert result.body_sha256 is not None
+    assert result.error and result.error.startswith("parse:")
+
+
 @pytest.mark.parametrize("bad", ["not-a-uuid", "", "12345", "8cf3ce55-0759-4274-a632"])
 def test_rejects_unparseable_device_id(monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
     cap, (res,) = _run_cycles(monkeypatch, _settings(echerha_device_id=bad))

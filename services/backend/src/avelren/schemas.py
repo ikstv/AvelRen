@@ -1,5 +1,7 @@
 """Request and response schemas for the public API."""
 
+from typing import Literal
+
 from pydantic import AwareDatetime, BaseModel, Field
 
 from .alerts import THRESHOLDS
@@ -11,6 +13,7 @@ class DeviceIn(BaseModel):
     # without a token, and the token is delivered later via PUT /devices/token.
     fcm_token: str | None = Field(None, min_length=32, max_length=4096)
     platform: str = Field("android", pattern="^(android|ios)$")
+    notification_capabilities: list[Literal["surge_v1"]] = Field(default_factory=list, max_length=1)
 
 
 class DeviceOut(BaseModel):
@@ -23,6 +26,7 @@ class DeviceOut(BaseModel):
 
 
 class TokenIn(BaseModel):
+    notification_capabilities: list[Literal["surge_v1"]] = Field(default_factory=list, max_length=1)
     fcm_token: str = Field(..., min_length=32, max_length=4096)
 
 

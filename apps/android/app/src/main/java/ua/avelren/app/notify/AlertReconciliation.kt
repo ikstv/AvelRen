@@ -23,7 +23,7 @@ data class AlertKey(val kind: String, val alertId: Long)
  * @param notificationId Android display-id (for the actual cancel).
  * @param key The full key from extras, or null if the notification is old/foreign.
  */
-data class ActiveNotification(val notificationId: Int, val key: AlertKey?)
+data class ActiveNotification(val notificationId: Int, val key: AlertKey?, val tag: String? = null)
 
 object AlertReconciliation {
 

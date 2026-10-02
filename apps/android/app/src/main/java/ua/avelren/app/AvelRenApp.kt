@@ -22,6 +22,7 @@ import ua.avelren.app.data.WorkManagerFcmTokenRetryScheduler
 import ua.avelren.app.data.ProtectedLoad
 import ua.avelren.app.notify.NotificationReconciler
 import ua.avelren.app.notify.Notifications
+import ua.avelren.app.notify.SurgeAckWorker
 
 /**
  * Owner of the process-scoped [InstallationRepository] — the single source of
@@ -80,6 +81,7 @@ class AvelRenApp : Application() {
         // but must not create a second production device/FCM identity.
         if (!BuildConfig.ENABLE_PUSH) return
         installation.start()
+        appScope.launch { SurgeAckWorker.recover(ctx) }
 
         // Reconcile on EVERY new Ready (including after a recovery re-registration).
         // Closes the startup race (A-02): foreground onResume could fire before
@@ -98,7 +100,10 @@ class AvelRenApp : Application() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onResume(owner: LifecycleOwner) {
-                    appScope.launch { NotificationReconciler.reconcile(ctx, installation) }
+                    appScope.launch {
+                        SurgeAckWorker.recover(ctx)
+                        NotificationReconciler.reconcile(ctx, installation)
+                    }
                 }
             }
         )

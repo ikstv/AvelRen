@@ -190,6 +190,26 @@ PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     -c "INSERT INTO public.unexpected_relation VALUES ('must-remain-admin-owned');" \
     -c "GRANT SELECT ON public.unexpected_relation TO avelren_backup;"
 
+# Синтетичний стан напливу: відновлення мусить зберегти ACK та UUID спроби,
+# щоб після recovery старе повідомлення не стало pending знову.
+PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_admin -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO devices(id,notification_capabilities)
+VALUES ('00000000-0000-4000-8000-000000000017', ARRAY['surge_v1']);
+INSERT INTO surge_subscriptions(device_id,checkpoint_id)
+VALUES ('00000000-0000-4000-8000-000000000017',987654320);
+INSERT INTO surge_predictions(id,checkpoint_id,issued_at,window_start,window_end,model_version,score)
+VALUES (987654320,987654320,now(),now()+interval '1 hour',now()+interval '24 hours','surge_24h_v1',0.9);
+INSERT INTO surge_events(id,checkpoint_id,kind,started_at,updated_at,expires_at,prediction_id)
+VALUES (987654320,987654320,'surge_forecast',now(),now(),now()+interval '1 hour',987654320);
+INSERT INTO surge_alerts(id,event_id,device_id,status,acknowledged_at,next_attempt_at)
+VALUES (987654320,987654320,'00000000-0000-4000-8000-000000000017','acknowledged',now(),now());
+INSERT INTO surge_delivery_attempts(attempt_id,alert_id,ordinal,created_at,accepted_at)
+VALUES ('00000000-0000-4000-8000-000000000018',987654320,1,now(),now());
+INSERT INTO surge_checkpoint_state(checkpoint_id,last_observation_at,forecast_armed)
+VALUES (987654320,now(),false);
+SQL
+
 if PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
     psql -U avelren_backup -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q \
     -c "INSERT INTO checkpoints
@@ -392,6 +412,20 @@ AVELREN_VERIFY_MIGRATOR_DSN="$MIGRATOR_TARGET_DSN" \
 AVELREN_VERIFY_API_DSN="$API_TARGET_DSN" \
 AVELREN_COMPOSE_ENV_GUARD=isolated \
 bash "$ROOT/ops/restore-verify.sh" "$TARGET_DB"
+
+surge_restored=$(PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
+    psql -U avelren_backup -d "$TARGET_DB" -At -v ON_ERROR_STOP=1 -c "
+    SELECT a.status || ':' || t.ordinal || ':' || t.attempt_id || ':' || p.model_version
+    FROM surge_alerts a JOIN surge_delivery_attempts t ON t.alert_id=a.id
+    JOIN surge_events e ON e.id=a.event_id JOIN surge_predictions p ON p.id=e.prediction_id
+    JOIN surge_subscriptions s ON s.device_id=a.device_id AND s.checkpoint_id=e.checkpoint_id
+    JOIN surge_checkpoint_state c ON c.checkpoint_id=e.checkpoint_id
+    WHERE a.id=987654320 AND a.acknowledged_at IS NOT NULL AND t.accepted_at IS NOT NULL;")
+[ "$surge_restored" = 'acknowledged:1:00000000-0000-4000-8000-000000000018:surge_24h_v1' ] || {
+    echo 'restore integration failed: surge ACK/attempt/model/subscription/state lost' >&2
+    exit 1
+}
+echo 'surge restore passed: ACK, attempt UUID, model, subscription and checkpoint state preserved'
 
 echo "restore integration passed: backup=read-only dump, target=$TARGET_DB, least-privilege schema/smoke verified"
 

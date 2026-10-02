@@ -2,13 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission
-        android:name="android.permission.POST_NOTIFICATIONS"
-        tools:node="remove" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <queries>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+    </queries>
 
     <application
         android:label="AvelRen — тест"
         tools:replace="android:label">
+        <!-- Lint inspects this overlay independently of the merged manifest. -->
+        <service android:name="ua.avelren.app.notify.SurgeVoiceService"
+            android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <activity android:name=".VoiceProbeActivity" android:exported="true" />
         <service
             android:name=".notify.AvelRenMessagingService"
             tools:node="remove" />

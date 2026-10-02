@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 # `checkpoints` alone is not enough: a corrupt restore could have
 # `devices`/`alerts` without `checkpoints`.
 KNOWN_OBJECTS = [
+    "surge_subscriptions", "surge_predictions", "surge_events",
+    "surge_alerts", "surge_delivery_attempts", "surge_checkpoint_state",
     "admin_access",
     "checkpoints", "observations", "collector_runs", "countries",
     "devices", "subscriptions", "alerts", "subscription_state",

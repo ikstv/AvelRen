@@ -81,10 +81,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import ua.avelren.app.data.NotificationPermissionState
 import ua.avelren.app.data.ForecastPresentation
+import ua.avelren.app.data.WaitPresentation
 import ua.avelren.app.ui.theme.SignClosed
 import ua.avelren.app.ui.theme.SignOnClosed
-import ua.avelren.app.ui.theme.SignWarn
-import ua.avelren.app.ui.theme.SignOnWarn
+import ua.avelren.app.ui.theme.AppAccent as SignWarn
+import ua.avelren.app.ui.theme.AppOnAccent as SignOnWarn
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -111,6 +112,9 @@ import ua.avelren.app.data.InternetState
 import ua.avelren.app.data.MaintenanceStore
 import ua.avelren.app.data.ServerStatus
 import ua.avelren.app.data.PlayUpdateState
+import ua.avelren.app.ui.theme.AppBackground
+import ua.avelren.app.ui.theme.AppInk
+import ua.avelren.app.ui.theme.AppOnAccent
 import ua.avelren.app.ui.theme.HeroNumberStyle
 import ua.avelren.app.ui.theme.RoadSignShape
 import ua.avelren.app.ui.theme.TabularNumberFeature
@@ -145,7 +149,7 @@ private val COUNTRY_BY_FLAG = mapOf(
     "🇲🇩" to "Молдова",
 )
 
-private fun countryLabel(flag: String?): String {
+internal fun countryLabel(flag: String?): String {
     if (flag == null) return "Інше"
     return COUNTRY_BY_FLAG[flag]?.let { "$flag $it" } ?: flag
 }
@@ -224,6 +228,8 @@ fun AvelRenScreen(
     var showEtaCpPicker by remember { mutableStateOf(false) }
     var pendingEtaCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Прогноз — read-only потік: вибір КПП відкриває окремий екран.
+    var surgeOpen by remember { mutableStateOf(false) }
+    val surgeRepository = remember(installation) { ua.avelren.app.data.SurgeRepository(installation) }
     var showAiCpPicker by remember { mutableStateOf(false) }
     var pendingAiCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Гейт беззвучної підписки (#117 крок 2): коли дозволу нема, вибір порога
@@ -299,7 +305,7 @@ fun AvelRenScreen(
             MonitorRow(
                 badge = etaBadge(t.target_at),
                 label = monitorLabel(t.flag_emoji, t.title),
-                current = now?.entry_eta?.let { formatEntry(it) } ?: "—",
+                current = now?.let { WaitPresentation.entryEta(it) }?.let { formatEntry(it) } ?: "—",
                 kind = MonitorKind.ETA,
                 id = t.id,
             )
@@ -428,32 +434,22 @@ fun AvelRenScreen(
 
     val onMonitor = activeTab == "monitor"
     val onSettings = activeTab == "settings"
-    val forecastOpen = pendingAiCp != null
-    BackHandler(enabled = forecastOpen) { pendingAiCp = null }
+    val forecastOpen = pendingAiCp != null || surgeOpen
+    BackHandler(enabled = forecastOpen) { pendingAiCp = null; surgeOpen = false }
     val bottomChromePadding = if (updateAvailable) 182.dp else 136.dp
 
-    // Головна — фото на всю площу; моніторинг і налаштування мають рівний
-    // чорний фон без підсвічування під нижньою навігацією.
-    Box(Modifier.fillMaxSize().background(if (forecastOpen) MonitorBg else Color.Black)) {
-        if (!onMonitor && !onSettings && !forecastOpen) {
-            Image(
-                painter = painterResource(R.drawable.onboarding_truck),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                colorFilter = GrayscaleFilter,
-            )
-            Box(
-                Modifier.fillMaxWidth().height(190.dp).align(Alignment.TopCenter)
-                    .background(TopScrim)
-            )
-            Box(
-                Modifier.fillMaxWidth().height(170.dp).align(Alignment.BottomCenter)
-                    .background(BottomScrim)
-            )
-        }
+    // Усі основні вкладки мають рівне чорне тло.
+    Box(Modifier.fillMaxSize().background(if (forecastOpen) MonitorBg else AppBackground)) {
 
-    if (forecastOpen) {
+    if (surgeOpen && pendingAiCp == null) {
+        SurgeMonitorScreen(
+            repository = surgeRepository,
+            onBack = { surgeOpen = false },
+            notificationsAllowed = !notificationsSilent && ua.avelren.app.notify.Notifications.surgeChannelAllowed(context),
+            onOpenNotificationSettings = onOpenNotificationSettings,
+            onCountForecast = { id -> pendingAiCp = workload.firstOrNull { it.checkpoint_id == id } },
+        )
+    } else if (forecastOpen) {
         pendingAiCp?.let { cp ->
             ForecastScreen(
                 checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
@@ -475,6 +471,7 @@ fun AvelRenScreen(
         ) {
             HeaderRow(
                 showServerStatus = false,
+                title = "Моніторинг",
             )
             if (notificationsSilent) {
                 NotificationSilentBanner(onOpenNotificationSettings)
@@ -500,8 +497,8 @@ fun AvelRenScreen(
             )
             ActionTile(
                 title = "Прогноз черги",
-                subtitle = "Прогноз черги на наступні 24 години",
-                onClick = { showAiCpPicker = true },
+                subtitle = "Кілька КПП · прогноз, початок зростання та голос",
+                onClick = { surgeOpen = true },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 icon = { TileIcon(Icons.Filled.AutoAwesome) },
             )
@@ -509,6 +506,7 @@ fun AvelRenScreen(
                 rows = monitorRows,
                 onRemove = { pendingRemove = it },
                 modifier = Modifier.fillMaxWidth().weight(1.5f),
+                homeStyle = true,
                 fill = true,
                 loaded = monitorsLoaded,
                 loading = monitorsLoading,
@@ -571,6 +569,7 @@ fun AvelRenScreen(
                         rows = monitorRows,
                         onRemove = { pendingRemove = it },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        homeStyle = true,
                         loaded = monitorsLoaded,
                         loading = monitorsLoading,
                         failed = monitorsFailed,
@@ -611,7 +610,7 @@ fun AvelRenScreen(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 80.dp),
         )
-    } else {
+    } else if (!onMonitor) {
         AttributionBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -619,7 +618,7 @@ fun AvelRenScreen(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 80.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xCC0A0A0A))
+                .background(AppBackground.copy(alpha = 0.8f))
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
@@ -655,7 +654,6 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = selected,
             countryFilter = countryFilter,
-            showAttribution = true,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 selected = id
@@ -673,7 +671,6 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
-            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingThresholdCp = workload.firstOrNull { it.checkpoint_id == id }
@@ -731,7 +728,6 @@ fun AvelRenScreen(
             workload = workload,
             selectedId = -1,
             countryFilter = countryFilter,
-            showAttribution = false,
             onFilter = { countryFilter = it },
             onPick = { id ->
                 pendingEtaCp = workload.firstOrNull { it.checkpoint_id == id }
@@ -770,21 +766,6 @@ fun AvelRenScreen(
         )
     }
 
-    // AI, крок 1 — пікер КПП.
-    if (showAiCpPicker) {
-        CheckpointPickerSheet(
-            workload = workload,
-            selectedId = -1,
-            countryFilter = countryFilter,
-            showAttribution = false,
-            onFilter = { countryFilter = it },
-            onPick = { id ->
-                pendingAiCp = workload.firstOrNull { it.checkpoint_id == id }
-                showAiCpPicker = false
-            },
-            onDismiss = { showAiCpPicker = false },
-        )
-    }
 
 }
 
@@ -799,6 +780,7 @@ private fun HeaderRow(
     status: ServerStatus = ServerStatus.CHECKING,
     remainingMinutes: Long? = null,
     showServerStatus: Boolean = true,
+    title: String = "AVELREN",
 ) {
     val avelren = MaterialTheme.avelren
     FlowRow(
@@ -807,9 +789,10 @@ private fun HeaderRow(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "AVELREN",
+            title,
             style = MaterialTheme.typography.headlineMedium,
-            color = Color.White,
+            color = AppInk,
+            modifier = if (showServerStatus) Modifier else Modifier.alignByBaseline(),
         )
         if (showServerStatus && status.label.isNotEmpty()) {
             val dot = when (status) {
@@ -843,21 +826,22 @@ private fun HeaderRow(
                     color = when (status) {
                         ServerStatus.NO_INTERNET, ServerStatus.WEAK_INTERNET,
                         ServerStatus.MAINTENANCE, ServerStatus.RESTARTING -> dot
-                        else -> Color.White
+                        else -> AppInk
                     },
                 )
             }
         } else if (!showServerStatus) {
-            VersionHeader()
+            VersionHeader(Modifier.alignByBaseline())
         }
     }
 }
 
 @Composable
-private fun VersionHeader() {
+private fun VersionHeader(modifier: Modifier = Modifier) {
     Text(
         "ВЕРСІЯ ${BuildConfig.VERSION_NAME}",
-        color = Color.White,
+        modifier = modifier,
+        color = AppInk,
         fontWeight = FontWeight.Bold,
         fontSize = 10.sp,
         letterSpacing = 2.sp,
@@ -872,7 +856,7 @@ private fun FadingHairline(modifier: Modifier = Modifier) {
             .height(1.dp)
             .background(
                 Brush.horizontalGradient(
-                    listOf(Color.Transparent, Color(0xD9FFFFFF), Color.Transparent)
+                    listOf(Color.Transparent, AppInk.copy(alpha = 0.85f), Color.Transparent)
                 )
             )
     )
@@ -880,7 +864,7 @@ private fun FadingHairline(modifier: Modifier = Modifier) {
 
 
 // Колір тексту/іконки порожнього стану — rgba(255,255,255,.6) з макета.
-private val EmptyInk = Color(0x99FFFFFF)
+private val EmptyInk: Color @Composable get() = AppInk.copy(alpha = 0.6f)
 
 /**
  * Порожній стан «Дані недоступні» (макет: екран 04 / `tilesHidden`). Та сама
@@ -923,6 +907,7 @@ private fun DataUnavailablePanel(modifier: Modifier = Modifier) {
 /** Іконка «немає мережі» — три дуги Wi-Fi, крапка й діагональна риска (SVG з Design). */
 @Composable
 private fun WifiOffIcon(modifier: Modifier = Modifier) {
+    val iconAccent = HeroYellow
     Canvas(modifier.size(40.dp)) {
         val s = size.minDimension / 24f       // viewBox макета — 0 0 24 24
         val sw = 1.8f * s
@@ -932,10 +917,10 @@ private fun WifiOffIcon(modifier: Modifier = Modifier) {
             moveTo(4.5f * s, 12.5f * s); cubicTo(8.5f * s, 9.5f * s, 15.5f * s, 9.5f * s, 19.5f * s, 12.5f * s)
             moveTo(8f * s, 16f * s); cubicTo(10f * s, 14.5f * s, 14f * s, 14.5f * s, 16f * s, 16f * s)
         }
-        drawPath(waves, HeroYellow, style = Stroke(width = sw, cap = StrokeCap.Round))
+        drawPath(waves, iconAccent, style = Stroke(width = sw, cap = StrokeCap.Round))
         // Крапка під хвилями та діагональна риска «перекреслено».
-        drawCircle(HeroYellow, radius = sw * 0.6f, center = Offset(12f * s, 19.5f * s))
-        drawLine(HeroYellow, Offset(2f * s, 2f * s), Offset(22f * s, 22f * s), sw, cap = StrokeCap.Round)
+        drawCircle(iconAccent, radius = sw * 0.6f, center = Offset(12f * s, 19.5f * s))
+        drawLine(iconAccent, Offset(2f * s, 2f * s), Offset(22f * s, 22f * s), sw, cap = StrokeCap.Round)
     }
 }
 
@@ -960,13 +945,14 @@ data class MonitorRow(
     val id: Long,
 )
 
-private val WatchRowBorder = Color(0x24FFFFFF)  // rgba(255,255,255,.14)
+private val WatchRowBorder: Color @Composable get() = AppInk.copy(alpha = 0.14f)  // rgba(255,255,255,.14)
 
 @Composable
 private fun MonitoringTile(
     rows: List<MonitorRow>,
     onRemove: (MonitorRow) -> Unit,
     modifier: Modifier = Modifier,
+    homeStyle: Boolean = false,
     fill: Boolean = false,   // true — заповнити висоту плитки (екран «Моніторинг»)
     loaded: Boolean = true,  // false — список ще не приїхав; НЕ показувати empty-state
     loading: Boolean = false,
@@ -977,8 +963,8 @@ private fun MonitoringTile(
     Column(
         modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(HeroGlass)
-            .border(1.dp, HeroBorder, RoundedCornerShape(16.dp))
+            .background(if (homeStyle) AppBackground else HeroGlass)
+            .border(if (homeStyle) 1.5.dp else 1.dp, if (homeStyle) SignWarn.copy(alpha = 0.5f) else HeroBorder, RoundedCornerShape(16.dp))
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
@@ -1087,7 +1073,7 @@ private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemo
         }
         Text(
             row.label,
-            color = Color.White,
+            color = AppInk,
             style = MaterialTheme.typography.bodySmall,
             fontSize = 12.5.sp,
             maxLines = 2,
@@ -1110,7 +1096,7 @@ private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemo
             )
             Text(
                 row.current,
-                color = Color.White,
+                color = AppInk,
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.5.sp,
                 style = MaterialTheme.typography.bodySmall.copy(
@@ -1120,7 +1106,7 @@ private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemo
         }
         Text(
             "✕",
-            color = Color(0x80FFFFFF),
+            color = AppInk.copy(alpha = 0.5f),
             fontSize = 15.sp,
             modifier = Modifier
                 .tapNoRipple {
@@ -1153,8 +1139,8 @@ private fun ActionTile(
     Row(
         modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(HeroGlass)
-            .border(1.dp, HeroBorder, RoundedCornerShape(16.dp))
+            .background(AppBackground)
+            .border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .tapNoRipple {
                 view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 onClick()
@@ -1185,12 +1171,13 @@ private fun ActionTile(
         Spacer(Modifier.width(12.dp))
         // «+» намальований штрихами (не гліф шрифту): рівні плечі, круглі кінці,
         // ідеально по центру — чистіший вигляд.
+        val iconAccent = HeroYellow
         Canvas(Modifier.size(22.dp)) {
             val c = size.width / 2f
             val arm = size.width * 0.32f
             val sw = 2.2.dp.toPx()
-            drawLine(HeroYellow, Offset(c - arm, c), Offset(c + arm, c), sw, cap = StrokeCap.Round)
-            drawLine(HeroYellow, Offset(c, c - arm), Offset(c, c + arm), sw, cap = StrokeCap.Round)
+            drawLine(iconAccent, Offset(c - arm, c), Offset(c + arm, c), sw, cap = StrokeCap.Round)
+            drawLine(iconAccent, Offset(c, c - arm), Offset(c, c + arm), sw, cap = StrokeCap.Round)
         }
     }
 }
@@ -1390,7 +1377,7 @@ private fun SilentSubscribeDialog(
             Text(
                 "Без дозволу на сповіщення підписка не зможе вас попередити — " +
                     "сервер надішле, але екран промовчить.",
-                color = Color.White,
+                color = AppInk,
                 style = MaterialTheme.typography.bodySmall,
                 fontSize = 13.sp,
             )
@@ -1451,7 +1438,7 @@ private fun ThresholdChooserDialog(
             Spacer(Modifier.height(4.dp))
             Text(
                 checkpointTitle,
-                color = Color.White,
+                color = AppInk,
                 style = MaterialTheme.typography.bodySmall,
                 fontSize = 13.sp,
             )
@@ -1538,7 +1525,7 @@ private fun EtaChooserDialog(
             Spacer(Modifier.height(4.dp))
             Text(
                 checkpointTitle,
-                color = Color.White,
+                color = AppInk,
                 style = MaterialTheme.typography.bodySmall,
                 fontSize = 13.sp,
             )
@@ -1642,7 +1629,7 @@ private fun ForecastScreen(
             Column {
                 Text(
                     "Прогноз черги",
-                    color = Color.White,
+                    color = AppInk,
                     fontWeight = FontWeight.Black,
                     fontSize = 28.sp,
                 )
@@ -1677,16 +1664,16 @@ private fun ForecastScreen(
                 }
             }
             f.status == "ready" || f.status == "preliminary" -> {
-                val todayPoints = ForecastPresentation.next24Hours(
-                    f.points, horizonStart,
+                val todayPoints = ForecastPresentation.next24CountHours(
+                    ForecastPresentation.displayPoints(f), horizonStart,
                 )
-                val peak = ForecastPresentation.peak(todayPoints)
+                val peak = ForecastPresentation.countPeak(todayPoints)
                 if (peak != null) {
                     item { ForecastPeakCard(peak) }
                     item {
                         Text(
                             "Погодинний прогноз",
-                            color = Color.White,
+                            color = AppInk,
                             fontWeight = FontWeight.Black,
                             fontSize = 17.sp,
                             modifier = Modifier.padding(top = 8.dp),
@@ -1720,7 +1707,7 @@ private fun ForecastScreen(
 }
 
 @Composable
-private fun ForecastPeakCard(point: Api.ForecastPoint) {
+private fun ForecastPeakCard(point: Api.CountForecastPoint) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(HeroYellow.copy(alpha = 0.12f))
@@ -1729,7 +1716,7 @@ private fun ForecastPeakCard(point: Api.ForecastPoint) {
     ) {
         Text("ПРОГНОЗОВАНА ЧЕРГА У НАЙБЛИЖЧИЙ ЧАС", color = HeroYellow, fontWeight = FontWeight.Black, fontSize = 12.sp)
         Spacer(Modifier.height(6.dp))
-        Text("${point.vehicles_expected} авто", color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
+        Text("${point.vehicles_expected} авто", color = AppInk, fontWeight = FontWeight.Black, fontSize = 34.sp)
         Text("орієнтовно ${forecastHourLabel(point.time)}", color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Spacer(Modifier.height(8.dp))
         Text(forecastRangeLabel(point), color = EmptyInk, fontSize = 12.sp)
@@ -1737,7 +1724,7 @@ private fun ForecastPeakCard(point: Api.ForecastPoint) {
 }
 
 @Composable
-private fun ForecastHourRow(point: Api.ForecastPoint, maxVehicles: Int, isPeak: Boolean) {
+private fun ForecastHourRow(point: Api.CountForecastPoint, maxVehicles: Int, isPeak: Boolean) {
     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             forecastHourLabel(point.time),
@@ -1748,12 +1735,12 @@ private fun ForecastHourRow(point: Api.ForecastPoint, maxVehicles: Int, isPeak: 
         )
         Column(Modifier.weight(1f)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${point.vehicles_expected} авто", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("${point.vehicles_expected} авто", color = AppInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 Text(forecastRangeLabel(point), color = EmptyInk, fontSize = 11.sp)
             }
             Spacer(Modifier.height(5.dp))
             val fraction = if (maxVehicles > 0) (point.vehicles_expected.toFloat() / maxVehicles).coerceIn(0f, 1f) else 0f
-            Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f))) {
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(AppInk.copy(alpha = 0.12f))) {
                 Box(
                     Modifier.fillMaxWidth(fraction).fillMaxHeight()
                         .background(HeroYellow.copy(alpha = if (isPeak) 1f else 0.58f)),
@@ -1769,7 +1756,7 @@ private fun forecastHourLabel(time: String): String =
             .format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))
     }.getOrDefault("—")
 
-private fun forecastRangeLabel(point: Api.ForecastPoint): String =
+private fun forecastRangeLabel(point: Api.CountForecastPoint): String =
     if (point.vehicles_low != null && point.vehicles_high != null) {
         "Типовий розкид ${point.vehicles_low}–${point.vehicles_high} авто"
     } else {
@@ -1780,10 +1767,10 @@ private fun forecastRangeLabel(point: Api.ForecastPoint): String =
 private fun ForecastEmptyState(text: String, detail: String? = null) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.05f)).padding(18.dp),
+            .background(AppInk.copy(alpha = 0.05f)).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Text(text, color = AppInk, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         detail?.let { ForecastLine(it) }
     }
 }
@@ -1806,11 +1793,20 @@ private fun ConfirmRemoveDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val view = LocalView.current
     val desc = when (row.kind) {
         MonitorKind.THRESHOLD -> "Поріг ${row.badge} авто · ${row.label}"
         MonitorKind.ETA -> "Час в'їзду ${row.badge} · ${row.label}"
     }
+    ConfirmRemoveDialog(description = desc, onConfirm = onConfirm, onDismiss = onDismiss)
+}
+
+@Composable
+internal fun ConfirmRemoveDialog(
+    description: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val view = LocalView.current
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1828,8 +1824,8 @@ private fun ConfirmRemoveDialog(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                desc,
-                color = Color.White,
+                description,
+                color = AppInk,
                 style = MaterialTheme.typography.bodySmall,
                 fontSize = 13.sp,
             )
@@ -1879,19 +1875,16 @@ internal fun SettingsScreen(
     modifier: Modifier = Modifier,
     adminClient: AdminAccessClient? = null,
 ) {
-    MaterialTheme(colorScheme = ua.avelren.app.ui.theme.DarkColors.copy(
-        primary = SignWarn,
-        onPrimary = ua.avelren.app.ui.theme.SignOnWarn,
-        surface = Color.Black,
-    )) {
+    MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
         androidx.compose.material3.Surface(
             modifier = modifier,
-            color = Color.Black,
+            color = AppBackground,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             Column {
                 HeaderRow(
                     showServerStatus = false,
+                    title = "Налаштування",
                 )
                 AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient)
             }
@@ -1938,7 +1931,7 @@ private fun AppUpdateDialog(
                 Text(
                     if (ready) "Нову версію завантажено. Для встановлення AvelRen буде перезапущено."
                     else "Оновіть AvelRen через Google Play, щоб отримати останні зміни.",
-                    color = Color(0xCCFFFFFF),
+                    color = AppInk.copy(alpha = 0.8f),
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                     textAlign = TextAlign.Center,
@@ -1960,7 +1953,7 @@ private fun AppUpdateDialog(
                 Spacer(Modifier.height(14.dp))
                 Text(
                     "ПІЗНІШЕ",
-                    color = Color(0xB3FFFFFF),
+                    color = AppInk.copy(alpha = 0.7f),
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
                     letterSpacing = 1.sp,
@@ -1983,7 +1976,7 @@ internal fun SettingsDeveloperFooter(
         Spacer(Modifier.height(8.dp))
         Text(
             "DEVELOPER — TANKO VIKTOR",
-            color = Color(0x66F3F2F2),
+            color = AppInk.copy(alpha = 0.4f),
             style = MaterialTheme.typography.labelSmall,
             fontSize = 9.sp,
             letterSpacing = 1.sp,
@@ -1996,10 +1989,10 @@ internal fun SettingsDeveloperFooter(
 // --- Нижня навігація (з Design) -------------------------------------------
 // Плавуча закруглена панель поверх вмісту. На фото — напівпрозора з тінню;
 // на моніторингу й налаштуваннях — рівна чорна без світлого ореолу.
-private val MonitorBg = Color(0xFF0A0A0A)    // фон прогнозу й темних діалогів
-private val NavGlass = Color(0xB80A0A0A)     // rgba(10,10,10,.72)
-private val NavBorder = Color(0x24FFFFFF)    // rgba(255,255,255,.14)
-private val NavInactive = Color(0x73FFFFFF)  // rgba(255,255,255,.45)
+private val MonitorBg: Color @Composable get() = AppBackground    // фон прогнозу й темних діалогів
+private val NavGlass: Color @Composable get() = AppBackground     // rgba(10,10,10,.72)
+private val NavBorder: Color @Composable get() = AppInk.copy(alpha = 0.14f)    // rgba(255,255,255,.14)
+private val NavInactive: Color @Composable get() = AppInk.copy(alpha = 0.45f)  // rgba(255,255,255,.45)
 
 @Composable
 private fun BottomNavBar(
@@ -2013,7 +2006,7 @@ private fun BottomNavBar(
             .fillMaxWidth()
             .height(60.dp)
             .shadow(if (flatDark) 0.dp else 8.dp, RoundedCornerShape(20.dp))
-            .background(if (flatDark) Color.Black else NavGlass, RoundedCornerShape(20.dp))
+            .background(if (flatDark) AppBackground else NavGlass, RoundedCornerShape(20.dp))
             .border(1.dp, NavBorder, RoundedCornerShape(20.dp)),
     ) {
         NavTab("Головна", activeTab == "home", { onSelect("home") }, Modifier.weight(1f)) { HomeIcon(it) }
@@ -2090,14 +2083,14 @@ private fun SettingsIcon(color: Color) {
 
 // Жовтий контент-колір hero — #F5C400 (той самий --warn, але тут це колір
 // ТЕКСТУ на темному склі, не заливка).
-private val HeroYellow = Color(0xFFF5C400)
+private val HeroYellow: Color @Composable get() = SignWarn
 // Макет: `background:rgba(10,10,10,.42)` РАЗОМ із `backdrop-filter:blur(18px)`.
 // Compose не вміє розмивати фон під елементом, тож буквальні 42% на світлому
 // небі у верхній частині фото лишають панель напівпрозорою й нечитабельною.
 // Піднято до ~72%, щоб дати ту саму візуальну вагу, що дає blur у браузері.
-private val HeroGlass = Color(0xB80A0A0A)
-private val HeroBorder = Color(0x38FFFFFF)   // rgba(255,255,255,.22)
-private val HeroLine = Color(0x59FFFFFF)      // rgba(255,255,255,.35)
+private val HeroGlass: Color @Composable get() = AppBackground
+private val HeroBorder: Color @Composable get() = AppInk.copy(alpha = 0.22f)   // rgba(255,255,255,.22)
+private val HeroLine: Color @Composable get() = AppInk.copy(alpha = 0.35f)      // rgba(255,255,255,.35)
 
 /**
  * Панель-герой за оновленим макетом: темна СКЛЯНА панель (не жовтий знак) із
@@ -2112,14 +2105,14 @@ private fun HeroPanel(item: Api.Workload, onOpenPicker: () -> Unit) {
             .fillMaxWidth()
             .padding(top = 38.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(HeroGlass)
-            .border(1.dp, HeroBorder, RoundedCornerShape(16.dp))
+            .background(AppBackground)
+            .border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .tapNoRipple(onClick = onOpenPicker)
             .padding(16.dp),
     ) {
         // Макет: `font:700 13px`, назва — ВЕЛИКИМИ (`title.toUpperCase()`).
         // Без «ЗМІНИТИ»: уся плитка клікабельна (`onOpenPicker`), тож окрема
-        // підказка зайва. Іконка паузи — після назви, коли пункт призупинено.
+        // підказка зайва. Пауза пояснюється червоним рядком під кількістю авто.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "${item.flag_emoji ?: ""} ${item.title}".trim().uppercase(),
@@ -2129,10 +2122,6 @@ private fun HeroPanel(item: Api.Workload, onOpenPicker: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            if (item.is_paused) {
-                Spacer(Modifier.width(8.dp))
-                PauseBadge(size = 20.dp)
-            }
         }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2147,10 +2136,21 @@ private fun HeroPanel(item: Api.Workload, onOpenPicker: () -> Unit) {
                 maxLines = 1,
             )
         }
-        // Макет: `≈ {wait} очікування` — рядок часу очікування, коли він є.
-        formatWait(item.wait_time_seconds)?.let { wait ->
+        if (item.is_paused) {
             Text(
-                "≈ $wait очікування",
+                "Черга на паузі",
+                color = SignClosed,
+                style = MaterialTheme.typography.bodySmall,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        // Макет: `≈ {wait} очікування` — рядок часу очікування, коли він є.
+        (WaitPresentation.label(item.wait_estimate)
+            ?: formatWait(item.wait_time_seconds)?.let { "≈ $it очікування" })?.let { wait ->
+            Text(
+                wait,
                 color = HeroYellow.copy(alpha = 0.85f),
                 style = MaterialTheme.typography.bodySmall,
                 fontSize = 12.sp,
@@ -2162,7 +2162,8 @@ private fun HeroPanel(item: Api.Workload, onOpenPicker: () -> Unit) {
         // (entry_eta), незалежно від паузи. Роздільник — жовтий напівпрозорий.
         // Дизайнер змінив на два рядки: підпис 14px, під ним час 16px жирним
         // (без стрілки), а не один рядок «назва | час →».
-        if (item.entry_eta != null) {
+        val measuredEta = WaitPresentation.entryEta(item)
+        if (measuredEta != null) {
             Spacer(Modifier.height(14.dp))
             Box(Modifier.fillMaxWidth().height(2.dp).background(HeroYellow.copy(alpha = 0.5f)))
             Spacer(Modifier.height(12.dp))
@@ -2176,7 +2177,7 @@ private fun HeroPanel(item: Api.Workload, onOpenPicker: () -> Unit) {
             // Макет: `current.eta` = день + час. Близькі дати — СЬОГОДНІ/ЗАВТРА,
             // далі — «дд.мм (день тижня)». Роздільник дати — крапка, не слеш.
             Text(
-                formatHeroEta(item.entry_eta),
+                formatHeroEta(measuredEta),
                 color = HeroYellow,
                 fontWeight = FontWeight.Black,
                 fontSize = 16.sp,
@@ -2188,16 +2189,16 @@ private fun HeroPanel(item: Api.Workload, onOpenPicker: () -> Unit) {
 // --- Пікер вибору КПП: темне скло (оновлений макет) -----------------------
 // Дизайнер перевів пікер із жовтого аркуша на ТЕМНИЙ: чорне тло, жовтий текст,
 // обрана картка — жовта заливка з темним текстом.
-private val PickerSheetBg = Color(0xFF0A0A0A)   // тло аркуша
-private val PickerRowBg = Color(0xFF1A1B1D)     // необрана картка
-private val PickerInk = Color(0xFF1C1E20)       // текст/рамка на жовтому
-private val PickerSubOnYellow = Color(0xB31C1E20) // підпис на обраній картці (.7)
-private val PickerYellowHalf = Color(0x80F5C400)  // рамка неактивної пігулки (.5)
+private val PickerSheetBg: Color @Composable get() = AppBackground   // тло аркуша
+private val PickerRowBg: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant     // необрана картка
+private val PickerInk: Color @Composable get() = AppOnAccent       // текст/рамка на жовтому
+private val PickerSubOnYellow: Color @Composable get() = AppOnAccent.copy(alpha = 0.7f) // підпис на обраній картці (.7)
+private val PickerYellowHalf: Color @Composable get() = SignWarn.copy(alpha = 0.5f)  // рамка неактивної пігулки (.5)
 // Назви КПП і країн — білі, а не жовті: у списку з ~40 рядків жовтий текст на
 // темному читається гірше за білий, а сам жовтий лишається носієм сигналу
 // (табличка з чергою, обрана картка, активна пігулка) — там, де він щось
 // означає, а не просто фарбує назву.
-private val PickerNameInk = Color(0xFFFFFFFF)
+private val PickerNameInk: Color @Composable get() = AppInk
 
 /**
  * Вибір пункту пропуску — повноекранний sheet за оновленим макетом: темне
@@ -2210,7 +2211,6 @@ private fun CheckpointPickerSheet(
     workload: List<Api.Workload>,
     selectedId: Int,
     countryFilter: String?,
-    showAttribution: Boolean,
     onFilter: (String?) -> Unit,
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -2259,11 +2259,6 @@ private fun CheckpointPickerSheet(
                     modifier = Modifier.tapNoRipple(onClick = onDismiss).padding(4.dp),
                 )
             }
-            // Атрибуція джерела — під заголовком, ПОЗА списком: саме цей екран
-            // (повноекранний Dialog) флагнув Google. Угорі, а не в підвалі: у
-            // Dialog вікно wrap-height, тож прибити рядок до низу надійно не
-            // виходить (виходив 0×0), а тут він гарантовано видимий і не скролиться.
-            if (showAttribution) AttributionBar(Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2349,8 +2344,8 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
     val plateColor = if (selected) PickerInk else HeroYellow
     // Дата в'їзду парситься раз на КПП (ключ — entry_eta), а не на кожен кадр
     // скролу: OffsetDateTime.parse + форматер помітно дорожчі за решту рядка.
-    val entrySub = remember(item.entry_eta) {
-        item.entry_eta?.let { "в'їзд ${formatEntry(it)}" }
+    val entrySub = remember(item.entry_eta, item.wait_estimate) {
+        WaitPresentation.entryEta(item)?.let { "в'їзд ${formatEntry(it)}" }
     }
     // Тактильний «тік» на вибір КПП — як на навпанелі; поважає системне вібро.
     val view = LocalView.current
@@ -2416,8 +2411,8 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
 // ОБРАНОМУ КПП. Дані реальні: GET /history/{id}?hours=1 → 60 точок
 // vehicles_in_queue (не генеруються). Лінія градієнтна зелений→жовтий→червоний
 // (60 хв тому → зараз), під нею напівпрозора заливка, що згасає вниз.
-private val ChartAxis = Color(0x99FFFFFF)     // осі/підписи — світлі напівпрозорі
-private val ChartGrid = Color(0x80FFFFFF)     // пунктирна сітка (біла 50%)
+private val ChartAxis: Color @Composable get() = AppInk.copy(alpha = 0.6f)     // осі/підписи — світлі напівпрозорі
+private val ChartGrid: Color @Composable get() = AppInk.copy(alpha = 0.5f)     // пунктирна сітка (біла 50%)
 private val ChartGreen = Color(0xFF38D66B)
 private val ChartYellow = Color(0xFFF5C400)
 private val ChartRed = Color(0xFFE5372B)
@@ -2438,18 +2433,20 @@ private fun colorForRate(delta: Int): Color {
 
 @Composable
 private fun RegistrationChart(values: List<Int>?, modifier: Modifier = Modifier) {
+    val gridInk = ChartGrid
+    val pointOutline = AppInk
     val axisStyle = MaterialTheme.typography.bodySmall.copy(
         fontSize = 8.sp, fontWeight = FontWeight.Bold, color = ChartAxis,
     )
     Column(
         modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(HeroGlass)
-            .border(1.dp, HeroBorder, RoundedCornerShape(16.dp))
+            .background(AppBackground)
+            .border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
-            "Динаміка реєстрацій",
+            "Динаміка черги",
             color = HeroYellow,
             fontWeight = FontWeight.Black,
             style = MaterialTheme.typography.bodyMedium,
@@ -2509,7 +2506,7 @@ private fun RegistrationChart(values: List<Int>?, modifier: Modifier = Modifier)
                 val dash = PathEffect.dashPathEffect(floatArrayOf(3f, 4f))
                 listOf(yLabels[0], yLabels[1]).forEach { lv ->
                     val gy = y(lv)
-                    drawLine(ChartGrid, Offset(0f, gy), Offset(w, gy), 1f, pathEffect = dash)
+                    drawLine(gridInk, Offset(0f, gy), Offset(w, gy), 1f, pathEffect = dash)
                 }
 
                 // Колір кожного відрізка — за темпом реєстрацій (приростом
@@ -2547,7 +2544,7 @@ private fun RegistrationChart(values: List<Int>?, modifier: Modifier = Modifier)
                 val cy = y(data[n - 1])
                 val nowColor = colorForRate(data[n - 1] - data[n - 2])
                 drawCircle(nowColor, radius = 4.5.dp.toPx(), center = Offset(cx, cy))
-                drawCircle(Color.White, radius = 4.5.dp.toPx(), center = Offset(cx, cy), style = Stroke(2.dp.toPx()))
+                drawCircle(pointOutline, radius = 4.5.dp.toPx(), center = Offset(cx, cy), style = Stroke(2.dp.toPx()))
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -2562,17 +2559,17 @@ private fun RegistrationChart(values: List<Int>?, modifier: Modifier = Modifier)
     }
 }
 
-// Позначка паузи (з Design): кругла ЖОВТА (#F5C400) іконка з символом «пауза» —
+// Позначка паузи (з Design): кругла ЧЕРВОНА іконка з символом «пауза» —
 // дві вертикальні білі смужки. Показується біля назви пункту, коли рух через
 // КПП тимчасово зупинено (єЧерга: «Черга затримується» — закриття МАПП через
 // негоду/технічні причини/дії сусідньої країни; місце в черзі зберігається,
 // але заїзд наразі не відбувається).
-private val PauseYellow = Color(0xFFF5C400)
+private val PauseRed = SignClosed
 
 @Composable
 private fun PauseBadge(size: Dp = 20.dp) {
     Box(
-        Modifier.size(size).clip(CircleShape).background(PauseYellow),
+        Modifier.size(size).clip(CircleShape).background(PauseRed),
         contentAlignment = Alignment.Center,
     ) {
         // Макет: дві смужки 3×9px із проміжком 3px у колі 20px.

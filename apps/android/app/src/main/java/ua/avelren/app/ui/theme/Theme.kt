@@ -4,7 +4,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.view.WindowCompat
+import ua.avelren.app.data.UiPrefs
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -40,15 +47,40 @@ private val RoadSignShapes = Shapes(
     extraLarge = RoundedCornerShape(10.dp),
 )
 
-/** Тема слідує системній — власного перемикача застосунок не має. */
+/** Вибрана тема зберігається локально; початкова тема — чорна. */
 @Composable
 fun AvelRenTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+    val context = LocalContext.current
+    val view = LocalView.current
+    val theme by remember(context) { UiPrefs.themeFlow(context) }.collectAsStateWithLifecycle(ThemeChoice.DARK)
+    val dark = theme == ThemeChoice.DARK
+    val palette = appPalette(theme)
+    if (!view.isInEditMode) {
+        SideEffect {
+            (context as? Activity)?.window?.let { window ->
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+                @Suppress("DEPRECATION")
+                window.statusBarColor = if (dark) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = if (dark) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            }
+        }
+    }
     CompositionLocalProvider(
-        LocalAvelRenColors provides if (dark) DarkAvelRenColors else LightAvelRenColors
+        LocalThemeChoice provides theme,
+        LocalAvelRenColors provides (if (dark) DarkAvelRenColors else LightAvelRenColors).copy(
+            paper = palette.background, ink = palette.ink, panel = palette.background,
+        )
     ) {
         MaterialTheme(
-            colorScheme = if (dark) DarkColors else LightColors,
+            colorScheme = (if (dark) DarkColors else LightColors).copy(
+                primary = palette.accent, onPrimary = palette.onAccent,
+                background = palette.background, surface = palette.background,
+                onBackground = palette.ink, onSurface = palette.ink,
+            ),
             typography = AvelRenTypography,
             shapes = RoadSignShapes,
             content = content,

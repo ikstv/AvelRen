@@ -88,9 +88,7 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
                 # Both a nonexistent id and a wrong secret lead here — we do not
                 # disclose which part is wrong, so as not to give an oracle for
                 # brute force.
-                raise HTTPException(
-                    status_code=401, detail="Invalid device credentials"
-                )
+                raise HTTPException(status_code=401, detail="Invalid device credentials")
 
             # We update last_seen only after a successful check — otherwise the
             # very fact of the update would be an "id exists" oracle. Throttled to
@@ -117,6 +115,24 @@ async def _device(x_device_id: str | None, x_device_secret: str | None) -> str:
 async def thresholds(request: Request) -> dict:
     rate_check(request, "read")
     return {"thresholds": THRESHOLDS}
+
+
+async def save_capabilities(conn, device_id, capabilities):
+    from .schema_gate import assert_surge_schema
+
+    exists = await (
+        await conn.execute(
+
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE "
+                "version='016_surge_monitor') AS present"
+
+        )
+    ).fetchone()
+    if exists["present"]:
+        await assert_surge_schema(conn)
+        await conn.execute(
+            "UPDATE devices SET notification_capabilities=%s WHERE id=%s", (capabilities, device_id)
+        )
 
 
 @router.post("/devices", status_code=201)
@@ -150,6 +166,7 @@ async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
                     (body.fcm_token, body.platform, _hash_secret(secret)),
                 )
             ).fetchone()
+            await save_capabilities(conn, row["id"], body.notification_capabilities)
     # The secret is returned exactly once. Only the hash is in the DB —
     # recovery is impossible, only creating a new installation.
     return DeviceOut(device_id=str(row["id"]), device_secret=secret)
@@ -176,6 +193,7 @@ async def update_token(
                 "UPDATE devices SET fcm_token = %s, last_seen = now() WHERE id = %s",
                 (body.fcm_token, device_id),
             )
+            await save_capabilities(conn, device_id, body.notification_capabilities)
     return {"status": "ok"}
 
 
@@ -478,11 +496,7 @@ async def active_devices(request: Request) -> dict:
     """Number of device records still retained on our server."""
     rate_check(request, "read")
     async with get_pool().connection() as conn:
-        count = await (
-            await conn.execute(
-                "SELECT count(*) AS total FROM devices"
-            )
-        ).fetchone()
+        count = await (await conn.execute("SELECT count(*) AS total FROM devices")).fetchone()
     return {"active_devices": count["total"], "retention_days": 90}
 
 
