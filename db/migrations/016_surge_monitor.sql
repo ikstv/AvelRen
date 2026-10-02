@@ -85,6 +85,7 @@ GRANT SELECT(id,notification_capabilities) ON devices TO avelren_surge;
 GRANT SELECT,INSERT,UPDATE ON surge_predictions,surge_events,surge_alerts,
     surge_checkpoint_state TO avelren_surge;
 GRANT INSERT ON notification_cancels TO avelren_surge;
+GRANT SELECT(kind,alert_id) ON notification_cancels TO avelren_surge;
 GRANT USAGE ON SEQUENCE surge_predictions_id_seq,surge_events_id_seq,
     surge_alerts_id_seq,notification_cancels_id_seq TO avelren_surge;
 GRANT SELECT ON surge_predictions,surge_events TO avelren_api;
@@ -96,3 +97,29 @@ GRANT SELECT ON surge_events TO avelren_notifier;
 GRANT SELECT,UPDATE ON surge_alerts TO avelren_notifier;
 GRANT SELECT,INSERT,UPDATE ON surge_delivery_attempts TO avelren_notifier;
 GRANT USAGE ON SEQUENCE surge_delivery_attempts_id_seq TO avelren_notifier;
+
+-- Вузьке очищення одного вже скасованого повідомлення. Runtime не має DELETE.
+-- Залишаємо ACK та повідомлення чинних підписок, навіть якщо вони expired.
+CREATE FUNCTION discard_disabled_surge_alert(p_id bigint,p_device uuid) RETURNS boolean
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
+    WITH removed AS (
+        DELETE FROM public.surge_alerts a
+        WHERE a.id=p_id AND a.device_id=p_device AND a.status='expired'
+          AND EXISTS (SELECT 1 FROM public.notification_cancels c
+                      WHERE c.alert_id=a.id AND c.device_id=a.device_id
+                        AND c.kind IN ('surge_forecast','surge_started'))
+          AND NOT EXISTS (
+              SELECT 1 FROM public.surge_subscriptions s
+              JOIN public.devices d ON d.id=s.device_id
+              JOIN public.surge_events e ON e.id=a.event_id
+              WHERE s.device_id=a.device_id AND s.checkpoint_id=e.checkpoint_id
+                AND 'surge_v1'=ANY(d.notification_capabilities)
+                AND ((e.kind='surge_forecast' AND s.forecast_enabled)
+                  OR (e.kind='surge_started' AND s.fact_enabled))
+          )
+        RETURNING id
+    ) SELECT EXISTS(SELECT 1 FROM removed);
+$$;
+REVOKE ALL ON FUNCTION discard_disabled_surge_alert(bigint,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION discard_disabled_surge_alert(bigint,uuid)
+    TO avelren_surge,avelren_api;

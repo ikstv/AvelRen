@@ -162,13 +162,11 @@ async def assert_surge_schema(conn) -> None:
         if row is None or tuple(row[0] or ()) != expected:
             raise SchemaTooOldError("016 unique constraint missing or wrong: " + name)
     await cursor.execute(
-
-            "SELECT i.indisunique, i.indisvalid, pg_get_expr(i.indpred,i.indrelid), "
-            "pg_get_indexdef(i.indexrelid,1,true), "
-            "pg_get_indexdef(i.indexrelid,2,true), "
-            "i.indrelid='public.surge_events'::regclass FROM pg_index i WHERE "
-            "i.indexrelid=to_regclass('public.surge_events_one_active')"
-
+        "SELECT i.indisunique, i.indisvalid, pg_get_expr(i.indpred,i.indrelid), "
+        "pg_get_indexdef(i.indexrelid,1,true), "
+        "pg_get_indexdef(i.indexrelid,2,true), "
+        "i.indrelid='public.surge_events'::regclass FROM pg_index i WHERE "
+        "i.indexrelid=to_regclass('public.surge_events_one_active')"
     )
     if await cursor.fetchone() != (
         True,
@@ -179,3 +177,7 @@ async def assert_surge_schema(conn) -> None:
         True,
     ):
         raise SchemaTooOldError("016 active episode index missing or wrong")
+
+    await cursor.execute(schema_verify.SURGE_CLEANUP_SAFETY_QUERY)
+    if await cursor.fetchone() != schema_verify.SURGE_CLEANUP_SAFETY_RESULT:
+        raise SchemaTooOldError("016 surge cleanup missing or unsafe owner/search_path/grants")

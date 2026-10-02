@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 60
     http_timeout_seconds: int = 15
 
+    surge_enabled: bool = False
+
     contact_email: str = ""
     log_level: str = "INFO"
 

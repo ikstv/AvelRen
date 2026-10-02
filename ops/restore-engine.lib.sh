@@ -282,6 +282,11 @@ BEGIN
     ELSIF to_regprocedure('public.prune_inactive_devices(boolean)') IS NOT NULL THEN
         RAISE EXCEPTION 'device retention function exists without its migration';
     END IF;
+    IF EXISTS (SELECT 1 FROM public.schema_migrations WHERE version = '016_surge_monitor') THEN
+        ALTER FUNCTION public.discard_disabled_surge_alert(bigint,uuid) OWNER TO avelren_migrator;
+    ELSIF to_regprocedure('public.discard_disabled_surge_alert(bigint,uuid)') IS NOT NULL THEN
+        RAISE EXCEPTION 'surge cleanup function exists without its migration';
+    END IF;
     IF EXISTS (SELECT 1 FROM public.schema_migrations WHERE version = '014_admin_pin_rebind') THEN
         ALTER FUNCTION public.activate_admin_after_pin(uuid) OWNER TO avelren_migrator;
     ELSIF to_regprocedure('public.activate_admin_after_pin(uuid)') IS NOT NULL THEN

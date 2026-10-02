@@ -37,3 +37,26 @@ secret_hash, Admin, зміни observations або DDL. API має окремі 
 і штатна restore-репетиція з TimescaleDB hooks пройшли. Результат
 належить тестованій гілці; це не production-приймання й не CI.
 Нові API/Android/доставка ще реалізуються. Production не змінювався.
+
+
+## Епізоди та worker
+
+Хвилинний worker читає тільки нашу БД. Прогноз зберігається раз на
+годину за Києвом, із майбутнім вікном 1–24 години; inference не навчається.
+Події атомарно закривають pending і додають cancel; ACK не змінюється
+при позитивному годинному оновленні. Старий APK без surge_v1 не отримує
+новий alert. Advisory locks серіалізують worker і операції за КПП.
+
+Повторне ввімкнення вже вимкненої pending-підписки отримує новий alert_id.
+Вузька SECURITY DEFINER функція очищає лише задані id+device, статус expired,
+наявний cancel та відсутню/вимкнену підписку. ACK і чинні повідомлення
+залишаються. Runtime не має прямого DELETE. Startup/restore перевіряє
+owner, search_path та grants; restore повертає власника avelren_migrator.
+Глобальний kill switch закриває події й cancel при запуску worker із
+SURGE_ENABLED=false. Сам run_cycle disabled не відкриває пул.
+
+Конфігурація додає тільки surge_enabled=false; контракт collector незмінний.
+Міграція 016 ще не застосована на production; уточнення її прав/function
+перевіряються тільки на disposable синтетичній БД.
+
+Оновлення перевірок: 330 unit і44 database пройшли, restore повторно пройшов після додавання cleanup-функції. CI/production/Android не прийняті.

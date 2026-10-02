@@ -46,6 +46,27 @@ FEATURE_MIGRATIONS = frozenset(
     }
 )
 
+SURGE_CLEANUP_SAFETY_QUERY = """
+    SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig,
+        has_function_privilege('avelren_api',p.oid,'EXECUTE'),
+        has_function_privilege('avelren_surge',p.oid,'EXECUTE'),
+        NOT EXISTS (SELECT 1 FROM aclexplode(
+            COALESCE(p.proacl,acldefault('f',p.proowner))) acl
+            WHERE acl.privilege_type='EXECUTE' AND acl.grantee NOT IN (
+                p.proowner,(SELECT oid FROM pg_roles WHERE rolname='avelren_api'),
+                (SELECT oid FROM pg_roles WHERE rolname='avelren_surge')))
+    FROM pg_proc p
+    WHERE p.oid=to_regprocedure('public.discard_disabled_surge_alert(bigint,uuid)')
+"""
+SURGE_CLEANUP_SAFETY_RESULT = (
+    True,
+    "avelren_migrator",
+    ["search_path=pg_catalog, pg_temp"],
+    True,
+    True,
+    True,
+)
+
 # --- Version-annotated physical contract ------------------------------------
 # Format: (since_version | None, ...object details)
 # since=None → always required (schema_migrations).
@@ -437,6 +458,11 @@ def verify_contract(
         ).fetchone()
         if not row:
             problems.append(f"missing continuous aggregate {cagg}")
+
+    if want("016_surge_monitor"):
+        row = conn.execute(SURGE_CLEANUP_SAFETY_QUERY).fetchone()
+        if row != SURGE_CLEANUP_SAFETY_RESULT:
+            problems.append("surge cleanup function missing or unsafe owner/search_path/grants")
 
     if want("011_admin_access"):
         row = conn.execute(

@@ -307,8 +307,8 @@ FCM-токенів і нуль підписок на чинному Admin-ID. В
 
 | Етап | Стан |
 | --- | --- |
-| Код | Реалізація в `codex/experimental-surge-monitor`: frozen модель, залежність PR #72, схема 016, optional gate та права; епізоди/API/Android ще в роботі |
-| Локальні перевірки | 311 unit, 36 database, синтетичний restore та allowlist пройшли; не означає CI |
+| Код | Реалізація в `codex/experimental-surge-monitor`: frozen модель, залежність PR #72, схема 016, optional gate, права, епізоди та worker; API/Android ще в роботі |
+| Локальні перевірки | 330 unit, 44 database, синтетичний restore та allowlist пройшли; не означає CI |
 | CI | Не запускався для нової гілки |
 | Сервер | Не розгорнуто; потрібен окремий конкретний дозвіл на пакет/міграції/роль/служби та відкат |
 | Android-збірка | Нового APK/AAB немає |
