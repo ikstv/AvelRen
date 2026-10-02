@@ -283,3 +283,13 @@ FCM-токенів і нуль підписок на чинному Admin-ID. В
 Серверне приймання цього етапу — лише disposable rehearsal. Старі host
 restore-файли не замінені, issue #41 ще відкрита; live adoption/повний restore
 зі spool не виконані. Нового APK, телефонної перевірки й публікації Play немає.
+
+## Restore runtime — серверне приймання 02.10.2026 о 11:29
+
+Попередній блок описує перший стенд до встановлення. Тепер чотири host
+restore-сценарії узгоджено з перевіреним main 857eb61e після окремого GO.
+Повторний backup restore через фактично встановлені CLI/engine/verifier,
+schema/API smoke, hashes/rollback backups та cleanup успішні.
+[Доказ](audits/RESTORE-REAL-BACKUP-2026-10-02.md#встановлений-runtime--приймання-о-1129-за-києвом).
+Критерії #41 виконано. Production restore зі spool лишається заблокованим;
+adoption живої БД, APK/телефон/Play не прийняті цим етапом.

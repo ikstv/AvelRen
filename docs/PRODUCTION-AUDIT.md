@@ -854,3 +854,16 @@ pending=0. [Повний датований доказ](audits/RESTORE-REAL-BACK
 Це приймання isolated rehearsal, а не встановлення production restore
 runtime; issue #41 лишається відкритою. Adoption і повний restore зі spool
 потребують окремої перевірки та дозволу.
+
+## Restore runtime — встановлення 02 жовтня 2026 року
+
+Після окремого конкретного GO о 11:26–11:28 за Києвом замінено лише
+чотири deploy/restore host-файли; о 11:29 прийнято фактичні SHA, backups,
+ранню відмову production restore та повторний real-backup rehearsal
+через встановлені entry points. Native schema/API smoke успішні,
+3026358 observations, 38 КПП, міграції 001–014, restoring=off.
+Стенд/копії прибрано, робочі контейнери не змінені; collector pending=0,
+API ok, останній backup run success. Критерії #41 виконано.
+[Доказ і межі](audits/RESTORE-REAL-BACKUP-2026-10-02.md#встановлений-runtime--приймання-о-1129-за-києвом).
+Full production restore зі spool залишається заблокованим; adoption,
+ролі живої БД, ОС/Docker й телефон цим етапом не змінювалися.

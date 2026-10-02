@@ -106,3 +106,14 @@ exact main `857eb61e` успішні; ресурси й копії видале�
 кодом; старі host-скрипти не змінені, issue #41 не закрита.
 Production adoption та production restore зі spool залишаються окремими
 неприйнятими етапами; зелений disposable restore не закриває їх.
+
+## Після встановлення restore runtime — 02.10.2026 о 11:29
+
+Залишок #41 із попереднього розділу виконано після окремого deployment GO:
+чотири встановлені host-сценарії адаптовано до перевіреного main 857eb61e,
+native ownership/schema/API acceptance пройшов на реальному backup
+через встановлений шлях; rollback backups збережено, stand прибрано,
+live API/collector/backup перевірено.
+[Доказ](audits/RESTORE-REAL-BACKUP-2026-10-02.md#встановлений-runtime--приймання-о-1129-за-києвом).
+Критерії issue #41 виконано. Production adoption та full restore зі spool
+не виконані й не закриваються цим прийманням.
