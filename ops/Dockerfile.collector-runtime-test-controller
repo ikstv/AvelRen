@@ -1,0 +1,4 @@
+# Disposable Linux operator harness, shared by Windows and CI.
+FROM docker:cli@sha256:b1805116a6a86cc591b5d5f60a910a0715cdcc9d18d866ad68b1457ead25c35c
+RUN apk add --no-cache python3 bash
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
