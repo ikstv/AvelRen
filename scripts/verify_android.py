@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import struct
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -12,6 +13,15 @@ for entry in manifest["files"]:
         raise SystemExit(f"Missing revision notes: {entry['destination']}")
     if hashlib.sha256((root / entry["destination"]).read_bytes()).hexdigest() != expected:
         raise SystemExit(f"SHA-256 mismatch: {entry['destination']}")
+
+# A manifest hash alone cannot detect a mistakenly re-hashed corrupt binary.
+# Validate the sfnt checksum independently; text newline conversion breaks it.
+for font in (root / "apps/android/app/src/main/res/font").glob("*.ttf"):
+    raw = font.read_bytes()
+    padded = raw + b"\0" * (-len(raw) % 4)
+    checksum = sum(struct.unpack(f">{len(padded) // 4}I", padded)) & 0xFFFFFFFF
+    if checksum != 0xB1B0AFBA:
+        raise SystemExit(f"Invalid TTF checksum: {font.name}")
 
 assets = (root / "docs/ASSETS.md").read_text(encoding="utf-8")
 for file in (root / "apps/android/app/src/main").rglob("*"):

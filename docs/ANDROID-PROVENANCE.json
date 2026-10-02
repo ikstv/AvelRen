@@ -311,33 +311,21 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/res/font/overpass_black.ttf",
       "destination": "apps/android/app/src/main/res/font/overpass_black.ttf",
-      "sha256": "1fcf81729ea506d1eafd54b2fa8182494b68ea9966ee24af53bf517ef94d1d0c",
-      "revision": {
-        "sha256": "6eff8a05d382910e53218e87d5b69b8a6749d40666fbc8330eb62b6fcafaf297",
-        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
-      }
+      "sha256": "1fcf81729ea506d1eafd54b2fa8182494b68ea9966ee24af53bf517ef94d1d0c"
     },
     {
       "repository": "ikstv/AvelRen",
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/res/font/overpass_bold.ttf",
       "destination": "apps/android/app/src/main/res/font/overpass_bold.ttf",
-      "sha256": "623f1f421fecc29095d76b3aa472c409e1b0b5db70ef2b3ba4b699546ce3d4af",
-      "revision": {
-        "sha256": "4e3558d5a81b87b47557402ccf6314413c2de31c2b8b74c8585c1d8e9d2aa73f",
-        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
-      }
+      "sha256": "623f1f421fecc29095d76b3aa472c409e1b0b5db70ef2b3ba4b699546ce3d4af"
     },
     {
       "repository": "ikstv/AvelRen",
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/res/font/overpass_regular.ttf",
       "destination": "apps/android/app/src/main/res/font/overpass_regular.ttf",
-      "sha256": "bf107d7ae99031c2193cd187acc9d4e5ebd45b6ea0e6845159ce68f87eb623aa",
-      "revision": {
-        "sha256": "de697886a181d2a9c2d586ebfb4379695d2a803072c1b785868595151d5d416d",
-        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
-      }
+      "sha256": "bf107d7ae99031c2193cd187acc9d4e5ebd45b6ea0e6845159ce68f87eb623aa"
     },
     {
       "repository": "ikstv/AvelRen",
@@ -385,8 +373,8 @@
       "destination": "apps/android/app/src/preview/java/ua/avelren/app/PreviewActivity.kt",
       "sha256": "3b6b2394563e5c0c0b7d0866b5bc05d2dfef8f6acda0fc246a169b7f3db26357",
       "revision": {
-        "sha256": "dce5a1e7b87b7b8780ef610859f7debedbe178fdde6aa5ba3b1edc2460b29966",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "672ac07d7e96d7ca442b8be2cd3525bde26b6406808b6bb88f5acca07d4c00c2",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
     {
