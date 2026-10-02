@@ -27,6 +27,20 @@ class AckReceiver : BroadcastReceiver() {
         val kind = intent.getStringExtra(EXTRA_KIND) ?: "threshold"
         if (alertId <= 0) return
 
+        if (kind in surgeKinds) {
+            val store = SurgeLocalStore(context)
+            if (!store.acknowledge(alertId)) return
+            Notifications.cancel(context, kind, alertId)
+            // Task8 voice service observes this durable tombstone before every utterance.
+            val app = context.applicationContext as? AvelRenApp ?: return
+            val pending = goAsync()
+            app.launchInScope {
+                try { SurgeAckWorker.enqueue(context, alertId) }
+                catch (_: Exception) { Log.w(TAG, "ACK enqueue failed; durable pending retained") }
+                finally { pending.finish() }
+            }
+            return
+        }
         Notifications.cancel(context, kind, alertId)
 
         // The local notification is already dismissed. The server ACK goes through

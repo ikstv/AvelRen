@@ -58,6 +58,8 @@ object NotificationReconciler {
                 buildSet {
                     server.threshold.forEach { add(AlertKey("threshold", it)) }
                     server.eta.forEach { add(AlertKey("eta", it)) }
+                    server.surge_forecast.forEach { add(AlertKey("surge_forecast", it)) }
+                    server.surge_started.forEach { add(AlertKey("surge_started", it)) }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "не вдалося отримати active-alerts, лишаю все як є: ${e.message}")
@@ -67,7 +69,12 @@ object NotificationReconciler {
             // 3. FAIL-SAFE: serverKeys==null (fetch/recovery failed) → we dismiss
             //    nothing. Diff the snapshot (not a fresh read) against the server state.
             val stale = AlertReconciliation.staleNotificationIdsOrNothing(snapshot, serverKeys)
+            val store = SurgeLocalStore(context)
             for (id in stale) {
+                val key = snapshot.firstOrNull { it.notificationId == id }?.key
+                if (key != null && key.kind in surgeKinds) {
+                    if (!store.cancel(key.alertId)) continue
+                }
                 nm.cancel(id)
                 Log.i(TAG, "погашено застаріле сповіщення id=$id")
             }

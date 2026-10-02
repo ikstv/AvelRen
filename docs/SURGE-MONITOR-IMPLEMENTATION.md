@@ -110,3 +110,9 @@ reconciliation доповнюють одне одного.
 [Строк актуальності FCM](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan).
 
 Новий cancel має `cancel_surge_alert_id`, а не legacy `cancel_alert_id`: старий Android ігнорує невідомий тип і не скасовує повідомлення здоров’я сервера з тим самим числовим ID. Чинний threshold/eta payload не змінено.
+
+## Android: контракт і локальні підтвердження
+
+Окремі DTO та API для моніторингу; registration і token refresh передають `surge_v1`. Локальний preferences ledger має синхронний commit і спільний process lock: підтвердження, cancel tombstone, UUID/ordinal переживають створення нового store. Збій запису або пошкоджений ledger не дозволяє показ. Відома активна фактична подія блокує пізній прогноз того самого КПП.
+
+«Зрозуміло» спершу записує local ACK, відразу прибирає notification і зберігає pending до WorkManager з network constraint та backoff. Успіх або own-alert 404 після recovery завершує pending; 503/offline не завершує. Startup/foreground відновлює pending. Legacy threshold/eta paths збережено; active-alerts має окремі нові списки. Stop voice буде підключено разом із голосовим сервісом. Це JVM-перевірки persistence boundary, а не доказ перевірки на реальному телефоні.

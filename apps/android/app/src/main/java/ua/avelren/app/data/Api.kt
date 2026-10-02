@@ -54,7 +54,7 @@ object Api {
             requestTimeoutMillis = requestTimeoutMs
         }
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
+            json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
         }
         // Without this, Ktor 3 returns non-2xx as "success" — calls without body<>()
         // (updateToken, ack, delete) would not notice a 401 at all, and after a DB
@@ -278,6 +278,8 @@ object Api {
     data class ActiveAlerts(
         val threshold: List<Long> = emptyList(),
         val eta: List<Long> = emptyList(),
+        val surge_forecast: List<Long> = emptyList(),
+        val surge_started: List<Long> = emptyList(),
     )
 
     @Serializable
@@ -330,14 +332,16 @@ object Api {
     )
 
     @Serializable
-    private data class DeviceIn(val fcm_token: String, val platform: String = "android")
+    private data class DeviceIn(val fcm_token: String, val platform: String = "android",
+        val notification_capabilities: List<String> = listOf("surge_v1"))
 
     /** The server returns the secret ONLY once — in response to POST /devices. */
     @Serializable
     private data class DeviceOut(val device_id: String, val device_secret: String)
 
     @Serializable
-    private data class TokenIn(val fcm_token: String)
+    private data class TokenIn(val fcm_token: String,
+        val notification_capabilities: List<String> = listOf("surge_v1"))
 
     /**
      * Adds both installation authentication headers to the request. The server no

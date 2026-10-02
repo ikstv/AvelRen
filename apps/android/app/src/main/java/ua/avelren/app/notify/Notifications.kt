@@ -74,6 +74,8 @@ object Notifications {
         val kindCode = when (kind) {
             "threshold" -> 1
             "eta" -> 2
+            "surge_forecast" -> 4
+            "surge_started" -> 5
             else -> 3
         }
         return kindCode * 10_000_000 + (alertId % 10_000_000).toInt()
