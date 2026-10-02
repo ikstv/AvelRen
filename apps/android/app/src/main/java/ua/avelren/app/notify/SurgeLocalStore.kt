@@ -30,7 +30,7 @@ private data class LocalAlert(
 )
 
 @Serializable
-private data class LocalLedger(val alerts: Map<Long, LocalAlert> = emptyMap(), val voiceEnabled: Boolean = false, val voiceProblem: String? = null)
+private data class LocalLedger(val alerts: Map<Long, LocalAlert> = emptyMap(), val voiceEnabled: Boolean = false, val voiceProblem: String? = null, val voiceConfigured: Boolean = false)
 
 /** Each operation reloads durable state under one process lock across all store instances. */
 class SurgeLocalStore(private val persistence: SurgePersistence) {
@@ -65,7 +65,10 @@ class SurgeLocalStore(private val persistence: SurgePersistence) {
         state.copy(alerts = state.alerts + (alertId to alert.copy(cancelled = true)))
     }
     fun voiceEnabled(): Boolean = synchronized(lock) { runCatching { read().voiceEnabled }.getOrDefault(false) }
-    fun setVoiceEnabled(enabled: Boolean): Boolean = modify { it.copy(voiceEnabled = enabled, voiceProblem = null) }
+    fun setVoiceEnabled(enabled: Boolean): Boolean = modify { it.copy(voiceEnabled = enabled, voiceProblem = null, voiceConfigured = true) }
+    fun enableVoiceForFirstMonitoring(): Boolean = modify {
+        if (it.voiceConfigured) it else it.copy(voiceEnabled = true, voiceConfigured = true)
+    }
     fun voiceProblem(): String? = synchronized(lock) { runCatching { read().voiceProblem }.getOrDefault("tts_unavailable") }
     fun setVoiceProblem(reason: String?): Boolean = modify { it.copy(voiceProblem = reason) }
     fun forecastAlerts(checkpointId: Int): Set<Long> = synchronized(lock) {

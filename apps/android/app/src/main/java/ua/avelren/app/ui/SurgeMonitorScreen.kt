@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ua.avelren.app.data.*
-import ua.avelren.app.notify.SurgeLocalStore
+import ua.avelren.app.notify.*
 
 @Composable
 fun SurgeMonitorScreen(
@@ -88,12 +88,31 @@ private fun SurgeMonitorContent(
         scope.launch {
             try {
                 if (remove) repository.removeSubscription(cp.checkpoint_id)
-                else repository.setSubscription(cp.checkpoint_id, forecast, fact)
+                else {
+                    repository.setSubscription(cp.checkpoint_id, forecast, fact)
+                    if ((forecast || fact) && local.enableVoiceForFirstMonitoring()) {
+                        voice = local.voiceEnabled()
+                    }
+                }
                 refresh()
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { error = "Не вдалося зберегти вибір КПП. Попередні налаштування залишились" }
             finally { busy = false }
         }
+    }
+    fun acknowledge(alert: SurgeAlert) {
+        val actions = SurgeMonitorActions(local) { id, kind ->
+            Notifications.cancel(context, kind, id)
+            SurgeVoiceService.stopAlert(context, id)
+            scope.launch { runCatching { SurgeAckWorker.enqueue(context, id) } }
+        }
+        if (actions.acknowledge(alert.surge_alert_id, alert.kind)) {
+            subscriptions = subscriptions.map { current ->
+                current.copy(alerts = current.alerts.filterNot {
+                    it.surge_alert_id == alert.surge_alert_id
+                })
+            }
+        } else error = "Не вдалося зберегти підтвердження. Спробуйте ще раз"
     }
     LaunchedEffect(repository) {
         while (true) { refresh(); delay(60_000) }
@@ -160,11 +179,24 @@ private fun SurgeMonitorContent(
                             Text("Початок зростання — факт", Modifier.padding(top = 12.dp))
                         }
                         val cards = SurgePresentation.cards(cp, if (error == null) snapshots[cp.checkpoint_id] else null, now)
+                        val active = sub.alerts.filter { alert ->
+                            !local.isBlocked(alert.surge_alert_id) &&
+                                runCatching { Instant.parse(alert.expires_at) > now }.getOrDefault(false)
+                        }
+                        val forecastAlert = active.firstOrNull { it.kind == "surge_forecast" }
+                        val factAlert = active.firstOrNull { it.kind == "surge_started" }
                         Text("Прогноз", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        Text(cards.forecast)
+                        Text(forecastAlert?.body ?: cards.forecast)
                         cards.window?.let { Text("Можливе вікно: $it", style = MaterialTheme.typography.bodySmall) }
+                        forecastAlert?.let { alert ->
+                            TextButton(onClick = { acknowledge(alert) }) { Text("Зрозуміло") }
+                        }
                         Text("Фактичне зростання", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        Text(if (error != null) "Актуальні дані не отримано" else cards.fact)
+                        Text(factAlert?.body ?: if (error != null) "Актуальні дані не отримано" else cards.fact)
+                        factAlert?.let { alert ->
+                            alert.growth_5m?.let { Text("+$it авто за 5 хвилин", style = MaterialTheme.typography.bodySmall) }
+                            TextButton(onClick = { acknowledge(alert) }) { Text("Зрозуміло") }
+                        }
                         TextButton(onClick = { onCountForecast(cp.checkpoint_id) }) { Text("Орієнтовна черга на добу →") }
                     }
                 } }

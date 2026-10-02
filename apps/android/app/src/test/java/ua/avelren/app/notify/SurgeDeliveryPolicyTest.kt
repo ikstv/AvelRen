@@ -31,4 +31,9 @@ class SurgeDeliveryPolicyTest {
             .map { Notifications.notificationId(it, 42) }
         assertEquals(5, ids.toSet().size)
     }
+
+    @Test fun `visible notice includes development label without modifying speech`() {
+        val spoken = "Можливий початок масової реєстрації на Чопі"
+        assertEquals(spoken + "\nФункція в розробці", SurgeDeliveryPolicy.notificationBody(spoken))
+    }
 }

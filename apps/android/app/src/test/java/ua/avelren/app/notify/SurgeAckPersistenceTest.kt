@@ -68,4 +68,32 @@ class SurgeAckPersistenceTest {
         assertFalse(SurgeLocalStore(disk).claimAttempt(payload(2), now))
     }
 
+
+    @Test fun `first explicit enable turns on voice without overriding user off`() {
+        val disk = Disk()
+        val local = SurgeLocalStore(disk)
+        assertFalse(local.voiceEnabled())
+        assertTrue(local.enableVoiceForFirstMonitoring())
+        assertTrue(SurgeLocalStore(disk).voiceEnabled())
+        assertTrue(local.setVoiceEnabled(false))
+        assertTrue(SurgeLocalStore(disk).enableVoiceForFirstMonitoring())
+        assertFalse(SurgeLocalStore(disk).voiceEnabled())
+    }
+    @Test fun `screen ACK persists before effects and remains pending offline`() {
+        val disk = Disk()
+        val local = SurgeLocalStore(disk)
+        var finished = false
+        val actions = SurgeMonitorActions(local) { id, kind ->
+            assertTrue(SurgeLocalStore(disk).isAcknowledged(id))
+            assertEquals("surge_forecast", kind)
+            finished = true
+        }
+        assertTrue(actions.acknowledge(42, "surge_forecast"))
+        assertTrue(finished)
+        assertEquals(setOf(42L), SurgeLocalStore(disk).pendingAcks())
+        disk.fail = true
+        finished = false
+        assertFalse(actions.acknowledge(43, "surge_forecast"))
+        assertFalse(finished)
+    }
 }

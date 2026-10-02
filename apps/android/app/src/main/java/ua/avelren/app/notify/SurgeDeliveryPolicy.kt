@@ -29,6 +29,7 @@ data class SurgePayload(
 }
 
 object SurgeDeliveryPolicy {
+    fun notificationBody(body: String): String = body + "\nФункція в розробці"
     fun shouldPresent(payload: SurgePayload, now: Instant): Boolean = runCatching {
         payload.kind in surgeKinds && payload.alertId > 0 && payload.ordinal > 0 &&
             payload.checkpointId > 0 && UUID.fromString(payload.attemptId).toString() == payload.attemptId &&

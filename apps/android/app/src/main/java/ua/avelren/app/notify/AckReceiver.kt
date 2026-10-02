@@ -29,9 +29,11 @@ class AckReceiver : BroadcastReceiver() {
 
         if (kind in surgeKinds) {
             val store = SurgeLocalStore(context)
-            if (!store.acknowledge(alertId)) return
-            Notifications.cancel(context, kind, alertId)
-            SurgeVoiceService.stopAlert(context, alertId)
+            val actions = SurgeMonitorActions(store) { id, alertKind ->
+                Notifications.cancel(context, alertKind, id)
+                SurgeVoiceService.stopAlert(context, id)
+            }
+            if (!actions.acknowledge(alertId, kind)) return
             val app = context.applicationContext as? AvelRenApp ?: return
             val pending = goAsync()
             app.launchInScope {

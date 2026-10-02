@@ -221,3 +221,14 @@ def test_public_status_has_future_window_and_never_fake_zero(api_client, conn):
     assert r.json()["model_version"] == "surge_24h_v1"
     assert "probability" not in r.json()
     assert "score" not in r.json()
+
+
+def test_enabled_checkpoints_returns_real_schema_columns(api_client, conn):
+    conn.execute(
+        "INSERT INTO checkpoints(id,title,for_vehicle_type,country_name) "
+        "VALUES(17,'Чоп',1,'Угорщина')"
+    )
+    response = api_client.get("/surge/checkpoints")
+    assert response.status_code == 200
+    assert response.json()[0]["checkpoint_id"] == 17
+    assert response.json()[0]["forecast_supported"] is True

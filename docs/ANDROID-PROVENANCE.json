@@ -157,7 +157,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/AckReceiver.kt",
       "sha256": "3c5c0cff8ac3c345293d90a309b5ab1c9ae262875e115b5bae7c72d9890594b9",
       "revision": {
-        "sha256": "16d2b0baf5539478f76c8a5f0580cd06f5b242e23729bccf02d45b846e146c86",
+        "sha256": "d71c1f7b5bb263c3fd0b703f1c9b007d6ec760544594b408701c2703517efe65",
         "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
       }
     },
@@ -201,7 +201,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/Notifications.kt",
       "sha256": "c7c0683d1abd7db43638eb9e27ff96ba44afc947178622f3c976e811da7320e2",
       "revision": {
-        "sha256": "12329a905609bc42550995aac11caafe45c37d09d35b521db07bc20d166245d7",
+        "sha256": "a0bb453658525f5900f06f2d78acb9d412bd231451c8181fc9d18a8fb0d3d178",
         "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
       }
     },
@@ -354,7 +354,7 @@
       "destination": "apps/android/app/src/preview/AndroidManifest.xml",
       "sha256": "800d109abe75c851ba615f7d4d85e3b3f188639997c64bb3932b70c039452f50",
       "revision": {
-        "sha256": "078ec31888affeea3227128c62cc5a796b5e546307624be9896bac9004585f31",
+        "sha256": "a1eeb540fb4c7e7637c4d8ccfd98ff8a398da37519ce0cc336e7bd588d4d03f2",
         "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
       }
     },
@@ -365,7 +365,7 @@
       "destination": "apps/android/app/src/preview/java/ua/avelren/app/PreviewActivity.kt",
       "sha256": "3b6b2394563e5c0c0b7d0866b5bc05d2dfef8f6acda0fc246a169b7f3db26357",
       "revision": {
-        "sha256": "d1f518691c3b226735855ddb61e91b554a68bc000d5dfdd412a1d69148a27526",
+        "sha256": "dce5a1e7b87b7b8780ef610859f7debedbe178fdde6aa5ba3b1edc2460b29966",
         "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
       }
     },

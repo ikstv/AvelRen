@@ -65,3 +65,14 @@ UUID прийнятої спроби та model_version під read-only backup-
 [специфікація](superpowers/specs/2026-10-02-experimental-surge-monitor-design.md),
 [план](superpowers/plans/2026-10-02-experimental-surge-monitor.md),
 [походження та обмеження](SURGE-MONITOR-IMPLEMENTATION.md).
+
+## Блокер поточного сервера (02.10.2026)
+
+Активна TimescaleDB2.17.2 не приймає015 на compressed hypertable. Це
+відтворено на її точному immutable digest у disposable suite. Не застосовувати
+015/016 до production в цьому стані. Потрібний окремий ручний upgrade БД
+на перевірений кандидат2.30.1 зі збереженням даних і планом відкату.
+OS/Docker auto-updates і reboot не вмикаються.
+
+Alert ID016 — restore-незалежний positive random63-bit key; його sequence
+не використовують для нових runtime записів. Відновлені IDs і ACK зберігаються.

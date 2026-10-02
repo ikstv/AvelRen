@@ -1,5 +1,7 @@
 # Використовується лише з compose.database-test.yml, внутрішня disposable мережа.
 services:
+  test-db:
+    image: ${AVELREN_SURGE_TEST_DB_IMAGE:-timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9}
   test:
     environment:
       SURGE_ENABLED: 'true'

@@ -86,7 +86,15 @@ private class DemoSurgeClient(private val mode: String) : ua.avelren.app.data.Su
         ua.avelren.app.data.SurgeCheckpoint(17, "Чоп", "Угорщина", "🇭🇺", true, true, true),
         ua.avelren.app.data.SurgeCheckpoint(6, "Краківець", "Польща", "🇵🇱", true, true, true),
     ) + (40..51).map { ua.avelren.app.data.SurgeCheckpoint(it, "Тестовий КПП $it", fact_supported = true) }
-    private var subs = cps.take(2).map { ua.avelren.app.data.SurgeSubscription(it.checkpoint_id, it.title, true, true) }
+    private var subs = cps.take(2).map { cp ->
+        val kind = if (cp.checkpoint_id == 17) "surge_started" else "surge_forecast"
+        val body = if (cp.checkpoint_id == 17) "Почалось зростання черги на Чопі"
+            else "Можливий початок масової реєстрації на Краківці"
+        ua.avelren.app.data.SurgeSubscription(cp.checkpoint_id, cp.title, true, true,
+            alerts = listOf(ua.avelren.app.data.SurgeAlert(99000L + cp.checkpoint_id,
+                cp.checkpoint_id.toLong(), cp.checkpoint_id, kind,
+                Instant.now().plusSeconds(3600).toString(), cp.title, body)))
+    }
     override suspend fun checkpoints(): List<ua.avelren.app.data.SurgeCheckpoint> {
         if (mode == "loading") kotlinx.coroutines.delay(Long.MAX_VALUE)
         if (mode == "error") error("synthetic offline")

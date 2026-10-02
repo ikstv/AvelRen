@@ -107,7 +107,7 @@ async def checkpoints(request: Request):
             SELECT c.id AS checkpoint_id,c.title,c.flag_emoji,c.country_name,
                 (SELECT o.time FROM observations o WHERE o.checkpoint_id=c.id
                  AND o.time BETWEEN %s AND %s ORDER BY o.time DESC LIMIT 1) AS observed_at
-            FROM checkpoints c ORDER BY c.sort_index,c.id
+            FROM checkpoints c ORDER BY c.country_name NULLS LAST,c.title,c.id
         """,
                 (now - timedelta(minutes=3), now),
             )

@@ -165,13 +165,13 @@ for database in avelren_database_test restore_test; do
     compose run --rm --no-deps -T \
         -e DATABASE_URL="postgresql://avelren_migrator:ci-only@test-db:5432/$database" \
         test python -m avelren.migrate db/migrations
-    [ "$(sql "$database" 'SELECT count(*) FROM schema_migrations')" = 15 ]
+    [ "$(sql "$database" 'SELECT count(*) FROM schema_migrations')" = 16 ]
     [ "$(legacy_journal "$database")" = "$journal_before" ]
     [ "$(fingerprint "$database")" = "$before" ]
     [ "$(sql "$database" "SELECT count(*) FROM observations WHERE wait_time_status IS NULL")" = 50 ]
     [ "$(sql "$database" "SELECT count(*) FROM observations WHERE COALESCE(wait_time_status,'legacy_unknown')='legacy_unknown'")" = 50 ]
 done
-echo 'PASS: schema 015 after extension upgrade preserves legacy data/journal/compression'
+echo 'PASS: schema 015/016 after extension upgrade preserves legacy data/journal/compression'
 # Порожні тестові БД успадковують template1: не допустити хибного green на 2.17.2.
 sql postgres 'CREATE DATABASE avelren_version_probe_test;'
 [ "$(sql avelren_version_probe_test "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")" = 2.30.1 ]

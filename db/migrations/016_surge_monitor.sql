@@ -51,6 +51,13 @@ CREATE TABLE surge_alerts (
     next_attempt_at timestamptz NOT NULL,
     UNIQUE(event_id,device_id)
 );
+-- ID має ідентифікувати подію також після restore старої sequence.
+-- Позитивний 63-bit ключ із криптографічного UUID; клієнтський bigint контракт
+-- збережено. PK відхиляє колізію з наявним записом; worker повторить транзакцію.
+ALTER TABLE surge_alerts ALTER COLUMN id SET DEFAULT GREATEST(1,
+    (('x' || substr(md5(gen_random_uuid()::text),1,16))::bit(64)::bigint
+        & 9223372036854775807));
+ALTER TABLE surge_alerts ADD CONSTRAINT surge_alerts_id_positive CHECK(id > 0);
 CREATE INDEX surge_alerts_pending ON surge_alerts(next_attempt_at) WHERE status='pending';
 CREATE TABLE surge_delivery_attempts (
     id bigserial PRIMARY KEY,

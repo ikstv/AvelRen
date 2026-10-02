@@ -173,11 +173,12 @@ object Notifications {
             putLong(EXTRA_ALERT_ID, alertId)
         }
 
+        val visibleBody = if (kind in surgeKinds) SurgeDeliveryPolicy.notificationBody(body) else body
         val notification = NotificationCompat.Builder(context, if (kind in surgeKinds) SURGE_CHANNEL_ID else CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentText(visibleBody)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(visibleBody))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             // Not swipeable — dismissed only by the "OK" button.

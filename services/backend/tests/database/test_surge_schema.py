@@ -57,20 +57,16 @@ def test_subscriptions_events_attempts_and_cancels(database):
                 "INSERT INTO surge_subscriptions(device_id,checkpoint_id) VALUES(%s,123)", (device,)
             )
         event = c.execute(
-            
-                "INSERT INTO "
-                "surge_events(checkpoint_id,kind,started_at,updated_at,expires_at) "
-                "VALUES(123,'surge_started',now(),now(),now()+interval '30 minutes') "
-                "RETURNING id"
-            
+            "INSERT INTO "
+            "surge_events(checkpoint_id,kind,started_at,updated_at,expires_at) "
+            "VALUES(123,'surge_started',now(),now(),now()+interval '30 minutes') "
+            "RETURNING id"
         ).fetchone()[0]
         with pytest.raises(psycopg.errors.UniqueViolation):
             c.execute(
-                
-                    "INSERT INTO "
-                    "surge_events(checkpoint_id,kind,started_at,updated_at,expires_at) "
-                    "VALUES(123,'surge_started',now(),now(),now()+interval '30 minutes')"
-                
+                "INSERT INTO "
+                "surge_events(checkpoint_id,kind,started_at,updated_at,expires_at) "
+                "VALUES(123,'surge_started',now(),now(),now()+interval '30 minutes')"
             )
         alert = c.execute(
             (
@@ -160,10 +156,8 @@ def test_worker_and_backup_privileges(database):
                 c.execute(statement)
         c.execute("RESET ROLE")
         row = c.execute(
-            
-                "SELECT rolsuper,rolcreatedb,rolcreaterole,rolbypassrls FROM pg_roles "
-                "WHERE rolname='avelren_surge'"
-            
+            "SELECT rolsuper,rolcreatedb,rolcreaterole,rolbypassrls FROM pg_roles "
+            "WHERE rolname='avelren_surge'"
         ).fetchone()
         assert row == (False, False, False, False)
     with psycopg.connect(database("backup"), autocommit=True) as c:
@@ -173,3 +167,30 @@ def test_worker_and_backup_privileges(database):
             c.execute(f"SELECT * FROM {table}_id_seq")
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             c.execute("DELETE FROM surge_events WHERE false")
+
+
+def test_alert_identity_does_not_rewind_with_restored_sequence(database):
+    import psycopg
+
+    with psycopg.connect(database("admin")) as c:
+        c.execute("INSERT INTO checkpoints(id,title,for_vehicle_type) VALUES(17,'fixture',1)")
+        device = c.execute("INSERT INTO devices DEFAULT VALUES RETURNING id").fetchone()[0]
+        event = c.execute(
+            "INSERT INTO surge_events(checkpoint_id,kind,started_at,updated_at,expires_at) "
+            "VALUES(17,'surge_started',now(),now(),now()+interval '1 hour') RETURNING id"
+        ).fetchone()[0]
+        first = c.execute(
+            "INSERT INTO surge_alerts(event_id,device_id,next_attempt_at) "
+            "VALUES(%s,%s,now()) RETURNING id",
+            (event, device),
+        ).fetchone()[0]
+        c.execute("DELETE FROM surge_alerts WHERE id=%s", (first,))
+        # Модель restore: попередню доставлену подію втрачено, sequence повернулась.
+        c.execute("SELECT setval('surge_alerts_id_seq',%s,false)", (first,))
+        second = c.execute(
+            "INSERT INTO surge_alerts(event_id,device_id,next_attempt_at) "
+            "VALUES(%s,%s,now()) RETURNING id",
+            (event, device),
+        ).fetchone()[0]
+        assert second != first
+        assert 0 < second < 2**63
