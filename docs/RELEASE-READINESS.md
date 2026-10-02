@@ -6,10 +6,17 @@
 збереження image/Device ID/DSN/тому, перевірка відсутності другого poller,
 операторські команди та процедури capture-only для обслуговування БД.
 [Записана специфікація](superpowers/specs/2026-10-02-collector-compose-control-design.md)
-схвалено власником. [План реалізації](superpowers/plans/2026-10-02-collector-compose-control.md)
-підготовлено й очікує review перед кодом; збережено вибір виконання в цій
-сесії без окремих реалізаторів для кожного завдання. Source-код, CI,
-ізольована Compose-репетиція та production-перемикання ще не виконані.
+і [план реалізації](superpowers/plans/2026-10-02-collector-compose-control.md)
+схвалено власником; реалізацію виконано в цій сесії. Source-кандидат:
+окремий Compose, приватний manifest/preflight, серіалізований control,
+60-секундна пауза та ранній restore guard. Локально: 16 runtime-контрактів,
+10 Linux control-контрактів зі справжнім flock, 3 cleanup regressions,
+28 DB-тестів, restore orchestration/preflight/identity, Ruff/provenance.
+Ізольована репетиція до фінального коміту: 6 циклів, фактичний FIFO,
+pending=0, без дублів/застарілих alerts; паузи перемикання/відкату
+60,84/60,14 секунд. Перевірено буквальний env, persistent capture-only,
+Online Backup поза томом та прибирання власних ресурсів.
+CI точного фінального head і production-перемикання ще не підтверджені.
 Старий postgres-adopt не запускати з новою топологією до адаптації;
 повний restore зі spool потребує окремого приймання. Android-збірка,
 телефон та Play цим етапом не підтверджені. Записи на сервері потребують

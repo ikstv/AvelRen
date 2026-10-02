@@ -38,7 +38,7 @@ permissions:
 jobs:
   database:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -92,6 +92,17 @@ jobs:
           python3 -m py_compile ops/collector-spool-daemon-test.py
           bash -n ops/collector-spool-integration-test.sh
           bash ops/collector-spool-integration-test.sh
+      - name: Контракт окремого collector runtime
+        run: |
+          bash -n ops/collector-runtime-control.sh
+          bash -n ops/collector-runtime-control-contract-test.sh
+          bash -n ops/collector-runtime-integration-test.sh
+          python3 -m py_compile ops/collector-runtime-preflight.py ops/collector-runtime-control.py ops/collector-runtime-daemon-test.py
+          python3 ops/collector-runtime-contract-test.py
+          bash ops/collector-runtime-control-contract-test.sh
+          python3 ops/collector-runtime-daemon-contract-test.py
+      - name: Ізольоване Compose-перемикання collector та відкат
+        run: bash ops/collector-runtime-integration-test.sh
       - name: Маршрутизація Caddy в ізольованій мережі
         run: |
           bash -n ops/caddy-integration-test.sh
