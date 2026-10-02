@@ -48,7 +48,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/cancels.py",
       "destination": "services/backend/src/avelren/cancels.py",
-      "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2"
+      "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
+      "revision": {
+        "sha256": "cf3f14c475d9df3c059886ccbc57a153b88a63cd2b0451c14cb228b53060f6a9",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

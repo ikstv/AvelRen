@@ -146,7 +146,7 @@ def test_009_upgrade_approval_pin_and_backup(
     before = history(conn)
     assert migrate.run(MIGRATIONS) == 0  # settings досі вказує на test migrator.
     after = history(conn)
-    assert len(after) == 15 and after[:9] == before
+    assert len(after) == 16 and after[:9] == before
     with psycopg.connect(production_009("migrator")) as verifier:
         assert schema_verify.verify(verifier, MIGRATIONS) == []
     assert migrate.run(MIGRATIONS) == 0
@@ -210,7 +210,7 @@ def test_previous_api_database_contract_survives_014(
     from avelren.config import settings
 
     assert migrate.run(MIGRATIONS) == 0
-    assert len(history(conn)) == 15
+    assert len(history(conn)) == 16
 
     # The previous API only admits the already-approved installation.
     with monkeypatch.context() as patch:

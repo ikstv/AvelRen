@@ -7,8 +7,8 @@
       "destination": "services/backend/src/avelren/api.py",
       "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
       "revision": {
-        "sha256": "bd1c175770be479d709cc76c443891f807a479c5dd3ef898c3ff8c8de82c9db9",
-        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+        "sha256": "f1717eb845bb8c5f8dfb25765199df73be3ff285b25689f0dd4bba2c9c98d938",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
       }
     },
     {
@@ -18,8 +18,8 @@
       "destination": "services/backend/src/avelren/subscriptions_api.py",
       "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
       "revision": {
-        "sha256": "44a23bc608dc1d96aab43e6901322420ed2f646c1dca71476adc13a8537c03ad",
-        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
+        "sha256": "9f8659f7858f3cc8bd0d2a76ba0cc3ae209e419ea6bb6bc0c5d4b1e54f066bf3",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
       }
     },
     {
@@ -27,7 +27,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/schemas.py",
       "destination": "services/backend/src/avelren/schemas.py",
-      "sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821"
+      "sha256": "579040fde1f64779de90420194f5f976479ce6bd136e36cc5f964331b74c6821",
+      "revision": {
+        "sha256": "daa294c0a26b334e0458b6489678accc541901ecbd53a999b50f31b716dcab4f",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -109,7 +113,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/tests/test_ratelimit.py",
       "destination": "services/backend/tests/unit/test_ratelimit.py",
-      "sha256": "e356225da813db47dac9e9a2dbd56a7cc3521465668cb431e27b72dd8dc82cc3"
+      "sha256": "e356225da813db47dac9e9a2dbd56a7cc3521465668cb431e27b72dd8dc82cc3",
+      "revision": {
+        "sha256": "faacb9f23af59c3a329731d77513822125903e4d731b782735e16478641962cf",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

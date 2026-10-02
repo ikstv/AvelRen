@@ -22,6 +22,7 @@ from .limits import BodySizeLimitMiddleware, ConcurrencyGate
 from .ratelimit import check as rate_check
 from .schema_gate import assert_schema_at_least
 from .subscriptions_api import router as subscriptions_router
+from .surge_api import router as surge_router
 from .wait_estimate import measured_wait
 
 log = logging.getLogger("avelren.api")
@@ -51,6 +52,7 @@ app = FastAPI(title="AvelRen", version="0.1.0", lifespan=lifespan)
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.api_max_body_bytes)
 app.include_router(subscriptions_router)
 app.include_router(admin_access_router)
+app.include_router(surge_router)
 
 
 @app.exception_handler(OperationalError)

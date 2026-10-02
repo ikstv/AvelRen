@@ -123,3 +123,5 @@ $$;
 REVOKE ALL ON FUNCTION discard_disabled_surge_alert(bigint,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION discard_disabled_surge_alert(bigint,uuid)
     TO avelren_surge,avelren_api;
+
+GRANT SELECT(notification_capabilities) ON devices TO avelren_api;
