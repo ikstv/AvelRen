@@ -65,6 +65,33 @@ GO, перевірений backup SQLite, `pending=0` після replay і до�
 CI фінального коміту ще потребує перевірки. Production і телефон не
 оновлювалися; порядок підготовки й відкату додано в recovery-процедуру.
 
+## Відсутня оцінка очікування — дизайн (30.09.2026)
+
+[Issue #70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) переносить
+незавершену семантику legacy #111. Власник погодив напрям сумісного
+розширення без переписування історії й зміни paused-політики.
+[Специфікація](superpowers/specs/2026-09-30-wait-estimate-design.md)
+погоджена власником у чаті 30.09.2026.
+[План реалізації](superpowers/plans/2026-09-30-wait-estimate.md)
+погоджений; реалізація почалась у чернетці PR #72.
+
+| Етап | Стан |
+| --- | --- |
+| Контракт | Upgrade перед 015 та nullable internal status погоджені; nullable DDL і нормалізація helper реалізовані на d204056 без переписування історії |
+| Product-код і міграція | Модель, INSERT/status, кандидат 015, `/workload.wait_estimate`, незалежні raw/hourly history, `forecast.count_points`, ETA alerts і сезонна quality зі спільним правилом; Android DTO ще не готовий. Не готово до merge/deploy |
+| CI реалізації | На f77d813 локально 245 unit passed, Ruff/provenance успішні; API 66 passed, 12-тижневий EXPLAIN нового quality SQL 48,30 мс під timeout 5000 мс, old/new compressed restore PASS і recursive database tree 99 passed/1 очікуваний skip. Усі 7 workflows того head успішні. Backtest guard ведеться окремим зрізом нижче; Android і rollback старого runtime також не перевірені. Деталі у WAIT-ESTIMATE-IMPLEMENTATION.md |
+| Backtest кількісної моделі | У draft-гілці інструмент має явні межі й відмовляється оцінювати holdout зі старих wait-фільтрованих `points`. Ізольований restore backup від 30.09 дав незалежні `count_hours`; на чотирьох КПП кандидат знизив MAE кількості відносно базисів у дев'яти повних вікнах на кожному. Проте вікна короткі й перекривні, а час піку на КПП 1, 29 і 6 гірший за seasonal. Це **не release gate** і не причина передчасного production deployment; деталі в `docs/forecast.md` |
+| Серверне розгортання | Не виконано; потрібен окремий GO |
+| Android-збірка | Не створена |
+| Телефон | Не перевірено |
+| Google Play | Не опубліковано |
+
+Приймання: missing не стає справжнім 0; кількість авто й цикли
+не втрачаються; count-only прогноз видимий; старий APK сумісний;
+нова DTO працює і зі старим API. Детальні сценарії — у специфікації.
+Точність кількісної моделі приймається окремо від цього виправлення.
+
+
 ## Supply-chain SBOM candidate (28.09.2026)
 
 Source SBOM у main містить перевірку повного Python lock і Android Maven

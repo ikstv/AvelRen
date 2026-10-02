@@ -7,8 +7,8 @@
       "destination": "services/backend/src/avelren/api.py",
       "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
       "revision": {
-        "sha256": "a117624e99f87021ddae4a54170ce8c5b11131b30a8a36f1f84f7728a742efeb",
-        "notes": "docs/SERVER-STATUS.md"
+        "sha256": "bd1c175770be479d709cc76c443891f807a479c5dd3ef898c3ff8c8de82c9db9",
+        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
       }
     },
     {
@@ -50,7 +50,7 @@
       "destination": "services/backend/src/avelren/forecast.py",
       "sha256": "c3f2ec925cb2d170d3bbf00977f21ccb5b3d92bb337e1a9d3dddc9ac62511fbf",
       "revision": {
-        "sha256": "411a902fb7b87871bd26ad75b2466adecaa3c3055d9721f133f220addcd955c4",
+        "sha256": "f823c8a8288064ed5a7caf4a66b33bbf3c130dcea219dfde3316658f4da894ab",
         "notes": "docs/forecast.md"
       }
     },
@@ -118,7 +118,7 @@
       "destination": "services/backend/tests/unit/test_forecast_bounds.py",
       "sha256": "6eee86856d5498ba7e10099f53f893decc6ed49c538666098d3dfebee582610c",
       "revision": {
-        "sha256": "b95f94dd163a56796bdf8e8ff81e7468d321b81b68f042ffdc594cf264a721d6",
+        "sha256": "3f9f40ee93e748d6bb53cbbe5c0af30b23d0afc6a6130ccc3a7201c35baeb01f",
         "notes": "docs/forecast.md"
       }
     },

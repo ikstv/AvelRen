@@ -14,6 +14,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 
 from ..conftest import MIGRATIONS
+from .conftest import old_schema_component_app
 
 EVIDENCE = json.loads(
     (Path(__file__).parents[1] / "fixtures/production_009_admin_acl.json").read_text(
@@ -83,13 +84,14 @@ def client_for(monkeypatch):
     from avelren.config import settings
 
     @contextmanager
-    def open_client(dsn):
+    def open_client(dsn, *, component_only=False):
         with monkeypatch.context() as patch:
             patch.setattr(settings, "database_url", dsn)
             patch.setattr(db, "_pool", None)
             ratelimit._hits.clear()
             try:
-                with TestClient(app) as client:
+                test_app = old_schema_component_app() if component_only else app
+                with TestClient(test_app) as client:
                     yield client
                 assert db._pool.closed
             finally:
@@ -106,16 +108,17 @@ def history(conn):
 
 
 @pytest.mark.parametrize("identity", ["legacy", "api"])
-def test_009_public_api_and_existing_admin(
+def test_009_health_and_existing_admin_handlers(
     production_009, legacy_dsn, client_for, identity, device, conn, checkpoint,
 ):
     before = history(conn)
     conn.execute("UPDATE devices SET is_admin=true WHERE id=%s", (device.device_id,))
     conn.execute("INSERT INTO observations VALUES (now(), %s, 3600, 80, false)", (checkpoint,))
     dsn = legacy_dsn if identity == "legacy" else production_009("api")
-    with client_for(dsn) as client:
+    # The installed new service refuses schema 009 at startup. These route
+    # assertions cover the handlers against historical ACLs, not old runtime.
+    with client_for(dsn, component_only=True) as client:
         assert client.get("/health").status_code == 200
-        assert client.get("/workload").json()[0]["vehicles_in_queue"] == 80
         telemetry = client.get("/admin/telemetry", headers=device.headers())
         assert telemetry.status_code == 200, telemetry.text
         status = client.get("/admin/access", headers=device.headers())
@@ -124,6 +127,9 @@ def test_009_public_api_and_existing_admin(
         assert response.status_code == 200, response.text
         assert response.json()["state"] == "unavailable"
     assert history(conn) == before
+    assert conn.execute(
+        "SELECT vehicles_in_queue FROM observations WHERE checkpoint_id=%s", (checkpoint,)
+    ).fetchone()["vehicles_in_queue"] == 80
     assert conn.execute("SELECT to_regclass('public.admin_access') AS t").fetchone()["t"] is None
     admin = conn.execute("SELECT is_admin FROM devices WHERE id=%s", (device.device_id,))
     assert admin.fetchone()["is_admin"]
@@ -140,7 +146,7 @@ def test_009_upgrade_approval_pin_and_backup(
     before = history(conn)
     assert migrate.run(MIGRATIONS) == 0  # settings досі вказує на test migrator.
     after = history(conn)
-    assert len(after) == 14 and after[:9] == before
+    assert len(after) == 15 and after[:9] == before
     with psycopg.connect(production_009("migrator")) as verifier:
         assert schema_verify.verify(verifier, MIGRATIONS) == []
     assert migrate.run(MIGRATIONS) == 0
@@ -204,7 +210,7 @@ def test_previous_api_database_contract_survives_014(
     from avelren.config import settings
 
     assert migrate.run(MIGRATIONS) == 0
-    assert len(history(conn)) == 14
+    assert len(history(conn)) == 15
 
     # The previous API only admits the already-approved installation.
     with monkeypatch.context() as patch:

@@ -22,6 +22,7 @@ from .limits import BodySizeLimitMiddleware, ConcurrencyGate
 from .ratelimit import check as rate_check
 from .schema_gate import assert_schema_at_least
 from .subscriptions_api import router as subscriptions_router
+from .wait_estimate import measured_wait
 
 log = logging.getLogger("avelren.api")
 
@@ -39,9 +40,11 @@ async def lifespan(app: FastAPI):
     # Fail-closed schema check (issue #88): the service does not start if the
     # recorded schema version is LOWER than the code's requirement. Placed right
     # after the pool opens — before the first useful work.
-    await assert_schema_at_least(pool)
-    yield
-    await pool.close()
+    try:
+        await assert_schema_at_least(pool)
+        yield
+    finally:
+        await pool.close()
 
 
 app = FastAPI(title="AvelRen", version="0.1.0", lifespan=lifespan)
@@ -168,6 +171,7 @@ async def workload(request: Request) -> list[dict]:
                     o.checkpoint_id, c.title, c.country_id, c.country_name,
                     c.flag_emoji, c.lat, c.lng,
                     o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused,
+                    o.wait_time_status,
                     -- Same rule as eta.py and forecast.py (#127): a zero wait is
                     -- "no estimate", not "enter now", both when the queue is
                     -- paused and when cars are still queued (#111 writes a
@@ -183,6 +187,11 @@ async def workload(request: Request) -> list[dict]:
                 """
             )
         ).fetchall()
+    for row in rows:
+        status = row.pop("wait_time_status")
+        row["wait_estimate"] = measured_wait(
+            row["time"], row["wait_time_seconds"], status, row["is_paused"]
+        )
     return rows
 
 
@@ -215,7 +224,13 @@ async def history(
             rows = await (
                 await conn.execute(
                     """
-                    SELECT time, wait_time_seconds, vehicles_in_queue, is_paused
+                    SELECT time, wait_time_seconds, vehicles_in_queue, is_paused,
+                           COALESCE(wait_time_status, 'legacy_unknown') AS wait_time_status,
+                           CASE WHEN wait_time_status = 'reported'
+                                      OR (wait_time_status IS DISTINCT FROM 'missing'
+                                          AND wait_time_seconds > 0)
+                                THEN wait_time_seconds ELSE NULL
+                           END AS wait_estimate_seconds
                     FROM observations
                     WHERE checkpoint_id = %s AND time >= %s
                     ORDER BY time
@@ -258,14 +273,55 @@ async def history(
                     (checkpoint_id, since),
                 )
             ).fetchall()
+            independent_rows = await (
+                await conn.execute(
+                    """
+                    SELECT time_bucket(INTERVAL '1 hour', time) AS time,
+                           avg(vehicles_in_queue)::double precision AS avg_vehicles,
+                           count(*) AS count_samples,
+                           avg(wait_time_seconds) FILTER (
+                               WHERE wait_time_status = 'reported'
+                                  OR (wait_time_status IS DISTINCT FROM 'missing'
+                                      AND wait_time_seconds > 0)
+                           )::double precision AS avg_wait_seconds,
+                           max(wait_time_seconds) FILTER (
+                               WHERE wait_time_status = 'reported'
+                                  OR (wait_time_status IS DISTINCT FROM 'missing'
+                                      AND wait_time_seconds > 0)
+                           ) AS max_wait_seconds,
+                           count(*) FILTER (
+                               WHERE wait_time_status = 'reported'
+                                  OR (wait_time_status IS DISTINCT FROM 'missing'
+                                      AND wait_time_seconds > 0)
+                           ) AS wait_samples
+                    FROM observations
+                    WHERE checkpoint_id = %s AND time >= %s
+                    GROUP BY 1
+                    ORDER BY 1
+                    """,
+                    (checkpoint_id, since),
+                )
+            ).fetchall()
             resolution = "hourly"
 
-    return {
+    result = {
         "checkpoint": cp,
         "resolution": resolution,
         "hours": hours,
         "points": rows,
     }
+    if resolution == "hourly":
+        result["count_hours"] = [
+            {"time": row["time"], "avg_vehicles": row["avg_vehicles"],
+             "samples": row["count_samples"]}
+            for row in independent_rows
+        ]
+        result["wait_hours"] = [
+            {"time": row["time"], "avg_wait_seconds": row["avg_wait_seconds"],
+             "max_wait_seconds": row["max_wait_seconds"], "samples": row["wait_samples"]}
+            for row in independent_rows if row["wait_samples"] > 0
+        ]
+    return result
 
 
 @app.get("/forecast/{checkpoint_id}")

@@ -31,8 +31,13 @@ def _pending(tmp_path: Path, at: datetime = AT, error: str | None = None):
 def _patch_db(monkeypatch):
     calls = {}
     for name in (
-        "upsert_countries", "upsert_checkpoints", "insert_observations", "record_run",
-        "verify_committed_cycle", "record_derived", "_derived_processed",
+        "upsert_countries",
+        "upsert_checkpoints",
+        "insert_observations",
+        "record_run",
+        "verify_committed_cycle",
+        "record_derived",
+        "_derived_processed",
         "_cycle_exists",
     ):
         result = 0 if name == "insert_observations" else None
@@ -172,3 +177,45 @@ def test_slow_db_crossing_120_seconds_skips_derived(tmp_path, monkeypatch):
     just_fresh = AT + timedelta(seconds=119.5)
     assert asyncio.run(collector_replay.replay_once(store, SlowPool(), just_fresh))
     assert "delayed_replay" in calls["record_derived"].await_args.kwargs["error"]
+
+
+@pytest.mark.parametrize(
+    "source_wait,persisted_status,reject", [(None, "missing", False), (0, "missing", True)]
+)
+def test_readback_preserves_wait_presence(source_wait, persisted_status, reject):
+    from types import SimpleNamespace
+
+    from avelren.models import WorkloadItem
+
+    item = WorkloadItem(
+        id=1,
+        title="test",
+        for_vehicle_type=1,
+        wait_time=source_wait,
+        vehicle_in_active_queues_counts=80,
+    )
+    cycle = SimpleNamespace(
+        at=AT, http_status=200, duration_ms=4, body_sha256="test", items=[item], error=None
+    )
+    run = {
+        "http_status": 200,
+        "duration_ms": 4,
+        "body_sha256": "test",
+        "rows_written": 1,
+        "error": None,
+    }
+    row = {
+        "checkpoint_id": 1,
+        "wait_time_seconds": 0,
+        "wait_time_status": persisted_status,
+        "vehicles_in_queue": 80,
+        "is_paused": False,
+    }
+    one = SimpleNamespace(fetchone=AsyncMock(return_value=run))
+    many = SimpleNamespace(fetchall=AsyncMock(return_value=[row]))
+    conn = SimpleNamespace(execute=AsyncMock(side_effect=[one, many]))
+    if reject:
+        with pytest.raises(collector_replay.ReplayConflict):
+            asyncio.run(collector_replay.verify_committed_cycle(conn, cycle))
+    else:
+        asyncio.run(collector_replay.verify_committed_cycle(conn, cycle))

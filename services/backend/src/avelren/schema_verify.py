@@ -67,6 +67,7 @@ _TABLES_V: list[tuple[str | None, str]] = [
 ]
 
 _COLUMNS_V: list[tuple[str | None, str, str]] = [
+    ("015_wait_time_status", "observations", "wait_time_status"),
     ("013_admin_installation_lock", "devices", "admin_blocked_until"),
     ("011_admin_access", "admin_access", "approved_device_id"),
     ("011_admin_access", "admin_access", "pin_hash"),
