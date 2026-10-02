@@ -36,6 +36,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 
 ### PRs
 
+- #199 chore(deps): bump the actions group across 1 directory with 4 updates — `dependabot/github_actions/actions-b7e4a448d5`
 - #190 Expire inactive device data after 90 days — `codex/device-retention-cleanup`
 - #188 Sync production daily status and telemetry cleanup — `fix/prod-observability-cleanup`
 - #185 Fix forecast quality evaluation — `codex/held-out-forecast`
@@ -43,7 +44,6 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 - #183 Automate inactive-device retention — `codex/fix-launcher-icon`
 - #173 chore(state): regenerate STATE.md — `chore/state-refresh`
 - #143 chore(deps): bump the compose-images group across 1 directory with 2 updates — `dependabot/docker_compose/compose-images-df86d7246b`
-- #140 chore(deps): bump the actions group across 1 directory with 3 updates — `dependabot/github_actions/actions-821e0a5e16`
 - #138 chore(deps): bump python from `ce40764` to `cad9a2c` in /app — `dependabot/docker/app/python-cae66f2`
 - #137 feat(app): truthful server-status badge for all users — `feat/truthful-server-badge`
 - #123 docs: "a signal has a date" — three staleness rules — `docs/signal-has-a-date`
@@ -64,7 +64,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 44 |
-| `chore/state-refresh` | 48 | 0 |
+| `chore/state-refresh` | 49 | 0 |
 | `codex/admin-access` | 5 | 1 |
 | `codex/automated-maintenance-window` | 5 | 6 |
 | `codex/device-retention-cleanup` | 2 | 5 |
@@ -73,7 +73,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 | `codex/premium-instructions` | 7 | 5 |
 | `dependabot/docker/app/python-cae66f2` | 1 | 11 |
 | `dependabot/docker_compose/compose-images-df86d7246b` | 1 | 0 |
-| `dependabot/github_actions/actions-821e0a5e16` | 1 | 0 |
+| `dependabot/github_actions/actions-b7e4a448d5` | 1 | 0 |
 | `docs/readme-professional` | 1 | 99 |
 | `docs/signal-has-a-date` | 1 | 48 |
 | `feat/launcher-road-a` | 1 | 41 |
