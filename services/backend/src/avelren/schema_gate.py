@@ -104,9 +104,7 @@ def check_recorded_version(recorded: str | None) -> None:
             f"migration journal is empty; the code requires at least {required}"
         )
     if _version_ordinal(recorded) < _version_ordinal(required):
-        raise SchemaTooOldError(
-            f"DB schema at {recorded}; the code requires at least {required}"
-        )
+        raise SchemaTooOldError(f"DB schema at {recorded}; the code requires at least {required}")
 
 
 async def assert_schema_at_least(pool: AsyncConnectionPool) -> None:
@@ -125,3 +123,59 @@ async def assert_schema_at_least(pool: AsyncConnectionPool) -> None:
     recorded = highest_recorded([row[0] for row in rows])
     check_recorded_version(recorded)
     log.info("schema meets startup requirement: %s", recorded)
+
+
+async def assert_surge_schema(conn) -> None:
+    """Optional feature gate; old services never call this when disabled."""
+    cursor = conn.cursor(row_factory=tuple_row)
+    await cursor.execute(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='016_surge_monitor')"
+    )
+    if not (await cursor.fetchone())[0]:
+        raise SchemaTooOldError("surge feature requires 016_surge_monitor")
+    columns = schema_verify.SURGE_COLUMNS
+    for table, expected in columns.items():
+        await cursor.execute(
+            (
+                "SELECT a.attname FROM pg_attribute a WHERE a.attrelid=to_regclass(%s) "
+                "AND a.attnum>0 AND NOT a.attisdropped"
+            ),
+            ("public." + table,),
+        )
+        found = {r[0] for r in await cursor.fetchall()}
+        if not set(expected) <= found:
+            raise SchemaTooOldError("016 incomplete: " + table)
+    for version, name, table, expected in schema_verify._CONSTRAINTS_V:
+        if version != "016_surge_monitor":
+            continue
+        await cursor.execute(
+            (
+                "SELECT array_agg(a.attname ORDER BY k.ordinality) FROM pg_constraint c "
+                "CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY "
+                "k(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND "
+                "a.attnum=k.attnum WHERE c.conrelid=to_regclass(%s) AND c.conname=%s "
+                "AND c.contype='u'"
+            ),
+            ("public." + table, name),
+        )
+        row = await cursor.fetchone()
+        if row is None or tuple(row[0] or ()) != expected:
+            raise SchemaTooOldError("016 unique constraint missing or wrong: " + name)
+    await cursor.execute(
+
+            "SELECT i.indisunique, i.indisvalid, pg_get_expr(i.indpred,i.indrelid), "
+            "pg_get_indexdef(i.indexrelid,1,true), "
+            "pg_get_indexdef(i.indexrelid,2,true), "
+            "i.indrelid='public.surge_events'::regclass FROM pg_index i WHERE "
+            "i.indexrelid=to_regclass('public.surge_events_one_active')"
+
+    )
+    if await cursor.fetchone() != (
+        True,
+        True,
+        "(closed_at IS NULL)",
+        "checkpoint_id",
+        "kind",
+        True,
+    ):
+        raise SchemaTooOldError("016 active episode index missing or wrong")

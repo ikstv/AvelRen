@@ -270,6 +270,7 @@ SQL
 
 create_roles() {
     admin_psql_maintenance -f "$ROOT/db/security/bootstrap.sql"
+    admin_psql_maintenance -f "$ROOT/db/security/surge-bootstrap.sql"
 }
 
 # Fail-closed guard against privilege escalation via role membership.
@@ -342,21 +343,21 @@ ALTER SCHEMA public OWNER TO avelren_admin;
 
 SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC', current_database()) \gexec
 SELECT format(
-    'REVOKE ALL PRIVILEGES ON DATABASE %I FROM avelren_migrator, avelren_backup, avelren_collector, avelren_notifier, avelren_watchdog, avelren_api',
+    'REVOKE ALL PRIVILEGES ON DATABASE %I FROM avelren_migrator, avelren_backup, avelren_collector, avelren_notifier, avelren_watchdog, avelren_api, avelren_surge',
     current_database()
 ) \gexec
 SELECT format(
-    'GRANT CONNECT ON DATABASE %I TO avelren_admin, avelren_migrator, avelren_backup, avelren_collector, avelren_notifier, avelren_watchdog, avelren_api',
+    'GRANT CONNECT ON DATABASE %I TO avelren_admin, avelren_migrator, avelren_backup, avelren_collector, avelren_notifier, avelren_watchdog, avelren_api, avelren_surge',
     current_database()
 ) \gexec
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON SCHEMA public FROM
     avelren_migrator, avelren_backup, avelren_collector, avelren_notifier,
-    avelren_watchdog, avelren_api;
+    avelren_watchdog, avelren_api, avelren_surge;
 GRANT USAGE ON SCHEMA public TO
     avelren_backup, avelren_collector, avelren_notifier, avelren_watchdog,
-    avelren_api;
+    avelren_api, avelren_surge;
 GRANT USAGE, CREATE ON SCHEMA public TO avelren_migrator;
 SQL
 }

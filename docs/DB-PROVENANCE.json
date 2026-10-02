@@ -89,14 +89,22 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/migrate.py",
       "destination": "services/backend/src/avelren/migrate.py",
-      "sha256": "843b3e3c3606af7b4f4c29d6473d5fe21efa136b2931dc9c4e995261f667c61d"
+      "sha256": "843b3e3c3606af7b4f4c29d6473d5fe21efa136b2931dc9c4e995261f667c61d",
+      "revision": {
+        "sha256": "fb8430f684e40fc0ad0d32ba25bd87efd45ab65c31f2f7965807b69e8661f7aa",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "deploy/postgres-bootstrap.sh",
       "destination": "ops/postgres-bootstrap.sh",
-      "sha256": "1367916a31c5e1835d8e12c4b582b4081385d4dbfbf8518c38ce558dd8f992db"
+      "sha256": "1367916a31c5e1835d8e12c4b582b4081385d4dbfbf8518c38ce558dd8f992db",
+      "revision": {
+        "sha256": "d3a7c72fc2c51df335640b90c34656af74f8372524b8b92b7a9e08c4cddcb4d7",
+        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+      }
     }
   ]
 }
