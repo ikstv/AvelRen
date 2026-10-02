@@ -133,3 +133,12 @@ def test_local_dst_input_preserves_absolute_horizon():
     p = predict_surge(17, history(now=local_now.astimezone(UTC)), local_now)
     assert p.window_start.astimezone(UTC) - local_now.astimezone(UTC) == timedelta(hours=1)
     assert p.window_end.astimezone(UTC) - local_now.astimezone(UTC) == timedelta(hours=24)
+
+
+def test_model_resource_survives_git_line_normalization(tmp_path):
+    from avelren import surge_model
+
+    resource = Path(surge_model.__file__).parent / "models/surge_24h_v1.json"
+    normalized = tmp_path / "git-checkout.json"
+    normalized.write_bytes(resource.read_bytes().replace(b"\r\n", b"\n"))
+    assert surge_model.load_model(normalized) == surge_model.frozen_model()

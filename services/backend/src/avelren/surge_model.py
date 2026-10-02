@@ -16,7 +16,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 MODEL_VERSION = "surge_24h_v1"
-MODEL_SHA256 = "331320e05c62ec027744dab387ba40c859a9c1070821afc3910f4358bb3b90bb"
+SOURCE_MODEL_SHA256 = "331320e05c62ec027744dab387ba40c859a9c1070821afc3910f4358bb3b90bb"
+MODEL_SHA256 = "4f8146494e0bdc01f0826306f9ba99de13a817254951f94dadc57cfa62a98b78"
 SUPPORTED_CHECKPOINTS = (1, 6, 17, 29)
 SCORE_THRESHOLD = 0.8789563370805348
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -47,7 +48,7 @@ class FrozenModel:
 
 
 def load_model(path: Path) -> FrozenModel:
-    data = path.read_bytes()
+    data = path.read_bytes().replace(b"\r\n", b"\n")
     if hashlib.sha256(data).hexdigest() != MODEL_SHA256:
         raise ValueError("surge model checksum mismatch")
     model = json.loads(data)
