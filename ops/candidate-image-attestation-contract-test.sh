@@ -28,7 +28,14 @@ printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
 case "$1 $2" in
   'build --build-arg') exit 0 ;;
   'image inspect') echo "$FAKE_IMAGE_ID" ;;
-  'run --rm') echo "${FAKE_EMBEDDED_COMMIT:-$FAKE_COMMIT}" ;;
+  'run --rm')
+    if [ "${*: -1}" = '-' ]; then
+      cat >/dev/null
+      [ "${FAKE_MODEL_MISSING:-0}" != 1 ] || exit 69
+    else
+      echo "${FAKE_EMBEDDED_COMMIT:-$FAKE_COMMIT}"
+    fi
+    ;;
   *) echo "unexpected fake docker arguments: $*" >&2; exit 98 ;;
 esac
 SH
@@ -67,3 +74,11 @@ if PATH="$WORK/bin:$PATH" FAKE_COMMIT="$COMMIT" FAKE_IMAGE_ID="$IMAGE_ID" \
 fi
 
 echo "candidate image attestation contract: PASS"
+
+if PATH="$WORK/bin:$PATH" FAKE_COMMIT="$COMMIT" FAKE_IMAGE_ID="$IMAGE_ID" \
+  FAKE_DOCKER_LOG="$WORK/missing-model.log" FAKE_MODEL_MISSING=1 bash "$ROOT/ops/build-candidate-image.sh"; then
+  echo 'image without an installed model was accepted' >&2
+  exit 1
+fi
+grep -Fx -- "run --rm -i --network none --entrypoint python avelren-candidate:$COMMIT -" "$WORK/docker.log"
+echo "installed model attestation contract: PASS"

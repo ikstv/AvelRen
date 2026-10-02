@@ -354,3 +354,22 @@ R12 PIN після перевстановлення, плашка, достав�
 Версія кандидата 1.0.3 / 6. Новий код потребує окремого CI.
 На production цей код ще не встановлено, новий APK на телефоні не прийнятий,
 підписаний AAB/GitHub Release/Play не виконані. Опис редагує власник.
+
+## R18 та1.0.3: фактичне серверне приймання — 03.10.2026
+
+Докази й причина packaging failure: [серверний audit](SURGE-INSTALLED-MODEL-FIX-2026-10-03.md).
+
+| Етап | Актуальний стан |
+| --- | --- |
+| Основний код | PR80 злитий у main aecbfa66; installed-model fix у новій гілці, ще не main |
+| CI | Усі8 exact aecbfa66 SUCCESS; виправлення потребує свого CI |
+| БД | Погоджений Timescale2.30.1, міграції015/016, backup/worker ACL прийняті |
+| Збір/дані | Cold copy та encrypted backups перевірені; історія/агрегати/стиснення збережені; pending0, п'ять природних60s циклів без помилок |
+| Прогноз | НЕ прийнято; SURGE_ENABLED=false, worker stopped через відсутній JSON у installed wheel |
+| Recovery | API/collector/канал сповіщень ok; timersactive/enabled; власна плашка і plaintext backup прибрані |
+| Android-збірка/телефон | Фінальні1.0.3 APK/AAB, FCM/голос/ACK/offline не прийняті |
+| GitHub Release/Play | Не опубліковано; опис ще редагує власник |
+
+Наступне: review/CI installed-model fix, чистий main image та окремий GO
+на application-only пакет. Повторний DB upgrade не потрібен. Точність99%
+не підтверджено. Cold rollback зберігається, після writers не застосовується.

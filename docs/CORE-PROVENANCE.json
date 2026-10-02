@@ -143,7 +143,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/pyproject.toml",
       "destination": "services/backend/pyproject.toml",
-      "sha256": "0c4f149363ee2c0f959a6f7fd3907d2762d35312b41dde076b036076a218c111"
+      "sha256": "0c4f149363ee2c0f959a6f7fd3907d2762d35312b41dde076b036076a218c111",
+      "revision": {
+        "sha256": "9109cdcfe5191bbfe2955f7052bb057427cab5d2fc42024e0b56d813c22b8df2",
+        "notes": "docs/SURGE-INSTALLED-MODEL-FIX-2026-10-03.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
