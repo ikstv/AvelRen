@@ -841,3 +841,106 @@ Compose logs старого stack також не включає новий coll
 API/notifier/watchdog/Caddy/TimescaleDB, ОС/Docker, міграції, ролі та
 /opt/avelren у цій операції не змінювалися. Android/телефон/Play і доставка
 конкретного push на телефон не перевірялися. Не вмикали автооновлень чи reboot.
+
+## Collector Compose — 02 жовтня 2026 року
+
+Після окремого явного GO власника злитий PR
+[#77](https://github.com/ikstv/AvelRen-ORIGINAL/pull/77), merge
+`857eb61e5a6c2ea35ca0c1648a55d89ecf7aa7fd`. Ops source:
+`c655b2a2e928d480431f26508a122f69a3e87411`; його шість CI checks успішні.
+Тестований CI merge-ref `946fb60` та злитий main мають те саме Git tree
+`10893f97d4f35630f973b4b9e120e494b20f5510`. Ізольована CI-репетиція:
+Усі шість checks merge-коміту `857eb61` також успішні. Ізольована CI-репетиція:
+6 FIFO циклів, pending=0, відмова до start при другому stopped контейнері
+з тими самими labels, без duplicate alerts, cleanup PASS.
+
+### Встановлений пакет і початкова звірка
+
+Шість операторських файлів з `git archive` встановлено під
+`/var/lib/avelren-collector-runtime/c655b2a2e928d480431f26508a122f69a3e87411/ops/`.
+SHA-256 пакета:
+`8922f216981fd3d5607850c78362b7855c6d868e47a6be9ca8d1bb2c46d2bbd4`.
+Кожен встановлений файл звірено зі злитим main. Manifest/env — root:root
+0600, release/state — 0700; секретні значення не виводилися. Runtime source
+залишився `0c62f543643b74a177ee56e5351cf518c1b9053d`, image ID:
+`sha256:1ab8437b7e789ec44a6971604bd56d9c43a1117c04278cb5faf550ca7d3235a1`.
+Постійний Device ID, DSN, `avelren_default` та
+`avelren_collector_spool_v1` збережено; labels нового project
+`avelren-collector-runtime`, canonical name `avelren-collector-1`.
+
+Початковий `--phase config` відхилив standalone через текстовий запис
+`SecurityOpt=["no-new-privileges"]`, тоді як Compose використовує
+`["no-new-privileges:true"]`. Перевірено фактичний `/proc/1/status`:
+NoNewPrivs=1. Повний контракт підтверджено на read-only snapshot із
+нормалізацією лише цього alias; жодної зміни старого контейнера або
+встановленого preflight-коду не робили. Новий managed preflight пройшов
+без нормалізації й без послаблення перевірок.
+
+### Резервні копії
+
+Штатний DB backup виконувався 10:07:01–10:10:40 за Києвом
+(07:07:01–07:10:40 UTC). Service Result=success, ExecMainStatus=0.
+`gdrive-crypt:avelren/daily/avelren-20261002-070701.sql.gz` — 6 900 137 bytes;
+off-host потоковий SHA-256 збігся з sidecar:
+`a4b855a6a0cbcf8ae83a9b3633f7ecafb8afa54bb3f81115aca530a5aed4803f`.
+Restore саме цієї копії ще не проводився.
+
+Штатний SQLite Online Backup виконано helper-ом того самого image з
+network=none, UID10001, без запуску collector; копія одразу поза spool volume.
+`backups/online/online-before-switch.sqlite3`: 411 acked циклів, pending=0,
+integrity/digests PASS, SHA-256:
+`c3ebe89cb88e59341dcc9deb487ed02d4a285f70359630b17c9b8a30c091d786`.
+Після повної зупинки зроблено offline probe і другу копію
+`backups/offline/offline-after-stop.sqlite3`: 419 acked циклів, pending=0,
+integrity/digests PASS, SHA-256:
+`a8ead6d7ce337a66f10478c2787fb7df50a0236e91f4bd788eed503c82a25923`.
+Обидві копії залишені у приватному release-каталозі, root:root 0600.
+Для 60 хвилин maintenance запас підтверджено. Тестовий helper не опитував джерело.
+
+### Перемикання та приймання
+
+Standalone `cab603af19ace7b95a3999d5b0a7c580edd73042f6dd3680900c7c646d657b26`
+повністю зупинений о 10:16:41, збережений під назвою
+`avelren-collector-spool-rollback-cab603af` без recreate. Після 60,95 секунд
+створено лише одну Compose-службу, без build/pull/dependencies. Managed
+контейнер `90fd6e5bb71a16c8440bdf9effe05da9b95786ccd0513f412421c8d2dc490e05`
+запущено через control о 10:19:19 за Києвом; control підтвердив той самий ID
+після додаткової повної 60-секундної паузи (час команди 62,62 секунди).
+Усього між повною зупинкою standalone та стартом managed минуло близько
+157 секунд. Жодного другого працюючого poller не було.
+
+Прийнято п'ять природних циклів 10:19:21, 10:20:21, 10:21:21, 10:22:21,
+10:23:21: усі HTTP 200, по 38 observations, чотири інтервали рівно 60 секунд,
+п'ять завершених derived-фаз без помилок. SQLite integrity/digests/permissions
+PASS, pending=0, last_error=null, capture-only=false; усі 424 acked цикли
+знайдено в primary. Не створювали штучного production outage БД чи replay-test.
+
+О 10:24:01 API status/alert_channel/undelivered_alerts — ok, workload —
+38 пунктів. Telemetry бачила canonical collector running, RestartCount=0,
+OOMKilled=false. В інших п'яти службах ID/image/RestartCount не змінилися.
+Legacy `/opt/avelren` лишився на `81e5b04` із тими самими чотирма tracked
+змінами й п'ятьма untracked файлами; хеші Compose/override збережені.
+Приватний upload staging прибрано, перевірений source-ops.tar збережено
+root:root 0600. Повні докази — `deployment-accepted.json` у release-каталозі.
+
+APT timers лишилися masked/inactive; ефективні Periodic Update/Download/
+Unattended-Upgrade — 0, Automatic-Reboot і Automatic-Reboot-WithUsers — false.
+Активний `unattended-upgrades.service` — shutdown helper `--wait-for-signal`,
+а не підтвердження автоматичного встановлення пакетів. ОС/Docker та ці
+налаштування в цьому переході не змінювалися; reboot не виконувався.
+
+### Відкат і незавершені процедури
+
+Сумісний standalone cab603af і старий legacy rollback a28360af залишені stopped.
+При відкаті зупинити точний managed ID, зробити Online Backup та integrity/digests,
+звільнити canonical name, повернути його cab603af, витримати 60 секунд і запустити
+лише cab603af із тим самим spool. Pending зберегти; legacy a28360af не читає spool.
+Відкат у production не був потрібний; його isolated rehearsal пройшла в CI.
+
+Старі Compose up/start/restart collector та postgres-adopt не запускати.
+Повний restore зі звіркою historical DB snapshot і SQLite потребує окремого
+дизайну/приймання. Source restore guard PR #77 **не встановлений** цим
+шестифайловим пакетом. Issue #41 не закриває ні backup SHA, ні ця операція:
+потрібна свіжа ізольована restore-репетиція. Issue #70 / draft PR #71–72
+також не закриті; PR #73 є окремим документаційним аудитом прав БД.
+Android/телефон/Play та доставка конкретного push не перевірялися.
