@@ -849,7 +849,7 @@ API/notifier/watchdog/Caddy/TimescaleDB, ОС/Docker, міграції, ролі
 `857eb61e5a6c2ea35ca0c1648a55d89ecf7aa7fd`. Ops source:
 `c655b2a2e928d480431f26508a122f69a3e87411`; його шість CI checks успішні.
 Тестований CI merge-ref `946fb60` та злитий main мають те саме Git tree
-`10893f97d4f35630f973b4b9e120e494b20f5510`. Ізольована CI-репетиція:
+`10893f97d4f35630f973b4b9e120e494b20f5510`.
 Усі шість checks merge-коміту `857eb61` також успішні. Ізольована CI-репетиція:
 6 FIFO циклів, pending=0, відмова до start при другому stopped контейнері
 з тими самими labels, без duplicate alerts, cleanup PASS.
