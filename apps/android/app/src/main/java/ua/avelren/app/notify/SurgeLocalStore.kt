@@ -64,10 +64,10 @@ class SurgeLocalStore(private val persistence: SurgePersistence) {
         val alert = state.alerts[alertId] ?: LocalAlert()
         state.copy(alerts = state.alerts + (alertId to alert.copy(cancelled = true)))
     }
-    fun voiceEnabled(): Boolean = synchronized(lock) { runCatching { read().voiceEnabled }.getOrDefault(false) }
+    fun voiceEnabled(): Boolean = synchronized(lock) { runCatching { read(); true }.getOrDefault(false) }
     fun setVoiceEnabled(enabled: Boolean): Boolean = modify { it.copy(voiceEnabled = enabled, voiceProblem = null, voiceConfigured = true) }
     fun enableVoiceForFirstMonitoring(): Boolean = modify {
-        if (it.voiceConfigured) it else it.copy(voiceEnabled = true, voiceConfigured = true)
+        it.copy(voiceEnabled = true, voiceConfigured = true)
     }
     fun voiceProblem(): String? = synchronized(lock) { runCatching { read().voiceProblem }.getOrDefault("tts_unavailable") }
     fun setVoiceProblem(reason: String?): Boolean = modify { it.copy(voiceProblem = reason) }

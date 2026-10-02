@@ -69,15 +69,18 @@ class SurgeAckPersistenceTest {
     }
 
 
-    @Test fun `first explicit enable turns on voice without overriding user off`() {
+    @Test fun `voice is mandatory including legacy disabled preference without losing ACK`() {
         val disk = Disk()
         val local = SurgeLocalStore(disk)
-        assertFalse(local.voiceEnabled())
-        assertTrue(local.enableVoiceForFirstMonitoring())
+        assertTrue(local.voiceEnabled())
+        assertTrue(local.acknowledge(42))
+        disk.value = """{"voiceEnabled":false,"voiceConfigured":true,"alerts":{"42":{"acknowledged":true,"pendingAck":true}}}"""
         assertTrue(SurgeLocalStore(disk).voiceEnabled())
-        assertTrue(local.setVoiceEnabled(false))
-        assertTrue(SurgeLocalStore(disk).enableVoiceForFirstMonitoring())
-        assertFalse(SurgeLocalStore(disk).voiceEnabled())
+        assertTrue(SurgeLocalStore(disk).isAcknowledged(42))
+        assertEquals(setOf(42L), SurgeLocalStore(disk).pendingAcks())
+    }
+    @Test fun `corrupt voice ledger fails closed`() {
+        assertFalse(SurgeLocalStore(Disk().apply { value = "broken" }).voiceEnabled())
     }
     @Test fun `screen ACK persists before effects and remains pending offline`() {
         val disk = Disk()

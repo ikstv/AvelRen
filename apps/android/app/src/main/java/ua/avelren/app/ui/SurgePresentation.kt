@@ -9,11 +9,13 @@ import ua.avelren.app.data.SurgeStatus
 data class SurgeCards(val forecast: String, val fact: String, val window: String? = null)
 
 object SurgePresentation {
-    private fun location(cp: SurgeCheckpoint): String = when (cp.checkpoint_id) {
-        17 -> "на Чопі"
-        6 -> "на Краківці"
-        1, 29 -> "на Ягодині"
-        else -> "на КПП «${cp.title}»"
+    private fun location(cp: SurgeCheckpoint): String =
+        ua.avelren.app.data.CheckpointSpeech.location(cp.checkpoint_id, cp.title)
+    fun availabilityHint(cp: SurgeCheckpoint, status: SurgeStatus?): String? = when {
+        status == null -> "Не вдалося оновити дані КПП"
+        !cp.data_fresh -> "Дані КПП застаріли. Сповіщення можуть затримуватися"
+        status.status == "unavailable" && status.reason != "unsupported" -> "Перевірка зростання тимчасово недоступна"
+        else -> null
     }
     fun cards(cp: SurgeCheckpoint, status: SurgeStatus?, now: Instant): SurgeCards {
         val expired = status?.expires_at?.let { runCatching { Instant.parse(it) <= now }.getOrDefault(true) } == true
@@ -28,7 +30,7 @@ object SurgePresentation {
             expired -> "Попередній сигнал завершився. Очікуємо оновлення"
             status?.status == "risk" -> "Можливий початок масової реєстрації ${location(cp)}"
             status?.status == "started" -> "Зростання вже почалось — дивіться фактичне повідомлення"
-            status?.status == "no_signal" -> "Зараз немає сигналу можливого напливу. Він усе одно може початися"
+            status?.status == "no_signal" -> "Зараз немає сигналу початку масової реєстрації. Вона все одно може початися"
             else -> unavailable
         }
         val fact = when {

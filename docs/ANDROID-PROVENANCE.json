@@ -7,8 +7,8 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "00f680116ff922568df78b1115a39d593eb6affc8eb2854058cd17824505c6d1",
-        "notes": "docs/CONNECTED-TEST-APK.md"
+        "sha256": "6d9ab688a3384c2aaef164cf70978ed3c93fa533e5eff9121dfd2e7dcb3f88d2",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
     {
@@ -79,8 +79,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/Api.kt",
       "sha256": "2a165f98b363bbfc3db195eea3f2d0485de2d297247f51aa62c750bb5377f997",
       "revision": {
-        "sha256": "f95710b764a6923e0e81b4dae687d82d3728b0c8e6904e2ce0874f856b79fc5e",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "fbb9f9fc26597eaebe4c9c8bddea1309d16b3452ce976b0086853231cf869e2e",
+        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
       }
     },
     {
@@ -148,7 +148,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/java/ua/avelren/app/data/UiPrefs.kt",
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/UiPrefs.kt",
-      "sha256": "8ada275eb3d9e739bae2820499dee16a1f5ffb5a3d40d9f2ca7ec4c06a917cba"
+      "sha256": "8ada275eb3d9e739bae2820499dee16a1f5ffb5a3d40d9f2ca7ec4c06a917cba",
+      "revision": {
+        "sha256": "82431c507b1aee0b09133894f1bf1534874eb8c423c62f71760dd8643cd7a4bc",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -201,8 +205,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/Notifications.kt",
       "sha256": "c7c0683d1abd7db43638eb9e27ff96ba44afc947178622f3c976e811da7320e2",
       "revision": {
-        "sha256": "a0bb453658525f5900f06f2d78acb9d412bd231451c8181fc9d18a8fb0d3d178",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "1134c021f66b4920c71cee7cd4d05bff177f00abbd1e2f0fb00827d51bb3b454",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
     {
@@ -219,8 +223,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "7cca140ea87fd86641f3bc0344ad6ea707c9e98a7a6b262e557032ff0233e489",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "b36f34764822ee9bcd693ace32a164eaebc73ac320ccd8124f8074f7e5a70d4a",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
     {
@@ -230,8 +234,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/Attribution.kt",
       "sha256": "d6b722c308a0eed9254891ac665bcccaa023fac0a9fd573369e427ad55b54c91",
       "revision": {
-        "sha256": "0f92d8b655c5b3602699ee8efbca556d16f05d737eaefd5b7cd1778f580e3d58",
-        "notes": "docs/RELEASE-0.1.1-CHANGES.md"
+        "sha256": "12c51ec18c7e3e4446b9d59ac7305c7eca299d897fc2f6d26226809ef7469862",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
     {
@@ -241,8 +245,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "9427344d7f6d9d10e38a11d4bf2bfafd75a2a6a4e5fc00603748a755e31fa6b9",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "20c9a97fa2fe2477cee0269e1e72025a154dfc5d839575a55335aa1e595bc75c",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
     {
@@ -268,7 +272,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/java/ua/avelren/app/ui/theme/Theme.kt",
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/theme/Theme.kt",
-      "sha256": "e6624f2adb01afb347277dd036370d8c6e7f5b7cf94b57f03001e7df778d837b"
+      "sha256": "e6624f2adb01afb347277dd036370d8c6e7f5b7cf94b57f03001e7df778d837b",
+      "revision": {
+        "sha256": "f81223f71f8a7d17e5e01f032b0df75347701b7b9f10d52c9c38449415bdace6",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -303,21 +311,33 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/res/font/overpass_black.ttf",
       "destination": "apps/android/app/src/main/res/font/overpass_black.ttf",
-      "sha256": "1fcf81729ea506d1eafd54b2fa8182494b68ea9966ee24af53bf517ef94d1d0c"
+      "sha256": "1fcf81729ea506d1eafd54b2fa8182494b68ea9966ee24af53bf517ef94d1d0c",
+      "revision": {
+        "sha256": "6eff8a05d382910e53218e87d5b69b8a6749d40666fbc8330eb62b6fcafaf297",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/res/font/overpass_bold.ttf",
       "destination": "apps/android/app/src/main/res/font/overpass_bold.ttf",
-      "sha256": "623f1f421fecc29095d76b3aa472c409e1b0b5db70ef2b3ba4b699546ce3d4af"
+      "sha256": "623f1f421fecc29095d76b3aa472c409e1b0b5db70ef2b3ba4b699546ce3d4af",
+      "revision": {
+        "sha256": "4e3558d5a81b87b47557402ccf6314413c2de31c2b8b74c8585c1d8e9d2aa73f",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "android/app/src/main/res/font/overpass_regular.ttf",
       "destination": "apps/android/app/src/main/res/font/overpass_regular.ttf",
-      "sha256": "bf107d7ae99031c2193cd187acc9d4e5ebd45b6ea0e6845159ce68f87eb623aa"
+      "sha256": "bf107d7ae99031c2193cd187acc9d4e5ebd45b6ea0e6845159ce68f87eb623aa",
+      "revision": {
+        "sha256": "de697886a181d2a9c2d586ebfb4379695d2a803072c1b785868595151d5d416d",
+        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

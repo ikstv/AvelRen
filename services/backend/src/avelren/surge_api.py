@@ -195,6 +195,12 @@ async def put_subscription(
     now = datetime.now(UTC)
     async with feature_connection() as conn:
         async with conn.transaction():
+            # Serialize the quota across different checkpoints of one installation.
+            # Always acquire this before the shared checkpoint event lock.
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,163515))",
+                (str(device),),
+            )
             await conn.execute("SELECT pg_advisory_xact_lock(163514,%s)", (checkpoint_id,))
             if not await (
                 await conn.execute("SELECT 1 FROM checkpoints WHERE id=%s", (checkpoint_id,))
@@ -212,6 +218,16 @@ async def put_subscription(
             ).fetchone()
             if "surge_v1" not in d["notification_capabilities"]:
                 raise HTTPException(409, "Потрібне оновлення застосунку")
+            quota = await (
+                await conn.execute(
+                    "SELECT count(*) AS total, "
+                    "count(*) FILTER (WHERE checkpoint_id=%s) AS existing "
+                    "FROM surge_subscriptions WHERE device_id=%s",
+                    (checkpoint_id, device),
+                )
+            ).fetchone()
+            if quota["total"] >= 5 and not quota["existing"]:
+                raise HTTPException(409, "Можна відстежувати до 5 КПП. Приберіть один із вибраних")
             await conn.execute(
                 """
                 INSERT INTO surge_subscriptions
@@ -239,6 +255,12 @@ async def delete_subscription(
     now = datetime.now(UTC)
     async with feature_connection() as conn:
         async with conn.transaction():
+            # Serialize the quota across different checkpoints of one installation.
+            # Always acquire this before the shared checkpoint event lock.
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,163515))",
+                (str(device),),
+            )
             await conn.execute("SELECT pg_advisory_xact_lock(163514,%s)", (checkpoint_id,))
             await conn.execute(
                 "DELETE FROM surge_subscriptions WHERE device_id=%s AND checkpoint_id=%s",

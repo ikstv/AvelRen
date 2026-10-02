@@ -101,6 +101,7 @@ object Api {
         // old fixtures/JSON without the field stay compatible. We compute freshness
         // from it, not from the HTTP request time (AND-4).
         val time: String? = null,
+        val wait_estimate: WaitEstimate? = null,
     )
 
     @Serializable
@@ -294,6 +295,27 @@ object Api {
     )
 
     @Serializable
+    data class WaitEstimate(val status: String, val seconds: Int? = null, val entry_eta: String? = null)
+
+    @Serializable
+    data class ForecastWaitEstimate(
+        val seconds_low: Int,
+        val seconds_expected: Int,
+        val seconds_high: Int,
+        val samples: Int,
+    )
+
+    @Serializable
+    data class CountForecastPoint(
+        val time: String,
+        val vehicles_low: Int? = null,
+        val vehicles_expected: Int,
+        val vehicles_high: Int? = null,
+        val calibration_samples: Int = 0,
+        val wait_estimate: ForecastWaitEstimate? = null,
+    )
+
+    @Serializable
     data class ForecastPoint(
         val time: String,
         val wait_seconds_low: Int,
@@ -314,6 +336,7 @@ object Api {
         val weeks_needed: Int,
         val ready_at: String? = null,
         val points: List<ForecastPoint> = emptyList(),
+        val count_points: List<CountForecastPoint>? = null,
     )
 
     /** Одна точка історії черги (сире спостереження щохвилини). */
@@ -322,6 +345,17 @@ object Api {
         val time: String,
         val vehicles_in_queue: Int = 0,
         val is_paused: Boolean = false,
+        val wait_time_status: String? = null,
+        val wait_estimate_seconds: Int? = null,
+    )
+
+    @Serializable
+    data class CountHistoryHour(val time: String, val avg_vehicles: Double, val samples: Int)
+
+    @Serializable
+    data class WaitHistoryHour(
+        val time: String, val avg_wait_seconds: Double?,
+        val max_wait_seconds: Int?, val samples: Int,
     )
 
     @Serializable
@@ -329,6 +363,8 @@ object Api {
         /** raw (≤48 год) — точки щохвилини; hourly — погодинні агрегати. */
         val resolution: String = "raw",
         val points: List<HistoryPoint> = emptyList(),
+        val count_hours: List<CountHistoryHour>? = null,
+        val wait_hours: List<WaitHistoryHour>? = null,
     )
 
     @Serializable

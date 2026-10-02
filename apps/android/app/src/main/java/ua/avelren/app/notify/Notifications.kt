@@ -111,7 +111,7 @@ object Notifications {
 
     fun ensureChannel(context: Context) {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(SURGE_CHANNEL_ID, "Напливи черги", NotificationManager.IMPORTANCE_HIGH).apply {
+            NotificationChannel(SURGE_CHANNEL_ID, "Зростання черги", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Прогноз і фактичний початок різкого зростання черги"
                 setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                     AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -145,6 +145,10 @@ object Notifications {
     // justified — this is not a lint baseline.
     @SuppressLint("MissingPermission")
     fun show(context: Context, alertId: Long, kind: String, title: String, body: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
         ensureChannel(context)
 
         val notifId = notificationId(kind, alertId)
@@ -206,6 +210,10 @@ object Notifications {
      */
     @SuppressLint("MissingPermission")
     fun showInfo(context: Context, title: String, body: String, openStore: Boolean = false) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
         ensureChannel(context)
         val channel = NotificationChannel(
             INFO_CHANNEL_ID,

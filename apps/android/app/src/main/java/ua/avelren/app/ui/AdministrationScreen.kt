@@ -38,7 +38,11 @@ import ua.avelren.app.AvelRenApp
 import ua.avelren.app.BuildConfig
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
-import ua.avelren.app.ui.theme.SignWarn
+import ua.avelren.app.ui.theme.AppAccent as SignWarn
+import ua.avelren.app.ui.theme.ThemeChoice
+import ua.avelren.app.ui.theme.LocalThemeChoice
+import ua.avelren.app.data.UiPrefs
+import androidx.compose.material.icons.filled.Palette
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -60,6 +64,9 @@ internal fun AdministrationSettings(
     var page by rememberSaveable { mutableStateOf("menu") }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val selectedTheme = LocalThemeChoice.current
     BackHandler(page != "menu") { page = "menu" }
     Column(modifier) {
         if (page == "menu") {
@@ -68,12 +75,32 @@ internal fun AdministrationSettings(
                     .padding(horizontal = 20.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                SettingsMenuItem("Тема", Icons.Default.Palette) { page = "theme" }
                 SettingsMenuItem("Про додаток", Icons.Default.Info) { page = "about" }
                 SettingsMenuItem("Адміністрування", Icons.Default.AdminPanelSettings) {
                     page = "admin"
                 }
                 SettingsMenuItem("Політика конфіденційності", Icons.Default.Lock) {
                     uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
+                }
+            }
+        } else if (page == "theme") {
+            SettingsPageHeader("Тема") { page = "menu" }
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf(ThemeChoice.DARK to "Темна (за замовчуванням)", ThemeChoice.LIGHT to "Світла").forEach { (choice, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                            .clickable { scope.launch { UiPrefs.setTheme(context, choice) } }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = choice == selectedTheme,
+                            onClick = { scope.launch { UiPrefs.setTheme(context, choice) } })
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(label, fontWeight = FontWeight.Bold)
+                            Text(if (choice == ThemeChoice.DARK) "Чорна з жовтим" else "Світла з червоним",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
         } else if (page == "about") {
@@ -152,6 +179,10 @@ private fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 @Composable
 private fun AboutContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val currentNotes = remember(context) {
+        context.assets.open("release-notes/v1.0.3.uk.txt")
+            .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
+    }
     val releaseNotes = remember(context) {
         context.assets.open("release-notes/v0.1.2.uk.txt")
             .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
@@ -171,6 +202,9 @@ private fun AboutContent(modifier: Modifier = Modifier) {
     ) {
         Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("1.0.3", color = SignWarn, fontWeight = FontWeight.Bold)
+        Text(currentNotes)
+        HorizontalDivider()
         Text("0.1.2", color = SignWarn, fontWeight = FontWeight.Bold)
         Text(releaseNotes)
         HorizontalDivider()

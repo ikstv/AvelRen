@@ -51,7 +51,7 @@ class SurgeVoiceService : Service() {
         try {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel(
-                VOICE_CHANNEL, "Озвучення напливів", NotificationManager.IMPORTANCE_LOW,
+                VOICE_CHANNEL, "Озвучення зростання черги", NotificationManager.IMPORTANCE_LOW,
             ).apply { setSound(null, null) })
             val notification = NotificationCompat.Builder(this, VOICE_CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification).setContentTitle("AvelRen")
@@ -82,15 +82,18 @@ class SurgeVoiceService : Service() {
                 it.locale.language == "uk" && !it.isNetworkConnectionRequired &&
                     TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in it.features.orEmpty()
             }
-            // Prefer the installed Ukrainian default; gender is checked on the owner's phone.
-            val voice = voices.firstOrNull { it.name == engine.defaultVoice?.name } ?: voices.sortedBy { it.name }.firstOrNull()
+            // Prefer the local Ukrainian voice auditioned on the owner's phone.
+            val voice = voices.firstOrNull { it.name == "uk-ua-x-hfd-local" }
+                ?: voices.firstOrNull { it.name == engine.defaultVoice?.name } ?: voices.sortedBy { it.name }.firstOrNull()
             if (voice == null || engine.setVoice(voice) != TextToSpeech.SUCCESS) {
                 Log.i(TAG, "installed Ukrainian voice unavailable")
                 store.setVoiceProblem("uk_unavailable")
                 finishService()
                 return
             }
-            engine.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+            engine.setSpeechRate(0.88f)
+            engine.setPitch(1.02f)
+            engine.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) { }
@@ -139,7 +142,7 @@ class SurgeVoiceService : Service() {
         try {
             if (focus == null) {
                 val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                     .setOnAudioFocusChangeListener({ change ->
                         if (change < 0) finishService()

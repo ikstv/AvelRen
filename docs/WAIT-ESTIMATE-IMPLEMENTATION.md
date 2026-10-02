@@ -444,3 +444,30 @@ Read-only GET чотирьох публічних `/api/history/{id}?hours=2160`
 кількісної моделі бракує придатного незалежного джерела даних і довшого
 невикористаного відрізка; production БД, серверний код, APK і Play не
 змінювалися. Деталі — `docs/forecast.md`.
+
+
+### Android wait-контракт і підготовка 1.0.3 — 02.10.2026
+
+Погоджену задачу 4 продовжено в `codex/experimental-surge-monitor`,
+оскільки серверна залежність PR #72 уже включена в цю гілку. Три чернетки
+тестів скопійовано з `codex/wait-estimate-contract` без зміни оригіналів;
+їхній RED підтвердив відсутні DTO/helpers. Додано nullable `wait_estimate`,
+окремі count/wait history, `count_points`, authoritative empty-list,
+rolling 24 elapsed hours, count-only UI, reported zero та legacy labels.
+Null ETA нового об’єкта не підміняється старим ETA; unknown status не
+стає підтвердженою оцінкою. Старі DTO й старі presentation helpers збережені.
+
+Count bounds nullable для сумісності legacy adapter без нової калібрації;
+внутрішні поля наявного ForecastWaitEstimate відповідають серверному JSON,
+включно із samples. Новий helper не змінює контракт єЧерги.
+
+Play Console, сторінка «Усі набори App Bundle», прочитана 02.10.2026:
+5 артефактів, versionCode 1–5, найвищий 5 / 0.1.2. Кандидат версії —
+1.0.3 / 6. Додано канонічні примітки та історію на екрані «Про додаток».
+Це не публікація і не підписаний APK. Перед завантаженням повторно звірити
+найвищий code, весь реєстр, підпис та приймання телефона.
+
+Попередній head `11f4f88` пройшов усі 8 GitHub checks. Новий head потребує
+свого CI. Production, телефон, GitHub Release і Google Play не змінені.
+
+Уточнення власника 02.10: прибрано слово «наплив» з видимих Android-текстів, назв notification channels і приміток 1.0.3. Використовуються погоджені «Можливий початок масової реєстрації» та «Почалось зростання черги»; точні повідомлення на Чопі збережені.

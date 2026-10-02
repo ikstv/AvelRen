@@ -232,3 +232,66 @@ def test_enabled_checkpoints_returns_real_schema_columns(api_client, conn):
     assert response.status_code == 200
     assert response.json()[0]["checkpoint_id"] == 17
     assert response.json()[0]["forecast_supported"] is True
+
+
+def test_five_checkpoint_limit_update_and_delete(api_client, conn, device):
+    cap(conn, device)
+    ids = list(range(900_100_001, 900_100_007))
+    for cid in ids:
+        conn.execute(
+            "INSERT INTO checkpoints(id,title,for_vehicle_type) VALUES(%s,'synthetic',1)", (cid,)
+        )
+    body = {"forecast_enabled": False, "fact_enabled": True}
+    for cid in ids[:5]:
+        assert (
+            api_client.put(
+                f"/surge-subscriptions/{cid}", headers=device.headers(), json=body
+            ).status_code
+            == 200
+        )
+    result = api_client.put(f"/surge-subscriptions/{ids[5]}", headers=device.headers(), json=body)
+    assert result.status_code == 409
+    assert "5" in result.json()["detail"]
+    assert (
+        api_client.put(
+            f"/surge-subscriptions/{ids[0]}", headers=device.headers(), json=body
+        ).status_code
+        == 200
+    )
+    assert (
+        api_client.delete(f"/surge-subscriptions/{ids[0]}", headers=device.headers()).status_code
+        == 200
+    )
+    assert (
+        api_client.put(
+            f"/surge-subscriptions/{ids[5]}", headers=device.headers(), json=body
+        ).status_code
+        == 200
+    )
+    assert len(api_client.get("/surge-subscriptions", headers=device.headers()).json()) == 5
+
+
+def test_concurrent_subscription_requests_cannot_exceed_five(api_client, conn, device):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    cap(conn, device)
+    ids = list(range(900_200_001, 900_200_007))
+    for cid in ids:
+        conn.execute(
+            "INSERT INTO checkpoints(id,title,for_vehicle_type) VALUES(%s,'synthetic',1)", (cid,)
+        )
+    barrier = Barrier(6)
+
+    def subscribe(cid):
+        barrier.wait(timeout=10)
+        return api_client.put(
+            f"/surge-subscriptions/{cid}",
+            headers=device.headers(),
+            json={"forecast_enabled": False, "fact_enabled": True},
+        ).status_code
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        statuses = list(pool.map(subscribe, ids))
+    assert sorted(statuses) == [200, 200, 200, 200, 200, 409]
+    assert len(api_client.get("/surge-subscriptions", headers=device.headers()).json()) == 5
