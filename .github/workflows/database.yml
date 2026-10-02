@@ -92,7 +92,18 @@ jobs:
           python3 -m py_compile ops/collector-spool-daemon-test.py
           bash -n ops/collector-spool-integration-test.sh
           bash ops/collector-spool-integration-test.sh
+      - name: Compose для контракту collector runtime
+        # Match the verified production parser. Compose 2.38.2 resolves raw
+        # env_file even with --no-env-resolution and drops its descriptor.
+        run: |
+          plugin_dir="${RUNNER_TEMP}/collector-runtime-docker/cli-plugins"
+          mkdir -p "$plugin_dir"
+          curl --fail --location --retry 3 https://github.com/docker/compose/releases/download/v5.5.1/docker-compose-linux-x86_64 -o "$plugin_dir/docker-compose"
+          echo "db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576  $plugin_dir/docker-compose" | sha256sum --check
+          chmod 0755 "$plugin_dir/docker-compose"
       - name: Контракт окремого collector runtime
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/collector-runtime-docker
         run: |
           bash -n ops/collector-runtime-control.sh
           bash -n ops/collector-runtime-control-contract-test.sh

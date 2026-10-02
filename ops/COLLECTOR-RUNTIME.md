@@ -16,6 +16,9 @@ Root-owned JSON 0600 поза checkout має рівно поля `source_commit
 `avelren_default`, volume `avelren_collector_spool_v1`.
 
 Env — root-owned 0600 з literal key=value, без multiline/NUL/повторних ключів;
+Перевірена версія Compose — 5.5.1; CI використовує ту саму версію з перевіркою
+SHA-256 офіційного binary. Compose 2.38.2 не зберігає опис raw env_file при
+`config --no-env-resolution`, тому preflight його відхиляє.
 Compose використовує raw format. Приватні paths абсолютні, без symlink,
 з довіреними root-owned батьками. Compose-файл root-owned, без group/world
 write, state directory root-owned 0700. Значення секретів у Git не додавати.
