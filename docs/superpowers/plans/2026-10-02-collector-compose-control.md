@@ -44,7 +44,7 @@
 - `.github/workflows/database.yml`, `scripts/verify_ci_scopes.py`: запуск усіх нових перевірок і контроль фільтрів.
 - `docs/RELEASE-READINESS.md`: окремі фактичні етапи готовності.
 
-## Завдання 1: Compose-контракт і приватний manifest
+### Task 1: Compose-контракт і приватний manifest
 
 **Interfaces:** manifest JSON має поля `source_commit`, `image_id`, `env_file`,
 `compose_file`, `project`, `container_name`, `network`, `volume`, `state_dir`.
@@ -61,7 +61,7 @@ manifest; shell не source-ить JSON/env. Для production застосов�
 - [ ] Повторити контракт із реальним `docker compose ... config --format json`. Python тримає config/environment лише в пам'яті; друкує allowlist metadata. Очікується PASS для всіх assertions, жодних daemon мутацій.
 - [ ] `git diff --check`, commit «Додати окремий Compose-контракт collector» з трьома новими файлами цього завдання.
 
-## Завдання 2: Фактичний preflight і статус
+### Task 2: Фактичний preflight і статус
 
 **Interfaces:** `validate_runtime(manifest: dict, effective: dict, inventory: list[dict], *, require_managed: bool) -> list[str]` повертає безпечні категорії порушень.
 CLI `python3 ops/collector-runtime-preflight.py --manifest PATH --phase config|status|managed`:
@@ -75,7 +75,7 @@ control-мутації; `managed` вимагає правильні Compose labe
 - [ ] Додати статус spool через `docker exec` без TTY і чинний `SpoolStore.status()`: captured/acked/pending/oldest_pending, capture_only/mode_ack/last_error. Статус stopped контейнера не запускає контейнер для читання. Передбачити безпечне повідомлення «spool недоступний» з nonzero при помилці.
 - [ ] Повторити контракт, `python3 -m py_compile ops/collector-runtime-preflight.py`, commit «Перевіряти фактичний collector перед керуванням».
 
-## Завдання 3: Керовані команди, lock і пауза
+### Task 3: Керовані команди, lock і пауза
 
 **Interfaces:** `bash ops/collector-runtime-control.sh --manifest PATH COMMAND [ARGS]`.
 COMMAND: `preflight`, `status`, `logs`, `start`, `stop`, `restart`,
@@ -90,7 +90,7 @@ COMMAND: `preflight`, `status`, `logs`, `start`, `stop`, `restart`,
 - [ ] Capture-only викликає чинний `python -m avelren.collector_control capture-only ...`; зберегти nonzero та timeout 30 секунд. `on/off` вважаються успішними тільки після mode acknowledgement; не міняти request самостійним SQLite update.
 - [ ] `bash -n ops/collector-runtime-control.sh ops/collector-runtime-control-contract-test.sh`, обидва contracts PASS; commit «Додати безпечні операторські команди collector».
 
-## Завдання 4: Restore guard і maintenance runbook
+### Task 4: Restore guard і maintenance runbook
 
 **Interfaces:** `avelren_require_supported_collector_topology()` у
 `ops/restore-production.sh`: read-only Docker inventory; legacy Compose
@@ -105,7 +105,7 @@ identity check, до capture artifact/snapshot/maintenance.
 - [ ] Оновити `ops/COLLECTOR-SPOOL.md`: preflight + Online Backup поза томом, capture-only on і ack до робіт БД, off/schema ack/replay після них; backup БД при pending не повний. Повний restore відокремити від maintenance.
 - [ ] Пройти restore-production, preflight та identity contracts; `git diff --check`; commit «Захистити restore від несумісної collector-топології».
 
-## Завдання 5: Реальна репетиція перемикання й відкату
+### Task 5: Реальна репетиція перемикання й відкату
 
 **Interfaces:** `bash ops/collector-runtime-integration-test.sh` створює
 унікальні `avelren-runtime-test-*` project/network/volume/container, очищає
@@ -120,7 +120,7 @@ identity check, до capture artifact/snapshot/maintenance.
 - [ ] Зупинити Compose, перевірити Online Backup; повернути збережений сумісний standalone після 60 секунд. Assert volume/image незмінні, новий природний цикл, no dual poller. Cleanup тільки ресурсів цієї репетиції; зберегти безпечний evidence JSON (SHA коду, image ID, timestamps, cycle count, pending/digests, результат rollback).
 - [ ] Повторити репетицію до PASS без додаткового polling; commit «Перевірити Compose-перемикання та відкат collector».
 
-## Завдання 6: CI, review і готовність до окремого GO
+### Task 6: CI, review і готовність до окремого GO
 
 - [ ] У `scripts/verify_ci_scopes.py` додати regression cases для нових ops-файлів: database workflow обов'язково запускається на PR і main push. Додати assertions на наявність contract/integration команд у `.github/workflows/database.yml`; RED — ці кроки ще відсутні.
 - [ ] У database workflow додати bash syntax, Python compile/contracts, control contract під Linux із root-owned fixture і інтеграційну репетицію; використовувати чинні pinned actions. Виміряти сумарний runtime; змінити timeout тільки якщо доказ часу репетицій вимагає цього. Не прибирати старі DB/restore/spool перевірки.
