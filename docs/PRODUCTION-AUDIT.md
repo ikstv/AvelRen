@@ -762,3 +762,82 @@ GO і візуальної перевірки на встановленому co
 
 Отже, production-приймання повного автоматичного циклу плашки завершено.
 Повторний reboot для цієї функції не потрібен.
+
+## Collector spool — 02 жовтня 2026 року
+
+Після явного GO власника на backup, підготовку, перемикання й відкат та
+окремого GO на перейменування встановлено лише collector із чистої main
+`0c62f543643b74a177ee56e5351cf518c1b9053d` (PR #74/#75 злиті).
+CI merge-коміту успішний; його дерево збігається з перевіреним head PR #75.
+Це датований результат приймання, не гарантія майбутнього стану.
+
+### Образ, налаштування та резервні копії
+
+- Image ID: `sha256:1ab8437b7e789ec44a6971604bd56d9c43a1117c04278cb5faf550ca7d3235a1`.
+  Архів `collector-candidate.tar` перевірено до й після передачі:
+  SHA-256 `20f5a96f99d3c2191a732cacae15fe5bfeb990cc14ad9ea0556a902d05191c24`.
+  Embedded SHA, UID10001 та конфігурація пройшли offline-перевірку.
+- Приватні файли поза checkout:
+  `/var/lib/avelren-collector-release/0c62f543643b74a177ee56e5351cf518c1b9053d/`.
+  Каталог root:root 0700; `collector.env` root:root 0600. Налаштування,
+  постійний Device ID і legacy DATABASE_URL скопійовано без зміни значень.
+  Значення секретів не виводилися. Перехід обмежених ролей ще не виконаний.
+- Свіжий штатний backup: 02.10 о 02:43:59–02:46:30 за Києвом,
+  `Result=success`, `ExecMainStatus=0`.
+  Off-host artifact `monthly/avelren-20261001-234400.sql.gz`, 6823456 bytes;
+  SHA-256 `0398f1eff623a26cbd940639945f34953ab92d1d6282f569eda234d32f39eaf2`.
+  Артефакт потоково прочитано зі сховища й звірено з sidecar. На першому
+  числі UTC backup потрапив у monthly, а не daily. Restore цієї копії не тестували.
+- Фізична схема, startup gate і digests 001–014 перевірені в примусово
+  read-only сесії; після перемикання digests повторно звірені, без змін.
+
+### Перемикання й фактичне приймання
+
+Старий контейнер `a28360af7932994e8f1d5b7d5dffe7ecb65ae4b87c5c184de46135fd3e5d99d6`
+зупинено о 03:16:52 за Києвом і перейменовано на
+`avelren-collector-rollback-a28360af`. Його image `f52aad81...` відсутній
+у image store, тому цей контейнер збережено для відкату без recreate.
+Після повних 60 секунд паузи новий контейнер
+`cab603af19ace7b95a3999d5b0a7c580edd73042f6dd3680900c7c646d657b26`
+стартував як `avelren-collector-1` о 03:17:52. Стандартна назва потрібна
+чинному telemetry helper, який шукає `${COMPOSE_PROJECT}-${svc}-1`.
+
+Прийнято п'ять циклів о 03:17:54, 03:18:54, 03:19:54, 03:20:54 і 03:21:54:
+усі HTTP 200, по 38 observations у БД, різниці часу 60/60/60/60 секунд,
+п'ять завершених derived-фаз без помилок. SQLite: integrity ok, payload
+checksums збігаються, auto_vacuum=2, pending=0, last_error=null, capture-only=false.
+Приватний volume `avelren_collector_spool_v1`: UID10001, каталог 0700,
+файл 0600; перевірено запас для 60 хвилин maintenance.
+
+Online Backup чотирьох на той момент завершених циклів (pending=0) скопійовано
+з тому до `accepted-online-backup.sqlite3` у приватному release-каталозі,
+root:root 0600. Integrity/digests і обидві копії SHA-256 збігаються:
+`bb57f32ee105ecc6fcfdb59d16b857c63878cdd8dc06bf46dabe0db7780cc3cf`.
+Файл БД без WAL напряму не копіювали. Тимчасовий upload-каталог прибрано.
+
+О 03:22:29 API health мав status/alert_channel/undelivered_alerts `ok`,
+workload повернув 38 свіжих пунктів. Телеметрія бачила collector running,
+RestartCount=0, OOMKilled=false. Старий контейнер лишався stopped;
+ID, image і RestartCount інших п'яти служб не змінилися. Прямих Compose
+up/start/restart у перевірених custom systemd units, rc.local і crontab не знайдено;
+реальний reboot для цього приймання не виконували.
+
+### Керування та відкат до перенесення Compose
+
+Новий collector є окремим контейнером із приватним томом. Старі Compose
+labels залишилися на rollback-контейнері: **не запускати collector через старий
+Compose up/start/restart**, бо це може повернути старий poller паралельно.
+Для цього релізу logs/status/control читати з `avelren-collector-1` напряму.
+Compose logs старого stack також не включає новий collector; перенесення
+операторських процедур є окремим наступним етапом.
+
+Погоджений відкат: зупинити новий, зробити перевірений Online Backup,
+переконатися в pending=0; новий перейменувати назад на
+`avelren-collector-spool-0c62f54`, rollback — на `avelren-collector-1`,
+витримати 60 секунд від зупинки нового й запустити збережений старий.
+При pending>0 спочатку потрібен сумісний replay/recovery, том не видаляти.
+Відкат не виконувався, оскільки приймання успішне.
+
+API/notifier/watchdog/Caddy/TimescaleDB, ОС/Docker, міграції, ролі та
+/opt/avelren у цій операції не змінювалися. Android/телефон/Play і доставка
+конкретного push на телефон не перевірялися. Не вмикали автооновлень чи reboot.
