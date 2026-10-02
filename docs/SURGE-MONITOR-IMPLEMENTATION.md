@@ -122,3 +122,13 @@ reconciliation доповнюють одне одного.
 Третя плитка відкриває моніторинг кількох КПП з окремими forecast/fact налаштуваннями, глобальною local voice preference та чинним count forecast як окремою дією. Стиль звірено з AvelRen: Overpass, жовтий F5C400, темні картки 0A0A0A, тонка біла рамка38FFFFFF, кути16dp, поля20dp. Footer закріплено Scaffold.
 
 02.10.2026 офлайн preview (без INTERNET) перевірено на окремому емуляторі API36: вибрані два КПП, loading, error, довгий scroll, font_scale1.5, відсутність sample button, footer видимий. Останню версію карток повторно оглянуто на screenshot style-final. Це синтетичні стани UI, не доказ доставки push або перевірки телефона.
+
+## Голос і окремі сповіщення
+
+Нові kind використовують власний канал із notification usage, full-ID tag та окрему дію «Зрозуміло». Колізія IDs9001 і10009001 не перекриває різні notification/ACK PendingIntent; cancel і reconciliation зберігають tag. Факт атомарно погашає попередній локальний прогноз того самого КПП, включно з його озвученням.
+
+Короткий mediaPlayback FGS показує foreground notification до TTS, перевіряє фактичний `RemoteMessage.priority`, voice preference, permission/channel, DND/ringer, expiry й durable ACK. Локальний встановлений uk voice, bounded queue10, init10s/utterance30s/service60s, audio focus, stop/cancel та release ресурсів. START_NOT_STICKY: reboot не відтворює стару voice queue. Жіночий голос залежить від installed TTS і потребує перевірки на телефоні.
+
+02.10.2026 compile/JVM/lint/assemble пройшли. Офлайн емулятор API36: Google TTS успішно bound, uk voice недоступний — service завершився без crash, текст лишився, причина показана в UI. Фактичний full-ID collision/cancel перевірено. Priority/queue/ACK/expiry перевірено JVM; background handler probe не підтвердив OS rejection і не вважається доказом цього сценарію. Фонову доставку реального FCM, screen-lock, audio-focus refusal, жіночий голос і repeat5min перевіряємо перед релізом на телефоні; зараз не підтверджено.
+
+Джерела Android API: [обмеження FGS](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start), [тип mediaPlayback](https://developer.android.com/develop/background-work/services/fgs/service-types), [TextToSpeech](https://developer.android.com/reference/android/speech/tts/TextToSpeech). Preview лишається debug-only/offline/no Firebase; POST_NOTIFICATIONS збережено для локального probe. Сервіс/type повторено в test overlay, бо lint аналізує overlay окремо від merged manifest.

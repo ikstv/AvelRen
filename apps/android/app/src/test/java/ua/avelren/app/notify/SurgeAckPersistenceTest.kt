@@ -59,4 +59,13 @@ class SurgeAckPersistenceTest {
         assertFalse(SurgeLocalStore(disk).claimAttempt(payload(), now))
         assertTrue(SurgeLocalStore(disk).claimAttempt(payload().copy(checkpointId = 6), now))
     }
+    @Test fun `fact atomically suppresses already shown forecast for same checkpoint`() {
+        val disk = Disk()
+        val store = SurgeLocalStore(disk)
+        assertTrue(store.claimAttempt(payload(), now))
+        assertTrue(store.claimAttempt(payload().copy(kind = "surge_started", alertId = 43), now))
+        assertTrue(SurgeLocalStore(disk).isBlocked(42))
+        assertFalse(SurgeLocalStore(disk).claimAttempt(payload(2), now))
+    }
+
 }

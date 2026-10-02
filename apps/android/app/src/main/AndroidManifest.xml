@@ -11,6 +11,10 @@
     <!-- З Android 13 дозвіл на сповіщення треба просити явно. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>
+
     <application
         android:name=".AvelRenApp"
         android:allowBackup="false"
@@ -36,6 +40,9 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <service android:name="ua.avelren.app.notify.SurgeVoiceService" android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- Приймає натиск «ОК» просто зі шторки, без відкриття застосунку. -->
         <receiver

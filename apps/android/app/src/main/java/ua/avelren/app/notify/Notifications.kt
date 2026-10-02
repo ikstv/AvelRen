@@ -55,6 +55,7 @@ private fun canPostNotifications(context: Context): Boolean {
 object Notifications {
 
     const val CHANNEL_ID = "avelren_alerts"
+    const val SURGE_CHANNEL_ID = "avelren_surge"
     const val INFO_CHANNEL_ID = "avelren_info"
 
     // The full kind + alertId in the notification's extras. Reconciliation reads
@@ -104,7 +105,19 @@ object Notifications {
                 context, Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
 
+    fun surgeChannelAllowed(context: Context): Boolean = canPostNotifications(context) &&
+        context.getSystemService(NotificationManager::class.java).getNotificationChannel(SURGE_CHANNEL_ID)
+            ?.importance?.let { it != NotificationManager.IMPORTANCE_NONE } == true
+
     fun ensureChannel(context: Context) {
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(SURGE_CHANNEL_ID, "Напливи черги", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Прогноз і фактичний початок різкого зростання черги"
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+            }
+        )
         val channel = NotificationChannel(
             CHANNEL_ID,
             context.getString(R.string.alert_channel_name),
@@ -138,6 +151,7 @@ object Notifications {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
         val ackIntent = Intent(context, AckReceiver::class.java).apply {
+            if (kind in surgeKinds) action = "$kind:$alertId"
             putExtra(AckReceiver.EXTRA_ALERT_ID, alertId)
             putExtra(AckReceiver.EXTRA_KIND, kind)
         }
@@ -159,7 +173,7 @@ object Notifications {
             putLong(EXTRA_ALERT_ID, alertId)
         }
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, if (kind in surgeKinds) SURGE_CHANNEL_ID else CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body)
@@ -170,13 +184,15 @@ object Notifications {
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(openPending)
-            .addAction(0, context.getString(R.string.ok), ackPending)
+            .addAction(0, if (kind in surgeKinds) "Зрозуміло" else context.getString(R.string.ok), ackPending)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addExtras(extras)
             .build()
 
         if (canPostNotifications(context)) {
-            NotificationManagerCompat.from(context).notify(notifId, notification)
+            if (kind in surgeKinds)
+                NotificationManagerCompat.from(context).notify("$kind:$alertId", notifId, notification)
+            else NotificationManagerCompat.from(context).notify(notifId, notification)
         }
     }
 
@@ -224,6 +240,8 @@ object Notifications {
     }
 
     fun cancel(context: Context, kind: String, alertId: Long) {
-        NotificationManagerCompat.from(context).cancel(notificationId(kind, alertId))
+        if (kind in surgeKinds)
+            NotificationManagerCompat.from(context).cancel("$kind:$alertId", notificationId(kind, alertId))
+        else NotificationManagerCompat.from(context).cancel(notificationId(kind, alertId))
     }
 }

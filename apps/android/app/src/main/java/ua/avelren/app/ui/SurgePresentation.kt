@@ -45,9 +45,13 @@ object SurgePresentation {
         val format = DateTimeFormatter.ofPattern("dd.MM 'о' HH:mm").withZone(ZoneId.of("Europe/Kyiv"))
         "${format.format(Instant.parse(start))} — ${format.format(Instant.parse(end))} (Київ)"
     }.getOrNull()
-    fun voiceHint(enabled: Boolean, permission: Boolean): String = when {
+    fun voiceHint(enabled: Boolean, permission: Boolean, problem: String? = null): String = when {
         !enabled -> "Голос вимкнено"
         !permission -> "Для голосу та повідомлень потрібен дозвіл у налаштуваннях телефону"
+        problem == "uk_unavailable" -> "Не встановлено український голос. Додайте його в налаштуваннях телефону"
+        problem == "tts_unavailable" -> "Озвучення зараз недоступне. Перевірте налаштування голосу телефону"
+        problem == "background_limited" -> "Телефон обмежив фонове озвучення. Текстове повідомлення залишається"
+        problem == "audio_busy" -> "Голос не відтворився: звук був зайнятий. Текстове повідомлення залишається"
         else -> "Голос увімкнено. Повтор кожні 5 хвилин до «Зрозуміло», поки повідомлення актуальне"
     }
 }

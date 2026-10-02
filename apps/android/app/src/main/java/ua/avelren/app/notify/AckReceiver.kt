@@ -31,7 +31,7 @@ class AckReceiver : BroadcastReceiver() {
             val store = SurgeLocalStore(context)
             if (!store.acknowledge(alertId)) return
             Notifications.cancel(context, kind, alertId)
-            // Task8 voice service observes this durable tombstone before every utterance.
+            SurgeVoiceService.stopAlert(context, alertId)
             val app = context.applicationContext as? AvelRenApp ?: return
             val pending = goAsync()
             app.launchInScope {

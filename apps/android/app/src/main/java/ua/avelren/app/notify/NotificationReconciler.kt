@@ -47,7 +47,7 @@ object NotificationReconciler {
             //    snapshot, so reconciliation will not dismiss it. We dismiss only
             //    what was shown at the moment before the request.
             val snapshot = nm.activeNotifications.map { sbn ->
-                ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras))
+                ActiveNotification(sbn.id, keyFromExtras(sbn.notification.extras), sbn.tag)
             }
 
             // 2. Only now do we ask the server — through the repository, so a 401
@@ -70,13 +70,15 @@ object NotificationReconciler {
             //    nothing. Diff the snapshot (not a fresh read) against the server state.
             val stale = AlertReconciliation.staleNotificationIdsOrNothing(snapshot, serverKeys)
             val store = SurgeLocalStore(context)
-            for (id in stale) {
-                val key = snapshot.firstOrNull { it.notificationId == id }?.key
+            for (notification in snapshot) {
+                val key = notification.key
+                if (notification.notificationId !in stale) continue
                 if (key != null && key.kind in surgeKinds) {
+                    if (serverKeys == null || key in serverKeys) continue
                     if (!store.cancel(key.alertId)) continue
-                }
-                nm.cancel(id)
-                Log.i(TAG, "погашено застаріле сповіщення id=$id")
+                    SurgeVoiceService.stopAlert(context, key.alertId)
+                    nm.cancel(notification.tag, notification.notificationId)
+                } else nm.cancel(notification.notificationId)
             }
         }
     }

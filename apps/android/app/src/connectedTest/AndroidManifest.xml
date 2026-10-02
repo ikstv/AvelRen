@@ -9,6 +9,9 @@
     <application
         android:label="AvelRen — тест"
         tools:replace="android:label">
+        <!-- Lint inspects this overlay independently of the merged manifest. -->
+        <service android:name="ua.avelren.app.notify.SurgeVoiceService"
+            android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service
             android:name=".notify.AvelRenMessagingService"
             tools:node="remove" />

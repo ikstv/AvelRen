@@ -459,7 +459,7 @@ fun AvelRenScreen(
         SurgeMonitorScreen(
             repository = surgeRepository,
             onBack = { surgeOpen = false },
-            notificationsAllowed = !notificationsSilent,
+            notificationsAllowed = !notificationsSilent && ua.avelren.app.notify.Notifications.surgeChannelAllowed(context),
             onOpenNotificationSettings = onOpenNotificationSettings,
             onCountForecast = { id -> pendingAiCp = workload.firstOrNull { it.checkpoint_id == id } },
         )

@@ -43,4 +43,8 @@ class SurgePresentationTest {
         assertTrue(cards.fact.contains("недоступний"))
     }
 
+    @Test fun `missing Ukrainian voice is explained in phone UI`() {
+        assertTrue(SurgePresentation.voiceHint(true, true, "uk_unavailable").contains("український голос"))
+    }
+
 }

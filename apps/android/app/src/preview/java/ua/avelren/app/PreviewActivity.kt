@@ -32,7 +32,8 @@ class PreviewActivity : ComponentActivity() {
                     if (surgeMode != null) {
                         val client = remember { DemoSurgeClient(surgeMode) }
                         ua.avelren.app.ui.SurgeMonitorScreen(
-                            repository = client, onBack = { finish() }, notificationsAllowed = false,
+                            repository = client, onBack = { finish() },
+                            notificationsAllowed = ua.avelren.app.notify.Notifications.surgeChannelAllowed(this@PreviewActivity),
                         )
                         return@MaterialTheme
                     }

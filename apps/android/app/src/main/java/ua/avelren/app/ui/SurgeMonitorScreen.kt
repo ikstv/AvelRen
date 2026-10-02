@@ -61,6 +61,7 @@ private fun SurgeMonitorContent(
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var voice by remember { mutableStateOf(local.voiceEnabled()) }
+    var voiceProblem by remember { mutableStateOf(local.voiceProblem()) }
     var now by remember { mutableStateOf(Instant.now()) }
     suspend fun refresh() = mutex.withLock {
         try {
@@ -79,7 +80,7 @@ private fun SurgeMonitorContent(
             error = null
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { error = "Не вдалося оновити моніторинг. Перевірте інтернет або спробуйте пізніше" }
-        finally { loading = false }
+        finally { loading = false; voiceProblem = local.voiceProblem() }
     }
     fun change(cp: SurgeCheckpoint, forecast: Boolean, fact: Boolean, remove: Boolean = false) {
         if (busy) return
@@ -121,10 +122,10 @@ private fun SurgeMonitorContent(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Голосові сповіщення", Modifier.weight(1f).padding(top = 12.dp))
                     Switch(checked = voice, onCheckedChange = { enabled ->
-                        if (local.setVoiceEnabled(enabled)) voice = enabled
+                        if (local.setVoiceEnabled(enabled)) { voice = enabled; voiceProblem = null }
                     })
                 }
-                Text(SurgePresentation.voiceHint(voice, notificationsAllowed), style = MaterialTheme.typography.bodySmall)
+                Text(SurgePresentation.voiceHint(voice, notificationsAllowed, voiceProblem), style = MaterialTheme.typography.bodySmall)
                 if (!notificationsAllowed) TextButton(onClick = onOpenNotificationSettings) { Text("Дозволити повідомлення") }
             } } }
             if (loading) item { CircularProgressIndicator(); Text("Завантажуємо КПП…") }

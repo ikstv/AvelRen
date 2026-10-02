@@ -1,6 +1,9 @@
 package ua.avelren.app.notify
 
 import android.util.Log
+import java.time.Instant
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import ua.avelren.app.AvelRenApp
@@ -29,9 +32,32 @@ class AvelRenMessagingService : FirebaseMessagingService() {
             // (baseline c7d2e1f) shows nothing on this message (audit A-02 / B1).
             // The new one reads its own field.
             val kind = data["kind"] ?: return
-            val alertId = data["cancel_alert_id"]?.toLongOrNull() ?: return
+            if (kind !in surgeKinds && kind !in setOf("threshold", "eta")) return
+            val alertId = data[if (kind in surgeKinds) "cancel_surge_alert_id" else "cancel_alert_id"]?.toLongOrNull() ?: return
+            if (alertId <= 0) return
+            if (kind in surgeKinds) {
+                SurgeLocalStore(applicationContext).cancel(alertId)
+                SurgeVoiceService.stopAlert(applicationContext, alertId)
+            }
             Log.i(TAG, "отримано cancel $kind:$alertId")
             Notifications.cancel(applicationContext, kind, alertId)
+            return
+        }
+
+        if (type in surgeKinds) {
+            val payload = SurgePayload.fromData(data) ?: return
+            val store = SurgeLocalStore(applicationContext)
+            val forecasts = if (payload.kind == "surge_started") store.forecastAlerts(payload.checkpointId) else emptySet()
+            if (!store.claimAttempt(payload, Instant.now())) return
+            forecasts.forEach { id ->
+                Notifications.cancel(applicationContext, "surge_forecast", id)
+                SurgeVoiceService.stopAlert(applicationContext, id)
+            }
+            Notifications.show(applicationContext, payload.alertId, payload.kind, payload.title, payload.body)
+            val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            if (SurgeVoicePolicy.canStart(payload, Instant.now(), message.priority, foreground,
+                store.voiceEnabled(), Notifications.surgeChannelAllowed(applicationContext)))
+                SurgeVoiceService.enqueue(applicationContext, payload)
             return
         }
 

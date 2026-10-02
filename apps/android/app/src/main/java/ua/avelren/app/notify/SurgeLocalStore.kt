@@ -30,7 +30,7 @@ private data class LocalAlert(
 )
 
 @Serializable
-private data class LocalLedger(val alerts: Map<Long, LocalAlert> = emptyMap(), val voiceEnabled: Boolean = false)
+private data class LocalLedger(val alerts: Map<Long, LocalAlert> = emptyMap(), val voiceEnabled: Boolean = false, val voiceProblem: String? = null)
 
 /** Each operation reloads durable state under one process lock across all store instances. */
 class SurgeLocalStore(private val persistence: SurgePersistence) {
@@ -65,7 +65,14 @@ class SurgeLocalStore(private val persistence: SurgePersistence) {
         state.copy(alerts = state.alerts + (alertId to alert.copy(cancelled = true)))
     }
     fun voiceEnabled(): Boolean = synchronized(lock) { runCatching { read().voiceEnabled }.getOrDefault(false) }
-    fun setVoiceEnabled(enabled: Boolean): Boolean = modify { it.copy(voiceEnabled = enabled) }
+    fun setVoiceEnabled(enabled: Boolean): Boolean = modify { it.copy(voiceEnabled = enabled, voiceProblem = null) }
+    fun voiceProblem(): String? = synchronized(lock) { runCatching { read().voiceProblem }.getOrDefault("tts_unavailable") }
+    fun setVoiceProblem(reason: String?): Boolean = modify { it.copy(voiceProblem = reason) }
+    fun forecastAlerts(checkpointId: Int): Set<Long> = synchronized(lock) {
+        runCatching { read().alerts.filterValues {
+            it.kind == "surge_forecast" && it.checkpointId == checkpointId && !it.cancelled
+        }.keys }.getOrDefault(emptySet())
+    }
     fun activeFact(checkpointId: Int, now: Instant): Boolean = synchronized(lock) {
         runCatching { read().alerts.values.any {
             it.kind == "surge_started" && it.checkpointId == checkpointId && !it.cancelled &&
@@ -83,7 +90,11 @@ class SurgeLocalStore(private val persistence: SurgePersistence) {
                 return@runCatching false
             val next = alert.copy(ordinal = payload.ordinal, attempts = alert.attempts + payload.attemptId,
                 checkpointId = payload.checkpointId, kind = payload.kind, expiresAt = payload.expiresAt)
-            write(state.copy(alerts = state.alerts + (payload.alertId to next)))
+            val previous = if (payload.kind == "surge_started") state.alerts.mapValues { (_, old) ->
+                if (old.kind == "surge_forecast" && old.checkpointId == payload.checkpointId)
+                    old.copy(cancelled = true) else old
+            } else state.alerts
+            write(state.copy(alerts = previous + (payload.alertId to next)))
         }.getOrDefault(false)
     }
     companion object {
