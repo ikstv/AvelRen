@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from copy import deepcopy
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / 'ops/collector-runtime-preflight.py'
@@ -84,6 +85,60 @@ class RuntimeContract(unittest.TestCase):
         self.env.chmod(0o666)
         with self.assertRaises(ValueError):
             load_module().load_manifest(self.path, test_mode=True)
+
+    def runtime(self):
+        cfg = self.config()
+        item = dict(Id='c' * 64, Name='/' + self.manifest['container_name'], Image=self.manifest['image_id'],
+            State=dict(Running=True, Restarting=False, Dead=False), RestartCount=0,
+            Config=dict(Cmd=['python', '-m', 'avelren.collector'], User='10001:10001',
+                Env=['AVELREN_GIT_SHA=' + self.manifest['source_commit']],
+                Labels={'com.docker.compose.project': self.manifest['project'], 'com.docker.compose.service': 'collector'}),
+            Mounts=[dict(Type='volume', Name=self.manifest['volume'], Destination='/var/lib/avelren/collector-spool', RW=True)],
+            NetworkSettings=dict(Networks={self.manifest['network']: {}}),
+            HostConfig=dict(ReadonlyRootfs=True, CapDrop=['ALL'], SecurityOpt=['no-new-privileges:true'],
+                PidsLimit=128, RestartPolicy=dict(Name='unless-stopped'), Tmpfs={'/tmp': 'rw,nosuid,nodev,noexec,size=64m'}))
+        return cfg, item
+
+    def verdict(self, cfg, items):
+        return load_module().validate_runtime(self.manifest, cfg, items, require_managed=True)
+
+    def test_stopped_legacy_preserved(self):
+        cfg, item = self.runtime()
+        legacy = deepcopy(item)
+        legacy.update(Name='/avelren-collector-rollback-a28360af', Id='d' * 64)
+        legacy['State']['Running'] = False
+        legacy['Config']['Labels']['com.docker.compose.project'] = 'avelren'
+        self.assertEqual(self.verdict(cfg, [item, legacy]), [])
+
+    def test_foreign_canonical_container_denied(self):
+        cfg, item = self.runtime()
+        item['Config']['Labels'] = {}
+        self.assertIn('unmanaged_target', self.verdict(cfg, [item]))
+
+    def test_second_poller_custom_name_denied(self):
+        cfg, item = self.runtime()
+        other = deepcopy(item)
+        other.update(Name='/arbitrary-other-poller', Id='d' * 64)
+        other['Config']['Labels'] = {}
+        self.assertIn('additional_running_collector', self.verdict(cfg, [item, other]))
+
+    def test_wrong_image_volume_network_denied(self):
+        cfg, item = self.runtime()
+        item['Image'] = 'wrong'
+        item['Mounts'][0]['Name'] = 'wrong'
+        item['NetworkSettings']['Networks'] = {'wrong': {}}
+        errors = self.verdict(cfg, [item])
+        self.assertTrue({'wrong_image', 'wrong_volume', 'wrong_network'} <= set(errors))
+
+    def test_image_source_sha_mismatch(self):
+        cfg, item = self.runtime()
+        item['Config']['Env'] = ['AVELREN_GIT_SHA=wrong']
+        self.assertIn('wrong_source_commit', self.verdict(cfg, [item]))
+
+    def test_missing_external_resource_denied(self):
+        cfg, item = self.runtime()
+        cfg['volumes']['collector_spool']['external'] = False
+        self.assertIn('unsafe_compose_resources', self.verdict(cfg, [item]))
 
 
 if __name__ == '__main__':
