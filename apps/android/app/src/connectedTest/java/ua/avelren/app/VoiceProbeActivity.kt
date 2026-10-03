@@ -65,7 +65,7 @@ class VoiceProbeActivity : Activity() {
         val available = voices.filter {
             !it.isNetworkConnectionRequired && TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in it.features.orEmpty()
         }
-        val voice = available.firstOrNull { it.name == "uk-ua-x-hfd-local" }
+        val voice = available.firstOrNull { it.name == "uk-UA-language" }
             ?: available.firstOrNull { it.name == engine.defaultVoice?.name }
             ?: available.sortedBy { it.name }.firstOrNull()
         if (voice == null) { report("UK_OFFLINE_UNAVAILABLE"); return }
@@ -82,12 +82,12 @@ class VoiceProbeActivity : Activity() {
             report("AUDIO_ATTRIBUTES_REJECTED"); return
         }
         engine.setSpeechRate(0.88f)
-        engine.setPitch(1.02f)
+        engine.setPitch(1f)
         if (intent.getBooleanExtra("mute_media_test", false)) {
             originalMediaVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
             audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
         }
-        Log.i("AvelRen/VoiceProbe", "ROUTE stream=${attributes.volumeControlStream} media=${audio.getStreamVolume(AudioManager.STREAM_MUSIC)} notification=${audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION)} rate=0.88 pitch=1.02")
+        Log.i("AvelRen/VoiceProbe", "ROUTE stream=${attributes.volumeControlStream} media=${audio.getStreamVolume(AudioManager.STREAM_MUSIC)} notification=${audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION)} rate=0.88 pitch=1.0")
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(attributes).setOnAudioFocusChangeListener({ change ->
                 if (change < 0) { tts?.stop(); report("AUDIO_FOCUS_LOST"); finish() }

@@ -82,8 +82,8 @@ class SurgeVoiceService : Service() {
                 it.locale.language == "uk" && !it.isNetworkConnectionRequired &&
                     TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in it.features.orEmpty()
             }
-            // Prefer the local Ukrainian voice auditioned on the owner's phone.
-            val voice = voices.firstOrNull { it.name == "uk-ua-x-hfd-local" }
+            // Restore the original Ukrainian timbre requested by the owner.
+            val voice = voices.firstOrNull { it.name == "uk-UA-language" }
                 ?: voices.firstOrNull { it.name == engine.defaultVoice?.name } ?: voices.sortedBy { it.name }.firstOrNull()
             if (voice == null || engine.setVoice(voice) != TextToSpeech.SUCCESS) {
                 Log.i(TAG, "installed Ukrainian voice unavailable")
@@ -92,7 +92,7 @@ class SurgeVoiceService : Service() {
                 return
             }
             engine.setSpeechRate(0.88f)
-            engine.setPitch(1.02f)
+            engine.setPitch(1f)
             engine.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
