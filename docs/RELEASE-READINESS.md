@@ -20,14 +20,14 @@
 Незалежна якість 99% / 99% залишається непідтвердженою.
 
 
-## Керування collector через Compose — дизайн 02.10.2026
+## Керування collector через Compose — приймання 02.10.2026
 
 Погоджено напрям: окремий Compose для встановленого spool-collector,
 збереження image/Device ID/DSN/тому, перевірка відсутності другого poller,
 операторські команди та процедури capture-only для обслуговування БД.
 [Записана специфікація](superpowers/specs/2026-10-02-collector-compose-control-design.md)
 і [план реалізації](superpowers/plans/2026-10-02-collector-compose-control.md)
-схвалено власником; реалізацію виконано в цій сесії. Source-кандидат:
+схвалено власником; реалізацію виконано в цій сесії. Код:
 окремий Compose, приватний manifest/preflight, серіалізований control,
 60-секундна пауза та ранній restore guard. Локально: 17 runtime-контрактів,
 11 Linux control-контрактів зі справжнім flock, 3 cleanup regressions,
@@ -36,11 +36,30 @@
 pending=0, без дублів/застарілих alerts; паузи перемикання/відкату
 60,84/60,14 секунд. Перевірено буквальний env, persistent capture-only,
 Online Backup поза томом та прибирання власних ресурсів.
-CI точного фінального head і production-перемикання ще не підтверджені.
+PR [#77](https://github.com/ikstv/AvelRen-ORIGINAL/pull/77) злитий у
+`857eb61e5a6c2ea35ca0c1648a55d89ecf7aa7fd`. Усі шість CI checks
+`c655b2a2e928d480431f26508a122f69a3e87411` успішні; тестований merge-ref і
+злитий main мають те саме дерево `10893f97d4f35630f973b4b9e120e494b20f5510`.
+Усі шість checks самого merge-коміту `857eb61` теж успішні.
+CI-репетиція: 6 FIFO циклів, pending=0, stopped duplicate відхилено до start,
+cleanup PASS, паузи 61,18/60,15 секунд.
+
+Після окремого GO власника шість runtime-операторських файлів встановлено
+на сервер; їхні SHA-256 збігаються зі злитим main. Сам collector зберіг
+image/source `0c62f54`, Device ID, DSN, network та volume. Managed контейнер
+стартував 02.10 о 10:19:19 за Києвом; прийнято п'ять HTTP 200 циклів
+10:19:21–10:23:21, по 38 observations, інтервали 60 секунд, derived без
+помилок, pending=0. API/telemetry здорові, інші п'ять служб і legacy
+checkout/override не змінилися. Перевірені DB/off-host та SQLite backups,
+сумісний standalone збережено stopped для відкату. Деталі та контрольні
+суми — у [датованому аудиті](PRODUCTION-AUDIT.md#collector-compose--02-жовтня-2026-року).
+Відкат у production не виконувався; його ізольована репетиція пройшла в CI.
+Ранній restore guard залишається **лише у source**: цей runtime-пакет не
+встановлював `restore-production.sh` або повний restore engine.
 Старий postgres-adopt не запускати з новою топологією до адаптації;
 повний restore зі spool потребує окремого приймання. Android-збірка,
-телефон та Play цим етапом не підтверджені. Записи на сервері потребують
-окремого конкретного GO.
+телефон та Play цим етапом не підтверджені. Наступні записи на сервері
+потребують окремого конкретного GO; автооновлення й reboot не вмикалися.
 
 ## Черга collector: серверне приймання 02.10.2026
 
