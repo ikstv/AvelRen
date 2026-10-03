@@ -20,6 +20,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import java.time.Instant
 import ua.avelren.app.R
+import ua.avelren.app.BuildConfig
 
 /** Short, user-enabled speech playback; never sticky or started from boot. */
 class SurgeVoiceService : Service() {
@@ -96,11 +97,22 @@ class SurgeVoiceService : Service() {
             engine.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) { }
-                override fun onDone(utteranceId: String?) { handler.post { complete(utteranceId) } }
+                override fun onStart(utteranceId: String?) {
+                    if (BuildConfig.DEBUG) Log.i(TAG, "speech_started")
+                }
+                override fun onDone(utteranceId: String?) {
+                    if (BuildConfig.DEBUG) Log.i(TAG, "speech_completed")
+                    handler.post { complete(utteranceId) }
+                }
                 @Deprecated("Platform callback")
-                override fun onError(utteranceId: String?) { handler.post { complete(utteranceId) } }
-                override fun onError(utteranceId: String?, errorCode: Int) { handler.post { complete(utteranceId) } }
+                override fun onError(utteranceId: String?) {
+                    if (BuildConfig.DEBUG) Log.i(TAG, "speech_error")
+                    handler.post { complete(utteranceId) }
+                }
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    if (BuildConfig.DEBUG) Log.i(TAG, "speech_error code=$errorCode")
+                    handler.post { complete(utteranceId) }
+                }
             })
             store.setVoiceProblem(null)
             ready = true

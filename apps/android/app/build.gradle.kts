@@ -11,14 +11,28 @@ plugins {
 
 val uiPreview = providers.gradleProperty("avelrenUiPreview").orNull == "true"
 val connectedTest = providers.gradleProperty("avelrenConnectedTest").orNull == "true"
-check(!(uiPreview && connectedTest)) {
-    "UI preview and connected test modes are mutually exclusive"
+val pushQa = providers.gradleProperty("avelrenPushQa").orNull == "true"
+check(listOf(uiPreview, connectedTest, pushQa).count { it } <= 1) {
+    "Android test modes are mutually exclusive"
 }
-if (!uiPreview && !connectedTest) apply(plugin = "com.google.gms.google-services")
-if (uiPreview || connectedTest) {
+if (!uiPreview && !connectedTest && !pushQa) apply(plugin = "com.google.gms.google-services")
+if (uiPreview || connectedTest || pushQa) {
     gradle.taskGraph.whenReady {
         check(allTasks.none { it.name.contains("release", ignoreCase = true) }) {
-            "UI preview is debug-only"
+            "Android test modes are debug-only"
+        }
+    }
+}
+
+// Firebase public client configuration, kept separate from the production client.
+val pushQaProps = Properties().apply {
+    if (pushQa) {
+        val config = rootProject.file(providers.gradleProperty("avelrenPushQaConfig").orNull ?: "push-qa.properties")
+        check(config.isFile) { "Push QA requires its own client configuration" }
+        config.inputStream().use { load(it) }
+        check(getProperty("packageName") == "ua.avelren.app.pushqa") { "Push QA client package mismatch" }
+        for (key in listOf("googleAppId", "senderId", "apiKey", "projectId")) {
+            check(!getProperty(key).isNullOrBlank()) { "Push QA client field missing: $key" }
         }
     }
 }
@@ -71,6 +85,16 @@ android {
                 versionNameSuffix = "-connected-test"
                 buildConfigField("boolean", "ENABLE_PUSH", "false")
             }
+            if (pushQa) {
+                applicationIdSuffix = ".pushqa"
+                versionNameSuffix = "-push-qa"
+                // Extra guard: this probe cannot use the production API even by accident.
+                buildConfigField("String", "API_BASE_URL", "\"https://127.0.0.1:9/api\"")
+                resValue("string", "google_app_id", pushQaProps.getProperty("googleAppId"))
+                resValue("string", "gcm_defaultSenderId", pushQaProps.getProperty("senderId"))
+                resValue("string", "google_api_key", pushQaProps.getProperty("apiKey"))
+                resValue("string", "project_id", pushQaProps.getProperty("projectId"))
+            }
         }
         release {
             // First release ships unminified on purpose: minify + resource
@@ -98,6 +122,12 @@ android {
         sourceSets.getByName("debug") {
             manifest.srcFile("src/connectedTest/AndroidManifest.xml")
             java.srcDir("src/connectedTest/java")
+        }
+    }
+    if (pushQa) {
+        sourceSets.getByName("debug") {
+            manifest.srcFile("src/pushQa/AndroidManifest.xml")
+            java.srcDir("src/pushQa/java")
         }
     }
 

@@ -11,6 +11,7 @@ google-services.json
 *.kdbx
 keystore.properties
 local.properties
+push-qa.properties
 
 # Host-only Docker Compose overlay can contain the migration pin and legacy DSN.
 # Never commit it, even though the long-term steady-state uses per-service DSNs.

@@ -55,6 +55,7 @@ class AvelRenMessagingService : FirebaseMessagingService() {
             }
             Notifications.show(applicationContext, payload.alertId, payload.kind, payload.title, payload.body)
             val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            if (BuildConfig.DEBUG) Log.i(TAG, "surge priority=${message.priority} foreground=$foreground")
             if (SurgeVoicePolicy.canStart(payload, Instant.now(), message.priority, foreground,
                 store.voiceEnabled(), Notifications.surgeChannelAllowed(applicationContext)))
                 SurgeVoiceService.enqueue(applicationContext, payload)

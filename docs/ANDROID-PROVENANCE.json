@@ -7,8 +7,8 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "6d9ab688a3384c2aaef164cf70978ed3c93fa533e5eff9121dfd2e7dcb3f88d2",
-        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+        "sha256": "8731e7109219e3aead7bbb15330a77595a0f9da68effd902fd0948e77eefe9a7",
+        "notes": "docs/ANDROID-PUSH-QA.md"
       }
     },
     {
@@ -183,8 +183,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/AvelRenMessagingService.kt",
       "sha256": "af32fb528b0912261799f3edf56c20551a08a91a24ab61224146e3ab7475e9e3",
       "revision": {
-        "sha256": "3e9d82a443c6aa50b7bec6974e48694ff162404044c44abea6393414085f4c47",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "448940536f1c7cf5c8b5f45c76a7d94bc049eae6be4b13aa923e066744c7de3c",
+        "notes": "docs/ANDROID-PUSH-QA.md"
       }
     },
     {
