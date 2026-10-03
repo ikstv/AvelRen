@@ -1,5 +1,12 @@
 # Залишки перенесення
 
+Оновлення 03.10.2026: [серверна частина 1.0.3 прийнята](audits/RELEASE-1.0.3-SERVER-2026-10-03.md),
+прогноз увімкнений; TimescaleDB 2.30.1, schema 016. API/notifier/worker
+мають перевірений main bc41a15. Collector, watchdog і Caddy зберігають
+свої попередні прийняті образи. Повне переведення legacy runbook/прав БД,
+відновлення зі spool та телефонне приймання лишаються окремими роботами.
+Наведений нижче зріз 28–30.09 є історичним; новіші датовані докази мають пріоритет.
+
 Документальна звірка 30.09.2026 на базі main
 `01e467c0dcf711067c6b0afa831652e4b305060b` після merge PR
 [#67](https://github.com/ikstv/AvelRen-ORIGINAL/pull/67): repository,
@@ -26,11 +33,12 @@ source-sbom та image-sbom checks цього коміту успішні.
 | Блок | Конкретний результат для закриття |
 | --- | --- |
 | Supply-chain legacy #140 / issue #23 | Source та candidate image SBOM уже реалізовані й мають успішні checks; повторно переносити їх не потрібно. Залишилися рішення по Gradle artifact checksums, Dependabot, dependency/container vulnerability audits і CodeQL із ліцензійним блокером для приватного user-owned repo. Перед exact-image deployment потрібен окремий handoff immutable image/digest: SBOM CI candidate не засвідчує окремо перебудований production image. |
-| Production adoption прав БД, issue #15 | Перенести або явно замінити комплект старих `deploy/postgres-adopt.sh`, `postgres-ownership.lib.sh`, `postgres-privilege-gate.sh` і пов'язаних контрактних/integration-тестів. Їхніх відповідників у новому дереві немає. `ops/postgres-bootstrap.sh` готує fresh install або disposable-only roles-acl, але не забезпечує перехід живої БД з forward/inverse rollback. Приймання потребує ізольованих перевірок; застосування на production — окремого явного дозволу. |
+| Production adoption прав БД, legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | [Функціональна звірка 01.10](POSTGRES-ADOPTION-GAP-2026-10-01.md): старі `deploy/postgres-adopt.sh`, `postgres-ownership.lib.sh`, `postgres-privilege-gate.sh` і тести не мають production-еквівалента. `ops/postgres-bootstrap.sh` — лише fresh/disposable bootstrap. Старі allowlist/ACL та runbook до 009 несумісні як готова процедура зі схемою 001–014; потрібні design review, ізольовані forward/inverse і privilege-тести. Production — лише після окремого явного GO та свіжої read-only звірки. |
 | Forecast legacy #111 / ORIGINAL [#70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) | Семантику missing/0/legacy_unknown описано в погодженій специфікації та чернетці плану [PR #71](https://github.com/ikstv/AvelRen-ORIGINAL/pull/71); ці файли ще не в main. Draft [PR #72](https://github.com/ikstv/AvelRen-ORIGINAL/pull/72) — кандидат серверних задач 1–3, 8/8 CI checks на `e68e731` та короткий незалежний backtest із `count_hours` без фільтра за wait. MAE кількості нижча за базиси на чотирьох КПП, але час піку гірший на КПП 1, 29 і 6; це не release gate. Залишаються Android DTO/UI, rollback/restore gate, довший holdout і приймання після окремого deployment GO. Старе held-out evaluation вже перенесено; повторювати його перенос не потрібно. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
 | Ops і recovery | Аудит із AvelRen-ops PR #1 перенесено; сам старий PR лишився відкритим. Завершити звірку deployment/recovery runbooks, доступів/key escrow, матеріалів Play та унікальних серверних змін із новим кодом. Історичні документи потребують рішення про збереження або заміну. Наявність архіву не доводить відновлення. |
+| Керування spool-collector | PR [#77](https://github.com/ikstv/AvelRen-ORIGINAL/pull/77) злитий; 02.10 після окремого GO встановлено collector-only Compose і control, прийнято п'ять циклів на сервері. Повторювати цей перенос не потрібно. Restore guard встановлено й перевірено 02.10 о 11:29: [приймання runtime](audits/RESTORE-REAL-BACKUP-2026-10-02.md#встановлений-runtime--приймання-о-1129-за-києвом). Залишилися адаптація legacy postgres-adopt і окремий повний restore зі звіркою БД/SQLite. |
 | Приймання на сервері та телефоні | За погодженими операціями зняти свіжі докази runtime/ролей/міграцій, перевірити реальний backup лише в ізольованій БД, сумісність APK↔API та спосіб відкату. Злиття #53 цього не виконує. |
 | Закриття міграції | Звірити гілки без PR, теги, releases, issues та унікальні файли обох джерел. Після приймання — окреме рішення про архівування чи видалення. |
 
@@ -93,3 +101,27 @@ Compose/DB/restore прийняті PR #60 (main `ee31a7b`, 4/4 CI успішн�
 #143 завершено як source-пункт; сам старий GitHub PR лишився відкритим.
 Production deployment — окремий етап.
 Серверні операції мають окремі дозволи за AGENTS.md.
+
+## Звірка restore після репетиції 02.10.2026
+
+Для [issue #41](https://github.com/ikstv/AvelRen-ORIGINAL/issues/41) реальну
+копію backup із міграціями 001–014 відновлено локально, потім у disposable
+Compose-проєкті на сервері. Native ownership/schema finalization і API smoke
+exact main `857eb61e` успішні; ресурси й копії видалено,
+робочі контейнери/checkout незмінні.
+[Доказ](audits/RESTORE-REAL-BACKUP-2026-10-02.md).
+Залишилося окремо узгодити встановлений restore runtime із перевіреним
+кодом; старі host-скрипти не змінені, issue #41 не закрита.
+Production adoption та production restore зі spool залишаються окремими
+неприйнятими етапами; зелений disposable restore не закриває їх.
+
+## Після встановлення restore runtime — 02.10.2026 о 11:29
+
+Залишок #41 із попереднього розділу виконано після окремого deployment GO:
+чотири встановлені host-сценарії адаптовано до перевіреного main 857eb61e,
+native ownership/schema/API acceptance пройшов на реальному backup
+через встановлений шлях; rollback backups збережено, stand прибрано,
+live API/collector/backup перевірено.
+[Доказ](audits/RESTORE-REAL-BACKUP-2026-10-02.md#встановлений-runtime--приймання-о-1129-за-києвом).
+Критерії issue #41 виконано. Production adoption та full restore зі spool
+не виконані й не закриваються цим прийманням.

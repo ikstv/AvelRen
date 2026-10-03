@@ -1,0 +1,12 @@
+{
+  "surge-model-probe.py": "182cbb8507571256dca0edd9514ce9acd49abe60658f58af1062443086a50e51",
+  "surge-own-probe.py": "c3ce95f90333587ff0ad5431c8ef7e5567b97d39a20863712d6e8ef027ee73a5",
+  "surge-context-probe.py": "af0e6d6be95c6d9dbee8ac00729aff72d017b096ccd570453c0babd0e605d1e1",
+  "surge-per-checkpoint-probe.py": "b527f15017747f4893248bc56765c2250a65da3d71382367fdb7573ff2c4b284",
+  "surge-frozen-evaluate.py": "52a39d21e40c1f0aba7e991db6ef5bbd213c96839fa6609ab31d65b2b3e84b34",
+  "surge-long-history-probe.py": "9afe0a21467e333b64c7022adc9b0e0944c978f98cfb56a2f02654ddb3da6b1f",
+  "surge-analog-probe.py": "768a285130f4829a42a91b42c1dc2c7324b673da4cb99e4301b404f91fb3ccdf",
+  "surge-precursors.py": "904481708b5c1d97e4f95b2346b9a43a6641ca55a740c4b57e8618cc23dbec71",
+  "compare-queue-surges.py": "36c9b13e81303897d3536a280e967cc05d56974a13d1b3362cc101bf6f5b57e8",
+  "surge-frozen-24h-20261002.json": "331320e05c62ec027744dab387ba40c859a9c1070821afc3910f4358bb3b90bb"
+}
