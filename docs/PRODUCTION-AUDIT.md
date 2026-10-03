@@ -842,6 +842,32 @@ API/notifier/watchdog/Caddy/TimescaleDB, ОС/Docker, міграції, ролі
 /opt/avelren у цій операції не змінювалися. Android/телефон/Play і доставка
 конкретного push на телефон не перевірялися. Не вмикали автооновлень чи reboot.
 
+## Реальний backup: ізольована репетиція — 02 жовтня 2026 року
+
+Після окремих дозволів виконано локальний bench, потім disposable restore
+на production host з exact main `857eb61e`, TimescaleDB 2.17.2 та власними
+Compose project/volume/network. Native restore й schema/API verification
+успішні: 3026358 observations, 38 КПП, міграції 001–014, restoring=off.
+Стенд і чутливі копії прибрано; робочі служби, checkout і встановлені
+restore-файли незмінні. Collector: п'ять успішних хвилинних циклів,
+pending=0. [Повний датований доказ](audits/RESTORE-REAL-BACKUP-2026-10-02.md).
+Це приймання isolated rehearsal, а не встановлення production restore
+runtime; issue #41 лишається відкритою. Adoption і повний restore зі spool
+потребують окремої перевірки та дозволу.
+
+## Restore runtime — встановлення 02 жовтня 2026 року
+
+Після окремого конкретного GO о 11:26–11:28 за Києвом замінено лише
+чотири deploy/restore host-файли; о 11:29 прийнято фактичні SHA, backups,
+ранню відмову production restore та повторний real-backup rehearsal
+через встановлені entry points. Native schema/API smoke успішні,
+3026358 observations, 38 КПП, міграції 001–014, restoring=off.
+Стенд/копії прибрано, робочі контейнери не змінені; collector pending=0,
+API ok, останній backup run success. Критерії #41 виконано.
+[Доказ і межі](audits/RESTORE-REAL-BACKUP-2026-10-02.md#встановлений-runtime--приймання-о-1129-за-києвом).
+Full production restore зі spool залишається заблокованим; adoption,
+ролі живої БД, ОС/Docker й телефон цим етапом не змінювалися.
+
 ## Collector Compose — 02 жовтня 2026 року
 
 Після окремого явного GO власника злитий PR
