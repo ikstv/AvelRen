@@ -57,7 +57,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/AvelRenApp.kt",
       "sha256": "958d72e5aa4d17f2c70d9188d58e01bf6fdc9f152a4cee94ac91d5142e4554bc",
       "revision": {
-        "sha256": "485eb896b035ed1c3c0fc7733fc1501ea2b3cdf14ff6db805b6df513ea27f7cc",
+        "sha256": "0cf491aec16623deb863ac5c36fa41cf8d237db57bd17768511dfbdb78af6855",
         "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },

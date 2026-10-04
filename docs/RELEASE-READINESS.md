@@ -8,6 +8,10 @@
 Нові правила ресурсів, каналів і deadline пройшли RED→GREEN та локальний
 Android JVM/assemble/lint. Серверних змін немає. Продуктовий CI,
 APK із main, матриця на телефоні, справжній FCM і публікація ще не прийняті.
+Незалежний review завершено; чотири важливі findings виправлено з
+поведінковими RED→GREEN тестами та зеленим повним локальним gate.
+PushQa fixture і connectedTest assemble/lint успішні; release manifest
+не містить тестового receiver. Fixture APK не встановлювався.
 
 ## Системний звук голосу — локальна проба 04.10.2026
 

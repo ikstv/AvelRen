@@ -4,6 +4,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SurgeVoiceChannelsPolicyTest {
+    @Test fun missingSpecificChannelIsIncompletePreparationRatherThanUserBlock() {
+        assertEquals(VoiceChannelState(true, false, "voice_not_ready"), SurgeVoiceChannelPolicy.evaluate(true, 4, true, null, false, false))
+        assertEquals(VoiceChannelState(false, false, "notification_blocked"), SurgeVoiceChannelPolicy.evaluate(true, 0, true, null, false, false))
+    }
     @Test fun appAndEitherChannelBlockPreventVisibility() {
         assertEquals(VoiceChannelState(false, false, "notification_blocked"), state(app = false))
         assertEquals(VoiceChannelState(false, false, "notification_blocked"), state(legacy = 0))

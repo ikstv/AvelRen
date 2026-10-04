@@ -89,9 +89,17 @@ internal fun ForecastOverviewScreen(
             snapshots = states
             now = Instant.now()
             error = null
+            val channelStates = mutableListOf<VoiceChannelState>()
+            var failure: String? = null
             for (sub in subs.filter { it.forecast_enabled || it.fact_enabled }) {
-                cps.firstOrNull { it.checkpoint_id == sub.checkpoint_id }?.let { prepareVoice(it.checkpoint_id, it.title) }
+                val cp = cps.firstOrNull { it.checkpoint_id == sub.checkpoint_id }
+                if (cp == null) { failure = "voice_not_ready"; continue }
+                when (val result = prepareVoice(cp.checkpoint_id, cp.title)) {
+                    is VoicePreparation.Ready -> channelStates += result.voices.map { SurgeVoiceChannels.state(context, it) }
+                    is VoicePreparation.Failure -> failure = result.reason
+                }
             }
+            local.setVoiceProblem(SurgeVoiceReadinessPolicy.problem(failure, channelStates))
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { error = "Не вдалося оновити моніторинг. Перевірте інтернет або спробуйте пізніше" }
         finally { loading = false; voiceProblem = local.voiceProblem() }
@@ -193,6 +201,14 @@ internal fun ForecastOverviewScreen(
             }
             if (voiceProblem != null && ids.isNotEmpty()) item {
                 Text(SurgePresentation.voiceHint(true, notificationsAllowed, voiceProblem), color = MaterialTheme.colorScheme.error)
+                if (voiceProblem in setOf("notification_blocked", "notification_silent", "voice_sound_changed")) {
+                    TextButton(onClick = {
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+                        }.onFailure { onOpenNotificationSettings() }
+                    }) { Text("Налаштування сповіщень") }
+                }
             }
             error?.let { message -> item {
                 Text(message, color = MaterialTheme.colorScheme.error)

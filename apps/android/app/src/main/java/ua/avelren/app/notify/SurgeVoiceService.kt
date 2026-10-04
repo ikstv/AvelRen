@@ -27,6 +27,7 @@ class SurgeVoiceService : Service() {
     private lateinit var store: SurgeLocalStore
     private lateinit var assets: SurgeVoiceAssets
     private lateinit var schedule: SurgeVoiceSchedule
+    private lateinit var playback: SurgeVoicePlayback
     private var closing = false
     private var current: SurgePayload? = null
     private var nextAt = 0L
@@ -35,10 +36,10 @@ class SurgeVoiceService : Service() {
         override fun run() {
             if (closing) return
             current?.let { payload ->
-                if (!canSpeak(payload)) {
-                    Notifications.cancel(this@SurgeVoiceService, payload.kind, payload.alertId)
-                    current = null
-                } else if (SystemClock.elapsedRealtime() >= nextAt) current = null
+                val ended = SurgeVoiceRuntime.recheck(alertActive(payload), canSpeak(payload),
+                    { Notifications.cancel(this@SurgeVoiceService, payload.kind, payload.alertId) },
+                    { SurgeVoiceDelivery.silence(this@SurgeVoiceService, payload) })
+                if (ended || SystemClock.elapsedRealtime() >= nextAt) current = null
             }
             pump()
             if (!closing) handler.postDelayed(this, 250)
@@ -49,6 +50,7 @@ class SurgeVoiceService : Service() {
         store = SurgeLocalStore(this)
         assets = SurgeVoiceAssets(this)
         schedule = SurgeVoiceSchedule(SystemClock.elapsedRealtime())
+        playback = SurgeVoicePlayback(schedule, SystemClock::elapsedRealtime)
         active = this
         try {
             val manager = getSystemService(NotificationManager::class.java)
@@ -84,10 +86,11 @@ class SurgeVoiceService : Service() {
         return START_NOT_STICKY
     }
     private fun voice(payload: SurgePayload) = assets.ready(VoiceSoundKey(payload.checkpointId, payload.kind))
+    private fun alertActive(payload: SurgePayload): Boolean = SurgeDeliveryPolicy.shouldPresent(payload, Instant.now()) &&
+        !store.isBlocked(payload.alertId) && !(payload.kind == "surge_forecast" && store.activeFact(payload.checkpointId, Instant.now()))
     private fun canSpeak(payload: SurgePayload): Boolean {
-        if (!SurgeDeliveryPolicy.shouldPresent(payload, Instant.now()) || !store.voiceEnabled() || store.isBlocked(payload.alertId) ||
-            (payload.kind == "surge_forecast" && store.activeFact(payload.checkpointId, Instant.now()))) return false
-        val ready = voice(payload) ?: return false
+        if (!alertActive(payload) || !store.voiceEnabled()) return false
+        val ready = voice(payload) ?: run { store.setVoiceProblem("voice_not_ready"); return false }
         val state = SurgeVoiceChannels.state(this, ready)
         if (!state.voiceAllowed) { store.setVoiceProblem(state.problem); return false }
         val audio = getSystemService(AudioManager::class.java)
@@ -105,14 +108,13 @@ class SurgeVoiceService : Service() {
             val next = queue.next(Instant.now(), store::isBlocked) ?: return finishService()
             if (!canSpeak(next)) continue
             val prepared = voice(next) ?: continue
-            val now = SystemClock.elapsedRealtime()
-            if (!schedule.canStart(now, prepared.durationMs)) {
-                store.setVoiceProblem("voice_deadline")
-                return finishService()
+            when (val result = playback.start(prepared.durationMs,
+                { Notifications.showSurge(this, next, prepared, silent = false) }, { SurgeVoiceDelivery.silence(this, next) })) {
+                VoicePlaybackResult.Deadline -> { store.setVoiceProblem("voice_deadline"); return finishService() }
+                VoicePlaybackResult.NotPosted -> { canSpeak(next); continue }
+                is VoicePlaybackResult.Started -> nextAt = result.nextAt
             }
-            if (!Notifications.showSurge(this, next, prepared, silent = false)) continue
             current = next
-            nextAt = schedule.reserve(SystemClock.elapsedRealtime(), prepared.durationMs)
             store.setVoiceProblem(null)
             if (BuildConfig.DEBUG) Log.i(TAG, "system_voice_started cp=${next.checkpointId} kind=${next.kind} duration_ms=${prepared.durationMs}")
             return

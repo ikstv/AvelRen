@@ -30,6 +30,8 @@ import ua.avelren.app.notify.SurgeVoiceAssets
 import ua.avelren.app.notify.SurgeVoiceChannels
 import ua.avelren.app.notify.SurgeLocalStore
 import ua.avelren.app.notify.VoicePreparation
+import ua.avelren.app.notify.VoiceChannelState
+import ua.avelren.app.notify.SurgeVoiceReadinessPolicy
 import ua.avelren.app.data.SurgeRepository
 import ua.avelren.app.data.InstallationState
 
@@ -55,13 +57,20 @@ class AvelRenApp : Application() {
                 val catalogue = repository.checkpoints()
                 val subscriptions = repository.subscriptions()
                 val assets = SurgeVoiceAssets(this@AvelRenApp)
+                val states = mutableListOf<VoiceChannelState>()
+                var failure: String? = null
                 for (sub in subscriptions.filter { it.forecast_enabled || it.fact_enabled }) {
-                    val cp = catalogue.firstOrNull { it.checkpoint_id == sub.checkpoint_id } ?: continue
+                    val cp = catalogue.firstOrNull { it.checkpoint_id == sub.checkpoint_id }
+                    if (cp == null) { failure = "voice_not_ready"; continue }
                     when (val result = assets.prepare(cp.checkpoint_id, cp.title)) {
-                        is VoicePreparation.Ready -> result.voices.forEach { SurgeVoiceChannels.ensure(this@AvelRenApp, it, cp.title) }
-                        is VoicePreparation.Failure -> SurgeLocalStore(this@AvelRenApp).setVoiceProblem(result.reason)
+                        is VoicePreparation.Ready -> result.voices.forEach {
+                            SurgeVoiceChannels.ensure(this@AvelRenApp, it, cp.title)
+                            states += SurgeVoiceChannels.state(this@AvelRenApp, it)
+                        }
+                        is VoicePreparation.Failure -> failure = result.reason
                     }
                 }
+                SurgeLocalStore(this@AvelRenApp).setVoiceProblem(SurgeVoiceReadinessPolicy.problem(failure, states))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { SurgeLocalStore(this@AvelRenApp).setVoiceProblem("voice_not_ready") }
         }

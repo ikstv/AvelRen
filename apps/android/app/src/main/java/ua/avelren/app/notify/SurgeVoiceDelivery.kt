@@ -15,16 +15,29 @@ object SurgeVoiceDelivery {
     fun present(context: Context, payload: SurgePayload, allowVoice: Boolean) = main {
         val store = SurgeLocalStore(context)
         val voice = SurgeVoiceAssets(context).ready(VoiceSoundKey(payload.checkpointId, payload.kind))
-        if (voice == null) {
+        val state = voice?.let { SurgeVoiceChannels.state(context, it) }
+        when (SurgeVoicePresentationPolicy.route(voice != null, state)) {
+            VoicePresentationRoute.FALLBACK -> {
             store.setVoiceProblem("voice_not_ready")
             Notifications.showSurge(context, payload, null, silent = false)
-        } else {
-            val state = SurgeVoiceChannels.state(context, voice)
+            }
+            VoicePresentationRoute.VOICE -> {
+            requireNotNull(state)
             store.setVoiceProblem(state.problem)
             if (Notifications.showSurge(context, payload, voice, silent = true) && state.voiceAllowed) {
                 if (allowVoice) SurgeVoiceService.enqueue(context, payload)
                 else store.setVoiceProblem("background_limited")
             }
+            }
+            VoicePresentationRoute.BLOCKED -> store.setVoiceProblem(state?.problem ?: "notification_blocked")
         }
+    }
+    fun silence(context: Context, payload: SurgePayload) {
+        // Cancel stops SystemUI audio; immediately restore only a still-valid silent alert.
+        Notifications.cancel(context, payload.kind, payload.alertId)
+        val voice = SurgeVoiceAssets(context).ready(VoiceSoundKey(payload.checkpointId, payload.kind))
+        val state = voice?.let { SurgeVoiceChannels.state(context, it) }
+        val ready = if (SurgeVoicePresentationPolicy.route(voice != null, state) == VoicePresentationRoute.VOICE) voice else null
+        if (state?.visible != false) Notifications.showSurge(context, payload, ready, silent = true)
     }
 }
