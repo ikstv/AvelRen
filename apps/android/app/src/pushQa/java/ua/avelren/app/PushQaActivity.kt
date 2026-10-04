@@ -10,14 +10,41 @@ import android.widget.TextView
 import com.google.firebase.messaging.FirebaseMessaging
 import ua.avelren.app.notify.Notifications
 import ua.avelren.app.notify.SurgeLocalStore
+import ua.avelren.app.notify.SurgeVoiceAssets
+import ua.avelren.app.notify.SurgeVoiceChannels
+import ua.avelren.app.notify.VoicePreparation
+import kotlinx.coroutines.*
 
 /** Debug-only FCM bootstrap. Tokens stay in private app storage, never in UI/logs. */
 class PushQaActivity : Activity() {
     private lateinit var status: TextView
     private var tokenReady = false
+    private var voiceReady = false
+    private val qaScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var preparation: Job? = null
+    override fun onStart() {
+        super.onStart()
+        if (voiceReady || preparation?.isActive == true) return
+        preparation = qaScope.launch {
+            for ((id, title) in listOf(17 to "Чоп", 6 to "Краківець", 1 to "Ягодин", 29 to "Ягодин для порожніх вантажівок", 5 to "Рава-Руська")) {
+                when (val result = SurgeVoiceAssets(this@PushQaActivity).prepare(id, title)) {
+                    is VoicePreparation.Ready -> result.voices.forEach { SurgeVoiceChannels.ensure(this@PushQaActivity, it, title) }
+                    is VoicePreparation.Failure -> {
+                        status.text = "Не вдалося підготувати голос: ${result.reason}"
+                        return@launch
+                    }
+                }
+            }
+            voiceReady = true
+            openFileOutput("push-qa-voice-ready", MODE_PRIVATE).use { it.write("ready-v1".toByteArray()) }
+            showReadiness()
+        }
+    }
+    override fun onStop() { preparation?.cancel(); preparation = null; super.onStop() }
+    override fun onDestroy() { qaScope.cancel(); super.onDestroy() }
 
     private fun showReadiness() {
-        if (!tokenReady) return
+        if (!tokenReady || !voiceReady) return
         status.text = if (Notifications.surgeChannelAllowed(this)) {
             "Перевірка голосових сповіщень\n\nГотово до отримання тестових повідомлень.\n\nЦе окремий тестовий застосунок."
         } else {

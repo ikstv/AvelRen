@@ -362,7 +362,7 @@
       "destination": "apps/android/app/src/preview/AndroidManifest.xml",
       "sha256": "800d109abe75c851ba615f7d4d85e3b3f188639997c64bb3932b70c039452f50",
       "revision": {
-        "sha256": "1b4990277a7ad6aa8178f15cf4b896f3a405860f22a3fedd77e0a66aec435213",
+        "sha256": "d0221f26ee532d689db18ff64d94e1acd084d151caeb6bc95e72cd68472e8163",
         "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },

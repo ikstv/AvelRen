@@ -4,6 +4,7 @@
     <application android:name="android.app.Application" android:label="AvelRen — push тест"
         tools:replace="android:name,android:label">
         <!-- No AvelRenApp: no API installation, subscriptions or server ACK queue. -->
+        <receiver android:name=".SystemVoiceQaReceiver" android:exported="true" />
         <activity android:name=".MainActivity" tools:node="remove" />
         <activity android:name=".PushQaActivity" android:exported="true">
             <intent-filter>

@@ -9,7 +9,7 @@
         <service android:name="ua.avelren.app.notify.SurgeVoiceService"
             android:exported="false" android:foregroundServiceType="shortService" />
         <service android:name=".notify.AvelRenMessagingService" tools:node="remove" />
-        <receiver android:name=".notify.AckReceiver" tools:node="remove" />
+        <receiver android:name=".SystemVoiceQaReceiver" android:exported="true" />
         <provider android:name="com.google.firebase.provider.FirebaseInitProvider" tools:node="remove" />
         <activity android:name="ua.avelren.app.VoiceProbeActivity" android:exported="true" />
         <activity android:name=".PreviewActivity" android:exported="true"

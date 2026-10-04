@@ -2,41 +2,33 @@ package ua.avelren.app
 
 import android.app.Activity
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import java.time.Instant
-import java.util.UUID
+import android.widget.TextView
+import kotlinx.coroutines.*
 import ua.avelren.app.notify.*
 
-/** Debug-only adb probe; no UI button, credentials, Firebase, or network. */
+/** Local-only preparation of the product assets; events arrive through the debug receiver. */
 class VoiceProbeActivity : Activity() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val handler = Handler(Looper.getMainLooper())
-        val scenario = intent.getStringExtra("scenario") ?: "foreground"
-        handler.postDelayed({
-            val now = Instant.now()
-            val id = intent.getLongExtra("alert_id", 9001)
-            val payload = SurgePayload("surge_forecast", id, UUID.randomUUID().toString(), 1,
-                now.minusSeconds(1).toString(), now.plusSeconds(60).toString(), 17, "Чоп",
-                "Можливий початок масової реєстрації на Чопі")
-            val store = SurgeLocalStore(this)
-            store.setVoiceEnabled(true)
-            Notifications.ensureChannel(this)
-            if (store.claimAttempt(payload, now)) {
-                Notifications.show(this, id, payload.kind, payload.title, payload.body)
-                SurgeVoiceService.enqueue(this, payload)
+        val status = TextView(this).apply {
+            text = "Підготовка системного голосу…"; textSize = 22f
+            setPadding(40, 100, 40, 40)
+        }
+        setContentView(status)
+        scope.launch {
+            Notifications.ensureChannel(this@VoiceProbeActivity)
+            SurgeLocalStore(this@VoiceProbeActivity).enableVoiceForFirstMonitoring()
+            for ((id, title) in listOf(17 to "Чоп", 6 to "Краківець", 1 to "Ягодин", 29 to "Ягодин для порожніх вантажівок", 5 to "Рава-Руська")) {
+                when (val result = SurgeVoiceAssets(this@VoiceProbeActivity).prepare(id, title)) {
+                    is VoicePreparation.Ready -> result.voices.forEach { SurgeVoiceChannels.ensure(this@VoiceProbeActivity, it, title) }
+                    is VoicePreparation.Failure -> { status.text = "Голос не готовий: ${result.reason}"; return@launch }
+                }
             }
-            if (scenario == "collision") {
-                Notifications.show(this, id + 10_000_000, payload.kind, payload.title, "Другий незалежний сигнал")
-                handler.postDelayed({ Notifications.cancel(this, payload.kind, id) }, 100)
-            }
-            if (scenario == "cancel") handler.postDelayed({
-                store.acknowledge(id)
-                Notifications.cancel(this, payload.kind, id)
-                SurgeVoiceService.stopAlert(this, id)
-            }, 50)
-            if (scenario == "background") finish()
-        }, if (scenario == "background") 5_000 else 500)
+            openFileOutput("system-voice-ready", MODE_PRIVATE).use { it.write("ready-v1".toByteArray()) }
+            status.text = "Голос готовий. Тестові події запускаються окремо."
+        }
     }
+    override fun onStop() { scope.coroutineContext.cancelChildren(); super.onStop() }
+    override fun onDestroy() { scope.cancel(); super.onDestroy() }
 }
