@@ -13,7 +13,7 @@
         tools:replace="android:label">
         <!-- Lint inspects this overlay independently of the merged manifest. -->
         <service android:name="ua.avelren.app.notify.SurgeVoiceService"
-            android:exported="false" android:foregroundServiceType="mediaPlayback" />
+            android:exported="false" android:foregroundServiceType="shortService" />
         <activity android:name=".VoiceProbeActivity" android:exported="true" />
         <service
             android:name=".notify.AvelRenMessagingService"

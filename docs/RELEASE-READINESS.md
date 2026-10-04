@@ -1,5 +1,18 @@
 # Що має дійти до телефона
 
+## Системний голос — продуктова реалізація кандидата
+
+Гілка `codex/system-notification-voice`, [опис компонентів](ANDROID-SYSTEM-VOICE.md).
+Додано підготовку двох фраз, перевірку WAV/SHA, read-only provider,
+сталі канали й послідовне системне озвучення через shortService.
+Нові правила ресурсів, каналів і deadline пройшли RED→GREEN та локальний
+Android JVM/assemble/lint. Серверних змін немає. Продуктовий CI,
+APK із main, матриця на телефоні, справжній FCM і публікація ще не прийняті.
+Незалежний review завершено; чотири важливі findings виправлено з
+поведінковими RED→GREEN тестами та зеленим повним локальним gate.
+PushQa fixture і connectedTest assemble/lint успішні; release manifest
+не містить тестового receiver. Fixture APK не встановлювався.
+
 ## Системний звук голосу — локальна проба 04.10.2026
 
 [Докази й умови](audits/ANDROID-NOTIFICATION-VOICE-PROBE-2026-10-04.md).

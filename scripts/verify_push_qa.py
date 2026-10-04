@@ -39,11 +39,20 @@ services = {node.get(a + "name"): node for node in app.findall("service")}
 for name in ("AvelRenMessagingService", "SurgeVoiceService"):
     service = services.get("ua.avelren.app.notify." + name)
     require(service is not None and service.get(a + "exported") == "false", "Missing safe " + name)
-require(services["ua.avelren.app.notify.SurgeVoiceService"].get(a + "foregroundServiceType") == "mediaPlayback",
+require(services["ua.avelren.app.notify.SurgeVoiceService"].get(a + "foregroundServiceType") == "shortService",
         "Missing voice foreground service type")
 receivers = {node.get(a + "name"): node for node in app.findall("receiver")}
 ack = receivers.get("ua.avelren.app.notify.AckReceiver")
 require(ack is not None and ack.get(a + "exported") == "false", "Missing local ACK")
+probe = receivers.get("ua.avelren.app.SystemVoiceQaReceiver")
+require(probe is not None and probe.get(a + "exported") == "true", "Missing isolated local probe")
+providers = {node.get(a + "name"): node for node in app.findall("provider")}
+voice_provider = providers.get("ua.avelren.app.notify.SurgeVoiceProvider")
+require(voice_provider is not None and voice_provider.get(a + "authorities") == "ua.avelren.app.pushqa.surgevoice"
+        and voice_provider.get(a + "exported") == "false" and voice_provider.get(a + "grantUriPermissions") == "true",
+        "Unsafe voice provider")
+require(not any(node.get(a + "name") == "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+                for node in m.findall("uses-permission")), "Obsolete media playback permission")
 require(any(node.get(a + "name") == "com.google.firebase.provider.FirebaseInitProvider"
             for node in app.findall("provider")), "Missing Firebase initialization")
 require(any(node.get(a + "name") == "android.permission.INTERNET"

@@ -10,6 +10,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.tasks.await
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.CredentialStore
@@ -23,6 +26,14 @@ import ua.avelren.app.data.ProtectedLoad
 import ua.avelren.app.notify.NotificationReconciler
 import ua.avelren.app.notify.Notifications
 import ua.avelren.app.notify.SurgeAckWorker
+import ua.avelren.app.notify.SurgeVoiceAssets
+import ua.avelren.app.notify.SurgeVoiceChannels
+import ua.avelren.app.notify.SurgeLocalStore
+import ua.avelren.app.notify.VoicePreparation
+import ua.avelren.app.notify.VoiceChannelState
+import ua.avelren.app.notify.SurgeVoiceReadinessPolicy
+import ua.avelren.app.data.SurgeRepository
+import ua.avelren.app.data.InstallationState
 
 /**
  * Owner of the process-scoped [InstallationRepository] — the single source of
@@ -35,6 +46,35 @@ class AvelRenApp : Application() {
 
     /** A single SupervisorJob scope for the whole process — no scattered CoroutineScope instances. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var voiceRecovery: Job? = null
+    private fun recoverVoices() {
+        if (!BuildConfig.ENABLE_PUSH || installation.state.value !is InstallationState.Ready ||
+            !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
+        voiceRecovery?.cancel()
+        voiceRecovery = appScope.launch {
+            try {
+                val repository = SurgeRepository(installation)
+                val catalogue = repository.checkpoints()
+                val subscriptions = repository.subscriptions()
+                val assets = SurgeVoiceAssets(this@AvelRenApp)
+                val states = mutableListOf<VoiceChannelState>()
+                var failure: String? = null
+                for (sub in subscriptions.filter { it.forecast_enabled || it.fact_enabled }) {
+                    val cp = catalogue.firstOrNull { it.checkpoint_id == sub.checkpoint_id }
+                    if (cp == null) { failure = "voice_not_ready"; continue }
+                    when (val result = assets.prepare(cp.checkpoint_id, cp.title)) {
+                        is VoicePreparation.Ready -> result.voices.forEach {
+                            SurgeVoiceChannels.ensure(this@AvelRenApp, it, cp.title)
+                            states += SurgeVoiceChannels.state(this@AvelRenApp, it)
+                        }
+                        is VoicePreparation.Failure -> failure = result.reason
+                    }
+                }
+                SurgeLocalStore(this@AvelRenApp).setVoiceProblem(SurgeVoiceReadinessPolicy.problem(failure, states))
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { SurgeLocalStore(this@AvelRenApp).setVoiceProblem("voice_not_ready") }
+        }
+    }
 
     private var installationRef: InstallationRepository? = null
     val installation: InstallationRepository
@@ -91,6 +131,7 @@ class AvelRenApp : Application() {
         appScope.launch {
             ProtectedLoad.observe(installation.state) {
                 NotificationReconciler.reconcile(ctx, installation)
+                kotlinx.coroutines.withContext(Dispatchers.Main.immediate) { recoverVoices() }
             }
         }
 
@@ -100,11 +141,13 @@ class AvelRenApp : Application() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onResume(owner: LifecycleOwner) {
+                    recoverVoices()
                     appScope.launch {
                         SurgeAckWorker.recover(ctx)
                         NotificationReconciler.reconcile(ctx, installation)
                     }
                 }
+                override fun onPause(owner: LifecycleOwner) { voiceRecovery?.cancel(); voiceRecovery = null }
             }
         )
     }
