@@ -6,8 +6,13 @@
 Додано підготовку двох фраз, перевірку WAV/SHA, read-only provider,
 сталі канали й послідовне системне озвучення через shortService.
 Нові правила ресурсів, каналів і deadline пройшли RED→GREEN та локальний
-Android JVM/assemble/lint. Серверних змін немає. Продуктовий CI,
-APK із main, матриця на телефоні, справжній FCM і публікація ще не прийняті.
+Android JVM/assemble/lint. Серверних змін немає. PR88 і його main merge
+2a7a849 мають усі4 CI SUCCESS; чистий main APK встановлений зі звіркою SHA.
+[Докази телефона](audits/ANDROID-SYSTEM-VOICE-PHONE-2026-10-04.md): media0,
+скасування та п'ять повних фраз підтверджені власником. FCM1/8 отриманий
+у фоні, але голос не запустився через тихі QA канали після Xiaomi off/on.
+FAIL збережено, подальші send зупинені, QA cleanup підтверджений.
+Повний FCM/locked, решта телефонної матриці та публікація не прийняті.
 Незалежний review завершено; чотири важливі findings виправлено з
 поведінковими RED→GREEN тестами та зеленим повним локальним gate.
 PushQa fixture і connectedTest assemble/lint успішні; release manifest
