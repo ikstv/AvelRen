@@ -37,7 +37,7 @@ class AvelRenMessagingService : FirebaseMessagingService() {
             if (alertId <= 0) return
             if (kind in surgeKinds) {
                 SurgeLocalStore(applicationContext).cancel(alertId)
-                SurgeVoiceService.stopAlert(applicationContext, alertId)
+                SurgeVoiceDelivery.cancel(applicationContext, kind, alertId)
             }
             Log.i(TAG, "отримано cancel $kind:$alertId")
             Notifications.cancel(applicationContext, kind, alertId)
@@ -50,15 +50,12 @@ class AvelRenMessagingService : FirebaseMessagingService() {
             val forecasts = if (payload.kind == "surge_started") store.forecastAlerts(payload.checkpointId) else emptySet()
             if (!store.claimAttempt(payload, Instant.now())) return
             forecasts.forEach { id ->
-                Notifications.cancel(applicationContext, "surge_forecast", id)
-                SurgeVoiceService.stopAlert(applicationContext, id)
+                SurgeVoiceDelivery.cancel(applicationContext, "surge_forecast", id)
             }
-            Notifications.show(applicationContext, payload.alertId, payload.kind, payload.title, payload.body)
             val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             if (BuildConfig.DEBUG) Log.i(TAG, "surge priority=${message.priority} foreground=$foreground")
-            if (SurgeVoicePolicy.canStart(payload, Instant.now(), message.priority, foreground,
-                store.voiceEnabled(), Notifications.surgeChannelAllowed(applicationContext)))
-                SurgeVoiceService.enqueue(applicationContext, payload)
+            SurgeVoiceDelivery.present(applicationContext, payload, SurgeVoicePolicy.canStart(payload, Instant.now(),
+                message.priority, foreground, store.voiceEnabled(), Notifications.surgeChannelAllowed(applicationContext)))
             return
         }
 

@@ -145,9 +145,35 @@ object Notifications {
     // justified — this is not a lint baseline.
     @SuppressLint("MissingPermission")
     fun show(context: Context, alertId: Long, kind: String, title: String, body: String) {
+        post(context, alertId, kind, title, body, if (kind in surgeKinds) SURGE_CHANNEL_ID else CHANNEL_ID, false)
+    }
+
+    fun showSurge(context: Context, payload: SurgePayload, voice: PreparedVoice?, silent: Boolean): Boolean {
+        val store = SurgeLocalStore(context)
+        fun valid() = !store.isBlocked(payload.alertId) && SurgeDeliveryPolicy.shouldPresent(payload, java.time.Instant.now()) &&
+            !(payload.kind == "surge_forecast" && store.activeFact(payload.checkpointId, java.time.Instant.now()))
+        if (!valid()) return false
+        ensureChannel(context)
+        val channel = if (voice != null) {
+            if (voice.key != VoiceSoundKey(payload.checkpointId, payload.kind) || SurgeVoiceAssets(context).ready(voice.key) != voice)
+                return false
+            val state = SurgeVoiceChannels.state(context, voice)
+            if (!state.visible || (!silent && !state.voiceAllowed)) return false
+            SurgeVoiceChannels.id(voice.key)
+        } else {
+            if (!surgeChannelAllowed(context)) return false
+            SURGE_CHANNEL_ID
+        }
+        val posted = post(context, payload.alertId, payload.kind, payload.title, payload.body, channel, silent)
+        if (!valid()) { cancel(context, payload.kind, payload.alertId); return false }
+        return posted
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun post(context: Context, alertId: Long, kind: String, title: String, body: String, channel: String, silent: Boolean): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
+        ) return false
 
         ensureChannel(context)
 
@@ -178,7 +204,9 @@ object Notifications {
         }
 
         val visibleBody = if (kind in surgeKinds) SurgeDeliveryPolicy.notificationBody(body) else body
-        val notification = NotificationCompat.Builder(context, if (kind in surgeKinds) SURGE_CHANNEL_ID else CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, channel)
+            .setSilent(silent)
+            .setOnlyAlertOnce(false)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(visibleBody)
@@ -198,7 +226,9 @@ object Notifications {
             if (kind in surgeKinds)
                 NotificationManagerCompat.from(context).notify("$kind:$alertId", notifId, notification)
             else NotificationManagerCompat.from(context).notify(notifId, notification)
+            return true
         }
+        return false
     }
 
     /**

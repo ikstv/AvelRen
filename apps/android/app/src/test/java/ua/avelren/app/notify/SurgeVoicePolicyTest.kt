@@ -44,4 +44,11 @@ class SurgeVoicePolicyTest {
         queue.offer(payload(), now)
         assertNull(queue.next(now) { it == 42L })
     }
+    @Test fun `entries expired while waiting are skipped but another checkpoint survives`() {
+        val queue = SurgeVoiceQueue()
+        queue.offer(payload(), now)
+        queue.offer(payload(43, cp = 6).copy(expiresAt = now.plusSeconds(180).toString()), now)
+        assertEquals(43L, queue.next(now.plusSeconds(60)) { false }?.alertId)
+        assertNull(queue.next(now.plusSeconds(60)) { false })
+    }
 }

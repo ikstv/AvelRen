@@ -39,7 +39,7 @@
       "destination": "apps/android/app/src/main/AndroidManifest.xml",
       "sha256": "3cdf1970beb2c5f5e23f21d3d6ac149771a13db8d8cf4ac88376945176e30bc9",
       "revision": {
-        "sha256": "4628a2a426d6af7d000a60452a59c0a39aff1b6a7ccade232e6ce13ed7debc68",
+        "sha256": "267ea9d25f71b45f1a70336eb52ea104e157855037955e9739ab6186c05e1af8",
         "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
@@ -183,8 +183,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/AvelRenMessagingService.kt",
       "sha256": "af32fb528b0912261799f3edf56c20551a08a91a24ab61224146e3ab7475e9e3",
       "revision": {
-        "sha256": "448940536f1c7cf5c8b5f45c76a7d94bc049eae6be4b13aa923e066744c7de3c",
-        "notes": "docs/ANDROID-PUSH-QA.md"
+        "sha256": "92714f889a844a5ef6ba81d7ae7c3f5a6089bd9a013c5169e11446968243ace9",
+        "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
     {
@@ -205,8 +205,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/Notifications.kt",
       "sha256": "c7c0683d1abd7db43638eb9e27ff96ba44afc947178622f3c976e811da7320e2",
       "revision": {
-        "sha256": "1134c021f66b4920c71cee7cd4d05bff177f00abbd1e2f0fb00827d51bb3b454",
-        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+        "sha256": "7b649b023d178fa84f1e38acc56b8c36a5fb9f639221f6e67ff5b3353378167a",
+        "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
     {
@@ -362,8 +362,8 @@
       "destination": "apps/android/app/src/preview/AndroidManifest.xml",
       "sha256": "800d109abe75c851ba615f7d4d85e3b3f188639997c64bb3932b70c039452f50",
       "revision": {
-        "sha256": "a1eeb540fb4c7e7637c4d8ccfd98ff8a398da37519ce0cc336e7bd588d4d03f2",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "1b4990277a7ad6aa8178f15cf4b896f3a405860f22a3fedd77e0a66aec435213",
+        "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
     {
