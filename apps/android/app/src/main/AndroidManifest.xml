@@ -41,6 +41,9 @@
             </intent-filter>
         </service>
 
+        <provider android:name=".notify.SurgeVoiceProvider" android:authorities="${applicationId}.surgevoice"
+            android:exported="false" android:grantUriPermissions="true" />
+
         <service android:name="ua.avelren.app.notify.SurgeVoiceService" android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 

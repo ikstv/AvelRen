@@ -39,8 +39,8 @@
       "destination": "apps/android/app/src/main/AndroidManifest.xml",
       "sha256": "3cdf1970beb2c5f5e23f21d3d6ac149771a13db8d8cf4ac88376945176e30bc9",
       "revision": {
-        "sha256": "8514e2536f8b7bda70ef346b85c64cbda84fdac43fab38a74fa88b5119bf3ca5",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "4628a2a426d6af7d000a60452a59c0a39aff1b6a7ccade232e6ce13ed7debc68",
+        "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
     {
