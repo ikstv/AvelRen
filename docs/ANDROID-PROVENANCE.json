@@ -57,8 +57,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/AvelRenApp.kt",
       "sha256": "958d72e5aa4d17f2c70d9188d58e01bf6fdc9f152a4cee94ac91d5142e4554bc",
       "revision": {
-        "sha256": "a3b1b0dd8983a3b6f3655830aa26ec40f0742d0abdf9da69ede8d3fcb0d8f4a0",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "485eb896b035ed1c3c0fc7733fc1501ea2b3cdf14ff6db805b6df513ea27f7cc",
+        "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
     {
@@ -161,8 +161,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/AckReceiver.kt",
       "sha256": "3c5c0cff8ac3c345293d90a309b5ab1c9ae262875e115b5bae7c72d9890594b9",
       "revision": {
-        "sha256": "d71c1f7b5bb263c3fd0b703f1c9b007d6ec760544594b408701c2703517efe65",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "6404f4f1576df4dd71b8d4ba0147e09b75432dcd56f7482fb813337d7c36bb8a",
+        "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
     {
@@ -194,8 +194,8 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/notify/NotificationReconciler.kt",
       "sha256": "25021536c211098d3652c25ce1297ff872c57738f50b2f1c321f74c0798b6740",
       "revision": {
-        "sha256": "69aff83afc5a257137b71a3b1eb2e862963d6f6066a6095302f0d5d6913017b3",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "f6f0cb945771c86c63e60758456d9d07ca251e6c6247e18b5615d3dd30810c3a",
+        "notes": "docs/ANDROID-SYSTEM-VOICE.md"
       }
     },
     {

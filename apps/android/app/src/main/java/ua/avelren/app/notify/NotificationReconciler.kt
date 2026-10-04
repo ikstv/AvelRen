@@ -76,8 +76,7 @@ object NotificationReconciler {
                 if (key != null && key.kind in surgeKinds) {
                     if (serverKeys == null || key in serverKeys) continue
                     if (!store.cancel(key.alertId)) continue
-                    SurgeVoiceService.stopAlert(context, key.alertId)
-                    nm.cancel(notification.tag, notification.notificationId)
+                    SurgeVoiceDelivery.cancel(context, key.kind, key.alertId)
                 } else nm.cancel(notification.notificationId)
             }
         }

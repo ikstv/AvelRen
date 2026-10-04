@@ -25,6 +25,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -48,6 +54,15 @@ internal fun ForecastOverviewScreen(
     val context = LocalContext.current
     val local = remember { SurgeLocalStore(context) }
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val assets = remember { SurgeVoiceAssets(context) }
+    suspend fun prepareVoice(id: Int, title: String): VoicePreparation {
+        val result = assets.prepare(id, title)
+        if (result is VoicePreparation.Ready) result.voices.forEach { SurgeVoiceChannels.ensure(context, it, title) }
+        else if (result is VoicePreparation.Failure) local.setVoiceProblem(result.reason)
+        return result
+    }
+    val coordinator = remember { SurgeVoicePreparationCoordinator { id, title -> prepareVoice(id, title) } }
     val mutex = remember { Mutex() }
     var checkpoints by remember { mutableStateOf<List<SurgeCheckpoint>>(emptyList()) }
     var subscriptions by remember { mutableStateOf<List<SurgeSubscription>>(emptyList()) }
@@ -55,6 +70,8 @@ internal fun ForecastOverviewScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var preparing by remember { mutableStateOf(false) }
+    var changeJob by remember { mutableStateOf<Job?>(null) }
     var voiceProblem by remember { mutableStateOf(local.voiceProblem()) }
     var now by remember { mutableStateOf(Instant.now()) }
     suspend fun refresh() = mutex.withLock {
@@ -72,6 +89,9 @@ internal fun ForecastOverviewScreen(
             snapshots = states
             now = Instant.now()
             error = null
+            for (sub in subs.filter { it.forecast_enabled || it.fact_enabled }) {
+                cps.firstOrNull { it.checkpoint_id == sub.checkpoint_id }?.let { prepareVoice(it.checkpoint_id, it.title) }
+            }
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { error = "Не вдалося оновити моніторинг. Перевірте інтернет або спробуйте пізніше" }
         finally { loading = false; voiceProblem = local.voiceProblem() }
@@ -80,11 +100,22 @@ internal fun ForecastOverviewScreen(
         if (busy) return
         if (!remove && subscriptions.none { it.checkpoint_id == cp.checkpoint_id } && subscriptions.size >= ForecastSelection.MAX) return
         busy = true
-        scope.launch {
+        changeJob = scope.launch {
             try {
                 if (remove) repository.removeSubscription(cp.checkpoint_id)
                 else {
-                    repository.setSubscription(cp.checkpoint_id, forecast, fact)
+                    if (forecast || fact) {
+                        preparing = true
+                        val result = coordinator.enable(cp.checkpoint_id, cp.title) {
+                            preparing = false
+                            repository.setSubscription(cp.checkpoint_id, forecast, fact)
+                        }
+                        if (result is VoicePreparation.Failure) {
+                            voiceProblem = result.reason
+                            error = SurgePresentation.voiceHint(true, notificationsAllowed, result.reason)
+                            return@launch
+                        }
+                    } else repository.setSubscription(cp.checkpoint_id, false, false)
                     if ((forecast || fact) && local.enableVoiceForFirstMonitoring()) {
                         voiceProblem = local.voiceProblem()
                     }
@@ -92,13 +123,12 @@ internal fun ForecastOverviewScreen(
                 refresh()
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { error = "Не вдалося зберегти вибір КПП. Попередні налаштування залишились" }
-            finally { busy = false }
+            finally { preparing = false; busy = false }
         }
     }
     fun acknowledge(alert: SurgeAlert) {
         val actions = SurgeMonitorActions(local) { id, kind ->
-            Notifications.cancel(context, kind, id)
-            SurgeVoiceService.stopAlert(context, id)
+            SurgeVoiceDelivery.cancel(context, kind, id)
             scope.launch { runCatching { SurgeAckWorker.enqueue(context, id) } }
         }
         if (actions.acknowledge(alert.surge_alert_id, alert.kind)) {
@@ -110,7 +140,16 @@ internal fun ForecastOverviewScreen(
         } else error = "Не вдалося зберегти підтвердження. Спробуйте ще раз"
     }
     LaunchedEffect(repository) {
-        while (true) { refresh(); delay(60_000) }
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) { refresh(); delay(60_000) }
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) { if (preparing) changeJob?.cancel() }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val ids = subscriptions.map { it.checkpoint_id }
     var picker by remember { mutableStateOf(false) }
