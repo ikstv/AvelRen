@@ -1,0 +1,65 @@
+{
+  "source_sha256": "8ac160497acab8380792013a55a7b4c510eb6af24343e2ef99f898e42f27b60e",
+  "source_records": 344864,
+  "all_history_first_epoch": 1786048917,
+  "all_history_last_epoch": 1791319521,
+  "reserved_records_oct02_onward": 28728,
+  "training": "Aug06-Sep17; validation Sep18-24; exploratory test Sep25-Oct01",
+  "question": "one 60min interval within next1-24h, start>=issue+60min",
+  "event": "net +20 vehicles within5min, endpoint tolerance30s, no gaps>90s; cluster30min",
+  "method": "pooled regularized logistic classifier of hourly slots, 18 features; best slot per origin; threshold validation only",
+  "quality": "past60min no gap>90s; future slot+5min >=95% coverage/no gap>300s; do not fill missing data",
+  "split_slot_rows": [
+    78476,
+    10884,
+    12336
+  ],
+  "split_positive_slots": [
+    260,
+    61,
+    110
+  ],
+  "fit_iterations": 5,
+  "converged": true,
+  "threshold": 0.6640443003367783,
+  "validation": {
+    "alerts": 51,
+    "correct": 1,
+    "false": 50,
+    "eligible_events": 4,
+    "detected_events": 1,
+    "precision": 0.0196078431372549,
+    "recall": 0.25,
+    "f1": 0.03636363636363636,
+    "matched_events": [
+      {
+        "cp": 17,
+        "issued_epoch": 1789794023,
+        "window_start_epoch": 1789797623,
+        "event_epoch": 1789799783
+      }
+    ]
+  },
+  "exploratory_test": {
+    "alerts": 33,
+    "correct": 1,
+    "false": 32,
+    "eligible_events": 5,
+    "detected_events": 1,
+    "precision": 0.030303030303030304,
+    "recall": 0.2,
+    "f1": 0.052631578947368425,
+    "matched_events": [
+      {
+        "cp": 17,
+        "issued_epoch": 1790316013,
+        "window_start_epoch": 1790398813,
+        "event_epoch": 1790398962
+      }
+    ]
+  },
+  "all_labeled_events_in_test": 5,
+  "excluded_events": [],
+  "joint_99_validation": false,
+  "limitation": "Historical test previously inspected; not independent acceptance. Scores uncalibrated. No actual registration counts. Narrow-window recall uses eligible events only; excludes gaps. No deployment."
+}

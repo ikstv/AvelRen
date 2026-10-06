@@ -1,0 +1,58 @@
+{
+  "exported_at_utc": "2026-10-06T20:45:43.094377+00:00",
+  "source": "production observations via SSH, read-only PostgreSQL",
+  "query": "SHOW transaction_read_only;\nCOPY (\n SELECT checkpoint_id, extract(epoch FROM time)::bigint,\n        vehicles_in_queue, is_paused\n FROM observations\n WHERE checkpoint_id IN (1,6,17,29)\n   AND time >= TIMESTAMPTZ '2026-08-06 00:00:00+03'\n   AND time < TIMESTAMPTZ '2026-10-06T20:45:37.087943+00:00'\n ORDER BY checkpoint_id, time\n) TO STDOUT WITH CSV;\n",
+  "read_only": true,
+  "statement_timeout_ms": 5000,
+  "fields": [
+    "checkpoint_id",
+    "unix_time",
+    "vehicles_in_queue",
+    "is_paused"
+  ],
+  "path": "C:\\AI\\AvelRen\\dist\\queue-surge-all-history-20261006.json.gz",
+  "bytes": 1033340,
+  "sha256": "8ac160497acab8380792013a55a7b4c510eb6af24343e2ef99f898e42f27b60e",
+  "rows": 344864,
+  "duplicate_keys": 0,
+  "invalid_rows": 0,
+  "profile": {
+    "1": {
+      "rows": 86216,
+      "first_epoch": 1786048917,
+      "last_epoch": 1791319521,
+      "nominal_minute_coverage": 0.9658364230504536,
+      "max_gap_seconds": 61059,
+      "gaps_over_90_seconds": 348,
+      "gaps_over_300_seconds": 16
+    },
+    "6": {
+      "rows": 86216,
+      "first_epoch": 1786048917,
+      "last_epoch": 1791319521,
+      "nominal_minute_coverage": 0.9658364230504536,
+      "max_gap_seconds": 61059,
+      "gaps_over_90_seconds": 348,
+      "gaps_over_300_seconds": 16
+    },
+    "17": {
+      "rows": 86216,
+      "first_epoch": 1786048917,
+      "last_epoch": 1791319521,
+      "nominal_minute_coverage": 0.9658364230504536,
+      "max_gap_seconds": 61059,
+      "gaps_over_90_seconds": 348,
+      "gaps_over_300_seconds": 16
+    },
+    "29": {
+      "rows": 86216,
+      "first_epoch": 1786048917,
+      "last_epoch": 1791319521,
+      "nominal_minute_coverage": 0.9658364230504536,
+      "max_gap_seconds": 61059,
+      "gaps_over_90_seconds": 348,
+      "gaps_over_300_seconds": 16
+    }
+  },
+  "limitation": "Net queue size, not new registrations. Gaps not filled. Oct02 onward must be segregated from tuning; frozen holdout incomplete until Oct10."
+}

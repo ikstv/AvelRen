@@ -1,0 +1,107 @@
+{
+  "model": "surge_24h_v1",
+  "threshold_unchanged": 0.8789563370805348,
+  "source_sha256": "8ac160497acab8380792013a55a7b4c510eb6af24343e2ef99f898e42f27b60e",
+  "period": "Sep25-Oct01 origins; subsequent existing observations used only for24h outcome labels",
+  "method": "Unchanged predict_surge and advance_state from repo; observation-time minute replay, hourly scoring,1day warmup, stale closure, facts suppress forecasts. No fitting or threshold selection.",
+  "model_file_sha256": "4f8146494e0bdc01f0826306f9ba99de13a817254951f94dadc57cfa62a98b78",
+  "reports": {
+    "1": {
+      "prediction_origins": 168,
+      "valid_scores": 141,
+      "above_threshold_origins": 0,
+      "new_forecast_episodes": 0,
+      "matched_episodes": 0,
+      "unmatched_episodes": 0,
+      "unknown_episodes": 0,
+      "precision_assessable": null,
+      "all_events_in_origin_period": 0,
+      "eligible_events_in_origin_period": 0,
+      "detected_eligible_events": 0,
+      "excluded_event_epochs": [],
+      "alerts": []
+    },
+    "6": {
+      "prediction_origins": 168,
+      "valid_scores": 141,
+      "above_threshold_origins": 0,
+      "new_forecast_episodes": 0,
+      "matched_episodes": 0,
+      "unmatched_episodes": 0,
+      "unknown_episodes": 0,
+      "precision_assessable": null,
+      "all_events_in_origin_period": 1,
+      "eligible_events_in_origin_period": 1,
+      "detected_eligible_events": 0,
+      "excluded_event_epochs": [],
+      "alerts": []
+    },
+    "17": {
+      "prediction_origins": 168,
+      "valid_scores": 141,
+      "above_threshold_origins": 3,
+      "new_forecast_episodes": 3,
+      "matched_episodes": 2,
+      "unmatched_episodes": 1,
+      "unknown_episodes": 0,
+      "precision_assessable": 0.6666666666666666,
+      "all_events_in_origin_period": 4,
+      "eligible_events_in_origin_period": 4,
+      "detected_eligible_events": 2,
+      "excluded_event_epochs": [],
+      "alerts": [
+        {
+          "origin": 1790337613,
+          "score": 0.8950124653180367,
+          "future_status": "assessable",
+          "observed_future_events": [
+            1790392002,
+            1790398962
+          ],
+          "outcome": "matched",
+          "matched_event": 1790392002,
+          "lead_hours": 15.108055555555556
+        },
+        {
+          "origin": 1790344813,
+          "score": 0.8883760913707515,
+          "future_status": "assessable",
+          "observed_future_events": [
+            1790392002,
+            1790398962
+          ],
+          "outcome": "matched",
+          "matched_event": 1790398962,
+          "lead_hours": 15.04138888888889
+        },
+        {
+          "origin": 1790359213,
+          "score": 0.8837136743952879,
+          "future_status": "assessable",
+          "observed_future_events": [
+            1790392002,
+            1790398962
+          ],
+          "outcome": "unmatched"
+        }
+      ]
+    },
+    "29": {
+      "prediction_origins": 168,
+      "valid_scores": 141,
+      "above_threshold_origins": 0,
+      "new_forecast_episodes": 0,
+      "matched_episodes": 0,
+      "unmatched_episodes": 0,
+      "unknown_episodes": 0,
+      "precision_assessable": null,
+      "all_events_in_origin_period": 0,
+      "eligible_events_in_origin_period": 0,
+      "detected_eligible_events": 0,
+      "excluded_event_epochs": [],
+      "alerts": []
+    }
+  },
+  "limitations": "Historical exploratory sample, not independent acceptance. Replay not real server episodes or device deliveries: worker phase, outages, ACK and subscription history unavailable.5minute voice repeats excluded. Each event matches at most one episode.1-24h wide windows not specific time prediction. Full future gaps make outcomes unknown even when a future event is observed. Net queue count not registration counts. Server unchanged.",
+  "archive_projection": "Hourly score arrays omitted; aggregate counts and every forecast episode retained. Complete local receipt remains in dist."
+}

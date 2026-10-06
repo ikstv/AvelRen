@@ -1,0 +1,14 @@
+{
+  "source_and_weights_hashes_verified": true,
+  "minimum_lead_verified": true,
+  "all_test_events": 4,
+  "all_test_event_epochs": [
+    1790392002,
+    1790398962,
+    1790865086,
+    1790884046
+  ],
+  "eligible_test_events": 1,
+  "excluded_test_events_count": 3,
+  "receipt_note": "Original result excluded_event_epochs omitted events earlier than first retained evening origin. This audit supplies full split event denominator; no model or threshold changed."
+}
