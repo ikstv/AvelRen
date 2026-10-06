@@ -54,6 +54,13 @@ production пошкоджені артефакти не встановлювал
 тепер успадковує вибрану тему застосунку замість старої палітри.
 # Підготовка офлайн preview — 06.10.2026
 
+Головний екран приймає AppScreenClient, SurgeMonitorClient, AdminAccessClient
+і callback ACK. При ін'єкції не приводить Application до AvelRenApp.
+Продуктові залежності лишаються стандартними; preview має передати всі
+локальні клієнти та ACK no-op. ForecastScreen завантажує через передану
+функцію. Продуктові mutation credential gates збережено без примусового
+додавання installation recovery до старих mutation операцій.
+
 Із головного екрана виділено `loadMonitorSnapshot`: обидва запити
 залишаються паралельними всередині одного authenticatedCall, частковий
 результат не публікується, cancellation не приховується. Верстка й API

@@ -245,7 +245,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "962a748171f3b1e9bf16896ba0557e9147c254a4e7f7541cfd01c590ea1fa0a5",
+        "sha256": "dd9933125cde28d6b43e1f36073a4491b8237b41ec8eb0c2dfbc3585144441f2",
         "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
