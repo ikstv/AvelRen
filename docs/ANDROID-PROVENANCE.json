@@ -373,7 +373,7 @@
       "destination": "apps/android/app/src/preview/java/ua/avelren/app/PreviewActivity.kt",
       "sha256": "3b6b2394563e5c0c0b7d0866b5bc05d2dfef8f6acda0fc246a169b7f3db26357",
       "revision": {
-        "sha256": "3b2e3fef0a12158e30af559dd927365ef70394cf99b2cfd8b31815bd803439c2",
+        "sha256": "4388a0189f85139c37c1b924fa0162399dc77f5cbbcebf77e6ed762cad3189d1",
         "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
