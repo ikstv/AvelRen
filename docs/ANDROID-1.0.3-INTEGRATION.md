@@ -54,6 +54,11 @@ production пошкоджені артефакти не встановлювал
 тепер успадковує вибрану тему застосунку замість старої палітри.
 # Підготовка офлайн preview — 06.10.2026
 
+PreviewActivity відкриває спільну навігацію AvelRenScreen з PreviewAppClient
+й debug-only перемикачем сценаріїв. Локальний клієнт не має мережевих
+залежностей; ACK видаляє локальну подію без server worker. Preview JVM тести
+живуть у src/previewTest і підключаються лише з avelrenUiPreview=true.
+
 Головний екран приймає AppScreenClient, SurgeMonitorClient, AdminAccessClient
 і callback ACK. При ін'єкції не приводить Application до AvelRenApp.
 Продуктові залежності лишаються стандартними; preview має передати всі

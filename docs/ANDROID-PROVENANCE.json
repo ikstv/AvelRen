@@ -7,7 +7,7 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "8731e7109219e3aead7bbb15330a77595a0f9da68effd902fd0948e77eefe9a7",
+        "sha256": "37c647a239dde040a2cc9715496c9631651ccbeea4ae64d9dab9eb502d41c5f9",
         "notes": "docs/ANDROID-PUSH-QA.md"
       }
     },
@@ -373,7 +373,7 @@
       "destination": "apps/android/app/src/preview/java/ua/avelren/app/PreviewActivity.kt",
       "sha256": "3b6b2394563e5c0c0b7d0866b5bc05d2dfef8f6acda0fc246a169b7f3db26357",
       "revision": {
-        "sha256": "ae4591f9edfdea933285e48740e53309e11d344fa69ddd4d801e56d362df6cd0",
+        "sha256": "08263ca6d7d6fb6ce009d6d8ee3f4fdd8d79c5a4e6385af750186ff3c1e9fa32",
         "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },

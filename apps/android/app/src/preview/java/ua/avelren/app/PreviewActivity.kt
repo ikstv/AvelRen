@@ -5,9 +5,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,18 +41,41 @@ class PreviewActivity : ComponentActivity() {
                         return@MaterialTheme
                     }
                     val demo = remember { DemoAccess() }
+                    var scenario by remember { mutableStateOf(PreviewScenario.FORECAST) }
+                    var generation by remember { mutableStateOf(0) }
+                    val client = remember { PreviewAppClient() }
                     Column(
                         Modifier.fillMaxSize().background(AppBackground)
                             .windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 20.dp),
                     ) {
                         Text(
-                            "ТЕСТ • БЕЗ ДОСТУПУ ДО СЕРВЕРА",
+                            "AvelRen 1.0.3-test • ЛОКАЛЬНІ ТЕСТОВІ ДАНІ",
                             color = Color(0xFFF5C400),
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         )
-                        SettingsScreen(Modifier.fillMaxWidth().weight(1f), demo)
-                        SettingsDeveloperFooter(Modifier.fillMaxWidth().padding(bottom = 16.dp))
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                            PreviewScenario.entries.forEach { choice ->
+                                TextButton(onClick = {
+                                    scenario = choice
+                                    client.setScenario(choice)
+                                    generation++
+                                }) { Text(if (scenario == choice) "✓ ${choice.label}" else choice.label) }
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                            key(generation) {
+                                ua.avelren.app.ui.AvelRenScreen(
+                                    permissionState = ua.avelren.app.data.NotificationPermissionState.Granted,
+                                    onOpenNotificationSettings = {
+                                        android.widget.Toast.makeText(this@PreviewActivity,
+                                            "Недоступно в тестовій збірці", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    screenClient = client, surgeClient = client,
+                                    adminClient = demo, enqueueSurgeAck = client::acknowledge,
+                                )
+                            }
+                        }
                     }
                 }
             }
