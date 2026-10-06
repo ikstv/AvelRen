@@ -251,11 +251,9 @@ fun AvelRenScreen(
             try {
                 val result = withTimeout(15_000L) {
                     installation.authenticatedCall { c ->
-                        coroutineScope {
-                            val subs = async { Api.subscriptions(c) }
-                            val targets = async { Api.etaTargets(c) }
-                            subs.await() to targets.await()
-                        }
+                        ua.avelren.app.data.loadMonitorSnapshot(
+                            { Api.subscriptions(c) }, { Api.etaTargets(c) },
+                        )
                     }
                 }
                 // Publish a complete snapshot; preserve the previous one on errors.
