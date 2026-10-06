@@ -8,12 +8,18 @@
 ## Перевірка
 
 Офлайн `-PavelrenUiPreview=true` відкриває спільну навігацію через
-`PreviewActivity` з локальним `PreviewAppClient`. Панель зверху перемикає
+`PreviewActivity` з локальним `PreviewAppClient`. Звичайний запуск показує
+спільний повнорозмірний інтерфейс із темою ROAD SIGN без службової панелі.
+Окремий службовий діалог (лише launch extra `preview_controls=true`) перемикає
 порожній список, прогноз, факт, помилку зв'язку, п'ять КПП й недоступний
 прогноз. Назва «AvelRen — тест», версія `1.0.3-test`, package `.preview`.
 Дані синтетичні; production API/FCM/реєстрація не використовуються.
-ACK видаляє локальну подію без server worker. Зміна сценарію скидає
-візуальну навігацію. `src/previewTest` включається тільки в preview JVM suite.
+ACK видаляє локальну подію без server worker. Зміна сценарію оновлює дані
+без скидання навігації. `src/previewTest` включається тільки в preview JVM suite.
+Телефонний smoke-тест стандартного запуску: `tools/Test-PreviewDefaultScreen.ps1`
+із параметрами `-Adb <шлях>` і `-Serial <пристрій>` з кореня репозиторію.
+Службове меню відкривається через `adb shell am start -S -n
+ua.avelren.app.preview/ua.avelren.app.PreviewActivity --ez preview_controls true`.
 
 Потрібні JDK 17 та Android SDK 36. З цієї папки:
 

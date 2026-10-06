@@ -4,23 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import ua.avelren.app.data.Api
 import ua.avelren.app.ui.AdminAccessClient
-import ua.avelren.app.ui.SettingsDeveloperFooter
-import ua.avelren.app.ui.SettingsScreen
 import ua.avelren.app.ui.theme.AvelRenTheme
-import ua.avelren.app.ui.theme.AppBackground
 import java.time.Instant
 
 /** Offline visual check: a separate package, no Firebase or production credentials. */
@@ -30,7 +23,7 @@ class PreviewActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AvelRenTheme {
-                MaterialTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
                     val surgeMode = intent.getStringExtra("surge_mode")
                     if (surgeMode != null) {
                         val client = remember { DemoSurgeClient(surgeMode) }
@@ -39,7 +32,7 @@ class PreviewActivity : ComponentActivity() {
                             notificationsAllowed = ua.avelren.app.notify.Notifications.surgeChannelAllowed(this@PreviewActivity),
                             enqueueAck = {},
                         )
-                        return@MaterialTheme
+                        return@Surface
                     }
                     val demo = remember { DemoAccess() }
                     val localServer = remember {
@@ -54,39 +47,43 @@ class PreviewActivity : ComponentActivity() {
                     var scenario by remember { mutableStateOf(PreviewScenario.FORECAST) }
                     var generation by remember { mutableStateOf(0) }
                     val client = remember { PreviewAppClient() }
-                    Column(
-                        Modifier.fillMaxSize().background(AppBackground)
-                            .windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 20.dp),
-                    ) {
-                        Text(
-                            "AvelRen 1.0.3-test • ЛОКАЛЬНІ ТЕСТОВІ ДАНІ",
-                            color = Color(0xFFF5C400),
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    ua.avelren.app.ui.AvelRenScreen(
+                        permissionState = ua.avelren.app.data.NotificationPermissionState.Granted,
+                        onOpenNotificationSettings = unavailable,
+                        screenClient = client, surgeClient = client,
+                        adminClient = demo, enqueueSurgeAck = client::acknowledge,
+                        adminServerClient = localServer,
+                        onOpenPrivacyPolicy = unavailable,
+                        onStartUpdate = unavailable,
+                        refreshVersion = generation,
+                    )
+                    // Службове меню не змінює геометрію звичайного екрана.
+                    // Відкривається лише явним запуском із preview_controls=true.
+                    var controlsVisible by remember {
+                        mutableStateOf(intent.getBooleanExtra("preview_controls", false))
+                    }
+                    if (controlsVisible) {
+                        AlertDialog(
+                            onDismissRequest = { controlsVisible = false },
+                            title = { Text("Локальні тестові дані") },
+                            text = {
+                                Column {
+                                    PreviewScenario.entries.forEach { choice ->
+                                        TextButton(onClick = {
+                                            scenario = choice
+                                            client.setScenario(choice)
+                                            generation++
+                                            controlsVisible = false
+                                        }) {
+                                            Text(if (scenario == choice) "✓ ${choice.label}" else choice.label)
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { controlsVisible = false }) { Text("Закрити") }
+                            },
                         )
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                            PreviewScenario.entries.forEach { choice ->
-                                TextButton(onClick = {
-                                    scenario = choice
-                                    client.setScenario(choice)
-                                    generation++
-                                }) { Text(if (scenario == choice) "✓ ${choice.label}" else choice.label) }
-                            }
-                        }
-                        Box(Modifier.fillMaxWidth().weight(1f)) {
-                            run {
-                                ua.avelren.app.ui.AvelRenScreen(
-                                    permissionState = ua.avelren.app.data.NotificationPermissionState.Granted,
-                                    onOpenNotificationSettings = unavailable,
-                                    screenClient = client, surgeClient = client,
-                                    adminClient = demo, enqueueSurgeAck = client::acknowledge,
-                                    adminServerClient = localServer,
-                                    onOpenPrivacyPolicy = unavailable,
-                                    onStartUpdate = unavailable,
-                                    refreshVersion = generation,
-                                )
-                            }
-                        }
                     }
                 }
             }
