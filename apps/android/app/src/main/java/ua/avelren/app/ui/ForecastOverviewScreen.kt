@@ -179,12 +179,12 @@ internal fun ForecastOverviewScreen(
             Text("Прогноз черги", color = AppInk, style = MaterialTheme.typography.headlineMedium)
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Оберіть КПП — про зміни повідомить телефон", color = AppAccent,
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Відстежуйте до 5 КПП. Телефон голосом попередить про можливий початок масової реєстрації протягом наступних 24 годин та окремо — про початок зростання черги.",
+                    Text("До 5 КПП · прогноз і початок зростання", color = AppAccent,
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text("Прогноз — можливий початок масової реєстрації протягом 24 годин. Факт — уже почалось зростання черги. Про події повідомить телефон.",
                         color = AppInk, style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -222,12 +222,13 @@ internal fun ForecastOverviewScreen(
             items(ids, key = { it }) { id ->
                 val cp = checkpoints.firstOrNull { it.checkpoint_id == id }
                 Surface(modifier = Modifier.fillMaxWidth(), color = AppBackground,
-                    shape = RoundedCornerShape(16.dp), border = BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    shape = RoadSignShape.Card, border = BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(cp?.let { "${it.flag_emoji.orEmpty()} ${it.title}" } ?: "КПП №$id",
                             Modifier.fillMaxWidth(), color = AppAccent, fontWeight = FontWeight.Bold)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (error == null) "Відстежується" else "Немає зв’язку", Modifier.weight(1f), color = AppInk, fontWeight = FontWeight.Bold)
+                            Text(if (error == null) "Відстежується" else "Немає зв’язку", Modifier.weight(1f), color = AppInk,
+                                style = MaterialTheme.typography.bodySmall)
                             TextButton(enabled = !busy, onClick = { pendingRemove = id }) { Text("Прибрати") }
                         }
                         cp?.let {
@@ -246,25 +247,29 @@ internal fun ForecastOverviewScreen(
                                 HorizontalDivider(color = AppAccent.copy(alpha = 0.3f))
                                 Text(if (alert.kind == "surge_forecast") "Прогноз" else "Фактичне зростання",
                                     color = AppAccent, fontWeight = FontWeight.Bold)
-                                Text(alert.body, color = AppInk)
+                                Text(alert.body, color = AppInk, style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold)
                                 if (alert.kind == "surge_forecast" && cp != null) {
                                     SurgePresentation.cards(cp, snapshots[id], now).window?.let { window ->
-                                        Text("Можливе вікно: $window", color = AppInk, style = MaterialTheme.typography.bodySmall)
+                                        Text("Можливе вікно: $window", color = AppInk,
+                                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                     }
                                 }
                                 if (alert.kind == "surge_started") alert.growth_5m?.let { growth ->
                                     Text("+$growth авто за 5 хвилин", color = AppInk, style = MaterialTheme.typography.bodySmall)
                                 }
-                                TextButton(onClick = { acknowledge(alert) }) { Text("Зрозуміло") }
+                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { acknowledge(alert) }) { Text("Зрозуміло") }
                             }
-                        TextButton(onClick = { onCountForecast(id) }) { Text("Черга на добу →") }
+                        TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { onCountForecast(id) }) { Text("Черга на добу →") }
                     }
                 }
             }
 
         }
-        Text("Функція в розробці", Modifier.fillMaxWidth().padding(20.dp),
-            color = AppAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        HorizontalDivider(color = AppAccent.copy(alpha = 0.25f))
+        Text("Функція працює в тестовому режимі і вона тільки в розробці",
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            color = AppInk, style = MaterialTheme.typography.bodySmall)
     }
     if (picker) Dialog(onDismissRequest = { picker = false },
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
