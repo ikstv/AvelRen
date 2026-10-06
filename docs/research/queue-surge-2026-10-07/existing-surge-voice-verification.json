@@ -1,0 +1,45 @@
+{
+  "reports": {
+    "1": {
+      "assessable_signals": 0,
+      "signals_with_observed_future_growth": 0,
+      "signals_without_future_growth": 0,
+      "one_to_one_matched_signals": 0,
+      "overlapping_signals_not_independently_matched": 0,
+      "distinct_future_events_covered": 0,
+      "eligible_events_in_origin_period": 0,
+      "note": "An unmatched duplicate is not automatically a false1-24h occurrence claim. Event coverage and warning truth are separate metrics."
+    },
+    "6": {
+      "assessable_signals": 0,
+      "signals_with_observed_future_growth": 0,
+      "signals_without_future_growth": 0,
+      "one_to_one_matched_signals": 0,
+      "overlapping_signals_not_independently_matched": 0,
+      "distinct_future_events_covered": 0,
+      "eligible_events_in_origin_period": 1,
+      "note": "An unmatched duplicate is not automatically a false1-24h occurrence claim. Event coverage and warning truth are separate metrics."
+    },
+    "17": {
+      "assessable_signals": 3,
+      "signals_with_observed_future_growth": 3,
+      "signals_without_future_growth": 0,
+      "one_to_one_matched_signals": 2,
+      "overlapping_signals_not_independently_matched": 1,
+      "distinct_future_events_covered": 2,
+      "eligible_events_in_origin_period": 4,
+      "note": "An unmatched duplicate is not automatically a false1-24h occurrence claim. Event coverage and warning truth are separate metrics."
+    },
+    "29": {
+      "assessable_signals": 0,
+      "signals_with_observed_future_growth": 0,
+      "signals_without_future_growth": 0,
+      "one_to_one_matched_signals": 0,
+      "overlapping_signals_not_independently_matched": 0,
+      "distinct_future_events_covered": 0,
+      "eligible_events_in_origin_period": 0,
+      "note": "An unmatched duplicate is not automatically a false1-24h occurrence claim. Event coverage and warning truth are separate metrics."
+    }
+  },
+  "interpretation": "All three Chop signals issuedSep25 cover the same twoSep26 events. No warning for the twoOct01 events. Three correlated signals are not three independent successes or a calibrated probability."
+}

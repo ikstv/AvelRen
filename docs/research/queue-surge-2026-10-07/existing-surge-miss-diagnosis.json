@@ -1,0 +1,320 @@
+{
+  "model_unchanged": true,
+  "threshold": 0.8789563370805348,
+  "source_sha256": "8ac160497acab8380792013a55a7b4c510eb6af24343e2ef99f898e42f27b60e",
+  "findings": [
+    {
+      "event_epoch": 1790392002,
+      "event_kyiv": "2026-09-26T06:06:42+03:00",
+      "hourly_origins": 23,
+      "valid_scores": 23,
+      "unavailable_scores": 0,
+      "above_threshold": 3,
+      "unavailable_reasons": {},
+      "strongest_advance_score": {
+        "score": 0.8950124653180367,
+        "origin_kyiv": "2026-09-25T15:00:13+03:00",
+        "raw_features": {
+          "count": 12,
+          "delta5": 0,
+          "delta10": -1,
+          "delta20": -2,
+          "delta60": 3,
+          "acceleration": 0.5,
+          "paused": 0.0,
+          "hour_sin": -0.7071067811865475,
+          "hour_cos": -0.7071067811865477,
+          "weekday_sin": -0.433883739117558,
+          "weekday_cos": -0.9009688679024191,
+          "cp1": 0,
+          "cp6": 0,
+          "cp17": 1,
+          "cp29": 0
+        },
+        "logit": 2.142996020112085,
+        "logit_components": {
+          "queue_trend": 2.5949147677727886,
+          "time_of_day": 0.07218184881317671,
+          "weekday": 1.0316658870360609,
+          "checkpoint": -0.3309381181016365,
+          "intercept": -1.224828365408305
+        },
+        "all_contributions": {
+          "count": 2.4482211894223744,
+          "delta5": 0.00035542223530912504,
+          "delta10": 0.018985671046682615,
+          "delta20": -0.023791946708283232,
+          "delta60": -0.0003462049635478558,
+          "acceleration": 0.01871742513011563,
+          "paused": 0.13277321161013803,
+          "hour_sin": 0.10335243305809476,
+          "hour_cos": -0.031170584244918042,
+          "weekday_sin": 0.09863710994961832,
+          "weekday_cos": 0.9330287770864425,
+          "cp1": 0.27686415103469414,
+          "cp6": -0.09396237395720561,
+          "cp17": -0.248203588576227,
+          "cp29": -0.265636306602898
+        }
+      },
+      "scores_8_12h_before": [
+        {
+          "origin_kyiv": "2026-09-25T19:00:13+03:00",
+          "score": 0.8665665383256405,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-09-25T20:00:13+03:00",
+          "score": 0.8593221216168769,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-09-25T21:00:13+03:00",
+          "score": 0.8837136743952879,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-09-25T22:00:42+03:00",
+          "score": 0.8658686456932659,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "event_epoch": 1790398962,
+      "event_kyiv": "2026-09-26T08:02:42+03:00",
+      "hourly_origins": 23,
+      "valid_scores": 23,
+      "unavailable_scores": 0,
+      "above_threshold": 3,
+      "unavailable_reasons": {},
+      "strongest_advance_score": {
+        "score": 0.8950124653180367,
+        "origin_kyiv": "2026-09-25T15:00:13+03:00",
+        "raw_features": {
+          "count": 12,
+          "delta5": 0,
+          "delta10": -1,
+          "delta20": -2,
+          "delta60": 3,
+          "acceleration": 0.5,
+          "paused": 0.0,
+          "hour_sin": -0.7071067811865475,
+          "hour_cos": -0.7071067811865477,
+          "weekday_sin": -0.433883739117558,
+          "weekday_cos": -0.9009688679024191,
+          "cp1": 0,
+          "cp6": 0,
+          "cp17": 1,
+          "cp29": 0
+        },
+        "logit": 2.142996020112085,
+        "logit_components": {
+          "queue_trend": 2.5949147677727886,
+          "time_of_day": 0.07218184881317671,
+          "weekday": 1.0316658870360609,
+          "checkpoint": -0.3309381181016365,
+          "intercept": -1.224828365408305
+        },
+        "all_contributions": {
+          "count": 2.4482211894223744,
+          "delta5": 0.00035542223530912504,
+          "delta10": 0.018985671046682615,
+          "delta20": -0.023791946708283232,
+          "delta60": -0.0003462049635478558,
+          "acceleration": 0.01871742513011563,
+          "paused": 0.13277321161013803,
+          "hour_sin": 0.10335243305809476,
+          "hour_cos": -0.031170584244918042,
+          "weekday_sin": 0.09863710994961832,
+          "weekday_cos": 0.9330287770864425,
+          "cp1": 0.27686415103469414,
+          "cp6": -0.09396237395720561,
+          "cp17": -0.248203588576227,
+          "cp29": -0.265636306602898
+        }
+      },
+      "scores_8_12h_before": [
+        {
+          "origin_kyiv": "2026-09-25T21:00:13+03:00",
+          "score": 0.8837136743952879,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-09-25T22:00:42+03:00",
+          "score": 0.8658686456932659,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-09-25T23:00:42+03:00",
+          "score": 0.8569457888245722,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-09-26T00:00:42+03:00",
+          "score": 0.8171032050625738,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "event_epoch": 1790865086,
+      "event_kyiv": "2026-10-01T17:31:26+03:00",
+      "hourly_origins": 23,
+      "valid_scores": 19,
+      "unavailable_scores": 4,
+      "above_threshold": 0,
+      "unavailable_reasons": {
+        "insufficient_history": 4
+      },
+      "strongest_advance_score": {
+        "score": 0.6532554269834809,
+        "origin_kyiv": "2026-10-01T03:00:26+03:00",
+        "raw_features": {
+          "count": 402,
+          "delta5": -2,
+          "delta10": -6,
+          "delta20": -12,
+          "delta60": -17,
+          "acceleration": 1.0,
+          "paused": 0.0,
+          "hour_sin": 0.7071067811865476,
+          "hour_cos": 0.7071067811865476,
+          "weekday_sin": 0.43388373911755823,
+          "weekday_cos": -0.900968867902419,
+          "cp1": 0,
+          "cp6": 0,
+          "cp17": 1,
+          "cp29": 0
+        },
+        "logit": 0.6333798039585528,
+        "logit_components": {
+          "queue_trend": 1.4507291059532086,
+          "time_of_day": -0.0617594014001661,
+          "weekday": 0.8001765829154518,
+          "checkpoint": -0.3309381181016365,
+          "intercept": -1.224828365408305
+        },
+        "all_contributions": {
+          "count": 1.2715404341413004,
+          "delta5": 0.049291452107344445,
+          "delta10": 0.11486697501989059,
+          "delta20": -0.15729630661576702,
+          "delta60": 0.001359071226701044,
+          "acceleration": 0.03819426846360111,
+          "paused": 0.13277321161013803,
+          "hour_sin": -0.08904192510779838,
+          "hour_cos": 0.027282523707632275,
+          "weekday_sin": -0.13285219417099056,
+          "weekday_cos": 0.9330287770864424,
+          "cp1": 0.27686415103469414,
+          "cp6": -0.09396237395720561,
+          "cp17": -0.248203588576227,
+          "cp29": -0.265636306602898
+        }
+      },
+      "scores_8_12h_before": [
+        {
+          "origin_kyiv": "2026-10-01T06:00:26+03:00",
+          "score": 0.5865852156903114,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-10-01T07:00:26+03:00",
+          "score": 0.5861726148419393,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-10-01T08:00:26+03:00",
+          "score": 0.5773447877979554,
+          "reason": null
+        },
+        {
+          "origin_kyiv": "2026-10-01T09:00:26+03:00",
+          "score": 0.6039586077367715,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "event_epoch": 1790884046,
+      "event_kyiv": "2026-10-01T22:47:26+03:00",
+      "hourly_origins": 23,
+      "valid_scores": 16,
+      "unavailable_scores": 7,
+      "above_threshold": 0,
+      "unavailable_reasons": {
+        "insufficient_history": 7
+      },
+      "strongest_advance_score": {
+        "score": 0.6532554269834809,
+        "origin_kyiv": "2026-10-01T03:00:26+03:00",
+        "raw_features": {
+          "count": 402,
+          "delta5": -2,
+          "delta10": -6,
+          "delta20": -12,
+          "delta60": -17,
+          "acceleration": 1.0,
+          "paused": 0.0,
+          "hour_sin": 0.7071067811865476,
+          "hour_cos": 0.7071067811865476,
+          "weekday_sin": 0.43388373911755823,
+          "weekday_cos": -0.900968867902419,
+          "cp1": 0,
+          "cp6": 0,
+          "cp17": 1,
+          "cp29": 0
+        },
+        "logit": 0.6333798039585528,
+        "logit_components": {
+          "queue_trend": 1.4507291059532086,
+          "time_of_day": -0.0617594014001661,
+          "weekday": 0.8001765829154518,
+          "checkpoint": -0.3309381181016365,
+          "intercept": -1.224828365408305
+        },
+        "all_contributions": {
+          "count": 1.2715404341413004,
+          "delta5": 0.049291452107344445,
+          "delta10": 0.11486697501989059,
+          "delta20": -0.15729630661576702,
+          "delta60": 0.001359071226701044,
+          "acceleration": 0.03819426846360111,
+          "paused": 0.13277321161013803,
+          "hour_sin": -0.08904192510779838,
+          "hour_cos": 0.027282523707632275,
+          "weekday_sin": -0.13285219417099056,
+          "weekday_cos": 0.9330287770864424,
+          "cp1": 0.27686415103469414,
+          "cp6": -0.09396237395720561,
+          "cp17": -0.248203588576227,
+          "cp29": -0.265636306602898
+        }
+      },
+      "scores_8_12h_before": [
+        {
+          "origin_kyiv": "2026-10-01T11:00:26+03:00",
+          "score": null,
+          "reason": "insufficient_history"
+        },
+        {
+          "origin_kyiv": "2026-10-01T12:00:26+03:00",
+          "score": null,
+          "reason": "insufficient_history"
+        },
+        {
+          "origin_kyiv": "2026-10-01T13:00:26+03:00",
+          "score": null,
+          "reason": "insufficient_history"
+        },
+        {
+          "origin_kyiv": "2026-10-01T14:00:26+03:00",
+          "score": 0.5379765022020779,
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "interpretation": "Logit decomposition explains model mechanics, not causal drivers of actual registration. Low scores do not prove signals cannot be learned. No changes or threshold tuning on the inspected events."
+}
