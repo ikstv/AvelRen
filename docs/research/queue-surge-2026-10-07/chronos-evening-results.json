@@ -1,0 +1,438 @@
+{
+  "model": "amazon/chronos-bolt-tiny",
+  "source_sha256": "8ac160497acab8380792013a55a7b4c510eb6af24343e2ef99f898e42f27b60e",
+  "checkpoint": 17,
+  "issuance_hours_kyiv": [
+    18,
+    19,
+    20,
+    21,
+    22
+  ],
+  "horizon": "8-24h, one 60min window",
+  "fixed_trigger": "median predicted net+20 over5min",
+  "context": "2048 five-minute observations, missing retained as NaN",
+  "fit": "none, zero-shot; no threshold selected using test",
+  "reserved_oct02_onward_used": false,
+  "excluded_origins": {
+    "purged_future": 10,
+    "past_quality": 6
+  },
+  "results": {
+    "validation": {
+      "alerts": 0,
+      "correct": 0,
+      "false": 0,
+      "eligible_events": 2,
+      "detected_events": 0,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0,
+      "matched_events": [],
+      "origins": 25,
+      "unassessable_alerts": 0,
+      "all_labeled_events": 2,
+      "excluded_events": [],
+      "max_predicted_5m_growth": 7.09698486328125
+    },
+    "exploratory_test": {
+      "alerts": 0,
+      "correct": 0,
+      "false": 0,
+      "eligible_events": 3,
+      "detected_events": 0,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0,
+      "matched_events": [],
+      "origins": 29,
+      "unassessable_alerts": 0,
+      "all_labeled_events": 4,
+      "excluded_events": [
+        1790884046
+      ],
+      "max_predicted_5m_growth": 7.427703857421875
+    }
+  },
+  "forecasts": [
+    {
+      "cp": 17,
+      "origin": 1789743606,
+      "start": 1789779606,
+      "predicted_max_5m_growth": 2.02288818359375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789747206,
+      "start": 1789808406,
+      "predicted_max_5m_growth": 1.68096923828125,
+      "assessable": false
+    },
+    {
+      "cp": 17,
+      "origin": 1789750806,
+      "start": 1789826406,
+      "predicted_max_5m_growth": 3.053009033203125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789754406,
+      "start": 1789830006,
+      "predicted_max_5m_growth": 3.41851806640625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789758006,
+      "start": 1789833606,
+      "predicted_max_5m_growth": 3.2480316162109375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789830023,
+      "start": 1789873223,
+      "predicted_max_5m_growth": 5.2086181640625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789833623,
+      "start": 1789912823,
+      "predicted_max_5m_growth": 4.13629150390625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789837223,
+      "start": 1789884023,
+      "predicted_max_5m_growth": 4.89886474609375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789840823,
+      "start": 1789891223,
+      "predicted_max_5m_growth": 3.71966552734375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789844423,
+      "start": 1789876823,
+      "predicted_max_5m_growth": 5.503662109375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789916423,
+      "start": 1789966823,
+      "predicted_max_5m_growth": 3.4066162109375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789920023,
+      "start": 1789988423,
+      "predicted_max_5m_growth": 3.32574462890625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789923623,
+      "start": 1789995623,
+      "predicted_max_5m_growth": 3.29888916015625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789927223,
+      "start": 1789995623,
+      "predicted_max_5m_growth": 3.1099853515625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1789930823,
+      "start": 1790002823,
+      "predicted_max_5m_growth": 3.18621826171875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790002813,
+      "start": 1790074813,
+      "predicted_max_5m_growth": 3.55938720703125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790006413,
+      "start": 1790064013,
+      "predicted_max_5m_growth": 3.289794921875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790010013,
+      "start": 1790060413,
+      "predicted_max_5m_growth": 2.7093505859375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790013613,
+      "start": 1790071213,
+      "predicted_max_5m_growth": 3.1126708984375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790017213,
+      "start": 1790085613,
+      "predicted_max_5m_growth": 3.6253662109375,
+      "assessable": false
+    },
+    {
+      "cp": 17,
+      "origin": 1790175613,
+      "start": 1790233213,
+      "predicted_max_5m_growth": 2.592376708984375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790179213,
+      "start": 1790215213,
+      "predicted_max_5m_growth": 4.336883544921875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790182813,
+      "start": 1790258413,
+      "predicted_max_5m_growth": 6.08843994140625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790186413,
+      "start": 1790244013,
+      "predicted_max_5m_growth": 7.09698486328125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790190013,
+      "start": 1790226013,
+      "predicted_max_5m_growth": 3.3258056640625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790348413,
+      "start": 1790406013,
+      "predicted_max_5m_growth": 2.357025146484375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790352013,
+      "start": 1790406013,
+      "predicted_max_5m_growth": 1.87213134765625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790355613,
+      "start": 1790391613,
+      "predicted_max_5m_growth": 2.876495361328125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790359213,
+      "start": 1790416813,
+      "predicted_max_5m_growth": 3.876617431640625,
+      "assessable": false
+    },
+    {
+      "cp": 17,
+      "origin": 1790362842,
+      "start": 1790420442,
+      "predicted_max_5m_growth": 4.479156494140625,
+      "assessable": false
+    },
+    {
+      "cp": 17,
+      "origin": 1790434842,
+      "start": 1790470842,
+      "predicted_max_5m_growth": 5.77349853515625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790438442,
+      "start": 1790470842,
+      "predicted_max_5m_growth": 7.1236572265625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790442042,
+      "start": 1790474442,
+      "predicted_max_5m_growth": 5.5740966796875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790445642,
+      "start": 1790478042,
+      "predicted_max_5m_growth": 5.489013671875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790449242,
+      "start": 1790499642,
+      "predicted_max_5m_growth": 5.25439453125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790521230,
+      "start": 1790593230,
+      "predicted_max_5m_growth": 3.3587646484375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790524830,
+      "start": 1790593230,
+      "predicted_max_5m_growth": 3.4176025390625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790528430,
+      "start": 1790564430,
+      "predicted_max_5m_growth": 4.39825439453125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790532030,
+      "start": 1790582430,
+      "predicted_max_5m_growth": 2.971435546875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790535630,
+      "start": 1790607630,
+      "predicted_max_5m_growth": 3.57757568359375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790607626,
+      "start": 1790676026,
+      "predicted_max_5m_growth": 3.08538818359375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790611226,
+      "start": 1790640026,
+      "predicted_max_5m_growth": 3.617401123046875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790614826,
+      "start": 1790683226,
+      "predicted_max_5m_growth": 2.829833984375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790618426,
+      "start": 1790686826,
+      "predicted_max_5m_growth": 3.11700439453125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790622026,
+      "start": 1790672426,
+      "predicted_max_5m_growth": 2.95819091796875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790694026,
+      "start": 1790776826,
+      "predicted_max_5m_growth": 3.20819091796875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790701226,
+      "start": 1790784026,
+      "predicted_max_5m_growth": 3.40985107421875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790704826,
+      "start": 1790769626,
+      "predicted_max_5m_growth": 3.03118896484375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790708426,
+      "start": 1790766026,
+      "predicted_max_5m_growth": 2.52618408203125,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790780426,
+      "start": 1790838026,
+      "predicted_max_5m_growth": 6.161285400390625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790784026,
+      "start": 1790820026,
+      "predicted_max_5m_growth": 7.427703857421875,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790787626,
+      "start": 1790823626,
+      "predicted_max_5m_growth": 7.322265625,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790791226,
+      "start": 1790848826,
+      "predicted_max_5m_growth": 5.900146484375,
+      "assessable": true
+    },
+    {
+      "cp": 17,
+      "origin": 1790794826,
+      "start": 1790870426,
+      "predicted_max_5m_growth": 6.65496826171875,
+      "assessable": false
+    }
+  ],
+  "limitation": "Historical exploratory dates previously inspected, not untouched acceptance. 288-step forecast extrapolates beyond native64. Median differences are a detector hypothesis, not calibrated surge probabilities; quantiles do not define joint trajectories. Net queue growth is not registration count."
+}

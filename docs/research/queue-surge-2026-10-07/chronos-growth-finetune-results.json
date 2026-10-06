@@ -1,0 +1,495 @@
+{
+  "source_sha256": "8ac160497acab8380792013a55a7b4c510eb6af24343e2ef99f898e42f27b60e",
+  "checkpoint": 17,
+  "method": "Chronos Bolt Tiny; maximum5min net growth per completed30min bin, no recursive horizon extension",
+  "split": "train Aug06-Sep17, validation Sep18-24, exploratory test Sep25-Oct01; Oct02+ reserved",
+  "training_windows": 544,
+  "validation_origins": 12,
+  "test_origins": 16,
+  "context_bins": 2048,
+  "future_bins": 48,
+  "minimum_lead_hours": 8,
+  "quality": "At least28 valid5min endpoints per30min bin, no internal gap>90s; missing NaN, not zero; target>=46 valid bins",
+  "training_steps": 100,
+  "batch_size": 2,
+  "learning_rate": 1e-05,
+  "seed": 20261007,
+  "training_seconds": 21.81,
+  "loss_first": 32.252288818359375,
+  "loss_last": 16.605064392089844,
+  "before": {
+    "threshold": 20.0,
+    "validation": {
+      "alerts": 0,
+      "correct": 0,
+      "false": 0,
+      "eligible_events": 2,
+      "detected_events": 0,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0,
+      "matched_events": [],
+      "unassessable_alerts": 0,
+      "maximum_score": 5.992888450622559,
+      "excluded_event_epochs": []
+    },
+    "exploratory_test": {
+      "alerts": 0,
+      "correct": 0,
+      "false": 0,
+      "eligible_events": 1,
+      "detected_events": 0,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0,
+      "matched_events": [],
+      "unassessable_alerts": 0,
+      "maximum_score": 4.353157043457031,
+      "excluded_event_epochs": [
+        1790884046
+      ]
+    },
+    "validation_predictions": [
+      {
+        "cp": 17,
+        "origin": 1789743600,
+        "start": 1789801200,
+        "score": 5.054372787475586,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789747200,
+        "start": 1789801200,
+        "score": 5.8538970947265625,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789750800,
+        "start": 1789801200,
+        "score": 5.838580131530762,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789754400,
+        "start": 1789804800,
+        "score": 5.715096473693848,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789758000,
+        "start": 1789804800,
+        "score": 5.280705451965332,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789830000,
+        "start": 1789887600,
+        "score": 5.992888450622559,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789833600,
+        "start": 1789887600,
+        "score": 5.902102470397949,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789837200,
+        "start": 1789887600,
+        "score": 5.688816070556641,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789840800,
+        "start": 1789887600,
+        "score": 5.80115270614624,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789844400,
+        "start": 1789887600,
+        "score": 5.476395606994629,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790175600,
+        "start": 1790247600,
+        "score": 3.8052635192871094,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790179200,
+        "start": 1790247600,
+        "score": 3.4692554473876953,
+        "assessable": true
+      }
+    ],
+    "test_predictions": [
+      {
+        "cp": 17,
+        "origin": 1790434800,
+        "start": 1790496000,
+        "score": 4.226776123046875,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790438400,
+        "start": 1790496000,
+        "score": 4.273375034332275,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790442000,
+        "start": 1790499600,
+        "score": 4.204441070556641,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790445600,
+        "start": 1790496000,
+        "score": 4.230116844177246,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790449200,
+        "start": 1790499600,
+        "score": 4.353157043457031,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790521200,
+        "start": 1790582400,
+        "score": 3.8505806922912598,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790524800,
+        "start": 1790582400,
+        "score": 3.9951233863830566,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790528400,
+        "start": 1790586000,
+        "score": 3.909627914428711,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790532000,
+        "start": 1790582400,
+        "score": 4.08507776260376,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790535600,
+        "start": 1790582400,
+        "score": 4.2265944480896,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790607600,
+        "start": 1790668800,
+        "score": 3.6213631629943848,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790611200,
+        "start": 1790668800,
+        "score": 4.016729354858398,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790614800,
+        "start": 1790672400,
+        "score": 3.875305414199829,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790618400,
+        "start": 1790668800,
+        "score": 4.312390327453613,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790622000,
+        "start": 1790668800,
+        "score": 4.313531398773193,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790780400,
+        "start": 1790859600,
+        "score": 4.062654495239258,
+        "assessable": true
+      }
+    ]
+  },
+  "after": {
+    "threshold": 10.880597114562988,
+    "validation": {
+      "alerts": 5,
+      "correct": 1,
+      "false": 4,
+      "eligible_events": 2,
+      "detected_events": 1,
+      "precision": 0.2,
+      "recall": 0.5,
+      "f1": 0.28571428571428575,
+      "matched_events": [
+        {
+          "cp": 17,
+          "issued_epoch": 1789743600,
+          "window_start_epoch": 1789790400,
+          "event_epoch": 1789790423
+        }
+      ],
+      "unassessable_alerts": 0,
+      "maximum_score": 17.214887619018555,
+      "excluded_event_epochs": []
+    },
+    "exploratory_test": {
+      "alerts": 0,
+      "correct": 0,
+      "false": 0,
+      "eligible_events": 1,
+      "detected_events": 0,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0,
+      "matched_events": [],
+      "unassessable_alerts": 0,
+      "maximum_score": 5.572607040405273,
+      "excluded_event_epochs": [
+        1790884046
+      ]
+    },
+    "validation_predictions": [
+      {
+        "cp": 17,
+        "origin": 1789743600,
+        "start": 1789790400,
+        "score": 10.880597114562988,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789747200,
+        "start": 1789801200,
+        "score": 13.84087085723877,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789750800,
+        "start": 1789801200,
+        "score": 14.26803207397461,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789754400,
+        "start": 1789801200,
+        "score": 14.086606979370117,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789758000,
+        "start": 1789801200,
+        "score": 17.214887619018555,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789830000,
+        "start": 1789887600,
+        "score": 4.911022186279297,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789833600,
+        "start": 1789887600,
+        "score": 4.379602432250977,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789837200,
+        "start": 1789887600,
+        "score": 4.029395580291748,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789840800,
+        "start": 1789887600,
+        "score": 4.019229412078857,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1789844400,
+        "start": 1789887600,
+        "score": 4.338449478149414,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790175600,
+        "start": 1790233200,
+        "score": 2.8927834033966064,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790179200,
+        "start": 1790229600,
+        "score": 2.7963051795959473,
+        "assessable": true
+      }
+    ],
+    "test_predictions": [
+      {
+        "cp": 17,
+        "origin": 1790434800,
+        "start": 1790496000,
+        "score": 2.98129940032959,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790438400,
+        "start": 1790499600,
+        "score": 2.6723263263702393,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790442000,
+        "start": 1790499600,
+        "score": 2.710024356842041,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790445600,
+        "start": 1790496000,
+        "score": 2.8612871170043945,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790449200,
+        "start": 1790496000,
+        "score": 2.821906089782715,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790521200,
+        "start": 1790582400,
+        "score": 4.674666404724121,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790524800,
+        "start": 1790586000,
+        "score": 5.050374984741211,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790528400,
+        "start": 1790586000,
+        "score": 4.720871448516846,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790532000,
+        "start": 1790582400,
+        "score": 4.829419136047363,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790535600,
+        "start": 1790586000,
+        "score": 4.962596893310547,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790607600,
+        "start": 1790686800,
+        "score": 4.766263961791992,
+        "assessable": true
+      },
+      {
+        "cp": 17,
+        "origin": 1790611200,
+        "start": 1790668800,
+        "score": 5.085068702697754,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790614800,
+        "start": 1790694000,
+        "score": 4.996207237243652,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790618400,
+        "start": 1790668800,
+        "score": 5.132170677185059,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790622000,
+        "start": 1790668800,
+        "score": 5.572607040405273,
+        "assessable": false
+      },
+      {
+        "cp": 17,
+        "origin": 1790780400,
+        "start": 1790845200,
+        "score": 2.9310083389282227,
+        "assessable": true
+      }
+    ]
+  },
+  "weights_sha256": "e55ebabfb04765f100968bf123e4d4cb9bc241c8de0760cfa8c53ca7d32a6de3",
+  "limitations": "Throwaway research only. Previously inspected test is not independent acceptance. Few events, upper quantile scores are not calibrated probabilities; net growth is not gross registrations. Repeated alerts counted false after first match. Fixed100steps, no test-based retuning. Server untouched."
+}
