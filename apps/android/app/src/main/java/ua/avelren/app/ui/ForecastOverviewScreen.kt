@@ -50,6 +50,8 @@ internal fun ForecastOverviewScreen(
     repository: SurgeMonitorClient, onBack: () -> Unit,
     notificationsAllowed: Boolean, onOpenNotificationSettings: () -> Unit,
     onCountForecast: (Int) -> Unit,
+    enqueueAck: ((Long) -> Unit)? = null,
+    refreshVersion: Int = 0,
 ) {
     val context = LocalContext.current
     val local = remember { SurgeLocalStore(context) }
@@ -137,7 +139,8 @@ internal fun ForecastOverviewScreen(
     fun acknowledge(alert: SurgeAlert) {
         val actions = SurgeMonitorActions(local) { id, kind ->
             SurgeVoiceDelivery.cancel(context, kind, id)
-            scope.launch { runCatching { SurgeAckWorker.enqueue(context, id) } }
+            if (enqueueAck != null) enqueueAck(id)
+            else scope.launch { runCatching { SurgeAckWorker.enqueue(context, id) } }
         }
         if (actions.acknowledge(alert.surge_alert_id, alert.kind)) {
             subscriptions = subscriptions.map { current ->
@@ -147,7 +150,7 @@ internal fun ForecastOverviewScreen(
             }
         } else error = "Не вдалося зберегти підтвердження. Спробуйте ще раз"
     }
-    LaunchedEffect(repository) {
+    LaunchedEffect(repository, refreshVersion) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) { refresh(); delay(60_000) }
         }

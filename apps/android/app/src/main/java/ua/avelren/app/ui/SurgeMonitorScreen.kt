@@ -10,6 +10,8 @@ fun SurgeMonitorScreen(
     notificationsAllowed: Boolean = false,
     onOpenNotificationSettings: () -> Unit = {},
     onCountForecast: (Int) -> Unit = {},
+    enqueueAck: ((Long) -> Unit)? = null,
+    refreshVersion: Int = 0,
 ) {
-    ForecastOverviewScreen(repository, onBack, notificationsAllowed, onOpenNotificationSettings, onCountForecast)
+    ForecastOverviewScreen(repository, onBack, notificationsAllowed, onOpenNotificationSettings, onCountForecast, enqueueAck, refreshVersion)
 }

@@ -113,6 +113,7 @@ android {
     }
 
     if (uiPreview) {
+        sourceSets.getByName("testDebug").java.srcDir("src/previewTest/java")
         sourceSets.getByName("debug") {
             manifest.srcFile("src/preview/AndroidManifest.xml")
             java.srcDir("src/preview/java")

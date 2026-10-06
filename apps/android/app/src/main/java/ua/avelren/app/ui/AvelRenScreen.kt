@@ -163,7 +163,7 @@ internal fun countryLabel(flag: String?): String {
  * коли карток стало більше трьох.
  */
 @Composable
-fun AvelRenScreen(
+internal fun AvelRenScreen(
     permissionState: NotificationPermissionState,
     onOpenNotificationSettings: () -> Unit,
     ignoringBatteryOptimizations: Boolean = true,
@@ -174,6 +174,13 @@ fun AvelRenScreen(
     updateState: PlayUpdateState = PlayUpdateState.AVAILABLE,
     updateActionPending: Boolean = false,
     onStartUpdate: () -> Unit = {},
+    screenClient: ua.avelren.app.data.AppScreenClient? = null,
+    surgeClient: ua.avelren.app.data.SurgeMonitorClient? = null,
+    adminClient: AdminAccessClient? = null,
+    adminServerClient: AdminServerClient? = null,
+    onOpenPrivacyPolicy: (() -> Unit)? = null,
+    enqueueSurgeAck: ((Long) -> Unit)? = null,
+    refreshVersion: Int = 0,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -208,11 +215,19 @@ fun AvelRenScreen(
     // сервера: subscriptions()/subscribe()/unsubscribe(). Флоу: тап по плитці →
     // пікер КПП → вибір порога (50/100/150/200) → subscribe.
     val scope = rememberCoroutineScope()
-    val installation = remember(context) { (context.applicationContext as AvelRenApp).installation }
-    val installationState by installation.state.collectAsStateWithLifecycle()
+    val installation = remember(context, screenClient) {
+        if (screenClient == null) (context.applicationContext as AvelRenApp).installation else null
+    }
+    val installationState = installation?.state?.collectAsStateWithLifecycle()?.value
+    val dataClient = remember(installation, screenClient) {
+        screenClient ?: ua.avelren.app.data.ProductionAppScreenClient(
+            requireNotNull(installation), mutationCredentials = { DeviceStore.credentials(context) },
+        )
+    }
     // Registration finishes asynchronously after a fresh install. Do not retain
     // the initial null credentials for the whole lifetime of this screen.
-    val creds = remember(installationState) { DeviceStore.credentials(context) }
+    val creds = remember(installationState) { if (installation != null) DeviceStore.credentials(context) else null }
+    val canChangeMonitors = screenClient != null || creds != null
     var subscriptions by remember { mutableStateOf<List<Api.Subscription>>(emptyList()) }
     var etaTargets by remember { mutableStateOf<List<Api.EtaTarget>>(emptyList()) }
     // Порожній список сам по собі НЕ означає «підписок немає» — рівно так само
@@ -229,7 +244,9 @@ fun AvelRenScreen(
     var pendingEtaCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Прогноз — read-only потік: вибір КПП відкриває окремий екран.
     var surgeOpen by remember { mutableStateOf(false) }
-    val surgeRepository = remember(installation) { ua.avelren.app.data.SurgeRepository(installation) }
+    val surgeRepository = remember(installation, surgeClient) {
+        surgeClient ?: ua.avelren.app.data.SurgeRepository(requireNotNull(installation))
+    }
     var showAiCpPicker by remember { mutableStateOf(false) }
     var pendingAiCp by remember { mutableStateOf<Api.Workload?>(null) }
     // Гейт беззвучної підписки (#117 крок 2): коли дозволу нема, вибір порога
@@ -250,13 +267,7 @@ fun AvelRenScreen(
             monitorsFailed = false
             try {
                 val result = withTimeout(15_000L) {
-                    installation.authenticatedCall { c ->
-                        coroutineScope {
-                            val subs = async { Api.subscriptions(c) }
-                            val targets = async { Api.etaTargets(c) }
-                            subs.await() to targets.await()
-                        }
-                    }
+                    dataClient.monitors()
                 }
                 // Publish a complete snapshot; preserve the previous one on errors.
                 subscriptions = result.first
@@ -312,12 +323,12 @@ fun AvelRenScreen(
         }
     }
     val removeRow: (MonitorRow) -> Unit = { row ->
-        creds?.let { c ->
+        if (canChangeMonitors) {
             scope.launch {
                 runCatching {
                     when (row.kind) {
-                        MonitorKind.THRESHOLD -> Api.unsubscribe(c, row.id)
-                        MonitorKind.ETA -> Api.deleteEtaTarget(c, row.id)
+                        MonitorKind.THRESHOLD -> dataClient.unsubscribe(row.id)
+                        MonitorKind.ETA -> dataClient.deleteEtaTarget(row.id)
                     }
                 }
                 loadMonitors()
@@ -330,16 +341,16 @@ fun AvelRenScreen(
     val refresh: suspend () -> Unit = {
         refreshMutex.withLock {
             val generation = networkGeneration
-            if (internet == InternetState.OFFLINE) {
+            if (screenClient == null && internet == InternetState.OFFLINE) {
                 responseSucceeded = false
                 loading = false
             } else coroutineScope {
                 val monitors = async { loadMonitors() }
                 val status = async {
-                    runCatching { Api.serverStatus() }
+                    runCatching { dataClient.serverStatus() }
                         .onFailure { if (it is CancellationException) throw it }
                 }
-                val wlRes = runCatching { Api.workload() }
+                val wlRes = runCatching { dataClient.workload() }
                     .onFailure { if (it is CancellationException) throw it }
                 if (generation == networkGeneration) {
                     workload = LiveRefresh.keepOnError(workload, wlRes)
@@ -367,6 +378,7 @@ fun AvelRenScreen(
     // інтернету екран лишався б із червоною плашкою до кінця 60-секундного
     // циклу. Обидві гілки живуть у тому ж RESUMED-скоупі, тож у фоні не
     // працюють і скасовуються разом.
+    LaunchedEffect(refreshVersion) { if (screenClient != null) refresh() }
     LaunchedEffect(lifecycleOwner, selected) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             launch {
@@ -407,7 +419,7 @@ fun AvelRenScreen(
         history = null
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             LiveRefresh.poll {
-                runCatching { Api.history(currentId, hours = 1) }
+                runCatching { dataClient.history(currentId) }
                     .onSuccess { h -> history = h.points.map { it.vehicles_in_queue } }
             }
         }
@@ -448,6 +460,8 @@ fun AvelRenScreen(
             notificationsAllowed = !notificationsSilent && ua.avelren.app.notify.Notifications.surgeChannelAllowed(context),
             onOpenNotificationSettings = onOpenNotificationSettings,
             onCountForecast = { id -> pendingAiCp = workload.firstOrNull { it.checkpoint_id == id } },
+            enqueueAck = enqueueSurgeAck,
+            refreshVersion = refreshVersion,
         )
     } else if (forecastOpen) {
         pendingAiCp?.let { cp ->
@@ -455,6 +469,7 @@ fun AvelRenScreen(
                 checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
                 checkpointId = cp.checkpoint_id,
                 onBack = { pendingAiCp = null },
+                loadForecast = dataClient::forecast,
             )
         }
     } else if (onMonitor) {
@@ -517,6 +532,9 @@ fun AvelRenScreen(
         }
     } else if (onSettings) {
         SettingsScreen(
+            adminClient = adminClient,
+            adminServerClient = adminServerClient,
+            onOpenPrivacyPolicy = onOpenPrivacyPolicy,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
@@ -689,9 +707,9 @@ fun AvelRenScreen(
                     // Дозволу нема — не підписуємо мовчки: спершу діалог вибору.
                     pendingSilentSub = cp to threshold
                 } else {
-                    creds?.let { c ->
+                    if (canChangeMonitors) {
                         scope.launch {
-                            runCatching { Api.subscribe(c, cp.checkpoint_id, threshold) }
+                            runCatching { dataClient.subscribe(cp.checkpoint_id, threshold) }
                             reloadSubs()
                         }
                     }
@@ -710,9 +728,9 @@ fun AvelRenScreen(
                 pendingSilentSub = null
             },
             onSubscribeAnyway = {
-                creds?.let { c ->
+                if (canChangeMonitors) {
                     scope.launch {
-                        runCatching { Api.subscribe(c, cp.checkpoint_id, threshold) }
+                        runCatching { dataClient.subscribe(cp.checkpoint_id, threshold) }
                         reloadSubs()
                     }
                 }
@@ -754,9 +772,9 @@ fun AvelRenScreen(
         EtaChooserDialog(
             checkpointTitle = monitorLabel(cp.flag_emoji, cp.title),
             onPick = { targetAtIso ->
-                creds?.let { c ->
+                if (canChangeMonitors) {
                     scope.launch {
-                        runCatching { Api.createEtaTarget(c, cp.checkpoint_id, targetAtIso) }
+                        runCatching { dataClient.createEtaTarget(cp.checkpoint_id, targetAtIso) }
                         reloadTargets()
                     }
                 }
@@ -1593,6 +1611,7 @@ private fun ForecastScreen(
     checkpointTitle: String,
     checkpointId: Int,
     onBack: () -> Unit,
+    loadForecast: suspend (Int) -> Api.Forecast,
 ) {
     var forecast by remember { mutableStateOf<Api.Forecast?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -1603,7 +1622,7 @@ private fun ForecastScreen(
         loading = true
         failed = false
         horizonStart = Instant.now()
-        runCatching { Api.forecast(checkpointId) }
+        runCatching { loadForecast(checkpointId) }
             .onSuccess { forecast = it; loading = false }
             .onFailure { failed = true; loading = false }
     }
@@ -1874,6 +1893,8 @@ internal fun ConfirmRemoveDialog(
 internal fun SettingsScreen(
     modifier: Modifier = Modifier,
     adminClient: AdminAccessClient? = null,
+    adminServerClient: AdminServerClient? = null,
+    onOpenPrivacyPolicy: (() -> Unit)? = null,
 ) {
     MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
         androidx.compose.material3.Surface(
@@ -1886,7 +1907,7 @@ internal fun SettingsScreen(
                     showServerStatus = false,
                     title = "Налаштування",
                 )
-                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient)
+                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient, onOpenPrivacyPolicy)
             }
         }
     }
