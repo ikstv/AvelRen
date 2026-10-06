@@ -51,6 +51,7 @@ internal fun ForecastOverviewScreen(
     notificationsAllowed: Boolean, onOpenNotificationSettings: () -> Unit,
     onCountForecast: (Int) -> Unit,
     enqueueAck: ((Long) -> Unit)? = null,
+    refreshVersion: Int = 0,
 ) {
     val context = LocalContext.current
     val local = remember { SurgeLocalStore(context) }
@@ -149,7 +150,7 @@ internal fun ForecastOverviewScreen(
             }
         } else error = "Не вдалося зберегти підтвердження. Спробуйте ще раз"
     }
-    LaunchedEffect(repository) {
+    LaunchedEffect(repository, refreshVersion) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) { refresh(); delay(60_000) }
         }

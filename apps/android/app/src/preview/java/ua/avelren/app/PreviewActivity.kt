@@ -37,10 +37,20 @@ class PreviewActivity : ComponentActivity() {
                         ua.avelren.app.ui.SurgeMonitorScreen(
                             repository = client, onBack = { finish() },
                             notificationsAllowed = ua.avelren.app.notify.Notifications.surgeChannelAllowed(this@PreviewActivity),
+                            enqueueAck = {},
                         )
                         return@MaterialTheme
                     }
                     val demo = remember { DemoAccess() }
+                    val localServer = remember {
+                        object : ua.avelren.app.ui.AdminServerClient {
+                            override suspend fun activeDevices() = Api.ActiveDevices(0, 90)
+                        }
+                    }
+                    val unavailable = {
+                        android.widget.Toast.makeText(this@PreviewActivity,
+                            "Недоступно в тестовій збірці", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                     var scenario by remember { mutableStateOf(PreviewScenario.FORECAST) }
                     var generation by remember { mutableStateOf(0) }
                     val client = remember { PreviewAppClient() }
@@ -64,15 +74,16 @@ class PreviewActivity : ComponentActivity() {
                             }
                         }
                         Box(Modifier.fillMaxWidth().weight(1f)) {
-                            key(generation) {
+                            run {
                                 ua.avelren.app.ui.AvelRenScreen(
                                     permissionState = ua.avelren.app.data.NotificationPermissionState.Granted,
-                                    onOpenNotificationSettings = {
-                                        android.widget.Toast.makeText(this@PreviewActivity,
-                                            "Недоступно в тестовій збірці", android.widget.Toast.LENGTH_SHORT).show()
-                                    },
+                                    onOpenNotificationSettings = unavailable,
                                     screenClient = client, surgeClient = client,
                                     adminClient = demo, enqueueSurgeAck = client::acknowledge,
+                                    adminServerClient = localServer,
+                                    onOpenPrivacyPolicy = unavailable,
+                                    onStartUpdate = unavailable,
+                                    refreshVersion = generation,
                                 )
                             }
                         }

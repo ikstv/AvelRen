@@ -177,7 +177,10 @@ internal fun AvelRenScreen(
     screenClient: ua.avelren.app.data.AppScreenClient? = null,
     surgeClient: ua.avelren.app.data.SurgeMonitorClient? = null,
     adminClient: AdminAccessClient? = null,
+    adminServerClient: AdminServerClient? = null,
+    onOpenPrivacyPolicy: (() -> Unit)? = null,
     enqueueSurgeAck: ((Long) -> Unit)? = null,
+    refreshVersion: Int = 0,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -338,7 +341,7 @@ internal fun AvelRenScreen(
     val refresh: suspend () -> Unit = {
         refreshMutex.withLock {
             val generation = networkGeneration
-            if (internet == InternetState.OFFLINE) {
+            if (screenClient == null && internet == InternetState.OFFLINE) {
                 responseSucceeded = false
                 loading = false
             } else coroutineScope {
@@ -375,6 +378,7 @@ internal fun AvelRenScreen(
     // інтернету екран лишався б із червоною плашкою до кінця 60-секундного
     // циклу. Обидві гілки живуть у тому ж RESUMED-скоупі, тож у фоні не
     // працюють і скасовуються разом.
+    LaunchedEffect(refreshVersion) { if (screenClient != null) refresh() }
     LaunchedEffect(lifecycleOwner, selected) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             launch {
@@ -457,6 +461,7 @@ internal fun AvelRenScreen(
             onOpenNotificationSettings = onOpenNotificationSettings,
             onCountForecast = { id -> pendingAiCp = workload.firstOrNull { it.checkpoint_id == id } },
             enqueueAck = enqueueSurgeAck,
+            refreshVersion = refreshVersion,
         )
     } else if (forecastOpen) {
         pendingAiCp?.let { cp ->
@@ -528,6 +533,8 @@ internal fun AvelRenScreen(
     } else if (onSettings) {
         SettingsScreen(
             adminClient = adminClient,
+            adminServerClient = adminServerClient,
+            onOpenPrivacyPolicy = onOpenPrivacyPolicy,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
@@ -1886,6 +1893,8 @@ internal fun ConfirmRemoveDialog(
 internal fun SettingsScreen(
     modifier: Modifier = Modifier,
     adminClient: AdminAccessClient? = null,
+    adminServerClient: AdminServerClient? = null,
+    onOpenPrivacyPolicy: (() -> Unit)? = null,
 ) {
     MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
         androidx.compose.material3.Surface(
@@ -1898,7 +1907,7 @@ internal fun SettingsScreen(
                     showServerStatus = false,
                     title = "Налаштування",
                 )
-                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient)
+                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient, onOpenPrivacyPolicy)
             }
         }
     }

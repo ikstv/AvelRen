@@ -223,7 +223,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "b36f34764822ee9bcd693ace32a164eaebc73ac320ccd8124f8074f7e5a70d4a",
+        "sha256": "aeecf5d7dbceb9426c536050688d25ca32d5c7546c547a33c226c9150292ca56",
         "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
@@ -245,7 +245,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "dd9933125cde28d6b43e1f36073a4491b8237b41ec8eb0c2dfbc3585144441f2",
+        "sha256": "1bf236f7c411588589b9bbe4ddbf4b3da64a8174940667a259226d449cfb2a0e",
         "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },
@@ -373,7 +373,7 @@
       "destination": "apps/android/app/src/preview/java/ua/avelren/app/PreviewActivity.kt",
       "sha256": "3b6b2394563e5c0c0b7d0866b5bc05d2dfef8f6acda0fc246a169b7f3db26357",
       "revision": {
-        "sha256": "08263ca6d7d6fb6ce009d6d8ee3f4fdd8d79c5a4e6385af750186ff3c1e9fa32",
+        "sha256": "3b2e3fef0a12158e30af559dd927365ef70394cf99b2cfd8b31815bd803439c2",
         "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
       }
     },

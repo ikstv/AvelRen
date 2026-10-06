@@ -19,6 +19,11 @@
 Маніфест: ua.avelren.app.preview, без INTERNET/Firebase init/FCM service.
 Це технічний APK з гілки: на телефон його не встановлювати. Review, CI,
 інтеграція, чистий main кандидат і телефонне приймання ще відкриті.
+Незалежний [review](audits/OFFLINE-PREVIEW-REVIEW-2026-10-06.md) знайшов
+offline-state та обхідні серверні залежності; внесено виправлення.
+Повторний повний прогін: 220 JVM-тестів без failures/errors, lint і assemble
+успішні, manifest/provenance перевірені. CI нового head і UI-приймання
+ще потрібні; review старого head не означає схвалення нового.
 
 ## Продовження системного голосу на ноутбуці — 06.10.2026
 

@@ -14,6 +14,7 @@ class PreviewAppClient(
     private val clock: () -> Instant = { Instant.now() },
 ) : AppScreenClient, SurgeMonitorClient {
     private var scenario = initial
+    private var lastOnlineScenario = initial
     private val catalog = listOf(
         SurgeCheckpoint(17, "Чоп", "Угорщина", "🇭🇺", true, true, true),
         SurgeCheckpoint(6, "Краківець", "Польща", "🇵🇱", true, true, true),
@@ -29,8 +30,11 @@ class PreviewAppClient(
     init { setScenario(initial) }
 
     fun setScenario(value: PreviewScenario) {
+        val recovering = scenario == PreviewScenario.OFFLINE && value == lastOnlineScenario
         scenario = value
         if (value == PreviewScenario.OFFLINE) return
+        if (recovering) return
+        lastOnlineScenario = value
         thresholds = emptyList(); targets = emptyList()
         selected = when (value) {
             PreviewScenario.EMPTY -> emptyList()

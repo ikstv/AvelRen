@@ -60,6 +60,8 @@ internal interface AdminServerClient {
 internal fun AdministrationSettings(
     modifier: Modifier = Modifier,
     client: AdminAccessClient? = null,
+    serverClient: AdminServerClient? = null,
+    onOpenPrivacyPolicy: (() -> Unit)? = null,
 ) {
     var page by rememberSaveable { mutableStateOf("menu") }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -81,7 +83,8 @@ internal fun AdministrationSettings(
                     page = "admin"
                 }
                 SettingsMenuItem("Політика конфіденційності", Icons.Default.Lock) {
-                    uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
+                    if (onOpenPrivacyPolicy != null) onOpenPrivacyPolicy()
+                    else uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
                 }
             }
         } else if (page == "theme") {
@@ -118,7 +121,7 @@ internal fun AdministrationSettings(
                 }
             }
             if (tab == 0) {
-                val server = remember {
+                val server = serverClient ?: remember {
                     object : AdminServerClient {
                         override suspend fun activeDevices() = Api.activeDevices()
                     }

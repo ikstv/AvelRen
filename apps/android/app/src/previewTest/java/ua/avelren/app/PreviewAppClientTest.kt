@@ -7,6 +7,13 @@ import org.junit.Test
 
 class PreviewAppClientTest {
     private val now = Instant.parse("2026-10-06T09:00:00Z")
+    @Test fun `return from offline preserves edited selection`() = runTest {
+        val client = PreviewAppClient(PreviewScenario.FIVE_CHECKPOINTS) { now }
+        client.removeSubscription(6)
+        client.setScenario(PreviewScenario.OFFLINE)
+        client.setScenario(PreviewScenario.FIVE_CHECKPOINTS)
+        assertEquals(listOf(17, 1, 29, 5), client.subscriptions().map { it.checkpoint_id })
+    }
     @Test fun `empty scenario has no subscriptions`() = runTest {
         assertTrue(PreviewAppClient(PreviewScenario.EMPTY) { now }.subscriptions().isEmpty())
     }
