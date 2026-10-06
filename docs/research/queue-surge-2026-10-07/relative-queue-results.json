@@ -1,0 +1,485 @@
+{
+  "source_sha256": "8ac160497acab8380792013a55a7b4c510eb6af24343e2ef99f898e42f27b60e",
+  "method": "Same eligible origins for frozen, raw refit control and relative-count refit; unchanged episode transitions; no parameter selection using test.",
+  "relative_feature": "(count - median of168 previous hourly samples)/(max20, Q75-Q25); require144 fresh hourly samples and7elapsed days",
+  "split": "Aug06-Sep17 train, Sep18-24 validation, Sep25-Oct01 exploratory test; full24h+5m horizon purged at boundaries",
+  "split_rows": [
+    2504,
+    276,
+    356
+  ],
+  "split_positive_rows": [
+    185,
+    22,
+    31
+  ],
+  "past_rejections": {
+    "1": 320,
+    "6": 320,
+    "17": 320,
+    "29": 320
+  },
+  "reports": {
+    "frozen": {
+      "threshold": 0.8789563370805348,
+      "fit": null,
+      "validation": {
+        "signals": 6,
+        "signals_with_growth": 4,
+        "false_signals": 2,
+        "eligible_events": 4,
+        "covered_events": 3,
+        "precision": 0.6666666666666666,
+        "recall": 0.75,
+        "selection_f1": 0.7058823529411765,
+        "chop": {
+          "signals": 3,
+          "false_signals": 1,
+          "eligible_events": 2,
+          "covered_events": 2,
+          "missed_event_epochs": []
+        },
+        "alerts": [
+          {
+            "cp": 6,
+            "origin": 1789678806,
+            "score": 0.8851794223151187,
+            "events": [
+              1789724166
+            ]
+          },
+          {
+            "cp": 6,
+            "origin": 1789696806,
+            "score": 0.8844925708139051,
+            "events": [
+              1789724166
+            ]
+          },
+          {
+            "cp": 6,
+            "origin": 1789722006,
+            "score": 0.8793042238869654,
+            "events": []
+          },
+          {
+            "cp": 17,
+            "origin": 1789682406,
+            "score": 0.8901130719222405,
+            "events": []
+          },
+          {
+            "cp": 17,
+            "origin": 1789711206,
+            "score": 0.8811684177274204,
+            "events": [
+              1789790423
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1789718406,
+            "score": 0.8798233079677631,
+            "events": [
+              1789790423,
+              1789799783
+            ]
+          }
+        ]
+      },
+      "exploratory_test": {
+        "signals": 3,
+        "signals_with_growth": 3,
+        "false_signals": 0,
+        "eligible_events": 3,
+        "covered_events": 2,
+        "precision": 1.0,
+        "recall": 0.6666666666666666,
+        "selection_f1": 0.8,
+        "chop": {
+          "signals": 3,
+          "false_signals": 0,
+          "eligible_events": 2,
+          "covered_events": 2,
+          "missed_event_epochs": []
+        },
+        "alerts": [
+          {
+            "cp": 17,
+            "origin": 1790337613,
+            "score": 0.8950124653180367,
+            "events": [
+              1790398962,
+              1790392002
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1790344813,
+            "score": 0.8883760913707515,
+            "events": [
+              1790398962,
+              1790392002
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1790359213,
+            "score": 0.8837136743952879,
+            "events": [
+              1790398962,
+              1790392002
+            ]
+          }
+        ]
+      }
+    },
+    "new_raw": {
+      "threshold": 0.85,
+      "fit": {
+        "iterations": 5,
+        "mean": [
+          808.6014376996806,
+          0.043530351437699684,
+          0.02036741214057508,
+          -0.16773162939297126,
+          -0.9456869009584664,
+          0.033346645367412144,
+          0.579073482428115,
+          0.043110736275890384,
+          0.051676833690398015,
+          -0.11219820767626534,
+          0.05120715757306553,
+          0.25,
+          0.25,
+          0.25,
+          0.25
+        ],
+        "std": [
+          461.570834301524,
+          3.7117729541468583,
+          6.767120084792735,
+          10.7630512333306,
+          23.982643263051674,
+          1.307459789165336,
+          0.4937077925014777,
+          0.7164015387849982,
+          0.6944348813992384,
+          0.7149790259659566,
+          0.6881819393418367,
+          0.4330127018922193,
+          0.4330127018922193,
+          0.4330127018922193,
+          0.4330127018922193
+        ],
+        "coefficients": [
+          -1.998546223491987,
+          -1.8836328906418665,
+          -0.03936977891350337,
+          -0.03306845311113892,
+          0.09216129852584375,
+          -0.002601752363307777,
+          -0.026190162217560726,
+          0.06811535190879853,
+          -0.02629723091790311,
+          0.03944381089588383,
+          -0.6792467635919298,
+          -0.47024260116631106,
+          -0.2768016845607481,
+          0.3534852726458451,
+          -0.14137142423990126,
+          0.06468783615480432
+        ]
+      },
+      "validation": {
+        "signals": 4,
+        "signals_with_growth": 3,
+        "false_signals": 1,
+        "eligible_events": 4,
+        "covered_events": 3,
+        "precision": 0.75,
+        "recall": 0.75,
+        "selection_f1": 0.75,
+        "chop": {
+          "signals": 3,
+          "false_signals": 1,
+          "eligible_events": 2,
+          "covered_events": 2,
+          "missed_event_epochs": []
+        },
+        "alerts": [
+          {
+            "cp": 6,
+            "origin": 1789678806,
+            "score": 0.8885320501657127,
+            "events": [
+              1789724166
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1789678806,
+            "score": 0.8749123945246289,
+            "events": []
+          },
+          {
+            "cp": 17,
+            "origin": 1789714806,
+            "score": 0.8625347748429408,
+            "events": [
+              1789790423,
+              1789799783
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1789722006,
+            "score": 0.8631285481495439,
+            "events": [
+              1789790423,
+              1789799783
+            ]
+          }
+        ]
+      },
+      "exploratory_test": {
+        "signals": 3,
+        "signals_with_growth": 3,
+        "false_signals": 0,
+        "eligible_events": 3,
+        "covered_events": 2,
+        "precision": 1.0,
+        "recall": 0.6666666666666666,
+        "selection_f1": 0.8,
+        "chop": {
+          "signals": 3,
+          "false_signals": 0,
+          "eligible_events": 2,
+          "covered_events": 2,
+          "missed_event_epochs": []
+        },
+        "alerts": [
+          {
+            "cp": 17,
+            "origin": 1790330413,
+            "score": 0.8652623589843986,
+            "events": [
+              1790398962,
+              1790392002
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1790348413,
+            "score": 0.8718838877318693,
+            "events": [
+              1790398962,
+              1790392002
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1790362842,
+            "score": 0.854232490040551,
+            "events": [
+              1790398962,
+              1790392002
+            ]
+          }
+        ]
+      }
+    },
+    "new_relative": {
+      "threshold": 0.9,
+      "fit": {
+        "iterations": 5,
+        "mean": [
+          -0.160156034520259,
+          0.043530351437699684,
+          0.02036741214057508,
+          -0.16773162939297126,
+          -0.9456869009584664,
+          0.033346645367412144,
+          0.579073482428115,
+          0.043110736275890384,
+          0.051676833690398015,
+          -0.11219820767626534,
+          0.05120715757306553,
+          0.25,
+          0.25,
+          0.25,
+          0.25
+        ],
+        "std": [
+          0.8959053330984177,
+          3.7117729541468583,
+          6.767120084792735,
+          10.7630512333306,
+          23.982643263051674,
+          1.307459789165336,
+          0.4937077925014777,
+          0.7164015387849982,
+          0.6944348813992384,
+          0.7149790259659566,
+          0.6881819393418367,
+          0.4330127018922193,
+          0.4330127018922193,
+          0.4330127018922193,
+          0.4330127018922193
+        ],
+        "coefficients": [
+          -1.339591658098144,
+          -1.1729625020082388,
+          -0.03274553139113339,
+          -0.027898485596854993,
+          0.11678061058280842,
+          0.023481440278945217,
+          -0.02076375648632216,
+          0.08449322287982934,
+          0.005008329749313036,
+          0.0719295651624455,
+          -0.868653506174114,
+          -0.5788203055273713,
+          -0.9197176806377275,
+          0.280274880758828,
+          0.696589604212143,
+          -0.057146804333240354
+        ]
+      },
+      "validation": {
+        "signals": 3,
+        "signals_with_growth": 2,
+        "false_signals": 1,
+        "eligible_events": 4,
+        "covered_events": 2,
+        "precision": 0.6666666666666666,
+        "recall": 0.5,
+        "selection_f1": 0.5714285714285715,
+        "chop": {
+          "signals": 3,
+          "false_signals": 1,
+          "eligible_events": 2,
+          "covered_events": 2,
+          "missed_event_epochs": []
+        },
+        "alerts": [
+          {
+            "cp": 17,
+            "origin": 1789678806,
+            "score": 0.919725218451504,
+            "events": []
+          },
+          {
+            "cp": 17,
+            "origin": 1789714806,
+            "score": 0.9079504160214981,
+            "events": [
+              1789790423,
+              1789799783
+            ]
+          },
+          {
+            "cp": 17,
+            "origin": 1789722006,
+            "score": 0.9042746730103618,
+            "events": [
+              1789790423,
+              1789799783
+            ]
+          }
+        ]
+      },
+      "exploratory_test": {
+        "signals": 1,
+        "signals_with_growth": 0,
+        "false_signals": 1,
+        "eligible_events": 3,
+        "covered_events": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "selection_f1": 0,
+        "chop": {
+          "signals": 1,
+          "false_signals": 1,
+          "eligible_events": 2,
+          "covered_events": 0,
+          "missed_event_epochs": [
+            1790392002,
+            1790398962
+          ]
+        },
+        "alerts": [
+          {
+            "cp": 17,
+            "origin": 1790283613,
+            "score": 0.9152265148331966,
+            "events": []
+          }
+        ]
+      }
+    }
+  },
+  "all_test_events": 5,
+  "eligible_test_events": 3,
+  "excluded_test_events": [
+    [
+      17,
+      1790865086
+    ],
+    [
+      17,
+      1790884046
+    ]
+  ],
+  "oct01_score_only_diagnostic": {
+    "frozen": [
+      {
+        "event_epoch": 1790865086,
+        "valid_origins": 19,
+        "maximum_score": 0.6532554269834809,
+        "above_threshold_origins": 0,
+        "note": "Score-only diagnostic, not an assessable event trial; no threshold/model changed."
+      },
+      {
+        "event_epoch": 1790884046,
+        "valid_origins": 16,
+        "maximum_score": 0.6532554269834809,
+        "above_threshold_origins": 0,
+        "note": "Score-only diagnostic, not an assessable event trial; no threshold/model changed."
+      }
+    ],
+    "new_raw": [
+      {
+        "event_epoch": 1790865086,
+        "valid_origins": 19,
+        "maximum_score": 0.40142716617826524,
+        "above_threshold_origins": 0,
+        "note": "Score-only diagnostic, not an assessable event trial; no threshold/model changed."
+      },
+      {
+        "event_epoch": 1790884046,
+        "valid_origins": 16,
+        "maximum_score": 0.40142716617826524,
+        "above_threshold_origins": 0,
+        "note": "Score-only diagnostic, not an assessable event trial; no threshold/model changed."
+      }
+    ],
+    "new_relative": [
+      {
+        "event_epoch": 1790865086,
+        "valid_origins": 19,
+        "maximum_score": 0.642338752104881,
+        "above_threshold_origins": 0,
+        "note": "Score-only diagnostic, not an assessable event trial; no threshold/model changed."
+      },
+      {
+        "event_epoch": 1790884046,
+        "valid_origins": 16,
+        "maximum_score": 0.642338752104881,
+        "above_threshold_origins": 0,
+        "note": "Score-only diagnostic, not an assessable event trial; no threshold/model changed."
+      }
+    ]
+  },
+  "limitations": "Few events, overlapping warnings not independent. Occurrence precision and unique event recall separate; selection F1 combines them only for validation. Scores uncalibrated. Relative feature selected after inspected historical results, not independent acceptance. Episodes begin only on eligible scoring origins; this restricted replay is not full production availability or device delivery. All model artifacts throwaway, no deployment."
+}
