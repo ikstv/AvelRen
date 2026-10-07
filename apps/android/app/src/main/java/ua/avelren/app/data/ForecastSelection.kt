@@ -2,7 +2,7 @@ package ua.avelren.app.data
 
 /** Локальний вибір для погодження UI; це не серверні підписки. */
 object ForecastSelection {
-    const val MAX = 5
+    const val MAX = 3
     fun parse(value: String?): List<Int> = value.orEmpty().split(',')
         .mapNotNull { it.toIntOrNull()?.takeIf { id -> id > 0 } }.distinct().take(MAX)
     fun add(current: List<Int>, id: Int): List<Int> =

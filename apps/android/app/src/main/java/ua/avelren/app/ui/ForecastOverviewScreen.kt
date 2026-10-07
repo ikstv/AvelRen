@@ -182,13 +182,13 @@ internal fun ForecastOverviewScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("До 5 КПП · прогноз і початок зростання", color = AppAccent,
+                    Text("До ${ForecastSelection.MAX} КПП · прогноз і початок зростання", color = AppAccent,
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                    Text("Прогноз — можливий початок масової реєстрації протягом 24 годин. Факт — уже почалось зростання черги. Про події повідомить телефон.",
+                    Text("Моніторинг черги та голосові повідомлення для трьох обраних КПП: прогноз можливого зростання й повідомлення про початок масової реєстрації.",
                         color = AppInk, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            item { Text("Вибрано ${ids.size} із 5", color = AppAccent, fontWeight = FontWeight.Bold) }
+            item { Text("Вибрано ${ids.size} із ${ForecastSelection.MAX}", color = AppAccent, fontWeight = FontWeight.Bold) }
             item {
                 if (ids.size < ForecastSelection.MAX) {
                     OutlinedButton(enabled = !busy && !loading && error == null, onClick = ua.avelren.app.ui.theme.hapticClick { picker = true }, modifier = Modifier.fillMaxWidth(),
@@ -281,7 +281,7 @@ internal fun ForecastOverviewScreen(
                         style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     TextButton(onClick = ua.avelren.app.ui.theme.hapticClick { picker = false }) { Text("Готово") }
                 }
-                Text("Вибрано ${ids.size} із 5", color = AppAccent, fontWeight = FontWeight.Bold)
+                Text("Вибрано ${ids.size} із ${ForecastSelection.MAX}", color = AppAccent, fontWeight = FontWeight.Bold)
                 if (ids.size >= ForecastSelection.MAX) Text("Щоб додати інший КПП, приберіть один із вибраних",
                     Modifier.padding(top = 8.dp), color = AppInk, style = MaterialTheme.typography.bodySmall)
                 if (checkpoints.isEmpty()) Text("Список КПП ще не завантажено. Поверніться до Моніторингу та перевірте інтернет.",
