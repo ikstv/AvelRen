@@ -22,7 +22,7 @@ class ServerStatusPresentationTest {
         for (cpu in listOf(0.0, 50.0, 100.0)) {
             val result = serverStatusPresentation(sample(cpu), now)
             assertEquals(cpu, result.percent!!, 0.001)
-            assertEquals("08.10 о 01:29", result.measuredAt)
+            assertEquals("сьогодні о 01:29", result.measuredAt)
         }
     }
 

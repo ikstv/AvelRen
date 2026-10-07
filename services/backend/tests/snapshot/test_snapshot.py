@@ -120,7 +120,8 @@ def test_resource_bytes_keep_available_memory_and_reserved_disk_separate(snapsho
     run, executable, tmp_path = snapshot
     mem = tmp_path / "meminfo"
     mem.write_text("MemTotal: 4096 kB\nMemAvailable: 1024 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n")
-    executable("df", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/test 1000 400 500 40%% /\\n'")
+    executable("df", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n"
+               "/dev/test 1000 400 500 40%% /\\n'")
     system = run(AVELREN_MEM_INFO=str(mem))["system"]
     assert system["memory_total_bytes"] == 4194304
     assert system["memory_used_bytes"] == 3145728

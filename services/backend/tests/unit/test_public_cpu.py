@@ -42,7 +42,8 @@ def public_cpu(tmp_path, monkeypatch):
         assert set(payload) == {"cpu_percent", "measured_at", "sample_seconds", "stale",
                                "memory", "disk", "traffic"}
         assert all(payload[name]["stale"] for name in ("memory", "disk", "traffic"))
-        return {name: payload[name] for name in ("cpu_percent", "measured_at", "sample_seconds", "stale")}
+        return {name: payload[name] for name in (
+            "cpu_percent", "measured_at", "sample_seconds", "stale")}
 
     return request
 

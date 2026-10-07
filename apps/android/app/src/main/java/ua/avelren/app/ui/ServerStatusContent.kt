@@ -55,7 +55,7 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
                     } else Text("Оновити")
                 }
             }
-            Text("Оновлено: ${presentation.measuredAt ?: "—"}",
+            Text("Оновлено ${presentation.measuredAt ?: "—"}",
                 modifier = Modifier.padding(vertical = 14.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -90,7 +90,7 @@ private fun ResourceStrip(label: String, status: ua.avelren.app.data.Api.ServerR
                 fontWeight = FontWeight.Bold)
         }
         CpuBar(p.percent)
-        if (p.timeLabel != null) Text("Оновлено: ${p.timeLabel}",
+        if (p.timeLabel != null) Text("Оновлено ${p.timeLabel}",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (traffic && p.percent != null) Text("Місяць: ${status?.billing_month}",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

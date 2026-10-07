@@ -2,8 +2,6 @@ package ua.avelren.app.ui
 
 import java.time.Instant
 import java.time.Duration
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import ua.avelren.app.data.Api
 
@@ -25,7 +23,6 @@ internal fun resourceStatusPresentation(status: Api.ServerResourceStatus?, now: 
     val divisor = if (traffic) { if (total >= 1000000000000L) 1e12 else 1e9 } else 1073741824.0
     val unit = if (traffic) { if (total >= 1000000000000L) "ТБ" else "ГБ" } else "ГіБ"
     val amount = String.format(Locale.ROOT, "%.1f / %.1f %s", used / divisor, total / divisor, unit)
-    val time = DateTimeFormatter.ofPattern("dd.MM 'о' HH:mm", Locale.ROOT)
-        .withZone(ZoneId.of("Europe/Kyiv")).format(measured)
+    val time = telemetryTimeLabel(measured, now)
     return ResourceStatusPresentation(amount, percent, (percent / 100.0).coerceIn(0.0, 1.0).toFloat(), time)
 }

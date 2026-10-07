@@ -12,6 +12,10 @@ used_bytes/total_bytes/measured_at/stale. Traffic додатково billing_mon
 Клієнт робить один запит при відкритті вкладки, далі лише вручну.
 Локальний таймер прибирає прострочені цифри без HTTP. Невдалий refresh
 позначає всі попередні показники неоновленими.
+Час вимірювання показується як «Оновлено сьогодні о HH:mm», «Оновлено
+вчора о HH:mm», а старіший — «Оновлено dd.MM о HH:mm»; для іншого року
+додається yyyy. Календарний день визначається в Europe/Kyiv, не UTC
+і не кількістю годин від вимірювання. Напис не змінює freshness.
 
 ## Traffic: окремий незавершений gate
 
@@ -34,7 +38,7 @@ APK/телефонне приймання потребують окремих д
 ## Перевірки кандидата
 
 Локально: backend unit 395; API integration 78; watchdog 9 і snapshot 16;
-Android JVM 246, compile/lint успішні. Dependency deprecation warnings,
+Android JVM 249, compile/lint успішні. Dependency deprecation warnings,
 34 Android lint warnings/6 hints і Timescale pg_dump circular-FK warning
 зафіксовані, не трактуються як відсутність зауважень.
 Незалежний read-only review не знайшов Critical; bounded reader до 1 МіБ
