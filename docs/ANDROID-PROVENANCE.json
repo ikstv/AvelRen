@@ -7,8 +7,8 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "ae1aa0ee81c401c522109b1fe4a645fdf51ce5cf8d2440c89aaf0a89da25b831",
-        "notes": "docs/ANDROID-FULL-TEST.md"
+        "sha256": "e0566fe3da86e21252a6b5db8b5e8c0a5af43e4f6e1a9390b46390702fc18691",
+        "notes": "docs/RELEASE-READINESS.md"
       }
     },
     {
@@ -223,7 +223,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "a758584b4a288d2b70dbf4c4e28139192e6584b202bc45b471a298e4579c4acc",
+        "sha256": "80977658bed0a449a4f84355949e47b932cd03e0251628f059cabaa31912b19a",
         "notes": "docs/RELEASE-READINESS.md"
       }
     },

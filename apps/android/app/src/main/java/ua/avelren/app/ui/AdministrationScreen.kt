@@ -188,7 +188,7 @@ private fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 private fun AboutContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val currentNotes = remember(context) {
-        context.assets.open("release-notes/v1.0.3.uk.txt")
+        context.assets.open("release-notes/v0.1.3.uk.txt")
             .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
     }
     val releaseNotes = remember(context) {
@@ -210,7 +210,7 @@ private fun AboutContent(modifier: Modifier = Modifier) {
     ) {
         Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(releaseHistoryHeading("1.0.3", Instant.parse("2026-10-07T00:00:00Z")), color = SignWarn, fontWeight = FontWeight.Bold)
+        Text(releaseHistoryHeading("0.1.3", Instant.parse("2026-10-07T00:00:00Z")), color = SignWarn, fontWeight = FontWeight.Bold)
         Text(currentNotes)
         HorizontalDivider()
         // publishedAt відповідних GitHub Releases, звірено 07.10.2026.
