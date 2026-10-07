@@ -292,7 +292,7 @@ private fun AdminAccessForm(
                     onValueChange = { value ->
                         if (isAllowedAdminPinInput(value)) pin = value
                     },
-                    label = { Text("PIN-код (4 цифри)") },
+                    label = { Text("Введіть пароль") },
                     shape = RoundedCornerShape(8.dp),
                     singleLine = true,
                     enabled = !busy,
@@ -301,7 +301,7 @@ private fun AdminAccessForm(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (current.state == "invalid_pin") {
-                    Text("Неправильний PIN-код. Залишилося спроб: ${current.attempts_remaining}.")
+                    Text("Неправильний пароль. Залишилося спроб: ${current.attempts_remaining}.")
                 }
                 Button(
                     shape = RoundedCornerShape(12.dp),
