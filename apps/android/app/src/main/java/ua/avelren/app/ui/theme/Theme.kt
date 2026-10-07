@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import android.app.Activity
+import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.getValue
@@ -112,5 +113,28 @@ fun Modifier.tapNoRipple(enabled: Boolean = true, onClick: () -> Unit): Modifier
     interactionSource = remember { MutableInteractionSource() },
     indication = null,
     enabled = enabled,
-    onClick = onClick,
+    onClick = hapticClick(onClick),
 )
+
+/** Same system-respecting tick as bottom navigation, once per accepted action. */
+@Composable
+fun hapticClick(onClick: () -> Unit): () -> Unit {
+    val view = LocalView.current
+    return {
+        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        onClick()
+    }
+}
+
+@Composable
+fun Modifier.hapticClickable(enabled: Boolean = true, onClick: () -> Unit): Modifier =
+    clickable(enabled = enabled, onClick = hapticClick(onClick))
+
+@Composable
+fun hapticToggle(onChange: (Boolean) -> Unit): (Boolean) -> Unit {
+    val view = LocalView.current
+    return { value ->
+        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        onChange(value)
+    }
+}

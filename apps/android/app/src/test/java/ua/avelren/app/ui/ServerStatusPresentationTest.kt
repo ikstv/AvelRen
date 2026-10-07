@@ -80,13 +80,40 @@ class ServerStatusPresentationTest {
         assertNull(state.error)
     }
 
+    @Test fun instantResponseRemainsBusyForVisibleFeedback() = runTest {
+        val state = ServerCpuLoader { sample() }
+        val refresh = launch { state.refresh() }
+        runCurrent()
+        assertTrue(state.busy)
+        advanceTimeBy(399)
+        runCurrent()
+        assertTrue(state.busy)
+        advanceTimeBy(1)
+        runCurrent()
+        assertFalse(state.busy)
+        refresh.join()
+    }
+
+    @Test fun slowResponseDoesNotAddAnotherVisibilityDelay() = runTest {
+        val response = CompletableDeferred<Api.ServerCpuStatus>()
+        val state = ServerCpuLoader { response.await() }
+        val refresh = launch { state.refresh() }
+        runCurrent()
+        advanceTimeBy(1000)
+        response.complete(sample())
+        runCurrent()
+        assertFalse(state.busy)
+        refresh.join()
+    }
+
     @Test fun stationaryScreenExpiresWithoutAnotherNetworkRequest() = runTest {
         var calls = 0
         val state = ServerCpuLoader { calls++; sample(stamp = "2026-10-07T22:30:00Z") }
         state.refresh()
+        val expiryStart = testScheduler.currentTime
         val expiry = launch { state.expireSnapshot { now.plusMillis(testScheduler.currentTime) } }
         runCurrent()
-        advanceTimeBy(300_000)
+        advanceTimeBy(300_000 - expiryStart)
         runCurrent()
         assertFalse(state.status!!.stale)
         advanceTimeBy(1)
