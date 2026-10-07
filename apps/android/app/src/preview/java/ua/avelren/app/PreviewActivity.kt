@@ -37,7 +37,19 @@ class PreviewActivity : ComponentActivity() {
                     val demo = remember { DemoAccess() }
                     val localServer = remember {
                         object : ua.avelren.app.ui.AdminServerClient {
-                            override suspend fun activeDevices() = Api.ActiveDevices(0, 90)
+                            override suspend fun serverCpuStatus(): Api.ServerCpuStatus {
+                                val fixture = intent.getStringExtra("cpu_fixture")
+                                if (fixture == "error") error("Synthetic offline")
+                                val cpu = when (fixture) {
+                                    "0" -> 0.0
+                                    "50" -> 50.0
+                                    "100" -> 100.0
+                                    "null" -> null
+                                    else -> 37.0
+                                }
+                                val measured = Instant.now().minusSeconds(if (fixture == "stale") 301 else 0)
+                                return Api.ServerCpuStatus(cpu, measured.toString(), 1, fixture == "stale")
+                            }
                         }
                     }
                     val unavailable = {

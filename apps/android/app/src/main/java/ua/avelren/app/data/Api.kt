@@ -66,6 +66,19 @@ object Api {
 
     private val base = BuildConfig.API_BASE_URL
 
+    @Serializable
+    data class ServerCpuStatus(
+        val cpu_percent: Double? = null,
+        val measured_at: String? = null,
+        val sample_seconds: Int? = null,
+        val stale: Boolean = true,
+    )
+
+    suspend fun serverCpuStatus(): ServerCpuStatus = serverCpuStatusWith(client)
+
+    internal suspend fun serverCpuStatusWith(http: HttpClient): ServerCpuStatus =
+        http.get("$base/server/status").body()
+
     suspend fun serverStatus(): PublicServerStatus = client.get("$base/status") {
         timeout { requestTimeoutMillis = 5_000 }
     }.body()

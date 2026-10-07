@@ -3,7 +3,10 @@
 import hashlib
 import json
 import os
+import select
 import subprocess
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -128,3 +131,80 @@ def test_pin_absent_or_unknown(snapshot):
     run, _, tmp_path = snapshot
     assert run(SYNTHETIC_PIN="/different/path")["docker"]["migrate_pin_active"] is False
     assert run(AVELREN_STACK_DIR=str(tmp_path / "missing"))["docker"]["migrate_pin_active"] is None
+
+
+@pytest.fixture
+def cpu_samples(snapshot):
+    run, _, tmp_path = snapshot
+
+    def sample(first, second, **overrides):
+        fifo = tmp_path / "cpu-stat"
+        os.mkfifo(fifo)
+        stop = threading.Event()
+
+        def write_samples():
+            # Each sample belongs to one reader; wait for its close before
+            # offering the next one. No timing guess between the two samples.
+            for row in (first, second):
+                fd = None
+                deadline = time.monotonic() + 10
+                while not stop.is_set() and time.monotonic() < deadline:
+                    try:
+                        fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+                        break
+                    except OSError:
+                        stop.wait(0.01)
+                if fd is None:
+                    return
+                try:
+                    os.write(fd, (row + "\n").encode())
+                    poll = select.poll()
+                    poll.register(fd, select.POLLERR)
+                    while not stop.is_set() and time.monotonic() < deadline:
+                        if poll.poll(20):
+                            break
+                except BrokenPipeError:
+                    return
+                finally:
+                    os.close(fd)
+
+        writer = threading.Thread(target=write_samples, daemon=True)
+        writer.start()
+        try:
+            return run(AVELREN_CPU_STAT=str(fifo), **overrides)
+        finally:
+            stop.set()
+            writer.join(timeout=1)
+
+    return sample
+
+
+@pytest.mark.parametrize("second,expected", [
+    ("cpu 130 0 120 850 0 0 0 0 0 0", 50.0),
+    ("cpu 100 0 100 900 0 0 0 0 0 0", 0.0),
+    ("cpu 200 0 100 800 0 0 0 0 0 0", 100.0),
+    ("cpu 100 0 100 800 100 0 0 0 0 0", 0.0),
+    ("cpu 150 0 100 850 0 0 0 0 50 0", 50.0),
+    ("cpu 100 0 100 800 0 0 0 0 0 0", None),
+    ("cpu 99 0 100 901 0 0 0 0 0 0", None),
+    ("cpu invalid 0 100 800 0 0 0 0 0 0", None),
+])
+def test_cpu_snapshot_measures_busy_time(cpu_samples, second, expected):
+    data = cpu_samples("cpu 100 0 100 800 0 0 0 0 0 0", second)
+    system = data["system"]
+    assert "cpu_percent" in system
+    assert system["cpu_percent"] == expected
+    assert system["cpu_sample_seconds"] == 1
+    stamp = datetime.fromisoformat(system["cpu_measured_at"].replace("Z", "+00:00"))
+    assert stamp.tzinfo == UTC
+
+
+def test_cpu_timestamp_precedes_slow_remaining_probe(cpu_samples, snapshot):
+    _, executable, _ = snapshot
+    probe = executable("slow-apt-check", "sleep 2; echo '5;2' >&2")
+    data = cpu_samples("cpu 100 0 100 800 0 0 0 0 0 0",
+                       "cpu 130 0 120 850 0 0 0 0 0 0", AVELREN_APT_CHECK=str(probe))
+    assert data["system"].get("cpu_measured_at") is not None
+    measured = datetime.fromisoformat(data["system"]["cpu_measured_at"].replace("Z", "+00:00"))
+    finished = datetime.fromisoformat(data["collected_at"].replace("Z", "+00:00"))
+    assert (finished - measured).total_seconds() >= 2

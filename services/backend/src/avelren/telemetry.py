@@ -19,6 +19,7 @@ if it writes observations; the sender is alive if it sends.
 """
 
 import json
+import math
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,6 +50,38 @@ SNAPSHOT_PATH = Path(os.environ.get("AVELREN_TELEMETRY_SNAPSHOT", "/telemetry/ho
 # A snapshot older than 5 min is considered stale: the timer has a 1-min
 # interval, so the margin is fourfold and covers a short pause without false alarms.
 SNAPSHOT_MAX_AGE_SECONDS = 300
+
+
+def public_cpu_status(now: datetime) -> dict:
+    """Лише CPU: жодне приватне поле знімка не проходить у публічний API."""
+    unavailable = {"cpu_percent": None, "measured_at": None,
+                   "sample_seconds": None, "stale": True}
+    try:
+        snap = _snapshot()
+    except ValueError:
+        return unavailable
+    if not isinstance(snap, dict) or not isinstance(snap.get("system"), dict):
+        return unavailable
+    data = snap["system"]
+    stamp = data.get("cpu_measured_at")
+    try:
+        if not isinstance(stamp, str):
+            return unavailable
+        measured = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if measured.tzinfo is None or measured.utcoffset() is None:
+            return unavailable
+        measured_utc = measured.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        age = (now - measured).total_seconds()
+    except (ValueError, OverflowError):
+        return unavailable
+    cpu = data.get("cpu_percent")
+    sample = data.get("cpu_sample_seconds")
+    sample_valid = type(sample) is int and sample == 1
+    valid_cpu = (type(cpu) in (int, float) and 0 <= cpu <= 100 and math.isfinite(cpu))
+    stale = not (0 <= age <= SNAPSHOT_MAX_AGE_SECONDS and valid_cpu and sample_valid)
+    return {"cpu_percent": cpu if not stale else None,
+            "measured_at": measured_utc,
+            "sample_seconds": 1 if sample_valid else None, "stale": stale}
 
 
 def _snapshot() -> dict:

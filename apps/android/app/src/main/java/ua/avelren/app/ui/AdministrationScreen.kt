@@ -25,7 +25,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -53,7 +52,7 @@ internal interface AdminAccessClient {
 }
 
 internal interface AdminServerClient {
-    suspend fun activeDevices(): Api.ActiveDevices
+    suspend fun serverCpuStatus(): Api.ServerCpuStatus
 }
 
 @Composable
@@ -79,7 +78,7 @@ internal fun AdministrationSettings(
             ) {
                 SettingsMenuItem("Тема", Icons.Default.Palette) { page = "theme" }
                 SettingsMenuItem("Про додаток", Icons.Default.Info) { page = "about" }
-                SettingsMenuItem("Адміністрування", Icons.Default.AdminPanelSettings) {
+                SettingsMenuItem("Для адміна", Icons.Default.AdminPanelSettings) {
                     page = "admin"
                 }
                 SettingsMenuItem("Політика конфіденційності", Icons.Default.Lock) {
@@ -110,7 +109,7 @@ internal fun AdministrationSettings(
             SettingsPageHeader("Про додаток") { page = "menu" }
             AboutContent(Modifier.fillMaxWidth().weight(1f))
         } else {
-            SettingsPageHeader("Адміністрування") { page = "menu" }
+            SettingsPageHeader("Для адміна") { page = "menu" }
             TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary) {
                 listOf("Сервер", "Admin").forEachIndexed { index, label ->
@@ -123,10 +122,10 @@ internal fun AdministrationSettings(
             if (tab == 0) {
                 val server = serverClient ?: remember {
                     object : AdminServerClient {
-                        override suspend fun activeDevices() = Api.activeDevices()
+                        override suspend fun serverCpuStatus() = Api.serverCpuStatus()
                     }
                 }
-                AdminServerContent(server, Modifier.fillMaxWidth().weight(1f))
+                ServerStatusContent(server, Modifier.fillMaxWidth().weight(1f))
             } else {
                 val application = LocalContext.current.applicationContext
                 // The ID identifies this installation on the server.  It is not the
@@ -220,53 +219,6 @@ private fun AboutContent(modifier: Modifier = Modifier) {
         Text(releaseHistoryHeading("0.1.0", Instant.parse("2026-09-24T11:05:47Z")),
             color = SignWarn, fontWeight = FontWeight.Bold)
         Text(earlierNotes)
-    }
-}
-
-@Composable
-private fun AdminServerContent(server: AdminServerClient, modifier: Modifier = Modifier) {
-    val scope = rememberCoroutineScope()
-    var count by remember { mutableStateOf<Int?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    suspend fun load() {
-        busy = true
-        error = null
-        try {
-            val result = server.activeDevices()
-            count = result.active_devices
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ClientRequestException) {
-            count = null
-            error = when (e.response.status) {
-                HttpStatusCode.NotFound -> "Показник ще не доступний на сервері."
-                else -> "Не вдалося отримати кількість пристроїв."
-            }
-        } catch (_: Exception) {
-            count = null
-            error = "Не вдалося отримати кількість пристроїв."
-        } finally {
-            busy = false
-        }
-    }
-
-    LaunchedEffect(Unit) { load() }
-    Column(modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text("Активні пристрої —", Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium, maxLines = 1,
-                overflow = TextOverflow.Ellipsis)
-            Text(count?.toString() ?: "…", style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold, maxLines = 1)
-        }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (busy) CircularProgressIndicator(Modifier.size(24.dp))
-        TextButton(onClick = { scope.launch { load() } }, enabled = !busy) {
-            Text("Оновити")
-        }
     }
 }
 
