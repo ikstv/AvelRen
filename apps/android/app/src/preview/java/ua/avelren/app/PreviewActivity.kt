@@ -48,7 +48,17 @@ class PreviewActivity : ComponentActivity() {
                                     else -> 37.0
                                 }
                                 val measured = Instant.now().minusSeconds(if (fixture == "stale") 301 else 0)
-                                return Api.ServerCpuStatus(cpu, measured.toString(), 1, fixture == "stale")
+                                val stale = fixture == "stale" || fixture == "null"
+                                val memory = Api.ServerResourceStatus(1073741824, 4294967296,
+                                    measured.toString(), stale)
+                                val disk = Api.ServerResourceStatus(12884901888, 42949672960,
+                                    measured.toString(), stale)
+                                val traffic = Api.ServerResourceStatus(
+                                    if (fixture == "over-quota") 22000000000000 else 150000000000,
+                                    20000000000000, measured.toString(), stale,
+                                    java.time.YearMonth.now(java.time.ZoneOffset.UTC).toString())
+                                return Api.ServerCpuStatus(cpu, measured.toString(), 1, stale,
+                                    memory, disk, if (fixture == "partial") null else traffic)
                             }
                         }
                     }

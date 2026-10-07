@@ -22,7 +22,7 @@ class ServerStatusPresentationTest {
         for (cpu in listOf(0.0, 50.0, 100.0)) {
             val result = serverStatusPresentation(sample(cpu), now)
             assertEquals(cpu, result.percent!!, 0.001)
-            assertEquals("08.10 о 01:29", result.measuredAt)
+            assertEquals("сьогодні о 01:29", result.measuredAt)
         }
     }
 
@@ -121,5 +121,32 @@ class ServerStatusPresentationTest {
         assertTrue(state.status!!.stale)
         assertEquals(1, calls)
         expiry.join()
+    }
+
+    @Test fun resourcesExpireEvenWhenCpuIsUnavailable() = runTest {
+        val state = ServerCpuLoader { Api.ServerCpuStatus(memory = Api.ServerResourceStatus(
+            40, 100, "2026-10-07T22:30:00Z", false)) }
+        state.refresh()
+        val expiry = launch { state.expireSnapshot { now.plusMillis(testScheduler.currentTime) } }
+        runCurrent()
+        advanceTimeBy(300_001)
+        runCurrent()
+        assertTrue(state.status!!.memory!!.stale)
+        expiry.join()
+    }
+
+    @Test fun failedRefreshInvalidatesEveryResource() = runTest {
+        var fail = false
+        val resource = Api.ServerResourceStatus(40, 100, "2026-10-07T22:30:00Z", false)
+        val state = ServerCpuLoader {
+            if (fail) throw IllegalStateException("offline")
+            Api.ServerCpuStatus(memory = resource, disk = resource, traffic = resource)
+        }
+        state.refresh()
+        fail = true
+        state.refresh()
+        assertTrue(state.status!!.memory!!.stale)
+        assertTrue(state.status!!.disk!!.stale)
+        assertTrue(state.status!!.traffic!!.stale)
     }
 }

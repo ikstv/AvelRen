@@ -67,11 +67,23 @@ object Api {
     private val base = BuildConfig.API_BASE_URL
 
     @Serializable
+    data class ServerResourceStatus(
+        val used_bytes: Long? = null,
+        val total_bytes: Long? = null,
+        val measured_at: String? = null,
+        val stale: Boolean = true,
+        val billing_month: String? = null,
+    )
+
+    @Serializable
     data class ServerCpuStatus(
         val cpu_percent: Double? = null,
         val measured_at: String? = null,
         val sample_seconds: Int? = null,
         val stale: Boolean = true,
+        val memory: ServerResourceStatus? = null,
+        val disk: ServerResourceStatus? = null,
+        val traffic: ServerResourceStatus? = null,
     )
 
     suspend fun serverCpuStatus(): ServerCpuStatus = serverCpuStatusWith(client)

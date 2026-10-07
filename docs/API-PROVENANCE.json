@@ -7,7 +7,7 @@
       "destination": "services/backend/src/avelren/api.py",
       "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
       "revision": {
-        "sha256": "07ae80618aaab52f342e4a042a6a99ade755a7b42d4dea0d7ecf17c0a493bd05",
+        "sha256": "3e164f20eaac9f08b390346047c73603b8c28f88b4da70142041f8832fe0e5c9",
         "notes": "docs/RELEASE-READINESS.md"
       }
     },
@@ -65,7 +65,7 @@
       "destination": "services/backend/src/avelren/telemetry.py",
       "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
       "revision": {
-        "sha256": "210d85ff899c095eac7c1a51feb18ee38d19fd5bc1dcd3ee831a17a26b220792",
+        "sha256": "facc7a6025c9bada26be42d2b8a24f829d43d09dbcb313df136d4f16b8561f35",
         "notes": "docs/RELEASE-READINESS.md"
       }
     },

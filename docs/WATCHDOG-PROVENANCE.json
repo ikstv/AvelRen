@@ -8,7 +8,7 @@
       "destination": "services/backend/src/avelren/watchdog.py",
       "sha256": "85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d",
       "revision": {
-        "sha256": "75a15d6d4d0d292432485615db4720bcd911ffd32f8f2821a9beb271fded0428",
+        "sha256": "6bfedd2ccee5b0a9306f3348a8c80747d3f358706ccb23b68014c3adc7a74cc0",
         "notes": "docs/RELEASE-READINESS.md"
       }
     },
@@ -20,7 +20,7 @@
       "destination": "ops/telemetry-snapshot.sh",
       "sha256": "577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966",
       "revision": {
-        "sha256": "40eac808d322935626db3f0e64da9b69d4e13cce4e110d53744682eb9c90d2d2",
+        "sha256": "c07f9332b7e868c84f7f22a5f0a0b0890495e3610bc5ffcffe32c01d4454def1",
         "notes": "docs/RELEASE-READINESS.md"
       }
     },

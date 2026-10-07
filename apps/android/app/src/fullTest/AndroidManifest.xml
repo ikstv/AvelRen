@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Real AvelRenApp/MainActivity/FCM from main; only the public label differs. -->
+    <application android:label="AvelRen — 1.0.3 Test" tools:replace="android:label" />
+</manifest>
