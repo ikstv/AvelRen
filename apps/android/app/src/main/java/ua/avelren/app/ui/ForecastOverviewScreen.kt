@@ -268,7 +268,7 @@ internal fun ForecastOverviewScreen(
 
         }
         HorizontalDivider(color = AppAccent.copy(alpha = 0.25f))
-        Text("Функція працює в тестовому режимі і вона тільки в розробці",
+        Text("Функція в розробці",
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             color = AppInk, style = MaterialTheme.typography.bodySmall)
     }
