@@ -25,7 +25,16 @@ ruff і bash -n успішні, маніфести походження звір
 Нові 30 API unit-тестів бачили RED→GREEN; повний suite — 370 passed,
 2 наявні deprecation warnings; ruff успішний. Контрактний CI нового API
 ще очікується; старий сервер без endpoint поверне 404, не 0%.
-Android-екран, новий CPU-APK і deployment ще не реалізовані/не прийняті.
+Контрактний API CI b3f47bb: 78 passed (run 37584481197).
+Android-екран реалізований у гілці: «Для адміна», загальнодоступний
+«Стан сервера», CPU й дата біля ручного «Оновити». Legacy activeDevices
+і Admin auth не видалені. Preview має лише локальні cpu_fixture
+0/50/100/null/stale/error; стандартний CPU — синтетичні 37%.
+Шість presentation/loader і два HTTP-тести спершу впали; повний
+офлайн Android suite — 238 тестів, compile та lint успішні (0 errors,
+34 warnings, 6 hints; також наявне попередження SDK XML version).
+Маніфест Android: 64 записи та asset provenance успішно звірені. Незалежний review,
+погоджена інтеграція, чистий main APK, телефон і deployment не прийняті.
 Hash-контракт snapshot/watchdog синхронізується
 разом; встановлений production snapshot у цьому кроці не змінюється.
 
