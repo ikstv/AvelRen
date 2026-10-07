@@ -27,7 +27,7 @@
 - Повторний швидкий натиск і вихід з екрана: немає паралельних запитів чи поглинання cancellation; Task 3.
 - Великий шрифт/довгий текст помилки: час, кнопка й статус доступні без обрізання; Task 3 + телефонне приймання.
 
-## Task 1: CPU у штатному host snapshot
+### Task 1: CPU у штатному host snapshot
 
 **Files:** `ops/telemetry-snapshot.sh`, `services/backend/tests/snapshot/test_snapshot.py`,
 `services/backend/src/avelren/watchdog.py`, `docs/WATCHDOG-PROVENANCE.json`.
@@ -50,7 +50,7 @@
 - [ ] Повторити watchdog suite, повний backend unit suite, ruff, provenance і bash -n.
 - [ ] Зафіксувати коміт українською разом із записом readiness; без встановлення скрипта на сервер.
 
-## Task 2: Вузький публічний GET
+### Task 2: Вузький публічний GET
 
 **Files:** `services/backend/src/avelren/telemetry.py`, `services/backend/src/avelren/api.py`,
 new `services/backend/tests/unit/test_public_cpu.py`, `docs/API-PROVENANCE.json`,
@@ -75,7 +75,7 @@ cpu_percent, measured_at, sample_seconds, stale; немає БД чи subprocess
   `bash scripts/test_database.sh api` у тимчасовому Docker-проєкті без production volumes.
 - [ ] Зафіксувати коміт і обмеження старого сервера (404), без deployment.
 
-## Task 3: Публічний екран CPU
+### Task 3: Публічний екран CPU
 
 **Files:** `apps/android/app/src/main/java/ua/avelren/app/data/Api.kt`,
 `apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt`,

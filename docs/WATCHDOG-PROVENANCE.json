@@ -8,8 +8,8 @@
       "destination": "services/backend/src/avelren/watchdog.py",
       "sha256": "85bd832bec5bd71d4c301f5fc73d2364966e52fd0641c3b64f5548b4050dee2d",
       "revision": {
-        "sha256": "7736727fdeb4c6c29985baf6f3d72fbbb4cb534d4200b1930e2b0fd0d983c1e4",
-        "notes": "docs/DAILY-REPORT.md"
+        "sha256": "75a15d6d4d0d292432485615db4720bcd911ffd32f8f2821a9beb271fded0428",
+        "notes": "docs/RELEASE-READINESS.md"
       }
     },
     {
@@ -18,7 +18,11 @@
       "checkout_commit": "81e5b047f8f18c42ca46a59f86495f71d0681af0",
       "source": "/opt/avelren/deploy/telemetry-snapshot.sh",
       "destination": "ops/telemetry-snapshot.sh",
-      "sha256": "577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966"
+      "sha256": "577aa6c1b213174f2ef1a6211a5047a96aeed36f188cdd00cffa0f37ad731966",
+      "revision": {
+        "sha256": "40eac808d322935626db3f0e64da9b69d4e13cce4e110d53744682eb9c90d2d2",
+        "notes": "docs/RELEASE-READINESS.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

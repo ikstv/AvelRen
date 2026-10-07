@@ -56,6 +56,34 @@ read -r load1 load5 _rest < /proc/loadavg
 uptime_seconds=$(awk '{print int($1)}' /proc/uptime)
 cpu_count=$(nproc)
 
+# Справжня частка зайнятого CPU за одну секунду, незалежно від клієнтів.
+# Guest уже врахований у user/nice; не додаємо його до total повторно.
+CPU_STAT=${AVELREN_CPU_STAT:-/proc/stat}
+cpu_before=""
+cpu_after=""
+IFS= read -r cpu_before < "$CPU_STAT" || cpu_before=""
+sleep 1
+IFS= read -r cpu_after < "$CPU_STAT" || cpu_after=""
+cpu_measured_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cpu_percent=$(awk -v first="$cpu_before" -v second="$cpu_after" '
+    BEGIN {
+        n = split(first, a); m = split(second, b)
+        if (n < 9 || m < 9 || a[1] != "cpu" || b[1] != "cpu") {
+            print "null"; exit
+        }
+        total = 0; idle = 0
+        for (i = 2; i <= 9; i++) {
+            if (a[i] !~ /^[0-9]+$/ || b[i] !~ /^[0-9]+$/ || b[i]+0 < a[i]+0) {
+                print "null"; exit
+            }
+            delta = (b[i]+0) - (a[i]+0)
+            total += delta
+            if (i == 5 || i == 6) idle += delta
+        }
+        if (total <= 0 || idle > total) print "null"
+        else printf "%.1f\n", 100 * (total - idle) / total
+    }')
+
 mem_total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
 mem_avail_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
 swap_total_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
@@ -373,6 +401,9 @@ cat > "$TMP" <<JSON
     "load_1m": $load1,
     "load_5m": $load5,
     "cpu_count": $cpu_count,
+    "cpu_percent": $cpu_percent,
+    "cpu_measured_at": "$cpu_measured_at",
+    "cpu_sample_seconds": 1,
     "memory_total_mb": $(( mem_total_kb / 1024 )),
     "memory_used_mb": $(( (mem_total_kb - mem_avail_kb) / 1024 )),
     "swap_total_mb": $(( swap_total_kb / 1024 )),
