@@ -480,15 +480,16 @@ internal fun AvelRenScreen(
             )
         }
     } else if (onMonitor) {
-        // Екран «Моніторинг»: 4 плитки на всю висоту. Header фіксований зверху,
-        // три плитки-дії й «Ваш моніторинг» ділять решту простору вагами (список
-        // отримує трохи більше й скролиться, якщо рядків багато).
+        // Природна висота плиток: великий системний шрифт не стискає текст.
+        // Сторінка має один скрол, без вкладеного скролу списку підписок.
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = bottomChromePadding),
+                .padding(bottom = bottomChromePadding)
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HeaderRow(
@@ -507,29 +508,29 @@ internal fun AvelRenScreen(
                 title = "Пороги",
                 subtitle = "Сповістити, коли черга сягне певної кількості авто",
                 onClick = { showThresholdCpPicker = true },
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 icon = { TileIcon(Icons.Filled.BarChart) },
             )
             ActionTile(
                 title = "Час в'їзду",
                 subtitle = "Сповістити, коли черга дійде до бажаного часу в'їзду",
                 onClick = { showEtaCpPicker = true },
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 icon = { TileIcon(Icons.Filled.HourglassEmpty) },
             )
             ActionTile(
                 title = "Прогноз черги",
                 subtitle = "Кілька КПП · прогноз, початок зростання та голос",
                 onClick = { surgeOpen = true },
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 icon = { TileIcon(Icons.Filled.AutoAwesome) },
             )
             MonitoringTile(
                 rows = monitorRows,
                 onRemove = { pendingRemove = it },
-                modifier = Modifier.fillMaxWidth().weight(1.5f),
+                modifier = Modifier.fillMaxWidth(),
                 homeStyle = true,
-                fill = true,
+                fill = false,
                 loaded = monitorsLoaded,
                 loading = monitorsLoading,
                 failed = monitorsFailed,
@@ -935,13 +936,13 @@ private fun WifiOffIcon(modifier: Modifier = Modifier) {
 
 // --- Плитка «Ваш моніторинг» ----------------------------------------------
 // Список того, що користувач моніторить: пороги + час в'їзду. Кожен запис —
-// бейдж (поріг «100» / час «06:00»), назва КПП, і ПОТОЧНЕ значення праворуч
-// (скільки авто в черзі зараз / поточний час в'їзду) з живих даних, ✕ прибрати.
+// Поріг або дата й час цілі, повна назва КПП та окреме поточне вимірювання.
+// Червоний хрестик відкриває підтвердження прибирання.
 enum class MonitorKind { THRESHOLD, ETA }
 
 /**
- * @param badge   значення підписки (поріг або час в'їзду).
- * @param label   назва КПП (прапор + до дужки).
+ * @param badge   значення підписки (поріг або дата й час цілі в'їзду).
+ * @param label   повна назва КПП із прапором та уточненням типу вантажівки.
  * @param current поточний стан цього КПП зараз (черга або час в'їзду).
  * @param kind    тип — визначає, який DELETE викликати при прибиранні.
  * @param id      id підписки/цілі на сервері.
@@ -1041,34 +1042,42 @@ private fun MonitoringTile(
 }
 
 /**
- * Рядок моніторингу: бейдж у жовтій рамці, назва КПП, поточний стан праворуч
- * («зараз N» авто для порога / поточний час в'їзду для eta), ✕ прибрати.
+ * Назва КПП має власний рядок; ціль та поточний стан підписані окремо.
+ * Кнопка прибирання спільна з прогнозом і відкриває підтвердження.
  */
 @Composable
 private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemove: () -> Unit) {
-    val view = LocalView.current
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .border(1.dp, WatchRowBorder, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            row.badge,
-            color = HeroYellow,
-            fontWeight = FontWeight.Black,
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontFeatureSettings = TabularNumberFeature,
-            ),
-            modifier = Modifier
-                .widthIn(min = 44.dp)
-                .border(1.5.dp, HeroYellow, RoundedCornerShape(8.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
+        // Назва має власний рядок і не конкурує з датою та числом за ширину.
+        Text(row.label, color = AppInk, style = MaterialTheme.typography.bodySmall,
+            fontSize = 12.5.sp, modifier = Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    when (row.kind) {
+                        MonitorKind.THRESHOLD -> "Поріг: ${row.badge} авто"
+                        MonitorKind.ETA -> "Ціль: ${row.badge}"
+                    },
+                    color = HeroYellow, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TabularNumberFeature),
+                )
+                Text(
+                    when (row.kind) {
+                        MonitorKind.THRESHOLD -> "Зараз: ${row.current} авто"
+                        MonitorKind.ETA -> "В’їзд за поточною чергою: ${row.current}"
+                    },
+                    color = AppInk, fontSize = 12.5.sp,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TabularNumberFeature),
+                )
+            }
+            RemoveCheckpointButton(row.label, onClick = onRemove)
+        }
         if (notificationsSilent) {
             // Позначка «беззвучна» — суто зі стану дозволу в момент рендеру.
             // Зникне сама, щойно дозвіл з'явиться (нічого не збережено в підписці).
@@ -1080,57 +1089,13 @@ private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemo
                     .padding(horizontal = 5.dp, vertical = 3.dp),
             )
         }
-        Text(
-            row.label,
-            color = AppInk,
-            style = MaterialTheme.typography.bodySmall,
-            fontSize = 12.5.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        // Поточний стан цього КПП зараз (жива черга / час в'їзду). Мітка
-        // залежить від типу рядка: під «зараз» стояли то авто, то дата, і
-        // прочитати 06:00-бейдж поряд із датою було неможливо.
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                when (row.kind) {
-                    MonitorKind.THRESHOLD -> "зараз, авто"
-                    MonitorKind.ETA -> "в'їзд"
-                },
-                color = EmptyInk,
-                fontWeight = FontWeight.Bold,
-                fontSize = 8.sp,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                row.current,
-                color = AppInk,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.5.sp,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontFeatureSettings = TabularNumberFeature,
-                ),
-            )
-        }
-        Text(
-            "✕",
-            color = AppInk.copy(alpha = 0.5f),
-            fontSize = 15.sp,
-            modifier = Modifier
-                .tapNoRipple {
-                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    onRemove()
-                }
-                .padding(2.dp),
-        )
     }
 }
 
 // --- Екран «Моніторинг»: плитки-дії та додавання порога -------------------
-/** Короткий підпис КПП для рядків моніторингу: прапор + назва до дужки. */
+/** Повний підпис: уточнення типу вантажівки є частиною назви КПП. */
 private fun monitorLabel(flag: String?, title: String): String =
-    "${flag ?: ""} ${title.substringBefore(" (")}".trim()
+    "${flag ?: ""} $title".trim()
 
 /**
  * Плитка-дія (напр. «Пороги») — скляна панель, уся клікабельна, з тактильним
@@ -1475,13 +1440,13 @@ private fun ThresholdChooserDialog(
 }
 
 // --- Час в'їзду: бейдж, підписи днів та діалог вибору ----------------------
-private val ETA_HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val ETA_DAY_FMT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("EE dd.MM", java.util.Locale("uk"))
 
-/** Бейдж eta-рядка — час цілі «HH:mm» у київському поясі. */
+/** Дата й час цілі: не плутати завтра з сьогоднішнім вимірюванням. */
 private fun etaBadge(iso: String): String = runCatching {
-    OffsetDateTime.parse(iso).atZoneSameInstant(KYIV).format(ETA_HH_MM)
+    OffsetDateTime.parse(iso).atZoneSameInstant(KYIV)
+        .format(DateTimeFormatter.ofPattern("dd.MM.uuuu 'о' HH:mm"))
 }.getOrDefault("—")
 
 /** Підпис дня для чипів: СЬОГОДНІ / ЗАВТРА / «ПТ 22.08». */
@@ -2055,7 +2020,7 @@ private fun NavTab(
             color = color,
             fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
             textAlign = TextAlign.Center,
         )
     }

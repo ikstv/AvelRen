@@ -229,7 +229,8 @@ internal fun ForecastOverviewScreen(
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (error == null) "Відстежується" else "Немає зв’язку", Modifier.weight(1f), color = AppInk,
                                 style = MaterialTheme.typography.bodySmall)
-                            TextButton(enabled = !busy, onClick = { pendingRemove = id }) { Text("Прибрати") }
+                            RemoveCheckpointButton(cp?.title ?: "КПП №$id", enabled = !busy,
+                                onClick = { pendingRemove = id })
                         }
                         cp?.let {
                             SurgePresentation.availabilityHint(it, if (error == null) snapshots[id] else null)?.let { message ->
