@@ -13,6 +13,7 @@ on:
       - 'docs/ASSETS.md'
       - 'scripts/verify_android.py'
       - 'scripts/verify_push_qa.py'
+      - 'scripts/verify_full_test.py'
       - '.github/workflows/android.yml'
       - '.gitattributes'
   push:
@@ -29,6 +30,7 @@ on:
       - 'docs/ASSETS.md'
       - 'scripts/verify_android.py'
       - 'scripts/verify_push_qa.py'
+      - 'scripts/verify_full_test.py'
       - '.github/workflows/android.yml'
       - '.gitattributes'
 permissions:
@@ -59,6 +61,22 @@ jobs:
       - name: Окремий FCM QA — компіляція без справжнього Firebase
         working-directory: apps/android
         run: bash gradlew -PavelrenPushQa=true -PavelrenPushQaConfig=app/src/pushQa/fixture.properties :app:assembleDebug :app:lintDebug --no-daemon --max-workers=2
+      - name: Повний Test — реальний застосунок без запуску Firebase
+        working-directory: apps/android
+        run: bash gradlew -PavelrenFullTest=true -PavelrenFullTestConfig=app/src/fullTest/fixture.properties :app:testDebugUnitTest :app:compileDebugKotlin :app:processDebugManifest :app:lintDebug --no-daemon --max-workers=2
+      - name: Контракт повного Test
+        run: python3 scripts/verify_full_test.py
+      - name: Заборона release повного Test
+        working-directory: apps/android
+        shell: bash
+        run: |
+          if bash gradlew -PavelrenFullTest=true -PavelrenFullTestConfig=app/src/fullTest/fixture.properties :app:assembleRelease --dry-run --no-daemon --max-workers=2 > "$RUNNER_TEMP/full-test-release.log" 2>&1; then
+            echo 'Unexpected full Test release acceptance'; exit 1
+          fi
+          grep -q 'Android test modes are debug-only' "$RUNNER_TEMP/full-test-release.log"
+      - name: Повторна генерація ізольованого FCM QA контракту
+        working-directory: apps/android
+        run: bash gradlew -PavelrenPushQa=true -PavelrenPushQaConfig=app/src/pushQa/fixture.properties :app:processDebugManifest :app:generateDebugBuildConfig --no-daemon --max-workers=2
       - name: Ізоляція готового FCM QA пакета
         run: python3 scripts/verify_push_qa.py
       - name: Заборона release для FCM QA

@@ -7,8 +7,8 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "37c647a239dde040a2cc9715496c9631651ccbeea4ae64d9dab9eb502d41c5f9",
-        "notes": "docs/ANDROID-PUSH-QA.md"
+        "sha256": "ae1aa0ee81c401c522109b1fe4a645fdf51ce5cf8d2440c89aaf0a89da25b831",
+        "notes": "docs/ANDROID-FULL-TEST.md"
       }
     },
     {

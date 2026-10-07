@@ -12,11 +12,12 @@ plugins {
 val uiPreview = providers.gradleProperty("avelrenUiPreview").orNull == "true"
 val connectedTest = providers.gradleProperty("avelrenConnectedTest").orNull == "true"
 val pushQa = providers.gradleProperty("avelrenPushQa").orNull == "true"
-check(listOf(uiPreview, connectedTest, pushQa).count { it } <= 1) {
+val fullTest = providers.gradleProperty("avelrenFullTest").orNull == "true"
+check(listOf(uiPreview, connectedTest, pushQa, fullTest).count { it } <= 1) {
     "Android test modes are mutually exclusive"
 }
-if (!uiPreview && !connectedTest && !pushQa) apply(plugin = "com.google.gms.google-services")
-if (uiPreview || connectedTest || pushQa) {
+if (!uiPreview && !connectedTest && !pushQa && !fullTest) apply(plugin = "com.google.gms.google-services")
+if (uiPreview || connectedTest || pushQa || fullTest) {
     gradle.taskGraph.whenReady {
         check(allTasks.none { it.name.contains("release", ignoreCase = true) }) {
             "Android test modes are debug-only"
@@ -26,11 +27,14 @@ if (uiPreview || connectedTest || pushQa) {
 
 // Firebase public client configuration, kept separate from the production client.
 val pushQaProps = Properties().apply {
-    if (pushQa) {
-        val config = rootProject.file(providers.gradleProperty("avelrenPushQaConfig").orNull ?: "push-qa.properties")
+    if (pushQa || fullTest) {
+        val config = rootProject.file(if (fullTest)
+            providers.gradleProperty("avelrenFullTestConfig").orNull ?: "full-test.properties"
+        else providers.gradleProperty("avelrenPushQaConfig").orNull ?: "push-qa.properties")
         check(config.isFile) { "Push QA requires its own client configuration" }
         config.inputStream().use { load(it) }
-        check(getProperty("packageName") == "ua.avelren.app.pushqa") { "Push QA client package mismatch" }
+        val expectedPackage = if (fullTest) "ua.avelren.app.test" else "ua.avelren.app.pushqa"
+        check(getProperty("packageName") == expectedPackage) { "Test client package mismatch" }
         for (key in listOf("googleAppId", "senderId", "apiKey", "projectId")) {
             check(!getProperty(key).isNullOrBlank()) { "Push QA client field missing: $key" }
         }
@@ -95,6 +99,14 @@ android {
                 resValue("string", "google_api_key", pushQaProps.getProperty("apiKey"))
                 resValue("string", "project_id", pushQaProps.getProperty("projectId"))
             }
+            if (fullTest) {
+                applicationIdSuffix = ".test"
+                versionNameSuffix = "-test"
+                resValue("string", "google_app_id", pushQaProps.getProperty("googleAppId"))
+                resValue("string", "gcm_defaultSenderId", pushQaProps.getProperty("senderId"))
+                resValue("string", "google_api_key", pushQaProps.getProperty("apiKey"))
+                resValue("string", "project_id", pushQaProps.getProperty("projectId"))
+            }
         }
         release {
             // First release ships unminified on purpose: minify + resource
@@ -130,6 +142,9 @@ android {
             manifest.srcFile("src/pushQa/AndroidManifest.xml")
             java.srcDir("src/pushQa/java")
         }
+    }
+    if (fullTest) {
+        sourceSets.getByName("debug").manifest.srcFile("src/fullTest/AndroidManifest.xml")
     }
 
     compileOptions {

@@ -68,7 +68,6 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
         CpuBar(presentation.percent)
         ResourceStrip("RAM", loader.status?.memory, 300)
         ResourceStrip("Disk Memory Usage", loader.status?.disk, 300)
-        ResourceStrip("Traffic Usage", loader.status?.traffic, 7200, traffic = true)
         when {
             loader.error != null -> Text(loader.error!!, color = MaterialTheme.colorScheme.error)
             !loader.busy && presentation.percent == null -> Text("Немає свіжих даних CPU.",
