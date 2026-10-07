@@ -210,7 +210,7 @@ private fun AboutContent(modifier: Modifier = Modifier) {
     ) {
         Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(releaseHistoryHeading("1.0.3", null), color = SignWarn, fontWeight = FontWeight.Bold)
+        Text(releaseHistoryHeading("1.0.3", Instant.parse("2026-10-07T00:00:00Z")), color = SignWarn, fontWeight = FontWeight.Bold)
         Text(currentNotes)
         HorizontalDivider()
         // publishedAt відповідних GitHub Releases, звірено 07.10.2026.
