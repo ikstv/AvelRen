@@ -12,7 +12,14 @@ class ResourceStatusPresentationTest {
         val p = resourceStatusPresentation(Api.ServerResourceStatus(0, 1073741824,
             "2026-10-07T12:00:00Z", false), now, 300)
         assertEquals(0.0, p.percent!!, 0.0)
-        assertEquals("0.0 / 1.0 ГіБ", p.amountLabel)
+        assertEquals("0.0 / 1.1 GB", p.amountLabel)
+    }
+
+    @Test fun memoryAndDiskUseDecimalGigabytesWithoutChangingPercent() {
+        val p = resourceStatusPresentation(Api.ServerResourceStatus(2000000000, 4000000000,
+            "2026-10-07T12:00:00Z", false), now, 300)
+        assertEquals("2.0 / 4.0 GB", p.amountLabel)
+        assertEquals(50.0, p.percent!!, 0.0)
     }
 
     @Test fun trafficOverageFillsButKeepsRealPercent() {

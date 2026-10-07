@@ -1,9 +1,11 @@
 package ua.avelren.app.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -60,12 +62,16 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("CPU", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            Text(presentation.percent?.let { String.format(Locale.ROOT, "%.1f%%", it) } ?: "—",
-                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxWidth()
+            .border(1.dp, SignWarn.copy(alpha = 0.65f), RoundedCornerShape(16.dp)).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("CPU", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Text(presentation.percent?.let { String.format(Locale.ROOT, "%.1f%%", it) } ?: "—",
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            CpuBar(presentation.percent)
         }
-        CpuBar(presentation.percent)
         ResourceStrip("RAM", loader.status?.memory, 300)
         ResourceStrip("Disk Memory Usage", loader.status?.disk, 300)
         when {
@@ -81,16 +87,20 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
 private fun ResourceStrip(label: String, status: ua.avelren.app.data.Api.ServerResourceStatus?,
     maxAgeSeconds: Long, traffic: Boolean = false) {
     val p = resourceStatusPresentation(status, Instant.now(), maxAgeSeconds, traffic)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(label, style = MaterialTheme.typography.titleMedium)
-            Text(p.amountLabel ?: "Дані недоступні", style = MaterialTheme.typography.bodySmall)
+    Column(Modifier.fillMaxWidth()
+        .border(1.dp, SignWarn.copy(alpha = 0.65f), RoundedCornerShape(16.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(label, style = MaterialTheme.typography.titleMedium)
+                Text(p.amountLabel ?: "Дані недоступні", style = MaterialTheme.typography.bodySmall)
+            }
             Text(p.percent?.let { String.format(Locale.ROOT, "%.1f%%", it) } ?: "—",
-                fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                maxLines = 1, softWrap = false)
         }
         CpuBar(p.percent)
-        if (p.timeLabel != null) Text("Оновлено ${p.timeLabel}",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (traffic && p.percent != null) Text("Місяць: ${status?.billing_month}",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
