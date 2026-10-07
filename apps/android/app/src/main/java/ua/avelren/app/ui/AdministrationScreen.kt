@@ -2,7 +2,7 @@ package ua.avelren.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import ua.avelren.app.ui.theme.hapticClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,7 +78,7 @@ internal fun AdministrationSettings(
             ) {
                 SettingsMenuItem("Тема", Icons.Default.Palette) { page = "theme" }
                 SettingsMenuItem("Про додаток", Icons.Default.Info) { page = "about" }
-                SettingsMenuItem("Для адміна", Icons.Default.AdminPanelSettings) {
+                SettingsMenuItem("Для розробника", Icons.Default.AdminPanelSettings) {
                     page = "admin"
                 }
                 SettingsMenuItem("Політика конфіденційності", Icons.Default.Lock) {
@@ -92,11 +92,11 @@ internal fun AdministrationSettings(
                 listOf(ThemeChoice.DARK to "Темна (за замовчуванням)", ThemeChoice.LIGHT to "Світла").forEach { (choice, label) ->
                     Row(
                         Modifier.fillMaxWidth().border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                            .clickable { scope.launch { UiPrefs.setTheme(context, choice) } }.padding(16.dp),
+                            .hapticClickable { scope.launch { UiPrefs.setTheme(context, choice) } }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = choice == selectedTheme,
-                            onClick = { scope.launch { UiPrefs.setTheme(context, choice) } })
+                            onClick = ua.avelren.app.ui.theme.hapticClick { scope.launch { UiPrefs.setTheme(context, choice) } })
                         Column(Modifier.padding(start = 12.dp)) {
                             Text(label, fontWeight = FontWeight.Bold)
                             Text(if (choice == ThemeChoice.DARK) "Чорна з жовтим" else "Світла з червоним",
@@ -109,11 +109,11 @@ internal fun AdministrationSettings(
             SettingsPageHeader("Про додаток") { page = "menu" }
             AboutContent(Modifier.fillMaxWidth().weight(1f))
         } else {
-            SettingsPageHeader("Для адміна") { page = "menu" }
+            SettingsPageHeader("Для розробника") { page = "menu" }
             TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary) {
                 listOf("Сервер", "Admin").forEachIndexed { index, label ->
-                    Tab(selected = tab == index, onClick = { tab = index },
+                    Tab(selected = tab == index, onClick = ua.avelren.app.ui.theme.hapticClick { tab = index },
                         selectedContentColor = MaterialTheme.colorScheme.primary,
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         text = { Text(label, fontWeight = FontWeight.Bold) })
@@ -156,7 +156,7 @@ private fun SettingsMenuItem(label: String, icon: ImageVector, onClick: () -> Un
     val shape = RoundedCornerShape(12.dp)
     Row(
         Modifier.fillMaxWidth().border(1.5.dp, SignWarn.copy(alpha = 0.5f), shape)
-            .clickable(onClick = onClick).heightIn(min = 60.dp)
+            .hapticClickable(onClick = onClick).heightIn(min = 60.dp)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -171,7 +171,7 @@ private fun SettingsMenuItem(label: String, icon: ImageVector, onClick: () -> Un
 @Composable
 private fun SettingsPageHeader(title: String, onBack: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = ua.avelren.app.ui.theme.hapticClick(onBack)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
         }
         Text(title, style = MaterialTheme.typography.titleMedium)
@@ -306,7 +306,7 @@ private fun AdminAccessForm(
                 Button(
                     shape = RoundedCornerShape(12.dp),
                     enabled = !busy && isValidAdminPin(pin),
-                    onClick = {
+                    onClick = ua.avelren.app.ui.theme.hapticClick {
                         focusManager.clearFocus()
                         keyboard?.hide()
                         val submitted = pin
@@ -334,7 +334,7 @@ private fun AdminAccessForm(
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         if (!busy && current?.state !in listOf("ready", "invalid_pin", "authorized", "preview_authorized")) {
-            TextButton(onClick = { scope.launch { load() } }) { Text("Оновити стан") }
+            TextButton(onClick = ua.avelren.app.ui.theme.hapticClick { scope.launch { load() } }) { Text("Оновити стан") }
         }
     }
 }

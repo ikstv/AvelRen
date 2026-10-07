@@ -12,6 +12,8 @@ import io.ktor.client.plugins.ClientRequestException
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import ua.avelren.app.data.Api
 
 internal data class ServerStatusPresentation(val percent: Double?, val measuredAt: String?)
@@ -55,15 +57,21 @@ internal class ServerCpuLoader(private val fetch: suspend () -> Api.ServerCpuSta
         busy = true
         error = null
         try {
-            status = fetch()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            status = status?.copy(stale = true)
-            error = if (failure is ClientRequestException && failure.response.status == HttpStatusCode.NotFound) {
-                "CPU ще недоступний на сервері."
-            } else {
-                "Не вдалося оновити дані. Перевірте з’єднання та спробуйте ще раз."
+            coroutineScope {
+                val visibleFeedback = launch { delay(400) }
+                try {
+                    status = fetch()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    status = status?.copy(stale = true)
+                    error = if (failure is ClientRequestException && failure.response.status == HttpStatusCode.NotFound) {
+                        "CPU ще недоступний на сервері."
+                    } else {
+                        "Не вдалося оновити дані. Перевірте з’єднання та спробуйте ще раз."
+                    }
+                }
+                visibleFeedback.join()
             }
         } finally {
             busy = false

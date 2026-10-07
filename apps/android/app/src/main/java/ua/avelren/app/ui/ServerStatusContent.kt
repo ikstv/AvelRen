@@ -42,7 +42,7 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
         Text("Стан сервера", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { scope.launch { loader.refresh() } }, enabled = !loader.busy,
+            TextButton(onClick = ua.avelren.app.ui.theme.hapticClick { scope.launch { loader.refresh() } }, enabled = !loader.busy,
                 modifier = Modifier.heightIn(min = 48.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     if (loader.busy) {

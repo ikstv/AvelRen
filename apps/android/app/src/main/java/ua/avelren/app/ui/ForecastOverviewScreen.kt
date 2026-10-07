@@ -3,7 +3,7 @@ package ua.avelren.app.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import ua.avelren.app.ui.theme.hapticClickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -175,7 +175,7 @@ internal fun ForecastOverviewScreen(
     Column(Modifier.fillMaxSize().background(AppBackground).windowInsetsPadding(WindowInsets.systemBars)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 20.dp, top = 18.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад до Моніторингу", tint = AppAccent) }
+            IconButton(onClick = ua.avelren.app.ui.theme.hapticClick(onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад до Моніторингу", tint = AppAccent) }
             Text("Прогноз черги", color = AppInk, style = MaterialTheme.typography.headlineMedium)
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp),
@@ -191,7 +191,7 @@ internal fun ForecastOverviewScreen(
             item { Text("Вибрано ${ids.size} із 5", color = AppAccent, fontWeight = FontWeight.Bold) }
             item {
                 if (ids.size < ForecastSelection.MAX) {
-                    OutlinedButton(enabled = !busy && !loading && error == null, onClick = { picker = true }, modifier = Modifier.fillMaxWidth(),
+                    OutlinedButton(enabled = !busy && !loading && error == null, onClick = ua.avelren.app.ui.theme.hapticClick { picker = true }, modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp), border = BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f)),
                         contentPadding = PaddingValues(16.dp)) { Text("Додати КПП", fontWeight = FontWeight.Bold) }
                 } else { Text("Щоб додати інший КПП, приберіть один із вибраних", color = AppInk,
@@ -200,12 +200,12 @@ internal fun ForecastOverviewScreen(
             if (loading) item { CircularProgressIndicator(color = AppAccent) }
             if (!notificationsAllowed && ids.isNotEmpty()) item {
                 Text("Дозвольте сповіщення, щоб телефон міг попереджати", color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = onOpenNotificationSettings) { Text("Дозволити повідомлення") }
+                TextButton(onClick = ua.avelren.app.ui.theme.hapticClick(onOpenNotificationSettings)) { Text("Дозволити повідомлення") }
             }
             if (voiceProblem != null && ids.isNotEmpty()) item {
                 Text(SurgePresentation.voiceHint(true, notificationsAllowed, voiceProblem), color = MaterialTheme.colorScheme.error)
                 if (voiceProblem in setOf("notification_blocked", "notification_silent", "voice_sound_changed")) {
-                    TextButton(onClick = {
+                    TextButton(onClick = ua.avelren.app.ui.theme.hapticClick {
                         runCatching {
                             context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                                 .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
@@ -215,7 +215,7 @@ internal fun ForecastOverviewScreen(
             }
             error?.let { message -> item {
                 Text(message, color = MaterialTheme.colorScheme.error)
-                TextButton(enabled = !busy, onClick = { scope.launch { refresh() } }) { Text("Оновити") }
+                TextButton(enabled = !busy, onClick = ua.avelren.app.ui.theme.hapticClick { scope.launch { refresh() } }) { Text("Оновити") }
             } }
             if (!loading && error == null && ids.isEmpty()) item { Text("Ще немає вибраних КПП. Натисніть «Додати КПП», щоб почати.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -259,9 +259,9 @@ internal fun ForecastOverviewScreen(
                                 if (alert.kind == "surge_started") alert.growth_5m?.let { growth ->
                                     Text("+$growth авто за 5 хвилин", color = AppInk, style = MaterialTheme.typography.bodySmall)
                                 }
-                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { acknowledge(alert) }) { Text("Зрозуміло") }
+                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = ua.avelren.app.ui.theme.hapticClick { acknowledge(alert) }) { Text("Зрозуміло") }
                             }
-                        TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { onCountForecast(id) }) { Text("Черга на добу →") }
+                        TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = ua.avelren.app.ui.theme.hapticClick { onCountForecast(id) }) { Text("Черга на добу →") }
                     }
                 }
             }
@@ -279,7 +279,7 @@ internal fun ForecastOverviewScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Виберіть КПП", Modifier.weight(1f), color = AppInk,
                         style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    TextButton(onClick = { picker = false }) { Text("Готово") }
+                    TextButton(onClick = ua.avelren.app.ui.theme.hapticClick { picker = false }) { Text("Готово") }
                 }
                 Text("Вибрано ${ids.size} із 5", color = AppAccent, fontWeight = FontWeight.Bold)
                 if (ids.size >= ForecastSelection.MAX) Text("Щоб додати інший КПП, приберіть один із вибраних",
@@ -294,10 +294,10 @@ internal fun ForecastOverviewScreen(
                 val chipBorder = BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))
                 FlowRow(Modifier.fillMaxWidth().padding(top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = countryFilter == null, onClick = { countryFilter = null }, label = { Text("Всі") },
+                    FilterChip(selected = countryFilter == null, onClick = ua.avelren.app.ui.theme.hapticClick { countryFilter = null }, label = { Text("Всі") },
                         colors = chipColors, border = chipBorder, shape = RoundedCornerShape(20.dp))
                     checkpoints.mapNotNull { it.flag_emoji }.distinct().sorted().forEach { flag ->
-                        FilterChip(selected = countryFilter == flag, onClick = { countryFilter = flag },
+                        FilterChip(selected = countryFilter == flag, onClick = ua.avelren.app.ui.theme.hapticClick { countryFilter = flag },
                             label = { Text(countryLabel(flag)) }, colors = chipColors, border = chipBorder, shape = RoundedCornerShape(20.dp))
                     }
                 }
@@ -307,9 +307,9 @@ internal fun ForecastOverviewScreen(
                         val checked = cp.checkpoint_id in ids
                         val enabled = !busy && (checked || ids.size < ForecastSelection.MAX)
                         Row(Modifier.fillMaxWidth().border(1.5.dp, AppAccent.copy(alpha = if (enabled) 0.5f else 0.2f), RoundedCornerShape(16.dp))
-                            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) {
+                            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = ua.avelren.app.ui.theme.hapticToggle {
                                 if (checked) pendingRemove = cp.checkpoint_id else select(cp.checkpoint_id, true)
-                            }.padding(12.dp),
+                            }).padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
                                 Surface(Modifier.size(24.dp), shape = CircleShape,

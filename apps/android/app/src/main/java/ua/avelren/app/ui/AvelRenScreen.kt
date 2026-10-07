@@ -5,7 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import ua.avelren.app.ui.theme.hapticClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,12 +66,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import android.os.Build
-import android.view.HapticFeedbackConstants
+
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
+
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -997,7 +997,7 @@ private fun MonitoringTile(
                 "Повторити",
                 color = HeroYellow,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable(enabled = !loading, onClick = onRetry)
+                modifier = Modifier.hapticClickable(enabled = !loading, onClick = onRetry)
                     .padding(vertical = 12.dp),
             )
         }
@@ -1109,14 +1109,12 @@ private fun ActionTile(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit = {},
 ) {
-    val view = LocalView.current
     Row(
         modifier
             .clip(RoundedCornerShape(16.dp))
             .background(AppBackground)
             .border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .tapNoRipple {
-                view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 onClick()
             }
             .padding(16.dp),
@@ -1175,7 +1173,7 @@ private fun AppUpdatePill(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(SignWarn)
-            .clickable(enabled = state.actionable && !actionPending) { onStartUpdate() }
+            .hapticClickable(enabled = state.actionable && !actionPending) { onStartUpdate() }
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1223,7 +1221,7 @@ private fun NotificationSilentBanner(onOpenSettings: () -> Unit) {
             .padding(top = 12.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(SignClosed)
-            .clickable { onOpenSettings() }
+            .hapticClickable { onOpenSettings() }
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1290,7 +1288,7 @@ private fun BackgroundDeliveryHintRow(
             .padding(top = 12.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(SignWarn)
-            .clickable { onOpenSettings() }
+            .hapticClickable { onOpenSettings() }
             .padding(start = 14.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1366,7 +1364,7 @@ private fun SilentSubscribeDialog(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(HeroYellow)
-                    .clickable { onEnable() }
+                    .hapticClickable { onEnable() }
                     .padding(vertical = 12.dp),
             )
             Spacer(Modifier.height(10.dp))
@@ -1378,7 +1376,7 @@ private fun SilentSubscribeDialog(
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onSubscribeAnyway() }
+                    .hapticClickable { onSubscribeAnyway() }
                     .padding(vertical = 8.dp),
             )
         }
@@ -1393,7 +1391,6 @@ private fun ThresholdChooserDialog(
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val view = LocalView.current
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1430,7 +1427,6 @@ private fun ThresholdChooserDialog(
             ) {
                 listOf(50, 100, 150, 200, 250, 300, 350, 400).forEach { v ->
                     PickerFilterChip("$v", active = false) {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onPick(v)
                     }
                 }
@@ -1474,7 +1470,6 @@ private fun EtaChooserDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val view = LocalView.current
     val today = remember { java.time.LocalDate.now(KYIV) }
     // Усі 24 години (00:00–23:00), а не крок 3 год.
     val hours = remember { (0..23).map { "%02d:00".format(it) } }
@@ -1512,7 +1507,6 @@ private fun EtaChooserDialog(
             ) {
                 (0..4).forEach { off ->
                     PickerFilterChip(etaDayLabel(today, off), active = dayOff == off) {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         dayOff = off
                     }
                 }
@@ -1524,7 +1518,6 @@ private fun EtaChooserDialog(
             ) {
                 hours.forEach { h ->
                     PickerFilterChip(h, active = hour == h) {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         hour = h
                     }
                 }
@@ -1542,7 +1535,6 @@ private fun EtaChooserDialog(
                     .clip(RoundedCornerShape(12.dp))
                     .background(HeroYellow)
                     .tapNoRipple {
-                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         onPick(etaIso(today, dayOff, hour))
                     }
                     .padding(vertical = 13.dp),
@@ -1634,7 +1626,7 @@ private fun ForecastScreen(
                         fontWeight = FontWeight.Black,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(HeroYellow).clickable { reload++ }.padding(14.dp),
+                            .background(HeroYellow).hapticClickable { reload++ }.padding(14.dp),
                     )
                 }
             }
@@ -1781,7 +1773,6 @@ internal fun ConfirmRemoveDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val view = LocalView.current
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1835,7 +1826,6 @@ internal fun ConfirmRemoveDialog(
                         .clip(RoundedCornerShape(12.dp))
                         .background(HeroYellow)
                         .tapNoRipple {
-                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                             onConfirm()
                         }
                         .padding(vertical = 12.dp),
@@ -1924,7 +1914,7 @@ private fun AppUpdateDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(SignWarn)
-                        .clickable(enabled = !actionPending) { onUpdate() }
+                        .hapticClickable(enabled = !actionPending) { onUpdate() }
                         .padding(vertical = 13.dp),
                 )
                 Spacer(Modifier.height(14.dp))
@@ -1934,7 +1924,7 @@ private fun AppUpdateDialog(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
                     letterSpacing = 1.sp,
-                    modifier = Modifier.clickable { onDismiss() },
+                    modifier = Modifier.hapticClickable { onDismiss() },
                 )
             }
         }
@@ -2004,10 +1994,8 @@ private fun NavTab(
     val color = if (active) HeroYellow else NavInactive
     // Тактильний відгук на тап по вкладці — легкий «тік» кнопки. Через View,
     // бо він поважає системне налаштування вібро (нема — просто не спрацює).
-    val view = LocalView.current
     Column(
         modifier.fillMaxHeight().tapNoRipple {
-            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             onClick()
         }.padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2327,7 +2315,6 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
         WaitPresentation.entryEta(item)?.let { "в'їзд ${formatEntry(it)}" }
     }
     // Тактильний «тік» на вибір КПП — як на навпанелі; поважає системне вібро.
-    val view = LocalView.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -2335,7 +2322,6 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
             .background(bg)
             .border(2.dp, borderColor, RoadSignShape.Card)
             .tapNoRipple {
-                view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 onClick()
             }
             .padding(horizontal = 15.dp, vertical = 13.dp),

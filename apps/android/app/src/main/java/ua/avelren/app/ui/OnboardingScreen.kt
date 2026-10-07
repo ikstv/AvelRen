@@ -529,7 +529,7 @@ private fun InstructionRow(
 @Composable
 private fun GlassButton(label: String, enabled: Boolean, onClick: () -> Unit) {
     Button(
-        onClick = onClick,
+        onClick = ua.avelren.app.ui.theme.hapticClick(onClick),
         enabled = enabled,
         modifier = Modifier.fillMaxWidth().height(54.dp),
         shape = RoundedCornerShape(16.dp),
