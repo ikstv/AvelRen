@@ -76,14 +76,10 @@ internal fun AdministrationSettings(
                     .padding(horizontal = 20.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                SettingsMenuItem("Тема", Icons.Default.Palette) { page = "theme" }
                 SettingsMenuItem("Про додаток", Icons.Default.Info) { page = "about" }
+                SettingsMenuItem("Тема", Icons.Default.Palette) { page = "theme" }
                 SettingsMenuItem("Для розробника", Icons.Default.AdminPanelSettings) {
                     page = "admin"
-                }
-                SettingsMenuItem("Політика конфіденційності", Icons.Default.Lock) {
-                    if (onOpenPrivacyPolicy != null) onOpenPrivacyPolicy()
-                    else uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
                 }
             }
         } else if (page == "theme") {
@@ -107,6 +103,16 @@ internal fun AdministrationSettings(
             }
         } else if (page == "about") {
             SettingsPageHeader("Про додаток") { page = "menu" }
+            // The policy remains a browser action; returning keeps the About tab active.
+            TabRow(selectedTabIndex = 0, containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary) {
+                Tab(selected = true, onClick = {},
+                    text = { Text("Про додаток", fontWeight = FontWeight.Bold) })
+                Tab(selected = false, onClick = ua.avelren.app.ui.theme.hapticClick {
+                    if (onOpenPrivacyPolicy != null) onOpenPrivacyPolicy()
+                    else uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
+                }, text = { Text("Політика конфіденційності", fontWeight = FontWeight.Bold) })
+            }
             AboutContent(Modifier.fillMaxWidth().weight(1f))
         } else {
             SettingsPageHeader("Для розробника") { page = "menu" }

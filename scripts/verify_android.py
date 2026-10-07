@@ -59,10 +59,14 @@ for version in ("0.1.0", "0.1.1", "0.1.2", "1.0.3"):
     asset = f"release-notes/v{version}.uk.txt"
     notes_path = root / "apps/android/app/src/main/assets" / asset
     notes = notes_path.read_text(encoding="utf-8").rstrip("\r\n")
-    if not notes or len(notes) > 500:
+    limit = 5000 if version == "1.0.3" else 500
+    if not notes or len(notes) > limit:
         raise SystemExit(
-            f"Release {version} notes must contain 1–500 Unicode characters; got {len(notes)}"
+            f"Release {version} notes must contain 1–{limit} Unicode characters; got {len(notes)}"
         )
     if asset not in about_screen:
         raise SystemExit(f"About screen does not read the canonical {version} release notes")
+play_notes = (root / "docs/release-notes/v1.0.3.play.uk.txt").read_text(encoding="utf-8").rstrip("\r\n")
+if not play_notes or len(play_notes) > 500:
+    raise SystemExit(f"Play 1.0.3 notes must contain 1–500 Unicode characters; got {len(play_notes)}")
 print(f"Android: verified {len(manifest['files'])} source records and asset provenance")

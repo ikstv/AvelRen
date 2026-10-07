@@ -25,7 +25,6 @@ object WaitPresentation {
             hours > 0 -> "$hours год $remainder хв"
             else -> "$remainder хв"
         }
-        val suffix = if (estimate.status == "legacy_unknown") " · За історичними даними" else ""
-        return "$duration очікування$suffix"
+        return "$duration очікування"
     }
 }
