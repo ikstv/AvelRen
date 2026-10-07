@@ -6,7 +6,7 @@ import org.junit.Test
 
 class ReleaseHistoryHeadingTest {
     @Test fun unpublishedVersionDoesNotInventReleaseDate() {
-        assertEquals("Версія 1.0.3 · у підготовці", releaseHistoryHeading("1.0.3", null))
+        assertEquals("Версія 0.1.3 · у підготовці", releaseHistoryHeading("0.1.3", null))
     }
 
     @Test fun publishedVersionHasUkrainianDayMonthAndYear() {
