@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -67,7 +68,9 @@ import androidx.compose.ui.graphics.lerp
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -448,7 +451,11 @@ internal fun AvelRenScreen(
     val onSettings = activeTab == "settings"
     val forecastOpen = pendingAiCp != null || surgeOpen
     BackHandler(enabled = forecastOpen) { pendingAiCp = null; surgeOpen = false }
-    val bottomChromePadding = if (updateAvailable) 182.dp else 136.dp
+    val density = LocalDensity.current
+    var bottomChromeHeightPx by remember { mutableStateOf(0) }
+    val bottomChromePadding = bottomChromeContentInset(
+        with(density) { bottomChromeHeightPx.toDp().value }, updateAvailable,
+    ).dp
 
     // Усі основні вкладки мають рівне чорне тло.
     Box(Modifier.fillMaxSize().background(if (forecastOpen) MonitorBg else AppBackground)) {
@@ -546,8 +553,9 @@ internal fun AvelRenScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 20.dp),
-            contentPadding = PaddingValues(bottom = bottomChromePadding),
+                .padding(horizontal = 20.dp)
+                .padding(bottom = bottomChromePadding),
+            contentPadding = PaddingValues(bottom = 12.dp),
         ) {
             item {
                 HeaderRow(
@@ -603,55 +611,38 @@ internal fun AvelRenScreen(
         }
     }
 
-    // Макет: плавуча навпанель — `left:12; right:12; bottom:12; height:60;
-    // radius:20`, прибита до низу поверх вмісту (футер «DEVELOPER» на головній
-    // прибрано — його місце зайняла панель).
+    // Єдиний нижній блок: фактична висота враховує переноси великого тексту.
+    // Вміст вкладки резервує цей простір, не малюється під футером.
     if (!forecastOpen) {
-    BottomNavBar(
-        activeTab = activeTab,
-        onSelect = { activeTab = it },
-        flatDark = onMonitor || onSettings,
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .padding(horizontal = 12.dp)
-            .padding(bottom = 12.dp),
-    )
-    // Атрибуція джерела (вимога Google): закріплена внизу, НАД навпанеллю
-    // (nav: bottom 12 + height 60 → відступ 80), не їде зі скролом. Списки
-    // мають додатковий нижній відступ під навпанель, attribution і update pill.
-    if (onSettings) {
-        SettingsDeveloperFooter(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 80.dp),
-        )
-    } else if (!onMonitor) {
-        AttributionBar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 80.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(AppBackground.copy(alpha = 0.8f))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
-    }
-    if (updateAvailable) {
-        AppUpdatePill(
-            state = updateState,
-            actionPending = updateActionPending,
-            onStartUpdate = onStartUpdate,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 20.dp)
-                .padding(bottom = if (onSettings) 116.dp else 104.dp),
-        )
-    }
+                .onSizeChanged { bottomChromeHeightPx = it.height }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (updateAvailable) {
+                AppUpdatePill(
+                    state = updateState, actionPending = updateActionPending,
+                    onStartUpdate = onStartUpdate,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+            }
+            if (onSettings) {
+                SettingsDeveloperFooter(Modifier.padding(horizontal = 8.dp))
+            } else if (!onMonitor) {
+                AttributionBar(
+                    Modifier.padding(horizontal = 8.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(AppBackground)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            BottomNavBar(
+                activeTab = activeTab, onSelect = { activeTab = it },
+                flatDark = onMonitor || onSettings,
+            )
+        }
     }
     }
 
@@ -2025,7 +2016,8 @@ private fun BottomNavBar(
     Row(
         modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .heightIn(min = 60.dp)
+            .height(IntrinsicSize.Min)
             .shadow(if (flatDark) 0.dp else 8.dp, RoundedCornerShape(20.dp))
             .background(if (flatDark) AppBackground else NavGlass, RoundedCornerShape(20.dp))
             .border(1.dp, NavBorder, RoundedCornerShape(20.dp)),
@@ -2052,7 +2044,7 @@ private fun NavTab(
         modifier.fillMaxHeight().tapNoRipple {
             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             onClick()
-        },
+        }.padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -2064,6 +2056,7 @@ private fun NavTab(
             fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
             style = MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center,
         )
     }
 }

@@ -205,16 +205,20 @@ private fun AboutContent(modifier: Modifier = Modifier) {
     ) {
         Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("1.0.3", color = SignWarn, fontWeight = FontWeight.Bold)
+        Text(releaseHistoryHeading("1.0.3", null), color = SignWarn, fontWeight = FontWeight.Bold)
         Text(currentNotes)
         HorizontalDivider()
-        Text("0.1.2", color = SignWarn, fontWeight = FontWeight.Bold)
+        // publishedAt відповідних GitHub Releases, звірено 07.10.2026.
+        Text(releaseHistoryHeading("0.1.2", Instant.parse("2026-09-26T01:16:12Z")),
+            color = SignWarn, fontWeight = FontWeight.Bold)
         Text(releaseNotes)
         HorizontalDivider()
-        Text("0.1.1", color = SignWarn, fontWeight = FontWeight.Bold)
+        Text(releaseHistoryHeading("0.1.1", Instant.parse("2026-09-24T18:56:49Z")),
+            color = SignWarn, fontWeight = FontWeight.Bold)
         Text(previousNotes)
         HorizontalDivider()
-        Text("0.1.0", color = SignWarn, fontWeight = FontWeight.Bold)
+        Text(releaseHistoryHeading("0.1.0", Instant.parse("2026-09-24T11:05:47Z")),
+            color = SignWarn, fontWeight = FontWeight.Bold)
         Text(earlierNotes)
     }
 }
