@@ -10,9 +10,9 @@ class WaitPresentationTest {
         }
         assertNull(WaitPresentation.label(null))
     }
-    @Test fun `zero is reported and positive legacy is labelled historical`() {
+    @Test fun `reported zero and positive legacy show duration without historical suffix`() {
         assertEquals("0 хв очікування", WaitPresentation.label(Api.WaitEstimate("reported", 0, null)))
-        assertEquals("1 год 0 хв очікування · За історичними даними", WaitPresentation.label(Api.WaitEstimate("legacy_unknown", 3600, null)))
+        assertEquals("1 год 0 хв очікування", WaitPresentation.label(Api.WaitEstimate("legacy_unknown", 3600, null)))
         assertEquals("2 дн 3 год 40 хв очікування", WaitPresentation.label(Api.WaitEstimate("reported", 186000, null)))
     }
     @Test fun `new absent ETA never falls back to legacy ETA`() {
