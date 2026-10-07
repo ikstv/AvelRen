@@ -24,7 +24,7 @@ internal fun serverStatusPresentation(status: Api.ServerCpuStatus?, now: Instant
         age != null && !age.isNegative && age <= Duration.ofSeconds(300) &&
         cpu != null && cpu.isFinite() && cpu in 0.0..100.0
     val label = measured?.let {
-        runCatching { DateTimeFormatter.ofPattern("dd.MM.uuuu 'о' HH:mm:ss", Locale.ROOT)
+        runCatching { DateTimeFormatter.ofPattern("dd.MM 'о' HH:mm", Locale.ROOT)
             .withZone(ZoneId.of("Europe/Kyiv")).format(it) }.getOrNull()
     }
     return ServerStatusPresentation(if (fresh) cpu else null, label)

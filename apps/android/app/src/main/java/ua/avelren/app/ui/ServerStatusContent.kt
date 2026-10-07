@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -15,6 +16,8 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.time.Instant
@@ -40,8 +43,19 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { scope.launch { loader.refresh() } }, enabled = !loader.busy,
-                modifier = Modifier.heightIn(min = 48.dp)) { Text("Оновити") }
-            Text("Виміряно: ${presentation.measuredAt ?: "—"}",
+                modifier = Modifier.heightIn(min = 48.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (loader.busy) {
+                        // Preserve the text footprint without exposing a second accessible label.
+                        Text("Оновити", color = androidx.compose.ui.graphics.Color.Transparent,
+                            modifier = Modifier.clearAndSetSemantics { })
+                        CircularProgressIndicator(Modifier.size(20.dp).semantics {
+                            contentDescription = "Оновлення даних"
+                        }, strokeWidth = 2.dp)
+                    } else Text("Оновити")
+                }
+            }
+            Text("Оновлено: ${presentation.measuredAt ?: "—"}",
                 modifier = Modifier.padding(vertical = 14.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -53,12 +67,9 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
         }
         CpuBar(presentation.percent)
         when {
-            loader.busy -> Text("Оновлюємо дані…", style = MaterialTheme.typography.bodySmall)
             loader.error != null -> Text(loader.error!!, color = MaterialTheme.colorScheme.error)
-            presentation.percent == null -> Text("Немає свіжих даних CPU.",
+            !loader.busy && presentation.percent == null -> Text("Немає свіжих даних CPU.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            else -> Text("Знімок навантаження всього сервера за 1 секунду.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
