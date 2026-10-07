@@ -84,15 +84,30 @@ cpu_percent=$(awk -v first="$cpu_before" -v second="$cpu_after" '
         else printf "%.1f\n", 100 * (total - idle) / total
     }')
 
-mem_total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
-mem_avail_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
+MEM_INFO=${AVELREN_MEM_INFO:-/proc/meminfo}
+mem_total_kb=$(awk '/^MemTotal:/ && $2 ~ /^[0-9]+$/ {print $2}' "$MEM_INFO" 2>/dev/null || true)
+mem_avail_kb=$(awk '/^MemAvailable:/ && $2 ~ /^[0-9]+$/ {print $2}' "$MEM_INFO" 2>/dev/null || true)
+memory_bytes=$(awk -v t="$mem_total_kb" -v a="$mem_avail_kb" 'BEGIN {
+    if (t !~ /^[0-9]+$/ || a !~ /^[0-9]+$/ || t <= 0 || a > t)
+        print "null null";
+    else printf "%.0f %.0f", t*1024, (t-a)*1024;
+}')
+read -r memory_total_bytes memory_used_bytes <<< "$memory_bytes"
+mem_total_kb=${mem_total_kb:-0}
+mem_avail_kb=${mem_avail_kb:-0}
 swap_total_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
 swap_free_kb=$(awk '/^SwapFree:/ {print $2}' /proc/meminfo)
 
 # statvfs of the host itself via df — requires no mounts into the container.
 read -r _fs disk_total_1k disk_used_1k disk_avail_1k _rest < <(
-    df -Pk "$FS_PROBE" | tail -1
-)
+    df -Pk "$FS_PROBE" 2>/dev/null | tail -1
+) || true
+disk_bytes=$(awk -v t="$disk_total_1k" -v u="$disk_used_1k" 'BEGIN {
+    if (t !~ /^[0-9]+$/ || u !~ /^[0-9]+$/ || t <= 0 || u > t)
+        print "null null";
+    else printf "%.0f %.0f", t*1024, u*1024;
+}')
+read -r disk_total_bytes disk_used_bytes <<< "$disk_bytes"
 
 reboot_required=false
 reboot_pending_days=null
@@ -405,6 +420,10 @@ cat > "$TMP" <<JSON
     "cpu_measured_at": "$cpu_measured_at",
     "cpu_sample_seconds": 1,
     "memory_total_mb": $(( mem_total_kb / 1024 )),
+    "memory_total_bytes": $memory_total_bytes,
+    "memory_used_bytes": $memory_used_bytes,
+    "disk_total_bytes": $disk_total_bytes,
+    "disk_used_bytes": $disk_used_bytes,
     "memory_used_mb": $(( (mem_total_kb - mem_avail_kb) / 1024 )),
     "swap_total_mb": $(( swap_total_kb / 1024 )),
     "swap_used_mb": $(( (swap_total_kb - swap_free_kb) / 1024 )),

@@ -38,8 +38,11 @@ def public_cpu(tmp_path, monkeypatch):
         response = TestClient(api.app).get("/server/status")
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-store"
-        assert set(response.json()) == {"cpu_percent", "measured_at", "sample_seconds", "stale"}
-        return response.json()
+        payload = response.json()
+        assert set(payload) == {"cpu_percent", "measured_at", "sample_seconds", "stale",
+                               "memory", "disk", "traffic"}
+        assert all(payload[name]["stale"] for name in ("memory", "disk", "traffic"))
+        return {name: payload[name] for name in ("cpu_percent", "measured_at", "sample_seconds", "stale")}
 
     return request
 

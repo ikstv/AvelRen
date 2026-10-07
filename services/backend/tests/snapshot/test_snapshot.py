@@ -116,6 +116,30 @@ def test_full_snapshot_and_log_counts(snapshot):
     assert data["certificate"]["error"] == "handshake failed"
 
 
+def test_resource_bytes_keep_available_memory_and_reserved_disk_separate(snapshot):
+    run, executable, tmp_path = snapshot
+    mem = tmp_path / "meminfo"
+    mem.write_text("MemTotal: 4096 kB\nMemAvailable: 1024 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n")
+    executable("df", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/test 1000 400 500 40%% /\\n'")
+    system = run(AVELREN_MEM_INFO=str(mem))["system"]
+    assert system["memory_total_bytes"] == 4194304
+    assert system["memory_used_bytes"] == 3145728
+    assert system["disk_total_bytes"] == 1024000
+    assert system["disk_used_bytes"] == 409600
+
+
+def test_invalid_resource_probes_do_not_report_zero(snapshot):
+    run, executable, tmp_path = snapshot
+    mem = tmp_path / "meminfo"
+    mem.write_text("MemTotal: bad kB\nMemAvailable: 100 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n")
+    executable("df", "exit 1")
+    system = run(AVELREN_MEM_INFO=str(mem))["system"]
+    assert system["memory_total_bytes"] is None
+    assert system["memory_used_bytes"] is None
+    assert system["disk_total_bytes"] is None
+    assert system["disk_used_bytes"] is None
+
+
 @pytest.mark.parametrize("probe,expected", [("missing", None), ("failed", None), ("zero", 0)])
 def test_unknown_updates_are_not_zero(snapshot, probe, expected):
     run, executable, tmp_path = snapshot

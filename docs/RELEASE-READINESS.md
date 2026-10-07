@@ -1,5 +1,15 @@
 # Що має дійти до телефона
 
+## RAM, диск і місце для місячного трафіку — 07.10.2026
+
+Кандидат у гілці codex/resource-telemetry-20261007; не злитий і не розгорнутий.
+Точні RAM/disk bytes, public whitelist, Android DTO/смужки, часткові дані,
+expiry без HTTP та error-refresh включені. Traffic live лишається недоступним
+до підтвердження provider billing period/read-only access; колектор не встановлений.
+Деталі: [контракт і залишок](PUBLIC-RESOURCE-TELEMETRY.md).
+Code/local tests/CI, production, clean-main APK, телефон і Play — окремі gates.
+Телефонні великий шрифт/обидві теми та API↔APK ще не прийняті.
+
 ## Відгук кнопок і видиме оновлення — 07.10.2026
 
 Погоджено короткий системний VIRTUAL_KEY-відгук як у нижній навігації

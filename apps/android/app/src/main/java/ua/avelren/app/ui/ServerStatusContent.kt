@@ -66,6 +66,9 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
         CpuBar(presentation.percent)
+        ResourceStrip("RAM", loader.status?.memory, 300)
+        ResourceStrip("Disk Memory Usage", loader.status?.disk, 300)
+        ResourceStrip("Traffic Usage", loader.status?.traffic, 7200, traffic = true)
         when {
             loader.error != null -> Text(loader.error!!, color = MaterialTheme.colorScheme.error)
             !loader.busy && presentation.percent == null -> Text("Немає свіжих даних CPU.",
@@ -74,9 +77,29 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ResourceStrip(label: String, status: ua.avelren.app.data.Api.ServerResourceStatus?,
+    maxAgeSeconds: Long, traffic: Boolean = false) {
+    val p = resourceStatusPresentation(status, Instant.now(), maxAgeSeconds, traffic)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(label, style = MaterialTheme.typography.titleMedium)
+            Text(p.amountLabel ?: "Дані недоступні", style = MaterialTheme.typography.bodySmall)
+            Text(p.percent?.let { String.format(Locale.ROOT, "%.1f%%", it) } ?: "—",
+                fontWeight = FontWeight.Bold)
+        }
+        CpuBar(p.percent)
+        if (p.timeLabel != null) Text("Оновлено: ${p.timeLabel}",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (traffic && p.percent != null) Text("Місяць: ${status?.billing_month}",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 @Composable
 private fun CpuBar(percent: Double?) {
-    val fraction = (percent?.div(100.0) ?: 0.0).toFloat()
+    val fraction = (percent?.div(100.0) ?: 0.0).coerceIn(0.0, 1.0).toFloat()
     val track = MaterialTheme.colorScheme.surfaceVariant
     Canvas(Modifier.fillMaxWidth().height(26.dp).semantics {
         if (percent != null) progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)

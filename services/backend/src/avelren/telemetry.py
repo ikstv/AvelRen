@@ -28,6 +28,7 @@ from psycopg import AsyncConnection
 
 from . import __version__ as APP_VERSION
 from .config import settings
+from .public_resources import resource_status
 
 # Whitelist of fields we expose for each container. Deliberately HEAVY paranoia
 # here: raw `docker inspect` contains env (may hold credentials), mounts (reveals
@@ -84,6 +85,28 @@ def public_cpu_status(now: datetime) -> dict:
             "sample_seconds": 1 if sample_valid else None, "stale": stale}
 
 
+def public_resource_status(now: datetime) -> dict:
+    """Ресурси зі знімка; відсутній provider traffic не підмінюємо boot counters."""
+    result = public_cpu_status(now)
+    try:
+        snap = _snapshot()
+    except ValueError:
+        snap = {}
+    if not isinstance(snap, dict):
+        snap = {}
+    system = snap.get("system")
+    if not isinstance(system, dict):
+        system = {}
+    for name, prefix in (("memory", "memory"), ("disk", "disk")):
+        result[name] = resource_status(
+            system.get(f"{prefix}_used_bytes"), system.get(f"{prefix}_total_bytes"),
+            snap.get("collected_at"), now, SNAPSHOT_MAX_AGE_SECONDS,
+        )
+    result["traffic"] = resource_status(None, None, None, now, 7200, True)
+    result["traffic"]["billing_month"] = None
+    return result
+
+
 def _snapshot() -> dict:
     """Reads the latest host snapshot. An empty dict means the snapshot is absent.
 
@@ -92,12 +115,15 @@ def _snapshot() -> dict:
     of a 500.
     """
     try:
-        raw = SNAPSHOT_PATH.read_text(encoding="utf-8")
+        with SNAPSHOT_PATH.open("rb") as stream:
+            raw = stream.read(1048577)
     except OSError:
+        return {}
+    if len(raw) > 1048576:
         return {}
     try:
         return json.loads(raw)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return {}
 
 

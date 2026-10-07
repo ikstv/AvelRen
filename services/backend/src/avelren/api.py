@@ -76,7 +76,7 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
 @app.get("/server/status")
 async def public_server_cpu(request: Request) -> JSONResponse:
     rate_check(request, "read")
-    data = await asyncio.to_thread(telemetry.public_cpu_status, datetime.now(UTC))
+    data = await asyncio.to_thread(telemetry.public_resource_status, datetime.now(UTC))
     return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
 
