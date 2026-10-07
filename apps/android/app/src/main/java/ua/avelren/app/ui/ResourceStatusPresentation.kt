@@ -20,8 +20,8 @@ internal fun resourceStatusPresentation(status: Api.ServerResourceStatus?, now: 
         used < 0 || total <= 0 || (!traffic && used > total) ||
         (traffic && status.billing_month == null)) return unavailable
     val percent = used.toDouble() / total.toDouble() * 100.0
-    val divisor = if (traffic) { if (total >= 1000000000000L) 1e12 else 1e9 } else 1073741824.0
-    val unit = if (traffic) { if (total >= 1000000000000L) "ТБ" else "ГБ" } else "ГіБ"
+    val divisor = if (traffic) { if (total >= 1000000000000L) 1e12 else 1e9 } else 1e9
+    val unit = if (traffic) { if (total >= 1000000000000L) "ТБ" else "ГБ" } else "GB"
     val amount = String.format(Locale.ROOT, "%.1f / %.1f %s", used / divisor, total / divisor, unit)
     val time = telemetryTimeLabel(measured, now)
     return ResourceStatusPresentation(amount, percent, (percent / 100.0).coerceIn(0.0, 1.0).toFloat(), time)
