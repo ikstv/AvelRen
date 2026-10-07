@@ -30,8 +30,10 @@ def public_cpu(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "get_pool", forbidden)
     monkeypatch.setattr(subprocess, "run", forbidden)
 
-    def request(snapshot):
-        if snapshot is not None:
+    def request(snapshot, raw=None):
+        if raw is not None:
+            path.write_text(raw, encoding="utf-8")
+        elif snapshot is not None:
             path.write_text(json.dumps(snapshot), encoding="utf-8")
         response = TestClient(api.app).get("/server/status")
         assert response.status_code == 200
@@ -87,3 +89,15 @@ def test_invalid_sample_window_is_not_trusted(public_cpu, sample):
     assert result["cpu_percent"] is None
     assert result["sample_seconds"] is None
     assert result["stale"] is True
+
+
+@pytest.mark.parametrize("stamp", ["0001-01-01T00:00:00+01:00",
+                                  "9999-12-31T23:59:59-01:00"])
+def test_timestamp_outside_utc_range_is_unavailable(public_cpu, stamp):
+    assert public_cpu(snapshot(37, stamp)) == {
+        "cpu_percent": None, "measured_at": None, "sample_seconds": None, "stale": True}
+
+
+def test_oversized_json_integer_is_unavailable(public_cpu):
+    assert public_cpu(None, raw='{"system":{"cpu_percent":' + '1' * 4301 + '}}') == {
+        "cpu_percent": None, "measured_at": None, "sample_seconds": None, "stale": True}

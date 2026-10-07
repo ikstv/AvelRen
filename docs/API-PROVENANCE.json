@@ -65,7 +65,7 @@
       "destination": "services/backend/src/avelren/telemetry.py",
       "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
       "revision": {
-        "sha256": "6a84216da1d0e8ace844c8e18ee7e3e542e86ab72d46efbe35969812b9193c2d",
+        "sha256": "210d85ff899c095eac7c1a51feb18ee38d19fd5bc1dcd3ee831a17a26b220792",
         "notes": "docs/RELEASE-READINESS.md"
       }
     },

@@ -58,7 +58,7 @@ def public_cpu_status(now: datetime) -> dict:
                    "sample_seconds": None, "stale": True}
     try:
         snap = _snapshot()
-    except UnicodeError:
+    except ValueError:
         return unavailable
     if not isinstance(snap, dict) or not isinstance(snap.get("system"), dict):
         return unavailable
@@ -70,6 +70,7 @@ def public_cpu_status(now: datetime) -> dict:
         measured = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
         if measured.tzinfo is None or measured.utcoffset() is None:
             return unavailable
+        measured_utc = measured.astimezone(UTC).isoformat().replace("+00:00", "Z")
         age = (now - measured).total_seconds()
     except (ValueError, OverflowError):
         return unavailable
@@ -79,7 +80,7 @@ def public_cpu_status(now: datetime) -> dict:
     valid_cpu = (type(cpu) in (int, float) and 0 <= cpu <= 100 and math.isfinite(cpu))
     stale = not (0 <= age <= SNAPSHOT_MAX_AGE_SECONDS and valid_cpu and sample_valid)
     return {"cpu_percent": cpu if not stale else None,
-            "measured_at": measured.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "measured_at": measured_utc,
             "sample_seconds": 1 if sample_valid else None, "stale": stale}
 
 

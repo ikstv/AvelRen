@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
@@ -77,5 +78,21 @@ class ServerStatusPresentationTest {
         catch (_: CancellationException) { }
         assertFalse(state.busy)
         assertNull(state.error)
+    }
+
+    @Test fun stationaryScreenExpiresWithoutAnotherNetworkRequest() = runTest {
+        var calls = 0
+        val state = ServerCpuLoader { calls++; sample(stamp = "2026-10-07T22:30:00Z") }
+        state.refresh()
+        val expiry = launch { state.expireSnapshot { now.plusMillis(testScheduler.currentTime) } }
+        runCurrent()
+        advanceTimeBy(300_000)
+        runCurrent()
+        assertFalse(state.status!!.stale)
+        advanceTimeBy(1)
+        runCurrent()
+        assertTrue(state.status!!.stale)
+        assertEquals(1, calls)
+        expiry.join()
     }
 }

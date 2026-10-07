@@ -29,8 +29,10 @@ import ua.avelren.app.ui.theme.SignClosed
 internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier = Modifier) {
     val loader = remember(server) { ServerCpuLoader(server::serverCpuStatus) }
     val scope = rememberCoroutineScope()
-    // Exactly one initial request per opened tab. No timer, focus refresh or retry.
+    // Exactly one initial request per opened tab. No HTTP polling, focus refresh or retry.
     LaunchedEffect(loader) { loader.refresh() }
+    // Hide expired values even if the user leaves this screen untouched; no HTTP polling.
+    LaunchedEffect(loader, loader.status) { loader.expireSnapshot() }
     val presentation = serverStatusPresentation(loader.status, Instant.now())
     Column(modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {

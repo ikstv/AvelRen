@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import ua.avelren.app.data.Api
 
 internal data class ServerStatusPresentation(val percent: Double?, val measuredAt: String?)
@@ -36,6 +37,17 @@ internal class ServerCpuLoader(private val fetch: suspend () -> Api.ServerCpuSta
         private set
     var error by mutableStateOf<String?>(null)
         private set
+
+    suspend fun expireSnapshot(clock: () -> Instant = Instant::now) {
+        val observed = status ?: return
+        val now = clock()
+        if (serverStatusPresentation(observed, now).percent == null) return
+        val measured = Instant.parse(observed.measured_at!!)
+        // Local one-shot expiry only; never fetches or retries. Cancellation is propagated.
+        val waitMillis = Duration.between(now, measured.plusSeconds(300)).toMillis() + 1
+        delay(waitMillis)
+        if (status === observed) status = observed.copy(stale = true)
+    }
 
     // Called on the screen's main coroutine context: set busy before first suspension.
     suspend fun refresh() {
