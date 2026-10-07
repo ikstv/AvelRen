@@ -17,8 +17,16 @@ BusyBox awk переповнює 32-бітний printf для мережево�
 Повний офлайн Windows unit suite: 340 passed, 2 deprecation warnings;
 ruff і bash -n успішні, маніфести походження звірені. Для pytest використаний
 новий ізольований --basetemp: старий системний каталог був недоступний.
-Публічний API, Android-екран, повний CI, новий CPU-APK і deployment
-ще не реалізовані/не прийняті. Hash-контракт snapshot/watchdog синхронізується
+Штатний GitHub GNU/Linux watchdog CI на a6b7408 пройшов: 9 watchdog/БД
+та 14 snapshot-тестів (run 37583441119); Alpine-обмеження вище не є
+падінням штатного CI. Публічний GET /api/server/status реалізований:
+лише CPU, дата, односекундне вікно та stale; без БД, probe чи admin credentials.
+Свіжість — до 300 секунд; некоректні й майбутні дані не стають 0%.
+Нові 30 API unit-тестів бачили RED→GREEN; повний suite — 370 passed,
+2 наявні deprecation warnings; ruff успішний. Контрактний CI нового API
+ще очікується; старий сервер без endpoint поверне 404, не 0%.
+Android-екран, новий CPU-APK і deployment ще не реалізовані/не прийняті.
+Hash-контракт snapshot/watchdog синхронізується
 разом; встановлений production snapshot у цьому кроці не змінюється.
 
 ## Повна назва КПП, дата цілі та червоне прибирання — 07.10.2026

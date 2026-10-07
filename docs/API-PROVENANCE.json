@@ -7,8 +7,8 @@
       "destination": "services/backend/src/avelren/api.py",
       "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
       "revision": {
-        "sha256": "f1717eb845bb8c5f8dfb25765199df73be3ff285b25689f0dd4bba2c9c98d938",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "07ae80618aaab52f342e4a042a6a99ade755a7b42d4dea0d7ecf17c0a493bd05",
+        "notes": "docs/RELEASE-READINESS.md"
       }
     },
     {
@@ -63,7 +63,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/telemetry.py",
       "destination": "services/backend/src/avelren/telemetry.py",
-      "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff"
+      "sha256": "3b11c271c60a58ae6878dbd6ca56144283819183b49c72515fcfabaec67945ff",
+      "revision": {
+        "sha256": "6a84216da1d0e8ace844c8e18ee7e3e542e86ab72d46efbe35969812b9193c2d",
+        "notes": "docs/RELEASE-READINESS.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
