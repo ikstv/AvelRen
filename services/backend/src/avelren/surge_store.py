@@ -124,9 +124,20 @@ async def process_checkpoint(conn, checkpoint_id: int, now: datetime) -> None:
         prediction_id = None
         last_hour = stored["last_forecast_hour"]
         local_hour = now.astimezone(KYIV).replace(minute=0, second=0, microsecond=0).astimezone(UTC)
+        retry_failed = False
+        if checkpoint_id in SUPPORTED_CHECKPOINTS and last_hour == local_hour:
+            await cur.execute(
+                "SELECT issued_at,score FROM surge_predictions WHERE checkpoint_id=%s "
+                "ORDER BY issued_at DESC LIMIT 1",
+                (checkpoint_id,),
+            )
+            previous = await cur.fetchone()
+            retry_failed = bool(
+                previous and previous["score"] is None and previous["issued_at"] < observed
+            )
         if (
             checkpoint_id in SUPPORTED_CHECKPOINTS
-            and last_hour != local_hour
+            and (last_hour != local_hour or retry_failed)
             and local_hour <= observed <= now
             and now - observed <= timedelta(minutes=3)
         ):

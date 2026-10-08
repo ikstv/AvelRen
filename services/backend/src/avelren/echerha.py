@@ -1,5 +1,8 @@
+import errno
 import hashlib
 import logging
+import socket
+import ssl
 import time
 from uuid import UUID
 
@@ -9,6 +12,61 @@ from .config import settings
 from .models import WorkloadResponse
 
 log = logging.getLogger(__name__)
+
+
+def transport_diagnostic(exc: httpx.HTTPError) -> str:
+    """Bounded typed diagnostics, without URLs or exception text."""
+    reason = "timeout" if isinstance(exc, httpx.TimeoutException) else "unknown"
+    number = None
+    current = exc
+    seen = set()
+    for _ in range(12):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        if isinstance(current, socket.gaierror):
+            reason = "dns"
+            number = current.errno
+            break
+        if isinstance(current, ssl.SSLError):
+            reason = "tls"
+            number = current.errno
+            break
+        if isinstance(current, OSError) and isinstance(current.errno, int):
+            number = current.errno
+            reason = {
+                errno.ECONNREFUSED: "connection_refused",
+                errno.ENETUNREACH: "network_unreachable",
+                errno.EHOSTUNREACH: "host_unreachable",
+                errno.ECONNRESET: "connection_reset",
+                errno.ETIMEDOUT: "timeout",
+            }.get(number, "os_error")
+        current = current.__cause__ or current.__context__
+    name = next(
+        (
+            kind
+            for kind in (
+                "ReadTimeout",
+                "ConnectTimeout",
+                "WriteTimeout",
+                "PoolTimeout",
+                "ReadError",
+                "ConnectError",
+                "WriteError",
+                "CloseError",
+                "RemoteProtocolError",
+                "LocalProtocolError",
+                "ProxyError",
+                "UnsupportedProtocol",
+                "DecodingError",
+                "TooManyRedirects",
+            )
+            if isinstance(exc, getattr(httpx, kind))
+        ),
+        "HTTPError",
+    )
+    safe_number = str(number) if isinstance(number, int) and abs(number) < 100000000 else "none"
+    return f"{name}: reason={reason} errno={safe_number}"
 
 
 def describe_exception(exc: BaseException) -> str:
@@ -21,6 +79,7 @@ def describe_exception(exc: BaseException) -> str:
     already answers "what happened". When a message exists we keep it.
     """
     return f"{type(exc).__name__}: {exc}".rstrip(": ")
+
 
 # Guest contract of the official web client (v5). X-User-Agent and device headers
 # are added dynamically in fetch_workload from the config.
@@ -46,9 +105,7 @@ def _canonical_device_id(raw: str) -> str:
     try:
         parsed = UUID(raw)
     except (ValueError, TypeError, AttributeError):
-        raise ValueError(
-            "configuration: ECHERHA_DEVICE_ID must be a valid non-nil UUID"
-        ) from None
+        raise ValueError("configuration: ECHERHA_DEVICE_ID must be a valid non-nil UUID") from None
     if parsed.int == 0:
         raise ValueError("configuration: ECHERHA_DEVICE_ID must be a valid non-nil UUID")
     return str(parsed)
@@ -122,9 +179,10 @@ async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
         request.headers.pop("Cookie", None)
         r = await client.send(request, auth=None)
     except httpx.HTTPError as exc:
-        detail = describe_exception(exc)
-        log.warning("request to eCherha failed: %s", detail)
-        return FetchResult(None, None, 0, None, detail)
+        detail = transport_diagnostic(exc)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        log.warning("request to eCherha failed: %s duration_ms=%s", detail, duration_ms)
+        return FetchResult(None, None, duration_ms, None, detail)
     duration_ms = int((time.monotonic() - started) * 1000)
 
     if r.status_code != 200:
