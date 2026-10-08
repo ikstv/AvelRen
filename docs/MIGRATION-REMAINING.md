@@ -1,5 +1,15 @@
 # Залишки перенесення
 
+## Перевірка прав БД — кандидат 08.10.2026
+
+Додано [read-only privilege gate](../ops/POSTGRES-PRIVILEGE-GATE.md) для
+схеми 001–016 із негативними тестами на одноразовій TimescaleDB.
+Це перенос introspection-контракту старого `AvelRen`, а не adoption.
+Ownership forward/inverse, runtime DSN cutover і процедура зі старого
+`AvelRen-ops` залишаються наступним блоком. Production gate не запускали;
+міграції, ролі та active DSN не змінювали. Нижчі датовані рядки про відсутній
+gate описують стан до цього кандидата.
+
 Оновлення 03.10.2026: [серверна частина 1.0.3 прийнята](audits/RELEASE-1.0.3-SERVER-2026-10-03.md),
 прогноз увімкнений; TimescaleDB 2.30.1, schema 016. API/notifier/worker
 мають перевірений main bc41a15. Collector, watchdog і Caddy зберігають
