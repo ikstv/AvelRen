@@ -27,6 +27,7 @@ Evidence містить metadata ролей, ownership/ACL та журнал, а
 
 План приймає PostgreSQL 16, TimescaleDB 2.30.1 та точний hash-журнал 001–016.
 Невідомі об'єкти, schema/function drift, role escalation/membership,
+вимкнені application/FK triggers,
 делеговані grants з не-owner grantor та непідтримувана топологія відхиляються.
 Права descendants мають відповідати кореню: зміни виконуються через public
 батьківські об'єкти й штатні Timescale hooks. Новий compressed-relation layout
@@ -48,10 +49,16 @@ dbname `avelren_case_<32 lowercase hex>_test`, однаковий у DSN, plan �
 Ті самі guards застосовуються до inverse. Інші application sessions блокують
 операцію; виконавець не завершує їх. SQL із evidence повторно генерується
 з inventory, а не довіряється вхідним statements.
+Очікування session advisory lock завершується до створення repeatable-read
+snapshot; таблиці блокуються перед першою snapshot-producing query.
 
 До commit помилка відкочує транзакцію та звіряє before fingerprint. Після
 commit виконується read-only gate; inverse дозволений лише за точного expected
-fingerprint. Чужа зміна зберігається і повертає `rollback_failed`. Втрата доказу
+fingerprint і валідних apply-intent/committed records, прив'язаних до version,
+target та plan digest. Втрата відповіді на COMMIT повертає `commit_unknown`
+без повтору COMMIT, rollback або автоматичного inverse.
+За іншого fingerprint чужа зміна зберігається і повертається
+`rollback_failed`. Втрата доказу
 commit повертає `commit_unknown`: автоматичний повтор заборонений. Intent і
 receipts публікуються без перезапису. Повтор після прийнятого receipt потребує
 узгоджених plan hash, before/after fingerprints та фактичного стану.

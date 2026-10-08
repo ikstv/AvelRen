@@ -86,6 +86,8 @@ def _root(identity, parents):
 
 def _validate(snapshot):
     sections = snapshot.sections
+    if any(row["kind"] == "trigger" and row["enabled"] != "O" for row in sections["dependencies"]):
+        raise AdoptionError("trigger_state")
     reference = json.loads((MIGRATIONS.parent / "security/adoption-016-contract.json").read_text())
     structural = Snapshot(1, snapshot.database, {**sections, **reference})
     if application_structure(snapshot) != application_structure(structural):

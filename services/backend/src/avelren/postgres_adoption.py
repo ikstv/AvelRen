@@ -58,6 +58,28 @@ def _load_record(directory, name):
     return value
 
 
+def _verify_commit_records(directory, target, plan):
+    common = {
+        "format_version": 1,
+        "database": target,
+        "plan_sha256": plan_digest(plan),
+        "before_fingerprint": fingerprint(plan.before),
+        "after_fingerprint": fingerprint(plan.expected),
+    }
+    for name in ("apply-intent.json", "committed.json"):
+        record = _load_record(directory, name)
+        expected_record = (
+            common
+            if name == "committed.json"
+            else {
+                **{key: value for key, value in common.items() if key != "after_fingerprint"},
+                "expected_fingerprint": common["after_fingerprint"],
+            }
+        )
+        if type(record.get("format_version")) is not int or record != expected_record:
+            raise AdoptionError("receipt_drift")
+
+
 def _guards(dsn, target, plan, failpoint):
     if (
         os.environ.get("AVELREN_DATABASE_TEST") != "1"
@@ -72,25 +94,28 @@ def _guards(dsn, target, plan, failpoint):
 
 
 def _lock(conn, target):
-    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
     if conn.info.dbname != target:
         raise AdoptionError("database_identity")
+    # The wait must finish before the repeatable-read transaction takes a snapshot.
+    # Session lock is released when this dedicated connection closes.
+    conn.autocommit = True
     conn.execute(
-        "SELECT pg_advisory_xact_lock(hashtextextended(current_database() "
-        "|| ':avelren-adoption-016',0))"
+        "SELECT pg_advisory_lock(hashtextextended(current_database() || ':avelren-adoption-016',0))"
     )
-    if conn.execute(
-        "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=%s "
-        "AND pid<>pg_backend_pid() AND backend_type='client backend')",
-        (target,),
-    ).fetchone()[0]:
-        raise AdoptionError("active_sessions")
+    conn.autocommit = False
+    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
     for name in sorted(set(privilege_gate.TABLES) - {"observations_hourly"}):
         conn.execute(
             sql.SQL("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE").format(
                 sql.Identifier("public", name),
             )
         )
+    if conn.execute(
+        "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=%s "
+        "AND pid<>pg_backend_pid() AND backend_type='client backend')",
+        (target,),
+    ).fetchone()[0]:
+        raise AdoptionError("active_sessions")
 
 
 def _run_gate(dsn):
@@ -100,6 +125,7 @@ def _run_gate(dsn):
 
 def _inverse(dsn, target, plan, directory, *, failpoint):
     _guards(dsn, target, plan, failpoint)
+    _verify_commit_records(directory, target, plan)
     desired = fingerprint(plan.before)
     current = fingerprint(plan.expected)
     try:
@@ -141,6 +167,7 @@ def apply_disposable(
         if not (directory / "accepted.json").is_file():
             raise AdoptionError("incomplete_evidence")
         receipt = _load_record(directory, "accepted.json")
+        _verify_commit_records(directory, target, plan)
         committed = _load_record(directory, "committed.json")
         if (
             receipt.get("status") != "adopted"
@@ -180,7 +207,6 @@ def apply_disposable(
                 raise AdoptionError("test_before_commit")
             if fingerprint(_capture_catalog(conn)) != expected:
                 raise AdoptionError("forward_verification")
-            conn.commit()
         except (psycopg.Error, AdoptionError):
             conn.rollback()
             restored = fingerprint(read_snapshot(dsn))
@@ -189,6 +215,14 @@ def apply_disposable(
             result = AdoptionResult("rolled_back", "pre_commit_failure", before, restored)
             _record(directory, "rolled-back.json", asdict(result))
             return result
+        try:
+            conn.commit()
+        except psycopg.Error:
+            # Never let context-manager exit retry COMMIT on an unknown outcome.
+            conn.close()
+            return AdoptionResult(
+                "commit_unknown", "commit_acknowledgement_unavailable", before, None
+            )
     try:
         if failpoint == "receipt_write":
             raise AdoptionError("test_receipt_failure")
@@ -197,6 +231,7 @@ def apply_disposable(
             "committed.json",
             {
                 "format_version": 1,
+                "database": target,
                 "plan_sha256": plan_digest(plan),
                 "before_fingerprint": before,
                 "after_fingerprint": expected,

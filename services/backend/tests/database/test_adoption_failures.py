@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import psycopg
 import pytest
@@ -23,6 +25,123 @@ def prepared(database):
     with psycopg.connect(database("admin")) as conn:
         conn.execute("GRANT SELECT ON devices TO PUBLIC")
     return build_plan(snapshot(database))
+
+
+def test_adoption_waiting_lock_preserves_intervening_grant(database, tmp_path, monkeypatch):
+    plan = prepared(database)
+    waiting = threading.Event()
+    original = psycopg.Connection.execute
+    holder = psycopg.connect(database("admin"), autocommit=True)
+    holder.execute(
+        "SELECT pg_advisory_lock(hashtextextended(current_database() || ':avelren-adoption-016',0))"
+    )
+
+    def execute(conn, query, *args, **kwargs):
+        if isinstance(query, str) and "SELECT pg_advisory" in query:
+            waiting.set()
+        return original(conn, query, *args, **kwargs)
+
+    monkeypatch.setattr(psycopg.Connection, "execute", execute)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as workers:
+            future = workers.submit(apply, database, plan, tmp_path / "proof")
+            try:
+                assert waiting.wait(10), "adoption did not reach serialization lock"
+                holder.execute("GRANT DELETE ON devices TO avelren_api")
+            finally:
+                holder.close()
+            with pytest.raises(AdoptionError, match="plan_drift"):
+                future.result(timeout=30)
+    finally:
+        holder.close()
+    with psycopg.connect(database("admin")) as conn:
+        assert conn.execute(
+            "SELECT has_table_privilege('avelren_api','devices','DELETE')"
+        ).fetchone()[0]
+
+
+@pytest.mark.parametrize("damage", ["missing", "tampered"])
+def test_adoption_inverse_requires_persisted_commit_proof(database, tmp_path, damage):
+    from avelren.postgres_adoption import _inverse
+
+    plan = prepared(database)
+    evidence = tmp_path / "proof"
+    assert apply(database, plan, evidence).status == "adopted"
+    if damage == "missing":
+        (evidence / "committed.json").unlink()
+    else:
+        record = json.loads((evidence / "apply-intent.json").read_text())
+        record["plan_sha256"] = "0" * 64
+        (evidence / "apply-intent.json").write_text(json.dumps(record))
+    with pytest.raises(AdoptionError):
+        _inverse(database("admin"), plan.before.database, plan, evidence, failpoint=None)
+    assert fingerprint(snapshot(database)) == fingerprint(plan.expected)
+
+
+@pytest.mark.parametrize("server_committed", [False, True])
+def test_adoption_ambiguous_commit_never_retries_or_compensates(
+    database,
+    tmp_path,
+    monkeypatch,
+    server_committed,
+):
+    from avelren import postgres_adoption
+
+    plan = prepared(database)
+    commit = psycopg.Connection.commit
+    read = postgres_adoption.read_snapshot
+    failed = False
+    rollback_calls = []
+
+    def lost_ack(conn):
+        nonlocal failed
+        if "default_transaction_read_only=off" in conn.info.options and not failed:
+            if server_committed:
+                commit(conn)
+            failed = True
+            raise psycopg.OperationalError("lost acknowledgement sentinel")
+        return commit(conn)
+
+    def unavailable_rollback(conn):
+        rollback_calls.append(True)
+        raise psycopg.OperationalError("connection unavailable")
+
+    def unavailable_read(dsn):
+        if failed:
+            raise psycopg.OperationalError("diagnostics unavailable")
+        return read(dsn)
+
+    monkeypatch.setattr(psycopg.Connection, "commit", lost_ack)
+    monkeypatch.setattr(psycopg.Connection, "rollback", unavailable_rollback)
+    monkeypatch.setattr(postgres_adoption, "read_snapshot", unavailable_read)
+    result = apply(database, plan, tmp_path / "proof")
+    assert result.status == "commit_unknown"
+    assert not rollback_calls
+    assert (tmp_path / "proof/apply-intent.json").is_file()
+    monkeypatch.undo()
+    assert fingerprint(snapshot(database)) == fingerprint(
+        plan.expected if server_committed else plan.before,
+    )
+
+
+def test_adoption_detects_disabled_constraint_triggers(database):
+    before = snapshot(database)
+    with psycopg.connect(database("admin")) as conn:
+        conn.execute("ALTER TABLE observations DISABLE TRIGGER ALL")
+    changed = snapshot(database)
+    assert fingerprint(changed) != fingerprint(before)
+    with pytest.raises(AdoptionError):
+        build_plan(changed)
+
+
+def test_adoption_refuses_trigger_enablement_drift(database, tmp_path):
+    plan = prepared(database)
+    with psycopg.connect(database("admin")) as conn:
+        conn.execute("ALTER TABLE observations DISABLE TRIGGER ALL")
+    changed = fingerprint(snapshot(database))
+    with pytest.raises(AdoptionError, match="plan_drift"):
+        apply(database, plan, tmp_path / "proof")
+    assert fingerprint(snapshot(database)) == changed
 
 
 def apply(database, plan, path, failpoint=None):
