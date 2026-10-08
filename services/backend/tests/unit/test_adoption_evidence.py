@@ -50,6 +50,7 @@ def test_public_directory_refused(tmp_path):
 def test_failed_write_does_not_publish_partial_file(tmp_path, monkeypatch, failure):
     def denied(*args, **kwargs):
         raise OSError("sentinel-secret-dsn")
+
     monkeypatch.setattr(os, failure, denied)
     directory = tmp_path / "private"
     with pytest.raises(AdoptionError) as error:

@@ -20,20 +20,32 @@ def _directory(directory: Path, *, create: bool) -> int:
         # Windows ACL equivalence is not silently approximated by chmod.
         raise AdoptionError("evidence_platform")
     path = Path(os.path.abspath(directory))
-    for ancestor in (*reversed(path.parents), path):
-        if ancestor.is_symlink():
-            raise AdoptionError("evidence_path")
+    fd = None
     try:
-        if create:
-            path.mkdir(mode=0o700, exist_ok=True)
-        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        fd = os.open(path.anchor, flags)
+        parts = path.parts[1:]
+        for index, part in enumerate(parts):
+            try:
+                child = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                if not create or index != len(parts) - 1:
+                    raise
+                os.mkdir(part, mode=0o700, dir_fd=fd)
+                child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
         info = os.fstat(fd)
         if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
-            os.close(fd)
             raise AdoptionError("evidence_permissions")
-        return fd
+        result = fd
+        fd = None
+        return result
     except OSError as exc:
         raise AdoptionError("evidence_directory") from exc
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 def write_private(directory: Path, name: str, payload: bytes) -> str:

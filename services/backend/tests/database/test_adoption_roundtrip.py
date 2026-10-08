@@ -35,6 +35,7 @@ def test_adoption_fresh_plan_has_no_changes(database):
     [
         "ALTER TABLE devices OWNER TO avelren_admin",
         "GRANT SELECT ON devices TO PUBLIC",
+        "ALTER SCHEMA public OWNER TO pg_database_owner; GRANT CREATE ON SCHEMA public TO PUBLIC",
         "GRANT SELECT ON devices TO avelren_backup WITH GRANT OPTION",
         "GRANT UPDATE(secret_hash) ON devices TO avelren_notifier",
         "GRANT USAGE ON SEQUENCE surge_events_id_seq TO avelren_api WITH GRANT OPTION",

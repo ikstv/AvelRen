@@ -81,8 +81,10 @@ jobs:
           sudo bash ops/restore-production-contract-test.sh
           bash ops/restore-verify-guard-contract-test.sh
           python3 ops/restore-allowlist-contract-test.py
-      - name: Повна restore-репетиція у тимчасовій TimescaleDB
-        run: bash ops/restore-integration-test.sh
+      - name: Повна restore-репетиція та adoption/inverse у тимчасовій TimescaleDB
+        run: |
+          bash -n ops/postgres-adoption-restore-test.sh
+          bash ops/postgres-adoption-restore-test.sh
       - name: Контракт production Compose без запуску служб
         run: |
           python3 ops/compose-profile-regression-test.py

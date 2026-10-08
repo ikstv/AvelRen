@@ -99,12 +99,15 @@ def application_structure(snapshot: Snapshot) -> dict:
     structure = {}
     for section in ("relations", "columns", "routines", "dependencies"):
         structure[section] = [
-            {key: value for key, value in row.items() if key not in {"owner", "acl"}}
+            {key: value for key, value in row.items() if key not in {"owner", "acl", "internal"}}
             for row in snapshot.sections[section]
-            if row.get("schema") == "public"
-            or row.get("relation", "").startswith("public.")
-            or row.get("identity", "").startswith("public.")
-            or row.get("kind") == "event_trigger"
+            if not (row.get("kind") == "trigger" and row.get("internal"))
+            and (
+                row.get("schema") == "public"
+                or row.get("relation", "").startswith("public.")
+                or row.get("identity", "").startswith("public.")
+                or row.get("kind") == "event_trigger"
+            )
         ]
     return _canonical(structure)
 
@@ -202,7 +205,7 @@ def _capture_catalog(conn: psycopg.Connection) -> Snapshot:
             (SELECT format('%I.%I',pn.nspname,p.relname) FROM pg_index ix
                 JOIN pg_class p ON p.oid=ix.indrelid
                 JOIN pg_namespace pn ON pn.oid=p.relnamespace
-                WHERE ix.indexrelid=c.oid) AS parent
+                WHERE ix.indexrelid=c.oid) AS parent,false AS internal
             FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE {namespace} AND c.relkind IN ('i','I')
             UNION ALL SELECT format('%I.%I.%I',n.nspname,c.relname,
@@ -211,7 +214,7 @@ def _capture_catalog(conn: psycopg.Connection) -> Snapshot:
             'trigger',CASE WHEN t.tgisinternal THEN replace(pg_get_triggerdef(t.oid,true),
                 t.tgname,regexp_replace(t.tgname,'_[0-9]+$','_OID'))
                 ELSE pg_get_triggerdef(t.oid,true) END,pg_get_userbyid(c.relowner),
-            format('%I.%I',n.nspname,c.relname) FROM pg_trigger t
+            format('%I.%I',n.nspname,c.relname),t.tgisinternal FROM pg_trigger t
             JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE {namespace}
             UNION ALL SELECT format('%I.%I.%I',n.nspname,c.relname,p.polname),'policy',
@@ -220,7 +223,7 @@ def _capture_catalog(conn: psycopg.Connection) -> Snapshot:
                      ELSE pg_get_userbyid(r) END) FROM unnest(p.polroles) r),
                 'using',pg_get_expr(p.polqual,p.polrelid),
                 'check',pg_get_expr(p.polwithcheck,p.polrelid))::text,
-                pg_get_userbyid(c.relowner),format('%I.%I',n.nspname,c.relname)
+                pg_get_userbyid(c.relowner),format('%I.%I',n.nspname,c.relname),false
             FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE {namespace}
             UNION ALL SELECT format('%I.%I',n.nspname,t.typname),'type',
@@ -229,7 +232,7 @@ def _capture_catalog(conn: psycopg.Connection) -> Snapshot:
                 pg_get_userbyid(t.typowner),
                 CASE WHEN c.oid IS NOT NULL THEN format('%I.%I',cn.nspname,c.relname)
                     WHEN element.oid IS NOT NULL THEN format('%I.%I',en.nspname,element.typname)
-                END
+                END,false
             FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
             LEFT JOIN pg_class c ON c.oid=t.typrelid
             LEFT JOIN pg_namespace cn ON cn.oid=c.relnamespace
@@ -237,13 +240,13 @@ def _capture_catalog(conn: psycopg.Connection) -> Snapshot:
             LEFT JOIN pg_namespace en ON en.oid=element.typnamespace WHERE {namespace}
             UNION ALL SELECT format('%I.%I.%I',n.nspname,c.relname,k.conname),'constraint',
                 pg_get_constraintdef(k.oid,true),pg_get_userbyid(c.relowner),
-                format('%I.%I',n.nspname,c.relname)
+                format('%I.%I',n.nspname,c.relname),false
             FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace WHERE {namespace}
             UNION ALL SELECT 'event_trigger.' || e.evtname,'event_trigger',
                 jsonb_build_object('event',e.evtevent,'enabled',e.evtenabled,
                     'function',e.evtfoid::regprocedure::text,'tags',e.evttags)::text,
-                pg_get_userbyid(e.evtowner),NULL FROM pg_event_trigger e""",
+                pg_get_userbyid(e.evtowner),NULL,false FROM pg_event_trigger e""",
         "topology": """SELECT 'hypertable' AS kind,format('%I.%I',h.schema_name,h.table_name)
             AS identity,h.compression_state AS compression,
             CASE WHEN z.id IS NOT NULL THEN format('%I.%I',z.schema_name,z.table_name)
@@ -265,7 +268,13 @@ def _capture_catalog(conn: psycopg.Connection) -> Snapshot:
             FROM _timescaledb_catalog.continuous_agg c
             UNION ALL SELECT 'aggregate_part',format('%I.%I',c.direct_view_schema,
                 c.direct_view_name),NULL,format('%I.%I',c.user_view_schema,c.user_view_name)
-            FROM _timescaledb_catalog.continuous_agg c""",
+            FROM _timescaledb_catalog.continuous_agg c
+            UNION ALL SELECT 'compressed_relation',format('%I.%I',cn.nspname,z.relname),
+                NULL,format('%I.%I',n.nspname,r.relname)
+            FROM _timescaledb_catalog.compression_settings s
+            JOIN pg_class r ON r.oid=s.relid JOIN pg_namespace n ON n.oid=r.relnamespace
+            JOIN pg_class z ON z.oid=s.compress_relid
+            JOIN pg_namespace cn ON cn.oid=z.relnamespace""",
         "shared": """SELECT d.datname AS database,pg_get_userbyid(s.refobjid) AS role,
             s.classid::regclass::text AS kind,count(*) AS objects
             FROM pg_shdepend s JOIN pg_database d ON d.oid=s.dbid

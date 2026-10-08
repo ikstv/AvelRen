@@ -66,7 +66,7 @@ elif [ "$SUITE" = adoption ]; then
         -c services/backend/pytest.ini services/backend/tests/database \
         --ignore=services/backend/tests/database/api \
         --ignore=services/backend/tests/database/watchdog \
-        -k adoption -q -p no:cacheprovider </dev/null
+        -k "${AVELREN_ADOPTION_TEST_SELECTOR:-adoption}" -q -p no:cacheprovider </dev/null
 elif [ "$SUITE" = api ] || [ "$SUITE" = watchdog ]; then
     report_args=()
     perf_args=()

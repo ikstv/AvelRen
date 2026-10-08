@@ -1,5 +1,13 @@
 # Залишки перенесення
 
+## Ownership/ACL — кандидат 08.10.2026
+
+Додано [inventory, forward/inverse та disposable executor](../ops/POSTGRES-ADOPTION.md)
+для 001–016, включно зі стисненими chunks і continuous aggregate. Це source
+кандидат поверх [PR #106](https://github.com/ikstv/AvelRen-ORIGINAL/pull/106);
+CI має підтвердити точний head. Production adoption, provisioning, DSN cutover
+та retirement ще не прийняті. Попередні датовані рядки описують історичний стан.
+
 ## Перевірка прав БД — кандидат 08.10.2026
 
 Додано [read-only privilege gate](../ops/POSTGRES-PRIVILEGE-GATE.md) для

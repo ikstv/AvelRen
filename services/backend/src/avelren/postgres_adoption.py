@@ -51,6 +51,13 @@ def _record(directory, name, record):
     )
 
 
+def _load_record(directory, name):
+    value = json.loads(read_private(directory, name))
+    if not isinstance(value, dict):
+        raise AdoptionError("receipt_format")
+    return value
+
+
 def _guards(dsn, target, plan, failpoint):
     if (
         os.environ.get("AVELREN_DATABASE_TEST") != "1"
@@ -92,6 +99,7 @@ def _run_gate(dsn):
 
 
 def _inverse(dsn, target, plan, directory, *, failpoint):
+    _guards(dsn, target, plan, failpoint)
     desired = fingerprint(plan.before)
     current = fingerprint(plan.expected)
     try:
@@ -132,12 +140,16 @@ def apply_disposable(
     if (directory / "apply-intent.json").exists():
         if not (directory / "accepted.json").is_file():
             raise AdoptionError("incomplete_evidence")
-        receipt = json.loads(read_private(directory, "accepted.json"))
-        committed = json.loads(read_private(directory, "committed.json"))
+        receipt = _load_record(directory, "accepted.json")
+        committed = _load_record(directory, "committed.json")
         if (
             receipt.get("status") != "adopted"
+            or receipt.get("before_fingerprint") != before
+            or receipt.get("category") is not None
             or receipt.get("after_fingerprint") != expected
             or committed.get("plan_sha256") != plan_digest(plan)
+            or committed.get("before_fingerprint") != before
+            or committed.get("after_fingerprint") != expected
             or actual != expected
         ):
             raise AdoptionError("receipt_drift")
@@ -277,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         return {"rolled_back": 1, "rollback_failed": 3, "commit_unknown": 4}.get(result.status, 0)
     except AdoptionError as exc:
         print("adoption refused: " + exc.category, file=sys.stderr)
-        return 2
+        return 2 if exc.category in {"invalid_arguments", "required_connection_environment"} else 1
     except (psycopg.Error, OSError, ValueError, TypeError, RecursionError):
         print("adoption unavailable", file=sys.stderr)
         return 2

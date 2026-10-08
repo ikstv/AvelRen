@@ -54,11 +54,34 @@ def _check_acl(row):
         if (
             set(entry) != {"grantor", "grantee", "privilege", "grantable"}
             or type(entry["grantable"]) is not bool
-            or entry["grantee"] not in ALLOWED_ROLES | {"PUBLIC"}
+            or entry["grantee"] not in ALLOWED_ROLES | {"PUBLIC", row["owner"]}
             or entry["grantor"] != row["owner"]
         ):
             # Delegation chains require a separately proven grant-graph executor.
             raise AdoptionError("unsupported_grant_graph")
+
+
+def _parents(snapshot):
+    parents = {}
+    for row in snapshot.sections["topology"]:
+        if row["kind"] in {"chunk", "aggregate_part", "compressed_relation"}:
+            parents[row["identity"]] = row["related"]
+        elif row["kind"] == "continuous_aggregate":
+            parents[row["related"]] = row["identity"]
+        elif row["kind"] == "hypertable" and row["related"] is not None:
+            # The older compressed-hypertable layout is not claimed by these tests.
+            raise AdoptionError("unsupported_legacy_compression")
+    return parents
+
+
+def _root(identity, parents):
+    visited = set()
+    while identity in parents:
+        if identity in visited:
+            raise AdoptionError("topology_cycle")
+        visited.add(identity)
+        identity = parents[identity]
+    return identity
 
 
 def _validate(snapshot):
@@ -169,6 +192,27 @@ def _validate(snapshot):
         row["identity"] not in SCHEMAS for row in sections["schemas"]
     ):
         raise AdoptionError("unsupported_topology")
+    parents = _parents(snapshot)
+    relations = {row["identity"]: row for row in sections["relations"]}
+    hypertables = {row["identity"] for row in sections["topology"] if row["kind"] == "hypertable"}
+    aggregates = [row for row in sections["topology"] if row["kind"] == "continuous_aggregate"]
+    if (
+        len(aggregates) != 1
+        or aggregates[0]["identity"] != "public.observations_hourly"
+        or hypertables != {"public.observations", aggregates[0]["related"]}
+    ):
+        raise AdoptionError("unsupported_topology")
+    for row in sections["relations"]:
+        if row["schema"] != "public" and not row["extension"]:
+            root = _root(row["identity"], parents)
+            if root not in {"public.observations", "public.observations_hourly"}:
+                raise AdoptionError("unsupported_topology")
+            parent = relations[root]
+            if row["owner"] != parent["owner"] or row["acl"] != parent["acl"]:
+                raise AdoptionError("descendant_acl_drift")
+    for row in sections["columns"]:
+        if row["relation"] in parents and row["acl"]:
+            raise AdoptionError("descendant_column_drift")
 
 
 def _target(before):
@@ -216,7 +260,10 @@ def _target(before):
         for row in sections[section]:
             if kind == "n" and row["identity"] != "public":
                 continue
-            if row["owner"] not in {"avelren", "avelren_admin"}:
+            permitted_owners = {"avelren", "avelren_admin"}
+            if kind == "n":
+                permitted_owners.add("pg_database_owner")
+            if row["owner"] not in permitted_owners:
                 raise AdoptionError("unsupported_owner")
             rights = {
                 row["owner"]: {"CONNECT", "CREATE", "TEMPORARY"}
@@ -248,7 +295,17 @@ def _target(before):
             }
         )
     sections["defaults"] = kept
-    # Parent ownership changes include row types and indexes.
+    # Timescale's GRANT/OWNER hooks propagate to catalog-bound descendants.
+    parents = _parents(before)
+    roots = {row["identity"]: row for row in sections["relations"] if row["schema"] == "public"}
+    for row in sections["relations"]:
+        if row["identity"] in parents:
+            root = _root(row["identity"], parents)
+            if root in roots:
+                row["owner"] = roots[root]["owner"]
+                row["acl"] = copy.deepcopy(roots[root]["acl"])
+                changed[row["identity"]] = row["owner"]
+    # Parent ownership changes include row types, constraints and indexes.
     for row in sections["dependencies"]:
         if row.get("parent") in changed:
             row["owner"] = OWNER
@@ -273,11 +330,11 @@ def _object(row, section):
     return ("SCHEMA" if section == "schemas" else "DATABASE"), identifier(row["identity"])
 
 
-def _replace_acl(start, end, section):
+def _replace_acl(start, end, section, *, actor=None):
     kind, identity = _object(end, section)
     owner = end.get("owner", OWNER)
     roles = {entry["grantee"] for entry in start["acl"] + end["acl"]} | {"PUBLIC"}
-    statements = ["SET ROLE " + identifier(owner)]
+    statements = ["SET ROLE " + identifier(actor or owner)]
     column = " (" + identifier(end["name"]) + ")" if section == "columns" else ""
     statements.append(
         "REVOKE ALL PRIVILEGES"
@@ -364,6 +421,8 @@ def _statements(start, end):
     for section in ("relations", "routines"):
         initial = {row["identity"]: row for row in start.sections[section]}
         for row in end.sections[section]:
+            if row["schema"] != "public":
+                continue
             old = initial[row["identity"]]
             if old["owner"] != row["owner"]:
                 kind, identity = _object(row, section)
@@ -379,13 +438,20 @@ def _statements(start, end):
 
         initial = {identity(row): row for row in start.sections[section]}
         for row in end.sections[section]:
+            if section in {"relations", "routines"} and row["schema"] != "public":
+                continue
+            if section == "columns" and not row["relation"].startswith("public."):
+                continue
             old = initial[identity(row)]
             if old["acl"] != row["acl"] or old.get("owner") != row.get("owner"):
                 target = row
                 if section == "columns":
                     owners = {r["identity"]: r["owner"] for r in end.sections["relations"]}
                     target = {**row, "owner": owners[row["relation"]]}
-                result.extend(_replace_acl(old, target, section))
+                actor = None
+                if section == "schemas" and target["owner"] == "pg_database_owner":
+                    actor = end.sections["database"][0]["owner"]
+                result.extend(_replace_acl(old, target, section, actor=actor))
     result.extend(_defaults(start.sections["defaults"], end.sections["defaults"]))
     return tuple(result)
 

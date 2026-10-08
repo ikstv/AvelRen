@@ -1,6 +1,9 @@
 """Commit/rollback status is evidence-backed; no production targets."""
 
 import json
+import os
+import subprocess
+import sys
 
 import psycopg
 import pytest
@@ -102,3 +105,85 @@ def test_adoption_refuses_production_target_and_disabled_test_mode(database, tmp
     with pytest.raises(AdoptionError):
         apply(database, plan, tmp_path / "evidence")
     assert fingerprint(snapshot(database)) == fingerprint(plan.before)
+
+
+def test_adoption_post_commit_drift_is_not_overwritten(database, tmp_path, monkeypatch):
+    from avelren import postgres_adoption
+
+    plan = prepared(database)
+
+    def fail_gate(dsn):
+        with psycopg.connect(dsn) as conn:
+            conn.execute("GRANT DELETE ON devices TO avelren_api")
+        return ["table_acl"]
+
+    monkeypatch.setattr(postgres_adoption, "_run_gate", fail_gate)
+    result = apply(database, plan, tmp_path / "evidence")
+    assert result.status == "rollback_failed"
+    with psycopg.connect(database("admin")) as conn:
+        assert conn.execute(
+            "SELECT has_table_privilege('avelren_api','devices','DELETE')"
+        ).fetchone()[0]
+
+
+def test_adoption_cli_inventory_plan_apply_inspect(database, tmp_path):
+    plan = prepared(database)
+    dsn = database("admin")
+    env = {
+        **os.environ,
+        "AVELREN_ADOPTION_DSN": dsn,
+        "AVELREN_ADOPTION_TARGET": conninfo_to_dict(dsn)["dbname"],
+    }
+    evidence = str(tmp_path / "cli-evidence")
+    for command, flag, expected in (
+        ("inventory", "--output-dir", "inventoried"),
+        ("plan", "--evidence-dir", "planned"),
+        ("apply-test", "--evidence-dir", "adopted"),
+        ("inspect", "--evidence-dir", "inspected"),
+    ):
+        result = subprocess.run(
+            [sys.executable, "-m", "avelren.postgres_adoption", command, flag, evidence],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["status"] == expected
+        assert "ci-only" not in result.stdout + result.stderr
+    assert fingerprint(snapshot(database)) == fingerprint(plan.expected)
+
+
+def test_adoption_corrupted_receipt_is_refused(database, tmp_path):
+    plan = prepared(database)
+    path = tmp_path / "evidence"
+    assert apply(database, plan, path).status == "adopted"
+    (path / "accepted.json").write_text("null")
+    with pytest.raises(AdoptionError, match="receipt_format"):
+        apply(database, plan, path)
+
+
+def test_adoption_inverse_also_refuses_production_target(database, tmp_path):
+    from avelren.postgres_adoption import _inverse
+
+    plan = prepared(database)
+    with pytest.raises(AdoptionError, match="disposable_target_required"):
+        _inverse(database("admin"), "avelren", plan, tmp_path / "evidence", failpoint=None)
+
+
+@pytest.mark.parametrize(
+    "change,restore",
+    [
+        ("ALTER ROLE avelren_api SUPERUSER", "ALTER ROLE avelren_api NOSUPERUSER"),
+        ("GRANT avelren_migrator TO avelren_api", "REVOKE avelren_migrator FROM avelren_api"),
+    ],
+)
+def test_adoption_role_escalation_is_refused(database, change, restore):
+    try:
+        with psycopg.connect(database("admin")) as conn:
+            conn.execute(change)
+        with pytest.raises(AdoptionError, match="role_capabilities"):
+            build_plan(snapshot(database))
+    finally:
+        with psycopg.connect(database("admin")) as conn:
+            conn.execute(restore)
