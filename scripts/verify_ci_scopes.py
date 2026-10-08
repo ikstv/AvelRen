@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 root = Path(__file__).resolve().parents[1]
-names = ("backend-core", "api", "database", "watchdog", "android")
+names = ("backend-core", "api", "database", "watchdog", "android", "research")
 workflows = {
     name: yaml.load(
         (root / ".github/workflows" / f"{name}.yml").read_text(encoding="utf-8"),
@@ -30,6 +30,15 @@ cases = {
     "ops/compose.collector-runtime.yml": {"api", "database", "watchdog"},
     "ops/collector-runtime-integration-test.sh": {"api", "database", "watchdog"},
     "ops/Dockerfile.collector-runtime-test-controller": {"api", "database", "watchdog"},
+    "tools/surge_experiment/data.py": {"research"},
+    "tests/research/test_surge_data.py": {"research"},
+    "services/backend/src/avelren/surge_events.py": backend | {"research", "android"},
+    "services/backend/src/avelren/models/surge_24h_v1.json": backend | {"research"},
+    "services/backend/requirements.lock": backend | {"research"},
+    "services/backend/pytest.ini": backend | {"research"},
+    "docs/research/queue-surge-2026-10-02/surge-frozen-evaluate.py": {"research"},
+    ".github/workflows/research.yml": {"research"},
+    "scripts/verify_ci_scopes.py": {"research"},
 }
 for event in ("pull_request", "push"):
     for file, expected in cases.items():

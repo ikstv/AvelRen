@@ -1,0 +1,38 @@
+name: Локальний експеримент прогнозу
+on:
+  pull_request:
+    paths: &research_paths
+      - 'tools/surge_experiment/**'
+      - 'tests/research/**'
+      - 'services/backend/src/avelren/surge_*.py'
+      - 'services/backend/src/avelren/models/**'
+      - 'services/backend/requirements.lock'
+      - 'services/backend/pytest.ini'
+      - 'docs/research/queue-surge-2026-10-02/**'
+      - '.github/workflows/research.yml'
+      - 'scripts/verify_ci_scopes.py'
+  push:
+    branches: [main]
+    paths: *research_paths
+permissions:
+  contents: read
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Залежності синтетичних тестів
+        run: python -m pip install pytest==9.1.1 ruff==0.16.8 tzdata==2026.4
+      - name: Аналіз коду
+        run: python -m ruff check tools/surge_experiment tests/research
+      - name: Лише синтетичні дані
+        run: python -m pytest tests/research -q
