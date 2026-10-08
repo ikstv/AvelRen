@@ -116,3 +116,27 @@ def test_carry_in_preserves_state_and_ack():
     assert engine.alerts[0]["window_end"] == original["window_end"]
     assert original["alert_id"] in engine.acknowledged
     assert engine.state.forecast.updated_at == T + timedelta(minutes=60)
+
+
+def test_delivery_scenarios_count_reminders_separately():
+    from tools.surge_experiment.replay import replay
+    data = Dataset({17: observations()}, {})
+    normal = replay(data, FixedCandidate(), manifest(minutes=15), 0)
+    acked = replay(data, FixedCandidate(), manifest(minutes=15), 0, delivery_scenario="ack_first")
+    assert len(normal.alerts) == len(acked.alerts) == 1
+    assert [a["ordinal"] for a in normal.delivery_attempts] == [1, 2, 3]
+    assert len(acked.delivery_attempts) == len(acked.cancels) == 1
+
+
+def test_quality_respects_database_history_lower_bound():
+    from tools.surge_experiment.events import HistoryIndex
+    from tools.surge_experiment.frozen import FrozenCandidate
+    from tools.surge_experiment.replay import ReplayEngine
+    observed = T - timedelta(minutes=3)
+    rows = [ObservationRow(17, observed - timedelta(minutes=240, seconds=30), 10, False)]
+    rows += [ObservationRow(17, observed - timedelta(minutes=i), 10, False) for i in range(239, -1, -1)]
+    index = HistoryIndex(rows)
+    assert index.past_valid(len(rows) - 1)
+    engine = ReplayEngine(17, FrozenCandidate(), T)
+    engine.step(index, T, 0)
+    assert engine.availability[-1]["past_valid"] is False

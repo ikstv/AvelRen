@@ -2,7 +2,7 @@
 import math
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
@@ -11,6 +11,7 @@ from services.backend.src.avelren.surge_model import SCORE_THRESHOLD, SurgePredi
 
 from .contracts import Dataset, ObservationRow
 from .data import timestamp
+from .delivery import DeliveryReplay
 from .events import HistoryIndex
 from .features import KYIV
 from .manifest import Manifest
@@ -45,6 +46,8 @@ class ReplayResult:
     decisions: list[dict]
     alerts: list[dict]
     availability: list[dict]
+    delivery_attempts: list[dict] = field(default_factory=list)
+    cancels: list[dict] = field(default_factory=list)
 
 
 class ReplayEngine:
@@ -56,10 +59,24 @@ class ReplayEngine:
         self.active = {}
         self.alerts, self.decisions, self.availability = [], [], []
         self.acknowledged = set()
+        self.delivery = DeliveryReplay()
+        self.cancels = []
 
     def acknowledge(self, alert_id: str):
         if any(alert["alert_id"] == alert_id for alert in self.alerts):
             self.acknowledged.add(alert_id)
+            self.delivery.acknowledge(alert_id)
+
+    def deliver(self, now: datetime, scenario: str):
+        self.delivery.expire(now)
+        for key in self.delivery.alerts:
+            attempt = self.delivery.reserve(key, now)
+            if attempt is not None:
+                self.delivery.accept(attempt["attempt_id"], now)
+                if scenario == "ack_first":
+                    self.acknowledge(key)
+        self.cancels.extend({"alert_id": key, "now": now, "queue_id": self.queue_id}
+                            for key in self.delivery.drain_cancels())
 
     def step(self, index: HistoryIndex, now: datetime, latency_seconds: int):
         j = bisect_right(index.times, now.timestamp() - latency_seconds) - 1
@@ -100,6 +117,7 @@ class ReplayEngine:
                 self.alerts.append(alert)
                 self.active[kind] = alert
             self.active[kind]["expires_at"] = episode.expires_at
+            self.delivery.attach(self.active[kind])
         if scored is not None or decision.started or decision.closed:
             self.decisions.append({"queue_id": self.queue_id, "now": now, "observed_at": observed,
                                    "score": scored.score if scored is not None else None,
@@ -110,6 +128,8 @@ class ReplayEngine:
         status = "not_applicable" if not supported else "warmup" if now < self.enabled_from else (
             self.previous[1].status if fresh and self.previous is not None else "unavailable")
         quality = fresh and index.past_valid(j)
+        if quality and index.lag(j, 240, 300, True) < lo:
+            quality = HistoryIndex(rows).past_valid(len(rows) - 1)
         record = {"queue_id": self.queue_id, "status": status, "past_valid": quality, "fresh": fresh}
         if self.availability and all(self.availability[-1][key] == value for key, value in record.items()):
             self.availability[-1]["end"] = now + timedelta(minutes=1)
@@ -118,14 +138,18 @@ class ReplayEngine:
         return decision
 
 
-def replay(dataset: Dataset, candidate: Candidate, manifest: Manifest, latency_seconds: int) -> ReplayResult:
+def replay(dataset: Dataset, candidate: Candidate, manifest: Manifest, latency_seconds: int,
+           delivery_scenario: str = "success_no_ack") -> ReplayResult:
     if latency_seconds not in (0, 60):
         raise ValueError("only preregistered latency scenarios supported")
+    if delivery_scenario not in ("success_no_ack", "ack_first"):
+        raise ValueError("only preregistered delivery scenarios supported")
     settings = manifest.settings
     start = timestamp(settings["replay"]["start"])
     end = timestamp(settings["periods"]["development_end"])
     enabled = timestamp(settings["replay"]["forecast_enabled_from"])
     decisions, alerts, availability = [], [], []
+    attempts, cancels = [], []
     for queue_id in manifest.queue_ids:
         if queue_id not in dataset.rows:
             supported = candidate.supported_ids is None or queue_id in candidate.supported_ids
@@ -138,9 +162,13 @@ def replay(dataset: Dataset, candidate: Candidate, manifest: Manifest, latency_s
         clock = math.ceil(start.timestamp() / 60) * 60
         while clock < end.timestamp():
             engine.step(index, datetime.fromtimestamp(clock, UTC), latency_seconds)
+            engine.deliver(datetime.fromtimestamp(clock, UTC), delivery_scenario)
             clock += 60
         decisions.extend(engine.decisions)
         alerts.extend(engine.alerts)
         availability.extend(engine.availability)
+        attempts.extend(engine.delivery.attempts.values())
+        cancels.extend(engine.cancels)
     return ReplayResult(sorted(decisions, key=lambda r: (r["now"], r["queue_id"])),
-                        sorted(alerts, key=lambda r: (r["alert_created_at"], r["queue_id"], r["alert_id"])), availability)
+                        sorted(alerts, key=lambda r: (r["alert_created_at"], r["queue_id"], r["alert_id"])),
+                        availability, attempts, cancels)

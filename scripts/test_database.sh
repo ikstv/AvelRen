@@ -60,6 +60,7 @@ if [ "$SUITE" = surge ]; then
         services/backend/tests/database/test_surge_cleanup.py \
         services/backend/tests/database/test_surge_delivery.py \
         services/backend/tests/database/api/test_surge_end_to_end.py \
+        services/backend/tests/database/api/test_surge_replay_parity.py \
         -q -p no:cacheprovider </dev/null
 elif [ "$SUITE" = api ] || [ "$SUITE" = watchdog ]; then
     report_args=()

@@ -30,7 +30,7 @@ cases = {
     "ops/compose.collector-runtime.yml": {"api", "database", "watchdog"},
     "ops/collector-runtime-integration-test.sh": {"api", "database", "watchdog"},
     "ops/Dockerfile.collector-runtime-test-controller": {"api", "database", "watchdog"},
-    "tools/surge_experiment/data.py": {"research"},
+    "tools/surge_experiment/data.py": {"research", "api"},
     "tests/research/test_surge_data.py": {"research"},
     "services/backend/src/avelren/surge_events.py": backend | {"research", "android"},
     "services/backend/src/avelren/models/surge_24h_v1.json": backend | {"research"},
