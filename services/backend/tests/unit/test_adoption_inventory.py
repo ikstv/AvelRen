@@ -5,16 +5,31 @@ import copy
 import pytest
 
 from avelren.adoption_inventory import (
-    SECTIONS, AdoptionError, Snapshot, decode, encode, fingerprint,
+    SECTIONS,
+    AdoptionError,
+    Snapshot,
+    decode,
+    encode,
+    fingerprint,
 )
 
 
 def snapshot():
     sections = {name: [] for name in SECTIONS}
     sections["relations"] = [
-        {"identity": "public.devices", "owner": "avelren", "oid": 123,
-         "acl": [{"grantor": "avelren", "grantee": "PUBLIC",
-                  "privilege": "SELECT", "grantable": False}]},
+        {
+            "identity": "public.devices",
+            "owner": "avelren",
+            "oid": 123,
+            "acl": [
+                {
+                    "grantor": "avelren",
+                    "grantee": "PUBLIC",
+                    "privilege": "SELECT",
+                    "grantable": False,
+                }
+            ],
+        },
         {"identity": "public.alerts", "owner": "avelren", "oid": 456, "acl": []},
     ]
     return Snapshot(1, "avelren_case_" + "a" * 32 + "_test", sections)
@@ -29,11 +44,14 @@ def test_canonical_encoding_roundtrip_and_row_order():
     assert encode(decode(encode(before))) == encode(before)
 
 
-@pytest.mark.parametrize("field,value", [
-    ("owner", "avelren_migrator"),
-    ("grantor", "avelren_admin"),
-    ("grantable", True),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("owner", "avelren_migrator"),
+        ("grantor", "avelren_admin"),
+        ("grantable", True),
+    ],
+)
 def test_fingerprint_preserves_owner_and_delegation(field, value):
     before = snapshot()
     changed = copy.deepcopy(before)
