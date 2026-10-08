@@ -44,8 +44,9 @@ def write_private(directory: Path, name: str, payload: bytes) -> str:
     published = False
     identity = None
     try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=root)
+        fd = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root
+        )
         info = os.fstat(fd)
         identity = (info.st_dev, info.st_ino)
         view = memoryview(payload)
@@ -74,24 +75,26 @@ def write_private(directory: Path, name: str, payload: bytes) -> str:
         os.close(root)
 
 
-def read_verified(directory: Path, name: str, expected_sha256: str) -> bytes:
+def read_private(directory: Path, name: str) -> bytes:
     _name(name)
-    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
-        raise AdoptionError("evidence_hash")
     root = _directory(directory, create=False)
     fd = None
     try:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root)
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1
-                or info.st_size > 32 * 1024 * 1024):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_nlink != 1
+            or info.st_size > 32 * 1024 * 1024
+        ):
             raise AdoptionError("evidence_permissions")
         with os.fdopen(fd, "rb") as stream:
             fd = None
             payload = stream.read(32 * 1024 * 1024 + 1)
-        if len(payload) != info.st_size or hashlib.sha256(payload).hexdigest() != expected_sha256:
-            raise AdoptionError("evidence_hash")
+        if len(payload) != info.st_size:
+            raise AdoptionError("evidence_size")
         return payload
     except OSError as exc:
         raise AdoptionError("evidence_read") from exc
@@ -99,3 +102,12 @@ def read_verified(directory: Path, name: str, expected_sha256: str) -> bytes:
         if fd is not None:
             os.close(fd)
         os.close(root)
+
+
+def read_verified(directory: Path, name: str, expected_sha256: str) -> bytes:
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise AdoptionError("evidence_hash")
+    payload = read_private(directory, name)
+    if hashlib.sha256(payload).hexdigest() != expected_sha256:
+        raise AdoptionError("evidence_hash")
+    return payload
