@@ -50,6 +50,34 @@ class ReplayResult:
     cancels: list[dict] = field(default_factory=list)
 
 
+def prepare_tick(index, now, latency_seconds):
+    j = bisect_right(index.times, now.timestamp() - latency_seconds) - 1
+    lo = bisect_left(index.times, (now - timedelta(hours=4, minutes=3)).timestamp())
+    observed = index.rows[j].time if j >= lo else now - timedelta(days=1)
+    hour = now.astimezone(KYIV).replace(minute=0, second=0, microsecond=0).astimezone(UTC)
+    fresh = j >= lo and now - observed <= timedelta(minutes=3)
+    lag = index.lag(j, 5) if fresh else None
+    growth = index.rows[j].count - index.rows[lag].count if lag is not None and lag >= lo else None
+    quality = fresh and index.past_valid(j)
+    if quality and index.lag(j, 240, 300, True) < lo:
+        quality = HistoryIndex(index.rows[lo:j + 1]).past_valid(j - lo)
+    return j, lo, observed, hour, fresh, growth, quality
+
+
+class ReplayCache:
+    """Лише причинні входи tick; жодного стану моделі/сповіщень між trials."""
+    def __init__(self, dataset):
+        self.dataset = dataset
+        self.indices = {q: HistoryIndex(rows) for q, rows in dataset.rows.items()}
+        self.ticks = {}
+
+    def tick(self, queue_id, now, latency):
+        key = queue_id, now, latency
+        if key not in self.ticks:
+            self.ticks[key] = prepare_tick(self.indices[queue_id], now, latency)
+        return self.ticks[key]
+
+
 class ReplayEngine:
     def __init__(self, queue_id: int, candidate: Candidate, enabled_from: datetime):
         self.queue_id, self.candidate, self.enabled_from = queue_id, candidate, enabled_from
@@ -78,24 +106,17 @@ class ReplayEngine:
         self.cancels.extend({"alert_id": key, "now": now, "queue_id": self.queue_id}
                             for key in self.delivery.drain_cancels())
 
-    def step(self, index: HistoryIndex, now: datetime, latency_seconds: int):
-        j = bisect_right(index.times, now.timestamp() - latency_seconds) - 1
-        lo = bisect_left(index.times, (now - timedelta(hours=4, minutes=3)).timestamp())
-        rows = index.rows[lo:j + 1] if j >= lo else ()
-        observed = rows[-1].time if rows else now - timedelta(days=1)
-        local_hour = now.astimezone(KYIV).replace(minute=0, second=0, microsecond=0).astimezone(UTC)
+    def step(self, index: HistoryIndex, now: datetime, latency_seconds: int, prepared=None):
+        j, lo, observed, local_hour, fresh, growth, quality = prepared or prepare_tick(index, now, latency_seconds)
         supported = self.candidate.supported_ids is None or self.queue_id in self.candidate.supported_ids
         retry = self.previous is not None and self.previous[1].score is None and self.previous[0] < observed
         prediction, scored = None, None
         if (supported and now >= self.enabled_from and (self.last_hour != local_hour or retry)
                 and local_hour <= observed <= now and now - observed <= timedelta(minutes=3)):
-            scored = self.candidate.score(self.queue_id, rows, observed)
+            scored = self.candidate.score(self.queue_id, index.rows[lo:j + 1], observed)
             prediction = SurgePrediction(observed, observed + timedelta(hours=1),
                                          observed + timedelta(hours=24), scored.runtime_score(), scored.reason)
             self.previous, self.last_hour = (observed, scored), local_hour
-        fresh = bool(rows and now - observed <= timedelta(minutes=3))
-        lag = index.lag(j, 5) if fresh else None
-        growth = index.rows[j].count - index.rows[lag].count if lag is not None and lag >= lo else None
         decision = advance_state(self.state, prediction, growth, observed, now)
         for kind, reason in decision.closed:
             alert = self.active.pop(kind, None)
@@ -127,9 +148,6 @@ class ReplayEngine:
                                    "forecast_armed": self.state.forecast_armed})
         status = "not_applicable" if not supported else "warmup" if now < self.enabled_from else (
             self.previous[1].status if fresh and self.previous is not None else "unavailable")
-        quality = fresh and index.past_valid(j)
-        if quality and index.lag(j, 240, 300, True) < lo:
-            quality = HistoryIndex(rows).past_valid(len(rows) - 1)
         record = {"queue_id": self.queue_id, "status": status, "past_valid": quality, "fresh": fresh}
         if self.availability and all(self.availability[-1][key] == value for key, value in record.items()):
             self.availability[-1]["end"] = now + timedelta(minutes=1)
@@ -139,14 +157,18 @@ class ReplayEngine:
 
 
 def replay(dataset: Dataset, candidate: Candidate, manifest: Manifest, latency_seconds: int,
-           delivery_scenario: str = "success_no_ack") -> ReplayResult:
+           delivery_scenario: str = "success_no_ack", *, cache=None, end=None) -> ReplayResult:
     if latency_seconds not in (0, 60):
         raise ValueError("only preregistered latency scenarios supported")
     if delivery_scenario not in ("success_no_ack", "ack_first"):
         raise ValueError("only preregistered delivery scenarios supported")
     settings = manifest.settings
     start = timestamp(settings["replay"]["start"])
-    end = timestamp(settings["periods"]["development_end"])
+    end = end or timestamp(settings["periods"]["development_end"])
+    if end not in {timestamp(settings["periods"][p]) for p in ("selection_end", "development_end")}:
+        raise ValueError("replay end outside preregistered phases")
+    if cache is not None and cache.dataset is not dataset:
+        raise ValueError("replay cache belongs to another dataset")
     enabled = timestamp(settings["replay"]["forecast_enabled_from"])
     decisions, alerts, availability = [], [], []
     attempts, cancels = [], []
@@ -158,11 +180,12 @@ def replay(dataset: Dataset, candidate: Candidate, manifest: Manifest, latency_s
                                  "past_valid": False, "fresh": False})
             continue
         engine = ReplayEngine(queue_id, candidate, enabled)
-        index = HistoryIndex(dataset.rows[queue_id])
+        index = cache.indices[queue_id] if cache is not None else HistoryIndex(dataset.rows[queue_id])
         clock = math.ceil(start.timestamp() / 60) * 60
         while clock < end.timestamp():
-            engine.step(index, datetime.fromtimestamp(clock, UTC), latency_seconds)
-            engine.deliver(datetime.fromtimestamp(clock, UTC), delivery_scenario)
+            now = datetime.fromtimestamp(clock, UTC)
+            engine.step(index, now, latency_seconds, cache.tick(queue_id, now, latency_seconds) if cache else None)
+            engine.deliver(now, delivery_scenario)
             clock += 60
         decisions.extend(engine.decisions)
         alerts.extend(engine.alerts)
