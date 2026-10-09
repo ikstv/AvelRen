@@ -127,3 +127,47 @@ def test_questionable_label_is_neither_false_positive_nor_false_negative():
     m = evaluate([alert()], [event(questionable=True)])
     assert m["fp_alerts"] == m["fn_events"] == 0
     assert m["unassessable_alerts"] == m["excluded_events"]["questionable"] == 1
+
+
+def test_available_event_requires_real_origin_and_original_horizon():
+    from tools.surge_experiment.metrics import EvaluationContext, evaluate_alerts
+    context = EvaluationContext(17, T, T + timedelta(days=7), (), 5 * 86400)
+    value = event(onset=T + timedelta(hours=30, minutes=30))
+    decision = {"queue_id": 17, "now": T + timedelta(hours=6),
+                "observed_at": T + timedelta(hours=6), "prediction_attempt": True,
+                "forecast_available": True, "past_valid": True, "fresh": True,
+                "window_start": T + timedelta(hours=7), "window_end": T + timedelta(hours=30)}
+    result = ReplayResult([decision], [], [{"queue_id": 17, "start": T + timedelta(hours=6),
+        "end": T + timedelta(hours=6, minutes=31), "past_valid": True,
+        "fresh": True, "status": "ready"}])
+    metrics = evaluate_alerts(result, [value], None, context=context)
+    assert metrics["available_events"] == 0 and metrics["events_without_history"] == 1
+    decision["window_end"] += timedelta(minutes=30)
+    decision["observed_at"] += timedelta(minutes=30)
+    decision["now"] += timedelta(minutes=30)
+    assert evaluate_alerts(result, [value], None, context=context)["available_events"] == 1
+
+
+def test_report_aggregates_unknown_origins_and_delivery_without_double_counting():
+    from tools.surge_experiment.metrics import EvaluationContext, evaluate_alerts
+    context = EvaluationContext(17, T, T + timedelta(days=7),
+        ((T + timedelta(hours=20), T + timedelta(hours=21)),), 5 * 86400)
+    decision = {"queue_id": 17, "now": T + timedelta(hours=12),
+        "observed_at": T + timedelta(hours=12), "prediction_attempt": True,
+        "forecast_available": False, "past_valid": False, "fresh": True,
+        "window_start": T + timedelta(hours=13), "window_end": T + timedelta(hours=36)}
+    result = ReplayResult([decision], [alert()], [],
+        [{"alert_id": "a1", "attempt_id": "a1:1", "ordinal": 1, "attempt_count": 2,
+          "accepted_at": T + timedelta(hours=12)},
+         {"alert_id": "a1", "attempt_id": "a1:2", "ordinal": 2, "attempt_count": 1,
+          "accepted_at": T + timedelta(hours=12, minutes=5)}],
+        [{"queue_id": 17, "alert_id": "a1", "now": T + timedelta(hours=13)}])
+    metrics = evaluate_alerts(result, [], None, context=context)
+    assert metrics["unknown_seconds"] == 3600
+    assert metrics["origin_counts"] == {"attempted": 1, "past_unavailable": 1,
+        "forecast_available": 0, "unknown_future": 1, "questionable_future": 0,
+        "affected_union": 1, "assessable_future": 0}
+    assert metrics["delivery_counts"]["initial_attempts"] == 1
+    assert metrics["delivery_counts"]["reminders"] == 1
+    assert metrics["delivery_counts"]["retries"] == 1
+    assert metrics["delivery_counts"]["cancels"] == 1

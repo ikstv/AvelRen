@@ -89,7 +89,7 @@ def exact_diagnostic(successes, total):
     return {"interval": [float(ci.low), float(ci.high)], "reason": None, "assumption": "independent_trials"}
 
 
-def evaluate_alerts(result, events, manifest, *, context):
+def evaluate_alerts(result, events, manifest, *, context, include_trace=True):
     c = phase_cohorts(context.start, context.end)
     events = sorted((e for e in events if e.queue_id == context.queue_id), key=lambda e: (e.onset_at, e.event_id))
     clean = [e for e in events if not e.questionable and e.complete and e.dependency_end < context.end]
@@ -97,7 +97,11 @@ def evaluate_alerts(result, events, manifest, *, context):
     excluded, event_rows = Counter(), []
     for e in events:
         reason = None
-        if e.questionable:
+        if e.dependency_end < context.start:
+            reason = "prior_history"
+        elif e.onset_at < context.start:
+            reason = "carry_in"
+        elif e.questionable:
             reason = "questionable"
         elif not e.complete:
             reason = e.completion_reason or "incomplete"
@@ -137,11 +141,37 @@ def evaluate_alerts(result, events, manifest, *, context):
     outcomes_count = Counter(o["outcome"] for o in outcomes)
     tp, fp = outcomes_count["tp"], outcomes_count["fp"]
     available = []
+    attempted = [r for r in result.decisions if r["queue_id"] == context.queue_id
+                 and r.get("prediction_attempt") and context.start <= r["now"] < context.end]
     for e in eligible:
-        lo, hi = e.onset_at - timedelta(hours=24), e.onset_at - timedelta(hours=1)
-        if any(r["queue_id"] == context.queue_id and r["past_valid"] and r["fresh"] and
-               r["start"] <= hi and r["end"] > lo for r in result.availability):
+        if any(r.get("forecast_available") and r.get("past_valid") and r.get("fresh")
+               and r["now"] + timedelta(hours=1) <= e.onset_at <= r["now"] + timedelta(hours=24)
+               and r["window_start"] <= e.onset_at <= r["window_end"] for r in attempted):
             available.append(e)
+    origins = [r for r in attempted if c["alert_start"] <= r["now"] < c["alert_end"]]
+    origin_sets = {key: set() for key in ("past_unavailable", "unknown_future", "questionable_future")}
+    forecast_available = set()
+    for r in origins:
+        key = (r["observed_at"], r["now"])
+        if not r.get("past_valid") or not r.get("fresh"):
+            origin_sets["past_unavailable"].add(key)
+        if r.get("forecast_available") and r.get("past_valid") and r.get("fresh"):
+            forecast_available.add(key)
+        lo, hi = r["window_start"], r["window_end"]
+        if any(a <= hi + timedelta(minutes=5) and b > lo + timedelta(minutes=5)
+               for a, b in context.unknown_endpoints):
+            origin_sets["unknown_future"].add(key)
+        if any(lo <= e.onset_at <= hi for e in context.uncertain_events):
+            origin_sets["questionable_future"].add(key)
+    affected = origin_sets["unknown_future"] | origin_sets["questionable_future"]
+    all_origins = {(r["observed_at"], r["now"]) for r in origins}
+    origin_counts = {"attempted": len(all_origins),
+                     "past_unavailable": len(origin_sets["past_unavailable"]),
+                     "forecast_available": len(forecast_available),
+                     "unknown_future": len(origin_sets["unknown_future"]),
+                     "questionable_future": len(origin_sets["questionable_future"]),
+                     "affected_union": len(affected),
+                     "assessable_future": len(all_origins - affected)}
     matched = sum(e.event_id in used for e in eligible)
     precision, recall = tp / (tp + fp) if tp + fp else None, matched / len(eligible) if eligible else None
     day = context.start.astimezone(KYIV).date()
@@ -161,10 +191,34 @@ def evaluate_alerts(result, events, manifest, *, context):
             daily[key][2] += e.event_id in used
             daily[key][3] += 1
     availability = Counter()
+    ready_seconds = fresh_seconds = ack_ticks = disabled_ticks = 0
     for r in result.availability:
         if r["queue_id"] == context.queue_id:
             seconds = max(0, (min(context.end, r["end"]) - max(context.start, r["start"])).total_seconds())
             availability[r["status"]] += seconds
+            ready_seconds += seconds * (r["past_valid"] and r["fresh"])
+            fresh_seconds += seconds * r["fresh"]
+            ack_ticks += seconds / 60 * r.get("acknowledged_active", 0)
+            disabled_ticks += seconds / 60 * r.get("disabled_active", 0)
+    queue_alert_ids = {a["alert_id"] for a in result.alerts if a["queue_id"] == context.queue_id}
+    delivery = [a for a in result.delivery_attempts
+                if (a.get("queue_id") == context.queue_id or a["alert_id"] in queue_alert_ids)
+                and context.start <= a.get("created_at", context.start) < context.end]
+    cancels = [r for r in result.cancels if r["queue_id"] == context.queue_id
+               and context.start <= r["now"] < context.end]
+    delivery_counts = {"initial_alerts": sum(context.start <= a["alert_created_at"] < context.end
+                       for a in result.alerts if a["queue_id"] == context.queue_id),
+                       "initial_attempts": sum(a["ordinal"] == 1 for a in delivery),
+                       "reminders": sum(a["ordinal"] > 1 for a in delivery),
+                       "retries": sum(a["attempt_count"] - 1 for a in delivery),
+                       "accepted_attempts": sum(a["accepted_at"] is not None for a in delivery),
+                       "cancels": len(cancels), "suppressed_ack_ticks": int(ack_ticks),
+                       "suppressed_disabled_ticks": int(disabled_ticks)}
+    trace = {} if not include_trace else {
+        "unknown_intervals": context.unknown_endpoints,
+        "forecast_origins": origins,
+        "affected_origin_sets": {key: sorted(value) for key, value in
+                                  (origin_sets | {"affected_union": affected}).items()}}
     leads = sorted(m["lead_seconds"] for m in matches)
     return {"queue_id": context.queue_id, "status": "evaluated", "cohorts": c,
             "tp_alerts": tp, "fp_alerts": fp, "fp": fp, "precision": precision,
@@ -180,6 +234,11 @@ def evaluate_alerts(result, events, manifest, *, context):
             "fp_per_30_days": fp / context.assessable_seconds * 30 * 86400 if context.assessable_seconds else None,
             "fp_rate_reason": None if context.assessable_seconds else "no_assessable_time",
             "availability_seconds": dict(availability), "lead_seconds": leads, "daily": daily,
+            "unknown_seconds": union_seconds(context.unknown_endpoints),
+            "unknown_intervals_count": len(context.unknown_endpoints),
+            "origin_counts": origin_counts, "delivery_counts": delivery_counts,
+            "past_feature_ready_seconds": ready_seconds, "fresh_seconds": fresh_seconds,
+            **trace,
             "precision_ci": block_ci([v[:2] for v in daily.values()]),
             "recall_ci": block_ci([v[2:] for v in daily.values()]),
             "stop_status": stop_status(precision, recall)}

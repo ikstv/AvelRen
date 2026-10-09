@@ -208,6 +208,64 @@ def test_resubscribe_preserves_ack(database, conn, device, api_client, monkeypat
     assert reserve(database, key, T) is sim.reserve(str(key), T) is None
 
 
+def test_resubscribe_without_ack_new_id_and_join_time(
+    database, conn, device, api_client, monkeypatch
+):
+    ids = setup_alerts(conn, device, api_client, monkeypatch)
+    sim, key = simulator(ids), ids[17]
+    source_event = sim.alerts[str(key)]["event"]
+    assert api_client.delete("/surge-subscriptions/17", headers=device.headers()).status_code == 200
+    sim.unsubscribe(17)
+    joined = T + timedelta(minutes=1)
+
+    class LaterClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return joined
+
+    monkeypatch.setattr(surge_api, "datetime", LaterClock)
+    assert api_client.put("/surge-subscriptions/17", headers=device.headers(),
+                          json={"forecast_enabled": False, "fact_enabled": True}).status_code == 200
+    stored = conn.execute("SELECT id,status,created_at FROM surge_alerts").fetchone()
+    virtual = sim.subscribe(source_event, joined)
+    assert stored["id"] != key and virtual != str(key)
+    assert stored["created_at"] == sim.alerts[virtual]["created_at"] == joined
+    assert (
+        conn.execute("SELECT count(*) n FROM surge_alerts").fetchone()["n"] == len(sim.alerts) == 1
+    )
+    assert stored["status"] == sim.alerts[virtual]["status"] == "pending"
+    assert reserve(database, key, joined) is sim.reserve(str(key), joined) is None
+    assert (
+        reserve(database, stored["id"], joined)["ordinal"]
+        == sim.reserve(virtual, joined)["ordinal"] == 1
+    )
+
+
+def test_first_join_active_event_uses_join_time(database, conn, device, api_client, monkeypatch):
+    from tools.surge_experiment.delivery import DeliveryReplay
+    ids = setup_alerts(conn, device, api_client, monkeypatch)
+    assert api_client.delete("/surge-subscriptions/17", headers=device.headers()).status_code == 200
+    joined = T + timedelta(minutes=10)
+
+    class JoinClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return joined
+
+    monkeypatch.setattr(surge_api, "datetime", JoinClock)
+    assert api_client.put("/surge-subscriptions/17", headers=device.headers(),
+                          json={"forecast_enabled": False, "fact_enabled": True}).status_code == 200
+    stored = conn.execute("SELECT id,created_at FROM surge_alerts").fetchone()
+    sim = DeliveryReplay()
+    virtual = sim.subscribe({"queue_id": 17, "alert_id": str(ids[17]), "kind": "surge_started",
+        "alert_created_at": T, "expires_at": T + timedelta(minutes=30), "closed_at": None}, joined)
+    assert stored["created_at"] == sim.alerts[virtual]["created_at"] == joined
+    assert (
+        reserve(database, stored["id"], joined)["ordinal"]
+        == sim.reserve(virtual, joined)["ordinal"] == 1
+    )
+
+
 def test_five_queues_cancel_isolated(database, conn, device, api_client, monkeypatch):
     from avelren import fcm
 

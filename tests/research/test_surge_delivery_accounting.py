@@ -70,3 +70,32 @@ def test_late_callback_requeues_cancel_but_not_reminder():
     delivery.accept(first["attempt_id"], T + timedelta(seconds=1))
     assert delivery.drain_cancels() == ["q17"]
     assert delivery.reserve("q17", T + timedelta(minutes=5)) is None
+
+
+def test_resubscribe_without_ack_creates_new_subscription_alert():
+    from tools.surge_experiment.delivery import DeliveryReplay
+    delivery = DeliveryReplay()
+    event = alert()
+    delivery.attach(event)
+    first = delivery.reserve("q17", T)
+    delivery.unsubscribe(17)
+    delivery.attach(event)  # worker refresh is not user re-enabling
+    assert delivery.reserve("q17", T + timedelta(minutes=1)) is None
+    key = delivery.subscribe(event, T + timedelta(minutes=1))
+    assert key != "q17" and len(delivery.alerts) == 1
+    assert delivery.reserve(key, T + timedelta(minutes=1))["ordinal"] == 1
+    assert delivery.reserve("q17", T + timedelta(minutes=1)) is None
+    delivery.accept(first["attempt_id"], T + timedelta(minutes=2))
+    assert delivery.alerts[key]["status"] == "pending"
+
+
+def test_new_subscription_uses_join_time_and_preserves_ack():
+    from tools.surge_experiment.delivery import DeliveryReplay
+    delivery = DeliveryReplay()
+    key = delivery.subscribe(alert(), T + timedelta(minutes=10))
+    assert delivery.reserve(key, T + timedelta(minutes=9)) is None
+    assert delivery.reserve(key, T + timedelta(minutes=10)) is not None
+    delivery.acknowledge(key)
+    delivery.unsubscribe(17)
+    assert delivery.subscribe(alert(), T + timedelta(minutes=11)) == key
+    assert delivery.reserve(key, T + timedelta(minutes=11)) is None

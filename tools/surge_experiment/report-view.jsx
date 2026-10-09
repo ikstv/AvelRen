@@ -52,7 +52,14 @@ export function ReportContent() {
         <dt>Стан</dt><dd>{statusText[selected.status] || selected.status}</dd>
         <dt>Висновок</dt><dd>{value(selected.stop_status)}</dd>
         <dt>Невідоме майбутнє попереджень</dt><dd>{value(selected.unassessable_alerts)}</dd>
-        <dt>Події без достатньої історії</dt><dd>{value(selected.events_without_history)}</dd>
+        <dt>Події без доступного завчасного розрахунку</dt><dd>{value(selected.events_without_history)}</dd>
+        <dt>Невідомі інтервали / секунд</dt><dd>{value(selected.unknown_intervals_count)} / {value(selected.unknown_seconds)}</dd>
+        <dt>Свіжі дані / придатні минулі ознаки, секунд</dt><dd>{value(selected.fresh_seconds)} / {value(selected.past_feature_ready_seconds)}</dd>
+        <dt>Спроби / доступні розрахунки / оцінюване майбутнє</dt><dd>{value(selected.origin_counts?.attempted)} / {value(selected.origin_counts?.forecast_available)} / {value(selected.origin_counts?.assessable_future)}</dd>
+        <dt>Origins із невідомим майбутнім, без дублів</dt><dd>{value(selected.origin_counts?.affected_union)}</dd>
+        <dt>Початкові доставки / нагадування / retry</dt><dd>{value(selected.delivery_counts?.initial_attempts)} / {value(selected.delivery_counts?.reminders)} / {value(selected.delivery_counts?.retries)}</dd>
+        <dt>Прийняті синтетичні спроби / скасування</dt><dd>{value(selected.delivery_counts?.accepted_attempts)} / {value(selected.delivery_counts?.cancels)}</dd>
+        <dt>Хвилини пригнічення після ACK / вимкнення</dt><dd>{value(selected.delivery_counts?.suppressed_ack_ticks)} / {value(selected.delivery_counts?.suppressed_disabled_ticks)}</dd>
         <dt>Причина невизначеного precision / recall</dt><dd>{selected.precision_reason || "—"} / {selected.recall_reason || "—"}</dd>
         <dt>Попередження TP / знаменник</dt><dd>{selected.tp_alerts == null ? "—" : `${selected.tp_alerts} / ${selected.tp_alerts + selected.fp_alerts}`}</dd>
         <dt>Зіставлені події / знаменник</dt><dd>{selected.matched_events == null ? "—" : `${selected.matched_events} / ${selected.observed_events}`}</dd>

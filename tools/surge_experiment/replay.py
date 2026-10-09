@@ -91,7 +91,7 @@ class ReplayEngine:
         self.cancels = []
 
     def acknowledge(self, alert_id: str):
-        if any(alert["alert_id"] == alert_id for alert in self.alerts):
+        if alert_id in self.delivery.alerts:
             self.acknowledged.add(alert_id)
             self.delivery.acknowledge(alert_id)
 
@@ -143,12 +143,20 @@ class ReplayEngine:
             self.decisions.append({"queue_id": self.queue_id, "now": now, "observed_at": observed,
                                    "score": scored.score if scored is not None else None,
                                    "prediction_attempt": scored is not None,
+                                   "forecast_available": scored is not None and scored.score is not None,
+                                   "past_valid": quality, "fresh": fresh,
+                                   "window_start": prediction.window_start if prediction is not None else None,
+                                   "window_end": prediction.window_end if prediction is not None else None,
                                    "reason": scored.reason if scored is not None else None,
                                    "started": decision.started, "closed": decision.closed,
                                    "forecast_armed": self.state.forecast_armed})
         status = "not_applicable" if not supported else "warmup" if now < self.enabled_from else (
             self.previous[1].status if fresh and self.previous is not None else "unavailable")
-        record = {"queue_id": self.queue_id, "status": status, "past_valid": quality, "fresh": fresh}
+        record = {"queue_id": self.queue_id, "status": status, "past_valid": quality, "fresh": fresh,
+                  "acknowledged_active": sum(a["status"] == "acknowledged" and self.delivery._active(a, now)
+                                             for a in self.delivery.alerts.values()),
+                  "disabled_active": sum(a["status"] == "expired" and self.delivery._active(a, now)
+                                         for a in self.delivery.alerts.values())}
         if self.availability and all(self.availability[-1][key] == value for key, value in record.items()):
             self.availability[-1]["end"] = now + timedelta(minutes=1)
         else:

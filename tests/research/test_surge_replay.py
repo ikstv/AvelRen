@@ -126,6 +126,11 @@ def test_delivery_scenarios_count_reminders_separately():
     assert len(normal.alerts) == len(acked.alerts) == 1
     assert [a["ordinal"] for a in normal.delivery_attempts] == [1, 2, 3]
     assert len(acked.delivery_attempts) == len(acked.cancels) == 1
+    assert sum((a["end"] - a["start"]).total_seconds() / 60 * a.get("acknowledged_active", 0)
+               for a in acked.availability) == 14
+    valid_origins = [r for r in normal.decisions if r.get("forecast_available")]
+    assert valid_origins and all(r["window_end"] == r["observed_at"] + timedelta(hours=24)
+                                for r in valid_origins)
 
 
 def test_quality_respects_database_history_lower_bound():

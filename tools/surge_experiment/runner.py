@@ -73,11 +73,16 @@ def compare(dataset, manifest, fitted, output, *, progress=lambda value: None):
             events[name, q] = build_events(rows, end)
             contexts[name, q] = evaluation_context(q, rows, events[name, q], start, end)
             large = build_large_events(rows, end)
-            large_slices[f"{name}:{q}"] = {"episodes": [asdict(e) for e in large],
-                                           "overlap": overlap_map(events[name, q], large)}
+            phase_large = [e for e in large if start <= e.onset_at < end]
+            large_slices[f"{name}:{q}"] = {"phase_start": start, "phase_end": end,
+                "episodes": [asdict(e) for e in phase_large],
+                "prior_history_count": sum(e.dependency_end < start for e in large),
+                "carry_in": [asdict(e) for e in large if e.onset_at < start <= e.dependency_end],
+                "overlap": overlap_map(events[name, q], phase_large)}
 
     def metrics(result, phase, candidate):
-        return [evaluate_alerts(result, events[phase, q], manifest, context=contexts[phase, q])
+        return [evaluate_alerts(result, events[phase, q], manifest, context=contexts[phase, q],
+                                include_trace=phase == "development")
                 for q in dataset.rows if candidate.supported_ids is None or q in candidate.supported_ids]
 
     trials, chosen, scenarios, summary, aggregates = [], {}, [], [], []
