@@ -50,6 +50,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 
 ### Issues
 
+- #200 🔴 external monitor: watchdog alert channel is empty
 - #196 fix(status): автоматизувати вікно технічних робіт перед reboot і deploy
 - #111 forecast/ETA занижують очікування: відсутні оцінки пишуться як wait=0 (обхід дійсний до 2026-10-29)
 - #110 Робота на двох ПК (десктоп + ноутбук): доступи, синхрон, стан дошки
@@ -64,7 +65,7 @@ Of these, touching the live runtime (`app/`, `db/`, `deploy/`, compose): **2**.
 | Branch | Ahead | Behind |
 |---|---|---|
 | `chore/repo-tidy` | 2 | 44 |
-| `chore/state-refresh` | 55 | 0 |
+| `chore/state-refresh` | 56 | 0 |
 | `codex/admin-access` | 5 | 1 |
 | `codex/automated-maintenance-window` | 5 | 6 |
 | `codex/device-retention-cleanup` | 2 | 5 |
