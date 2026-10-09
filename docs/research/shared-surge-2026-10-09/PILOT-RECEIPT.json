@@ -1,0 +1,101 @@
+{
+  "code_commit": "e7d6d378914ff1cfd3be6e53ddcc3cb281ad13cd",
+  "source_hashes": {
+    "queue-surge-28days.json.gz": "3ca0e0f32e967278e2710afdb993ca0b36c073149fb5121d9d16e7b7983a9a2f",
+    "queue-surge-older-20260806-0903.json.gz": "19a0a1d59a94de4918ad4600c5b40daa856ba287adce32e8666f0702ad40db62"
+  },
+  "scope": "partial_pilot",
+  "training_rows": 1046,
+  "trial_count": 161,
+  "report_rows": 190,
+  "repeatability": {
+    "fit_equal": true,
+    "byte_identical_selected_replays": 20,
+    "receipt_sha256": "01d1fc73c37c9e77ca83662d42125edb381536ec7a245f0207145a348d3f4a28"
+  },
+  "selected": {
+    "calendar": "calendar:lambda=0:threshold=0.25",
+    "chop_local": "chop_local:lambda=0.01:threshold=0.6",
+    "frozen": "frozen:lambda=0:threshold=None",
+    "pooled": "pooled:lambda=0.001:threshold=0.55",
+    "trend": "trend:lambda=0:threshold=0.45"
+  },
+  "development": [
+    {
+      "candidate_id": "calendar",
+      "delivery_scenario": "success_no_ack",
+      "fp": 2,
+      "latency_seconds": 0,
+      "matched_events": 0,
+      "observed_events": 2,
+      "overall_recall": 0.0,
+      "period": "development",
+      "precision": 0.0,
+      "stop_status": "criterion_not_met",
+      "tp_alerts": 0,
+      "trial_id": "calendar:lambda=0:threshold=0.25"
+    },
+    {
+      "candidate_id": "trend",
+      "delivery_scenario": "success_no_ack",
+      "fp": 4,
+      "latency_seconds": 0,
+      "matched_events": 0,
+      "observed_events": 2,
+      "overall_recall": 0.0,
+      "period": "development",
+      "precision": 0.0,
+      "stop_status": "criterion_not_met",
+      "tp_alerts": 0,
+      "trial_id": "trend:lambda=0:threshold=0.45"
+    },
+    {
+      "candidate_id": "frozen",
+      "delivery_scenario": "success_no_ack",
+      "fp": 0,
+      "latency_seconds": 0,
+      "matched_events": 2,
+      "observed_events": 2,
+      "overall_recall": 1.0,
+      "period": "development",
+      "precision": 1.0,
+      "stop_status": "eligible_for_future_test_not_quality_confirmation",
+      "tp_alerts": 2,
+      "trial_id": "frozen:lambda=0:threshold=None"
+    },
+    {
+      "candidate_id": "pooled",
+      "delivery_scenario": "success_no_ack",
+      "fp": 0,
+      "latency_seconds": 0,
+      "matched_events": 0,
+      "observed_events": 2,
+      "overall_recall": 0.0,
+      "period": "development",
+      "precision": null,
+      "stop_status": "insufficient_evidence",
+      "tp_alerts": 0,
+      "trial_id": "pooled:lambda=0.001:threshold=0.55"
+    },
+    {
+      "candidate_id": "chop_local",
+      "delivery_scenario": "success_no_ack",
+      "fp": 0,
+      "latency_seconds": 0,
+      "matched_events": 0,
+      "observed_events": 2,
+      "overall_recall": 0.0,
+      "period": "development",
+      "precision": null,
+      "stop_status": "insufficient_evidence",
+      "tp_alerts": 0,
+      "trial_id": "chop_local:lambda=0.01:threshold=0.6"
+    }
+  ],
+  "hashes": {
+    "manifest.json": "7de3ae414c2984098ef5beeb76b9f81e542296fa6be706c2409a446e0098ed51",
+    "fit\\fit.json": "1171cc43e43427215cf7376b8068b81d43f20178cebf01d580bcee7ded450c79",
+    "compare\\comparison.json": "5426fb7724466c312365733550489ae7c9e5c21801f00ae3a653a5214269a54c",
+    "report\\tables\\results.csv": "b62455603093df78aeec264f9650c9363824c543752997f5ecefd50f26d024f3"
+  }
+}

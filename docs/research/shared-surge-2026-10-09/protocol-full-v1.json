@@ -1,0 +1,230 @@
+{
+  "version": "shared-surge-v1",
+  "queue_ids": [
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    19,
+    20,
+    29,
+    31,
+    79,
+    80,
+    84,
+    85,
+    86,
+    88,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    98,
+    99,
+    100,
+    101,
+    105,
+    107
+  ],
+  "inputs": [
+    {
+      "path": "queue-surge-28days.json.gz",
+      "sha256": "3ca0e0f32e967278e2710afdb993ca0b36c073149fb5121d9d16e7b7983a9a2f"
+    },
+    {
+      "path": "queue-surge-older-20260806-0903.json.gz",
+      "sha256": "19a0a1d59a94de4918ad4600c5b40daa856ba287adce32e8666f0702ad40db62"
+    },
+    {
+      "path": "additional-queues-20260806-1002.json.gz",
+      "sha256": "2009b05a19abeafa92e802d7448c782d93cfc5cf217a65b8708de365bc0b14de"
+    }
+  ],
+  "code_commit": "1e78afec6d4759881c20cb2f4263ae23f743e81a",
+  "protocol": {
+    "periods": {
+      "train_start": "2026-08-06T00:00:00+03:00",
+      "train_end": "2026-09-18T00:00:00+03:00",
+      "selection_end": "2026-09-25T00:00:00+03:00",
+      "development_end": "2026-10-02T00:00:00+03:00"
+    },
+    "replay": {
+      "start": "2026-09-16T22:00:00+03:00",
+      "warmup_hours": 26,
+      "forecast_enabled_from": "2026-09-18T00:00:00+03:00",
+      "initial_state": {
+        "forecast": null,
+        "fact": null,
+        "forecast_armed": true,
+        "last_observation_at": null,
+        "last_forecast_hour": null,
+        "attempts": [],
+        "ack": []
+      },
+      "latencies_seconds": [
+        0,
+        60
+      ],
+      "tick_seconds": 60,
+      "subscriber_from": "replay_start",
+      "delivery": [
+        "success_no_ack",
+        "ack_first"
+      ],
+      "carry_state": true,
+      "forecast_horizon_hours": [
+        1,
+        24
+      ],
+      "freshness_seconds": 180,
+      "forecast_expiry_minutes": 65,
+      "fact_expiry_minutes": 30,
+      "reminder_seconds": 300,
+      "retry_seconds": 60
+    },
+    "labels": {
+      "growth": 20,
+      "lag_seconds": 300,
+      "tolerance_seconds": 30,
+      "max_gap_seconds": 90,
+      "merge_seconds": 1800,
+      "large_growth": 200,
+      "large_window_seconds": 1200,
+      "unknown": null,
+      "purge": "actual_dependency_end"
+    },
+    "features": [
+      "count_scaled",
+      "d5_scaled",
+      "d10_scaled",
+      "d20_scaled",
+      "d60_scaled",
+      "acceleration_scaled",
+      "paused",
+      "sin_day",
+      "cos_day",
+      "sin_week",
+      "cos_week"
+    ],
+    "training": {
+      "seed": 20261009,
+      "lambda_grid": [
+        0.001,
+        0.01,
+        0.1
+      ],
+      "threshold_grid": [
+        0.05,
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.7,
+        0.75,
+        0.8,
+        0.85,
+        0.9,
+        0.95,
+        0.99
+      ],
+      "optimizer": "L-BFGS-B",
+      "maxiter": 1000,
+      "gtol": 1e-08,
+      "initial_coefficients": 0,
+      "blas_threads": 1,
+      "queue_penalty_multiplier": 10,
+      "weights": "event_or_negative_day_then_equal_queue",
+      "scale": "train_median_and_max_1_iqr",
+      "long_quality": [
+        120,
+        240,
+        300,
+        0.95
+      ]
+    },
+    "candidates": {
+      "ids": [
+        "calendar",
+        "trend",
+        "frozen",
+        "pooled",
+        "chop_local"
+      ],
+      "frozen_ids": [
+        1,
+        6,
+        17,
+        29
+      ],
+      "local_ids": [
+        17
+      ],
+      "calendar_pseudocount": 10,
+      "calendar_global_prior": [
+        1,
+        2
+      ],
+      "trend": "sigmoid_clip_d5_plus_acceleration_over_scale_30"
+    },
+    "metrics": {
+      "matching": "created_queue_id_then_onset_event_id_one_to_one",
+      "duplicate_unmatched": "fp_only_if_future_known",
+      "lead": "onset_minus_created",
+      "development_alert_cohort": [
+        "S",
+        "E-24h-35m"
+      ],
+      "development_event_cohort": [
+        "S+24h",
+        "E-23h-35m"
+      ],
+      "label_cutoff": "E",
+      "target": [
+        0.99,
+        0.99
+      ],
+      "ranking": [
+        "min_precision_recall",
+        "harmonic_mean",
+        "fewer_fp",
+        "higher_threshold",
+        "higher_lambda",
+        "stable_id"
+      ],
+      "confidence": {
+        "method": "moving_block_percentile",
+        "block_days": 7,
+        "resamples": 2000,
+        "seed": 20261009,
+        "level": 0.95,
+        "minimum_days": 28,
+        "minimum_valid_fraction": 0.9,
+        "degenerate": "null",
+        "exact_diagnostic": "independence_assumed"
+      },
+      "stop_rule": "criterion_not_met_or_insufficient_evidence_no_extra_fit"
+    }
+  }
+}

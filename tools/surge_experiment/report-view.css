@@ -1,0 +1,5 @@
+/* Додається до авторського src/content/report/report.css штатного Data app. */
+.report-page { --data-app-layout-intent: authored-report; --data-app-content-width: 1180px; }
+.surge-report .surge-detail-grid { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(200px, 2fr); gap: 12px 24px; }
+.surge-report .surge-detail-grid dd { margin: 0; overflow-wrap: anywhere; }
+.surge-report select { max-width: 220px; padding: 8px; border-radius: 8px; }

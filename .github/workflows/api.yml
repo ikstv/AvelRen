@@ -2,6 +2,7 @@ name: API та адміністрування
 on:
   pull_request:
     paths:
+      - 'tools/surge_experiment/**'
       - 'services/backend/**'
       - 'db/**'
       - 'ops/**'
@@ -16,6 +17,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'tools/surge_experiment/**'
       - 'services/backend/**'
       - 'db/**'
       - 'ops/**'
