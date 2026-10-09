@@ -1,7 +1,7 @@
 # План отримання відсутньої історії
 
-Статус: пакет перевірено локально; перенесення очікує окремого дозволу
-власника. Це продовження погодженого експерименту v1, Task 9.
+Статус: пакет перевірено локально; власник окремо дозволив цей export
+і локальний експеримент 09.10.2026. Це продовження протоколу v1, Task 9.
 
 ## Обсяг і мета
 
@@ -89,11 +89,17 @@ export, дублікати, зайві поля, неправильні типи
 
 | Артефакт | SHA-256 |
 | :--- | :--- |
-| `export-approved-history.py` | `aea48346c1c246ae89b05bd8fec639d99c188f7935beed24286e655f2e40f0e6` |
+| `export-approved-history.py` | `31edfb0ba6650b3a355f55f6e95400e531e415a5ed106ba53e3712d3546a0ac6` |
 | `tools/surge_experiment/export.py` | `e7062891b43b8e5eb4dc25c34bfe410202f0c48c617bf6aeef96eda0b6419a95` |
 | Приватний `source-counts.json` | `4f639f30987025e633d4b6ec0c4de392bf501bbfe6510efe0a824de7930a777d` |
 
 Відтворювані перевірки:
+
+Перший запуск зупинився до передачі даних: Windows PowerShell, викликаний
+із Python, успадкував несумісний PSModulePath і не завантажив Get-Acl.
+Helper тепер дає цьому підпроцесу штатний Windows PowerShell module path;
+перевірено AreAccessRulesProtected=true і лише три дозволені SID.
+Відмова зберегла guard; повтор виконує той самий погоджений обсяг.
 
 ```powershell
 python -m pytest tests/research -q
