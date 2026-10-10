@@ -66,6 +66,33 @@ def refs(repo: Path) -> dict[str, str]:
     return dict(line.split(" ", 1) for line in lines.decode().splitlines())
 
 
+def protect_output(path: Path) -> None:
+    """chmod не встановлює Windows DACL; явно обмежити доступ власником."""
+    if os.name != "nt":
+        os.chmod(path, 0o700)
+        return
+    env = environment()
+    def run(*args: str) -> bytes:
+        result = subprocess.run(args, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, check=False)
+        if result.returncode:
+            raise MigrationError("Не вдалося встановити й перевірити приватну Windows DACL.")
+        return result.stdout
+    identity = run("whoami.exe", "/user", "/fo", "csv", "/nh")
+    match = re.search(rb"S-1-5-[0-9-]+", identity)
+    if match is None:
+        raise MigrationError("Не визначено SID поточного Windows-користувача.")
+    sid = match.group().decode("ascii")
+    run("icacls.exe", str(path), "/inheritance:r", "/grant:r", f"*{sid}:(OI)(CI)F")
+    proof = path / ".acl-verification"
+    run("icacls.exe", str(path), "/save", str(proof), "/q")
+    sddl = proof.read_bytes().decode("utf-16-le").lstrip("\ufeff")
+    proof.unlink()
+    entries = re.findall(r"\(([^()]*)\)", sddl)
+    if "D:P" not in sddl or len(entries) != 1 or entries[0].split(";")[-1] != sid:
+        raise MigrationError("Windows DACL містить сторонній доступ; вихід не прийнято.")
+
+
 def sha(repo: Path, ref: str) -> str:
     return git(repo, "rev-parse", "--verify", ref).decode().strip()
 
@@ -113,7 +140,7 @@ def reject_external_objects(repo: Path) -> None:
         oid, kind, size = line.split()
         if kind == b"blob" and int(size) <= 4096:
             content = git(repo, "cat-file", "blob", oid.decode())
-            if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+            if content.splitlines()[:1] == [b"version https://git-lfs.github.com/spec/v1"]:
                 raise MigrationError("Знайдено Git LFS pointer; LFS-дані ще не перенесені.")
 
 
@@ -140,6 +167,7 @@ def prepare(target: Path, sources: dict[str, Path], output: Path,
     if git(target, "ls-tree", "--name-only", base, "--", ARCHIVE).strip():
         raise MigrationError("Архівний каталог уже існує; автоматичне перезаписування заборонене.")
     initial_refs = {name: refs(path) for name, path in sources.items()}
+    target_refs = refs(target)
     for name, path in sources.items():
         if sha(path, "refs/heads/main^{commit}") != expected[name]:
             raise MigrationError(f"main {name} не збігається з погодженим SHA.")
@@ -148,10 +176,12 @@ def prepare(target: Path, sources: dict[str, Path], output: Path,
     output = output.resolve()
     if any(output == p or p in output.parents for p in all_paths):
         raise MigrationError("Вихід має бути поза всіма вхідними репозиторіями.")
-    output.mkdir(mode=0o700, parents=False)
-    os.chmod(output, 0o700)
+    # Python на Windows для mode=0700 додає explicit SYSTEM/Administrators ACE.
+    # Створюємо звичайну теку, потім до запису даних встановлюємо owner-only DACL.
+    output.mkdir(mode=0o777 if os.name == "nt" else 0o700, parents=False)
+    protect_output(output)
     candidate = output / "candidate.git"
-    for path in sources.values():
+    for path in [target, *sources.values()]:
         scanner(path, output)
         reject_external_objects(path)
     git(None, "clone", "--mirror", "--no-hardlinks", str(target.resolve()), str(candidate))
@@ -233,14 +263,15 @@ def prepare(target: Path, sources: dict[str, Path], output: Path,
     for name, path in sources.items():
         if refs(path) != initial_refs[name]:
             raise MigrationError("Джерело змінилося під час підготовки; кандидат не прийнятий.")
-    if sha(target, "refs/heads/main^{commit}") != base:
-        raise MigrationError("main цілі змінився під час підготовки.")
+    if refs(target) != target_refs:
+        raise MigrationError("Refs цілі змінилися під час підготовки.")
     parent_args = [arg for parent in parents for arg in ("-p", parent)]
     commit = git(candidate, "commit-tree", tree, *parent_args,
                  data="Архівно об'єднати AvelRen та AvelRen-ops без зміни чинного коду\n".encode()).decode().strip()
     git(candidate, "update-ref", f"refs/heads/{BRANCH}", commit, "0" * len(commit))
     git(candidate, "symbolic-ref", "HEAD", f"refs/heads/{BRANCH}")
     git(candidate, "fsck", "--full")
+    scanner(candidate, output)
     receipt = {"status": "local_candidate_only", "commit": commit,
                "branch": BRANCH, "tree": tree, "manifest": manifest,
                "github_push_performed": False, "production_changed": False}

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -25,7 +26,16 @@ class ConsolidationTests(unittest.TestCase):
         self.scanner = mock.Mock()
 
     def tearDown(self):
-        self.temp.cleanup()
+        # Windows може коротко утримувати щойно створені Git-файли.
+        # Повтор лише для власного TemporaryDirectory; остаточна помилка видима.
+        for attempt in range(5):
+            try:
+                self.temp.cleanup()
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
 
     def make_repo(self, name, text, extra=None):
         work = self.root / name
@@ -79,7 +89,7 @@ class ConsolidationTests(unittest.TestCase):
                 self.assertEqual(m.git(restored, "cat-file", "-p", oid), m.git(source, "cat-file", "-p", oid), ref)
         self.assertEqual(before, {p: m.refs(p) for p in before})
         self.assertFalse(receipt["github_push_performed"])
-        self.assertEqual(self.scanner.call_count, 2)
+        self.assertEqual(self.scanner.call_count, 4)
         self.assertEqual(json.loads((self.root / "out/RECEIPT.json").read_text())["commit"], commit)
 
     def test_source_sha_mismatch_stops_before_output(self):
@@ -134,6 +144,19 @@ class ConsolidationTests(unittest.TestCase):
         with self.assertRaisesRegex(m.MigrationError, "LFS"):
             self.prepare(expected=expected)
 
+    def test_crlf_lfs_pointer_is_blocked(self):
+        work = self.root / "a"
+        (work / "large.bin").write_bytes(
+            b"version https://git-lfs.github.com/spec/v1\r\noid sha256:"
+            + b"0" * 64 + b"\r\nsize 10\r\n"
+        )
+        m.git(work, "add", ".")
+        m.git(work, "commit", "-m", "LFS із CRLF")
+        m.git(self.a, "fetch", str(work), "main:main")
+        expected = {**self.expected, "AvelRen": m.sha(self.a, "main")}
+        with self.assertRaisesRegex(m.MigrationError, "LFS"):
+            self.prepare(expected=expected)
+
     def test_bundle_limit_is_enforced(self):
         with mock.patch.object(m, "MAX_BUNDLE_BYTES", 1):
             with self.assertRaisesRegex(m.MigrationError, "80 MiB"):
@@ -144,6 +167,22 @@ class ConsolidationTests(unittest.TestCase):
         with mock.patch.object(m.shutil, "which", return_value=None):
             with self.assertRaisesRegex(m.MigrationError, "gitleaks"):
                 m.scan_secrets(self.a, self.root)
+
+    def test_target_history_scan_failure_creates_no_candidate(self):
+        def scanner(repo, output):
+            if repo == self.target:
+                raise m.MigrationError("target scan blocked")
+        with self.assertRaisesRegex(m.MigrationError, "target scan"):
+            self.prepare(scanner=scanner)
+        self.assertFalse((self.root / "out/candidate.git").exists())
+
+    def test_final_candidate_scan_failure_creates_no_receipt(self):
+        def scanner(repo, output):
+            if repo.name == "candidate.git":
+                raise m.MigrationError("candidate scan blocked")
+        with self.assertRaisesRegex(m.MigrationError, "candidate scan"):
+            self.prepare(scanner=scanner)
+        self.assertFalse((self.root / "out/RECEIPT.json").exists())
 
     def test_source_movement_before_finalization_is_rejected(self):
         original_refs = m.refs
