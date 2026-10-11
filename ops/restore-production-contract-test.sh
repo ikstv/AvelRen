@@ -56,7 +56,10 @@ run_case() {
         avelren_start_caddy() { step start-caddy; AVELREN_RESTORE_CADDY_STARTED=true; }
         avelren_verify_external_health() { step external-health; }
         avelren_clear_restore_maintenance() { step clear-maintenance; }
-        avelren_stop_caddy_fail_closed() { step fail-closed; }
+        avelren_stop_restore_clients_fail_closed() {
+          step fail-closed
+          AVELREN_RESTORE_FAILURE_STATE=stopped-verified
+        }
         avelren_restore_production_main --artifact "$2" --sidecar "$3" --evidence "$4"
       ' bash "$ROOT/ops/restore-production.sh" "$WORK/dump.sql.gz" \
         "$WORK/dump.sql.gz.sha256" "$WORK/evidence.json" \

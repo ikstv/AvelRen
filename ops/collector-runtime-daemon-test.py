@@ -90,6 +90,30 @@ def wait(check, seconds=100):
     raise AssertionError("synthetic acceptance timed out")
 
 
+def wait_for_pending_cycle(check, previous_count, seconds=90):
+    """Require a fresh completed capture while all prior cycles are pending."""
+    def ready():
+        snapshot = check()
+        count = len(snapshot["calls"])
+        return count > previous_count and snapshot["status"]["pending_count"] == count
+
+    wait(ready, seconds)
+
+
+def wait_for_replayed_cycle(check, previous_count, seconds=90):
+    """Require a new HTTP attempt and its completed FIFO replay after rollback."""
+    def ready():
+        snapshot = check()
+        count = len(snapshot["calls"])
+        return (
+            count > previous_count
+            and snapshot["status"]["pending_count"] == 0
+            and snapshot["status"]["acked_count"] == count
+        )
+
+    wait(ready, seconds)
+
+
 def cleanup_resources(containers: list[str], volume: str | None, network: str | None):
     if not all(
         re.fullmatch("avelren-runtime-test-[a-z0-9-]+", name)
@@ -347,7 +371,8 @@ def main(source):
                 )
 
             print("capture two pending cycles with database offline", flush=True)
-            wait(lambda: check()["status"]["pending_count"] >= 2)
+            # Startup pause + two captures at t=60/120, with scheduling margin.
+            wait(lambda: check()["status"]["pending_count"] >= 2, 150)
             command(
                 [
                     "docker",
@@ -518,6 +543,8 @@ def main(source):
             assert evidence["handoffs"][-1]["pause_seconds"] >= 60
             wait(lambda: check()["status"]["mode_ack"] is True, 15)
             assert check()["status"]["pending_count"] >= 2
+            handoff_count = len(check()["calls"])
+            wait_for_pending_cycle(check, handoff_count)
             item = json.loads(command(["docker", "inspect", canonical]))[0]
             assert "LITERAL_SENTINEL=$PASSWORD 'quoted'" in item["Config"]["Env"]
             assert "ECHERHA_DEVICE_ID=" + DEVICE in item["Config"]["Env"]
@@ -556,6 +583,7 @@ def main(source):
             )
             wait(lambda: check()["status"]["mode_ack"] is True, 15)
             assert check()["status"]["pending_count"] > 0
+            rollback_count = len(check()["calls"])
             command(
                 [
                     "docker",
@@ -568,7 +596,7 @@ def main(source):
                     "off",
                 ]
             )
-            wait(lambda: check()["status"]["pending_count"] == 0, 45)
+            wait_for_replayed_cycle(check, rollback_count)
             command(
                 [
                     "docker",
@@ -598,7 +626,9 @@ def main(source):
             final = check()
             evidence["cycles"] = len(final["calls"])
             evidence["pending"] = final["status"]["pending_count"]
-            assert evidence["cycles"] >= 5 and evidence["pending"] == 0
+            assert evidence["cycles"] >= 5 and evidence["pending"] == 0, (
+                evidence["cycles"], evidence["pending"],
+            )
             items = json.loads(command(["docker", "inspect", standalone, managed_id]))
             assert sum(x["State"]["Running"] for x in items) == 1
             evidence["status"] = "PASS"

@@ -35,17 +35,19 @@ compose run --rm --no-deps -T \
 compose run --rm --no-deps -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" seed </dev/null
 compose stop test-db
 compose up -d collector-test
-compose exec -T collector-test python "$driver" wait-cycles 2 90
+# Each process waits 60s before its first request, then 60s per further cycle.
+# Budgets include 30s for container scheduling and spool completion.
+compose exec -T collector-test python "$driver" wait-cycles 2 150
 compose kill -s SIGKILL collector-test
 # Preserve 60s between requests while restarting the disposable process.
 compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/null
 compose start collector-test
-compose exec -T collector-test python "$driver" wait-cycles 5 150
+compose exec -T collector-test python "$driver" wait-cycles 5 210
 compose exec -T collector-test python -m avelren.collector_control capture-only on
 compose kill -s SIGKILL collector-test
 compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/null
 compose start collector-test
-compose exec -T collector-test python "$driver" wait-cycles 6 30
+compose exec -T collector-test python "$driver" wait-cycles 6 90
 compose exec -T collector-test python "$driver" wait-aged
 compose up -d --wait test-db
 compose exec -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" paused

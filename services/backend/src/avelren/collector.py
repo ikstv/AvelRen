@@ -15,7 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 from .collector_replay import ReplayConflict, replay_loop
 from .collector_spool import SpoolStore
 from .config import settings, validate_collector_settings
-from .echerha import describe_exception, fetch_workload
+from .echerha import RequestPacer, describe_exception, fetch_workload
 from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.collector")
@@ -28,11 +28,13 @@ def _request_stop(*_: object) -> None:
     _stop.set()
 
 
-async def run_cycle(client: httpx.AsyncClient, store: SpoolStore) -> None:
+async def run_cycle(
+    client: httpx.AsyncClient, store: SpoolStore, *, pacer: RequestPacer | None = None,
+) -> None:
     """Capture before any DB activity; never fetch twice after a write failure."""
     at = datetime.now(UTC).replace(microsecond=0)
     seq = store.begin(at)
-    result = await fetch_workload(client)
+    result = await fetch_workload(client, pacer=pacer)
     store.finish(seq, result, settings.echerha_vehicle_type)
     log.info("cycle %s captured in spool as %s", at.isoformat(), seq)
 
@@ -46,10 +48,17 @@ async def poll_loop(
     """Measure 60 seconds between starts, with no catch-up source requests."""
     loop = asyncio.get_running_loop()
     clock = clock or loop.time
-    next_start = clock()
+    # Docker automatic restart не проходить операторський runtime-control.
+    # Новий poll_loop не знає часу попередньої спроби: починаємо з повної паузи.
+    startup_deadline = clock() + 60
+    while not stop.is_set() and (delay := startup_deadline - clock()) > 0:
+        await _wait_for_change(stop, delay)
+    pacer = RequestPacer(clock=clock)
     while not stop.is_set():
-        await run_cycle(client, store)
-        next_start += settings.poll_interval_seconds
+        # Відлік від фактичного старту: запізніле пробудження не скорочує
+        # наступний інтервал для повернення до старої часової сітки.
+        next_start = clock() + settings.poll_interval_seconds
+        await run_cycle(client, store, pacer=pacer)
         delay = next_start - clock()
         if delay < 0:
             log.warning("cycle exceeded the interval by %.1f s", -delay)
