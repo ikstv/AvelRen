@@ -1,9 +1,12 @@
+import asyncio
 import errno
 import hashlib
 import logging
+import re
 import socket
 import ssl
 import time
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 import httpx
@@ -12,6 +15,52 @@ from .config import settings
 from .models import WorkloadResponse
 
 log = logging.getLogger(__name__)
+
+
+class RequestPacer:
+    """Монотонний інтервал між спробами одного послідовного collector.
+
+    Викликається після локальних записів і підготовки request, прямо перед send.
+    Невдала спроба також займає інтервал; раннє пробудження перевіряємо повторно.
+    """
+
+    def __init__(
+        self,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
+    ) -> None:
+        self.clock = clock
+        self.sleep = sleep or asyncio.sleep
+        self.last_start: float | None = None
+
+    async def wait(self) -> None:
+        if self.last_start is not None:
+            while (remaining := self.last_start + 60 - self.clock()) > 0:
+                await self.sleep(remaining)
+        self.last_start = self.clock()
+
+
+def response_diagnostic(headers: httpx.Headers) -> str:
+    """Лише обмежені hex/UUID ідентифікатори та Retry-After у секундах.
+
+    Невідомі формати, дублікати й надмірні значення відкидаємо цілком:
+    не обрізаємо їх і не записуємо довільний текст джерела.
+    """
+    fields = []
+    for header, label in (
+        ("x-request-id", "request_id"),
+        ("x-correlation-id", "correlation_id"),
+    ):
+        value = headers.get(header, "")
+        if len(value) <= 36 and re.fullmatch(
+            r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})",
+            value,
+        ):
+            fields.append(f"{label}={value}")
+    retry_after = headers.get("retry-after", "")
+    if len(retry_after) <= 6 and re.fullmatch(r"[0-9]{1,6}", retry_after):
+        fields.append(f"retry_after_seconds={int(retry_after)}")
+    return "".join(f" {field}" for field in fields)
 
 
 def transport_diagnostic(exc: httpx.HTTPError) -> str:
@@ -141,7 +190,9 @@ class FetchResult:
         self.error = error
 
 
-async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
+async def fetch_workload(
+    client: httpx.AsyncClient, *, pacer: RequestPacer | None = None,
+) -> FetchResult:
     """A single request to eCherha.
 
     Source errors are not our outage: we return them as a result, so the cycle
@@ -177,7 +228,11 @@ async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
         # ambient session state.
         request.headers.pop("Authorization", None)
         request.headers.pop("Cookie", None)
-        r = await client.send(request, auth=None)
+        if pacer is not None:
+            await pacer.wait()
+            # Очікування ліміту не є тривалістю HTTP-запиту.
+            started = time.monotonic()
+        r = await client.send(request, auth=None, follow_redirects=False)
     except httpx.HTTPError as exc:
         detail = transport_diagnostic(exc)
         duration_ms = int((time.monotonic() - started) * 1000)
@@ -186,7 +241,7 @@ async def fetch_workload(client: httpx.AsyncClient) -> FetchResult:
     duration_ms = int((time.monotonic() - started) * 1000)
 
     if r.status_code != 200:
-        log.warning("eCherha responded %s", r.status_code)
+        log.warning("eCherha responded %s%s", r.status_code, response_diagnostic(r.headers))
         return FetchResult(None, r.status_code, duration_ms, None, f"HTTP {r.status_code}")
 
     body_sha256 = hashlib.sha256(r.content).hexdigest()

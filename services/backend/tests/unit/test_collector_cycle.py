@@ -5,10 +5,67 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from avelren import collector
+import httpx
+
+from avelren import collector, echerha
 from avelren.collector_replay import ReplayConflict
 from avelren.collector_spool import SpoolStore
+from avelren.config import Settings
 from avelren.echerha import FetchResult
+
+
+def test_poll_loop_paces_actual_sends_after_preparation(tmp_path, monkeypatch):
+    """A slow first preparation must not make the next HTTP attempt arrive early."""
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    clock = SimpleNamespace(value=0.0)
+    starts = []
+    begun = []
+    original_begin = store.begin
+
+    def begin(at):
+        begun.append(clock.value)
+        seq = original_begin(at)
+        clock.value += 15 if len(begun) == 1 else 0
+        return seq
+
+    async def sleep(delay):
+        clock.value += delay
+
+    async def wait_for(coro, timeout):
+        coro.close()
+        clock.value += timeout
+        raise TimeoutError
+
+    class Stop:
+        def is_set(self):
+            return len(starts) >= 3
+
+        async def wait(self):
+            pass
+
+    async def handler(request):
+        starts.append(clock.value)
+        return httpx.Response(503, request=request)
+
+    monkeypatch.setattr(store, "begin", begin)
+    monkeypatch.setattr(echerha, "settings", Settings(
+        _env_file=None, echerha_device_id="11111111-1111-4111-8111-111111111111",
+    ))
+    monkeypatch.setattr(collector.asyncio, "wait_for", wait_for)
+    original_pacer = echerha.RequestPacer
+    monkeypatch.setattr(collector, "RequestPacer", lambda **kwargs: original_pacer(
+        **kwargs, sleep=sleep,
+    ))
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await collector.poll_loop(client, store, Stop(), clock=lambda: clock.value)
+
+    asyncio.run(scenario())
+    assert begun == [60.0, 120.0, 180.0]
+    assert starts == [75.0, 135.0, 195.0]
+    assert store.status().pending_count == 3
+    store.close()
 
 
 def test_one_fetch_per_cycle_when_db_down(tmp_path, monkeypatch):
@@ -44,10 +101,12 @@ def test_startup_without_db_still_captures(tmp_path, monkeypatch):
 def test_start_times_remain_60_seconds_apart(tmp_path, monkeypatch):
     store = SpoolStore(tmp_path / "cycles.sqlite3")
     times = []
+    pacers = []
     clock = SimpleNamespace(value=0.0)
 
-    async def fetch(_):
+    async def fetch(_, **kwargs):
         times.append(clock.value)
+        pacers.append(kwargs["pacer"])
         clock.value += 5.0
         return FetchResult(None, 429, 4, None, "HTTP 429")
 
@@ -67,7 +126,9 @@ def test_start_times_remain_60_seconds_apart(tmp_path, monkeypatch):
             return None
 
     asyncio.run(collector.poll_loop(object(), store, Stop(), clock=lambda: clock.value))
-    assert times == [0.0, 60.0, 120.0]
+    assert times == [60.0, 120.0, 180.0]
+    assert pacers[0] is not None
+    assert all(pacer is pacers[0] for pacer in pacers)
 
 
 def test_capture_only_survives_restart(tmp_path):
@@ -153,3 +214,53 @@ def test_replay_conflict_blocks_writer_restarts(tmp_path, monkeypatch):
     asyncio.run(scenario())
     assert len(opened) == 1
     assert store.status().last_error == "ReplayConflict"
+
+
+def test_late_wakeup_never_shortens_next_interval(tmp_path, monkeypatch):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    clock = SimpleNamespace(value=0.0)
+    starts = []
+    waits = []
+
+    async def fetch(_, **kwargs):
+        starts.append(clock.value)
+        return FetchResult(None, 503, 1, None, "HTTP 503")
+
+    async def wait_for(coro, timeout):
+        coro.close()
+        waits.append(timeout)
+        clock.value += timeout + (5 if len(waits) == 2 else 0)
+        raise TimeoutError
+
+    class Stop:
+        def is_set(self):
+            return len(starts) >= 3
+
+        async def wait(self):
+            pass
+
+    monkeypatch.setattr(collector, "fetch_workload", fetch)
+    monkeypatch.setattr(collector.asyncio, "wait_for", wait_for)
+    asyncio.run(collector.poll_loop(object(), store, Stop(), clock=lambda: clock.value))
+    assert starts == [60.0, 125.0, 185.0]
+    assert store.status().pending_count == 3
+
+
+def test_stop_during_startup_makes_no_source_request(tmp_path, monkeypatch):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    fetch = AsyncMock(return_value=FetchResult(None, 503, 1, None, "HTTP 503"))
+    monkeypatch.setattr(collector, "fetch_workload", fetch)
+
+    async def scenario():
+        stop = asyncio.Event()
+
+        async def wait_for(coro, timeout):
+            stop.set()
+            await coro
+
+        monkeypatch.setattr(collector.asyncio, "wait_for", wait_for)
+        await collector.poll_loop(object(), store, stop, clock=lambda: 0.0)
+
+    asyncio.run(scenario())
+    fetch.assert_not_awaited()
+    assert store.status().pending_count == 0
