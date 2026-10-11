@@ -65,6 +65,22 @@ class CleanupContract(unittest.TestCase):
         with patch.object(self.module, "wait", side_effect=wait):
             self.module.wait_for_replayed_cycle(lambda: next(snapshots), 2)
 
+    def test_compose_handoff_must_capture_a_new_pending_cycle(self):
+        snapshots = iter([
+            {"calls": [1, 2], "status": {"pending_count": 2}},
+            {"calls": [1, 2, 3], "status": {"pending_count": 2}},
+            {"calls": [1, 2, 3], "status": {"pending_count": 3}},
+        ])
+
+        def wait(predicate, seconds):
+            self.assertEqual(seconds, 90)
+            self.assertFalse(predicate())
+            self.assertFalse(predicate())
+            self.assertTrue(predicate())
+
+        with patch.object(self.module, "wait", side_effect=wait):
+            self.module.wait_for_pending_cycle(lambda: next(snapshots), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
