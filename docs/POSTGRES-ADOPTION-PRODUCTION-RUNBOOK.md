@@ -1,7 +1,8 @@
 # Production adoption PostgreSQL 001–016 — процедура переходу
 
-Дата: 11.10.2026. Статус: перенесений та адаптований runbook;
-production executor ще відсутній. Документ не є дозволом на операцію.
+Дата: 11.10.2026. Статус: DB executor реалізований і перевірений як source
+кандидат етапу 1; публічний production CLI закритий. Реальний maintenance
+adapter і operational acceptance попереду. Документ не є дозволом на операцію.
 
 ## Походження та чинний контракт
 
@@ -21,7 +22,7 @@ Forward/inverse застосовуються лише до application ownership
 | Припущення старої процедури | Адаптація для ORIGINAL |
 | --- | --- |
 | Schema 009, grants зі старої 010, пізніше stamp 010 | Точний журнал 001–016 та SHA чинних source migrations; жодного повторного stamp або редагування міграцій |
-| Старий shell production executor | Поточний Python executor підтримує тільки disposable DB; production CLI немає |
+| Старий shell production executor | Python DB executor має окремий production API із target/manifest/receipts; production CLI закритий до maintenance adapter |
 | П'ять служб, включно з Caddy | Окремо ingress Caddy та всі DB clients, включно з `surge_worker` і фактичним collector spool runtime |
 | Повернення всіх клієнтів на legacy DSN | Зберегти фактичні DSN кожної служби: API/notifier/worker уже можуть бути обмеженими |
 | Старі exit codes 0/3 | Не переносити значення 3 як «committed, restart failed»: у disposable CLI 3 означає rollback_failed |
@@ -46,7 +47,8 @@ Forward/inverse застосовуються лише до application ownership
    Credentials тільки через захищене середовище, не argv, Git або logs.
 6. Production executor, maintenance orchestration та відкат мають
    ізольовані докази, незалежний review, exact-head CI і злиття.
-   Цю передумову поточний disposable CLI не виконує.
+   DB executor source перевірений ізольовано; actual maintenance adapter,
+   whole-branch review, exact-head CI та integration ще не прийняті цим записом.
 
 ## Окремі операції та точки зупинки
 
@@ -65,8 +67,9 @@ catalog snapshot; SQL повторно генерується з перевір�
 ### B. Maintenance та ownership/ACL adoption — окремий GO
 
 До запуску власник погоджує конкретний plan digest, ціль, maintenance window
-та спосіб відкату. Майбутній executor повинен перевіряти інтерактивного
-оператора та confirmation, прив'язаний до цілі й плану; універсального
+та спосіб відкату. Контракт source executor перевіряє confirmation,
+прив'язаний до operation ID, цілі й плану; інтерактивний операторський CLI
+належить майбутньому maintenance adapter. Універсального
 токена або обходу test guard немає.
 
 Операторський сценарій має:
@@ -137,8 +140,19 @@ executor; його spool/worker обмеження не обходити зар�
 
 ## Що ще потрібно реалізувати
 
-Окремий production executor/confirmation contract, maintenance і session/job
-gates для фактичної topology, перевірені receipts та explicit inverse,
-контракти restart/failure state, disposable production-shaped acceptance.
-Після цього — окреме operational приймання backup, adoption, cutover і soak.
-До виконання цих етапів цей runbook закриває перенос процедури, а не перехід БД.
+DB executor/confirmation contract, session/job gates, receipts та explicit
+inverse реалізовані як source кандидат (`c84d0a9..69c25cc`). Isolated tests
+перевіряють forward/inverse, compressed chunks/CAGG, journal/data/function
+preservation, lock waits, foreign drift і невизначений COMMIT/receipt outcome.
+Two-cluster rehearsal перевіряє відмову чужої цілі за однакових dbname/catalog/
+plan та незмінність ACL/data обох кластерів. Physical-clone unit case доводить
+виклик injected runtime gate, а не реальну перевірку host provenance.
+
+Наступний етап реалізує actual maintenance adapter: фактичні host/Compose/
+image/override manifests і checkout provenance; stop/start усіх DB clients,
+timers та job pause/resume; операторський CLI і restart/failure-state acceptance
+(включно з runtime rc 5). Production apply/inverse CLI залишається закритим
+до його приймання. Runtime DSN cutover — окремий план.
+Після source review/CI/integration потрібні свіжий backup/preflight, окремий
+GO та operational приймання adoption, cutover і soak. Сервер, active DSN,
+collector spool і APK цим source етапом не змінені.

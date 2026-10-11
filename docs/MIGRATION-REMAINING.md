@@ -18,8 +18,13 @@ Collector/watchdog досі під legacy superuser; повний restore зі s
 старий scheduled monitor активний, автоматичний запуск у ORIGINAL не увімкнено.
 
 Права БД: [production adoption runbook 001–016](POSTGRES-ADOPTION-PRODUCTION-RUNBOOK.md)
-адаптує процедуру старого AvelRen-ops. Production executor, maintenance,
-explicit inverse та runtime DSN cutover ще потребують реалізації й приймання.
+адаптує процедуру старого AvelRen-ops. DB executor та explicit inverse
+реалізовані й ізольовано перевірені як source кандидат етапу 1
+(`c84d0a9..69c25cc`, [контракт і rehearsal](../ops/POSTGRES-ADOPTION.md)).
+Публічний production CLI закритий. Actual maintenance adapter, його host/runtime
+provenance, stop/start/job pause/resume і operational acceptance ще попереду;
+runtime DSN cutover має окремий план. Whole-branch review, exact-head CI
+та злиття цього кандидата не підтверджені цим source записом.
 
 ## Ownership/ACL — кандидат 08.10.2026
 
@@ -72,7 +77,7 @@ source-sbom та image-sbom checks цього коміту успішні.
 | Блок | Конкретний результат для закриття |
 | --- | --- |
 | Supply-chain legacy #140 / issue #23 | Source та candidate image SBOM уже реалізовані й мають успішні checks; повторно переносити їх не потрібно. Залишилися рішення по Gradle artifact checksums, Dependabot, dependency/container vulnerability audits і CodeQL із ліцензійним блокером для приватного user-owned repo. Перед exact-image deployment потрібен окремий handoff immutable image/digest: SBOM CI candidate не засвідчує окремо перебудований production image. |
-| Production adoption прав БД, legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | [Функціональна звірка 01.10](POSTGRES-ADOPTION-GAP-2026-10-01.md): старі `deploy/postgres-adopt.sh`, `postgres-ownership.lib.sh`, `postgres-privilege-gate.sh` і тести не мають production-еквівалента. `ops/postgres-bootstrap.sh` — лише fresh/disposable bootstrap. Старі allowlist/ACL та runbook до 009 несумісні як готова процедура зі схемою 001–014; потрібні design review, ізольовані forward/inverse і privilege-тести. Production — лише після окремого явного GO та свіжої read-only звірки. |
+| Production adoption прав БД, legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | [Звірка 01.10](POSTGRES-ADOPTION-GAP-2026-10-01.md) описує історичний gap. На 11.10 DB executor 001–016, binding/receipts, explicit inverse та isolated tests реалізовані як [source кандидат](../ops/POSTGRES-ADOPTION.md); review/CI/integration цього кандидата ще відкриті. `ops/postgres-bootstrap.sh` лишається fresh/disposable fixture. Публічний production CLI закритий до actual maintenance adapter із host/runtime provenance, stop/start/job pause/resume і failure-state acceptance. DSN cutover та operational приймання потребують окремих планів, явного GO й свіжої read-only звірки. |
 | Forecast legacy #111 / ORIGINAL [#70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) | Семантику missing/0/legacy_unknown описано в погодженій специфікації та чернетці плану [PR #71](https://github.com/ikstv/AvelRen-ORIGINAL/pull/71); ці файли ще не в main. Draft [PR #72](https://github.com/ikstv/AvelRen-ORIGINAL/pull/72) — кандидат серверних задач 1–3, 8/8 CI checks на `e68e731` та короткий незалежний backtest із `count_hours` без фільтра за wait. MAE кількості нижча за базиси на чотирьох КПП, але час піку гірший на КПП 1, 29 і 6; це не release gate. Залишаються Android DTO/UI, rollback/restore gate, довший holdout і приймання після окремого deployment GO. Старе held-out evaluation вже перенесено; повторювати його перенос не потрібно. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |

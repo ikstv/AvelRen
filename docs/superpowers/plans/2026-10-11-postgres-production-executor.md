@@ -1,6 +1,6 @@
 # Production adoption БД: план реалізації етапу 1
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Рекомендований спосіб — native; власник має переглянути план і вибрати спосіб виконання перед реалізацією.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Власник погодив план і вибрав послідовних implementers із task reviews 11.10.2026.
 
 **Goal:** Додати перевірений DB executor production adoption із target binding,
 receipt contract і explicit inverse, зберігши чинний disposable механізм.
@@ -61,7 +61,9 @@ DB quiescence; `adoption_transaction.py` — транзакції; `adoption_pro
 
 Кожна задача має unit-тести у `services/backend/tests/unit/` із назвою
 модуля; DB-тести — `services/backend/tests/database/test_adoption_production.py`
-та чинний `test_adoption_failures.py`. Нові test names містять adoption,
+та чинний `test_adoption_failures.py`. Two-cluster acceptance має окремий файл
+`services/backend/tests/rehearsal/test_adoption_two_cluster.py` і власний runner.
+Нові звичайні DB test names містять adoption,
 щоб їх обрав наявний `bash scripts/test_database.sh adoption`.
 
 Команди нижче виконуються з кореня в налаштованому Linux backend runtime:
@@ -83,21 +85,21 @@ runtime_digest: str) -> TargetBinding`, `encode_target(binding) -> bytes`,
 `verify_target(conn, expected: TargetBinding) -> None`.
 Consumes existing `AdoptionError`; helpers не відкривають з'єднання самостійно.
 
-- [ ] Написати RED: `test_adoption_target_canonical_roundtrip` перевіряє
+- [x] Написати RED: `test_adoption_target_canonical_roundtrip` перевіряє
   decode(encode(binding)) == binding і стабільний SHA-256; параметризований
   `test_adoption_target_invalid_format` відхиляє duplicate keys, extra fields,
   bool/int confusion, invalid version, nonpositive OID/system identifier,
   source commit не 40 lowercase hex і runtime digest не 64 lowercase hex.
-- [ ] Запустити unit file; очікується import/function failure нового модуля.
+- [x] Запустити unit file; очікується import/function failure нового модуля.
   Команда: `python -m pytest -c services/backend/pytest.ini services/backend/tests/unit/test_adoption_target.py -q`.
-- [ ] Реалізувати strict JSON schema; system_identifier — decimal string,
+- [x] Реалізувати strict JSON schema; system_identifier — decimal string,
   format_version == 1, OID — positive int, database/session_role — непорожні
   рядки без NUL. Читати identity через pg_control_system()/pg_database та
   session_user; permission/read failure не замінювати dbname-only fallback.
-- [ ] Додати DB assertions: актуальний binding збігається; altered OID,
+- [x] Додати DB assertions: актуальний binding збігається; altered OID,
   system identifier або session role відхиляється до SQL mutation.
   Two-cluster case зі справжніми різними clusters належить задачі 6.
-- [ ] Unit GREEN; DB case GREEN через adoption runner; commit модуля й тестів.
+- [x] Unit GREEN; DB case GREEN через adoption runner; commit модуля й тестів.
 
 ## Task 2: operation manifest, receipts та підтвердження
 
@@ -123,28 +125,28 @@ plan_digest: str)`; `confirm_operator(action: str, manifest) -> Confirmation`
 Actions — тільки ADOPT/INVERSE. Фраза: action, пробіл, повний target digest,
 пробіл, повний plan digest. Confirmation зв'язаний із поточною operation ID.
 
-- [ ] RED `test_adoption_operation_roundtrip_and_binding`: target/plan/
+- [x] RED `test_adoption_operation_roundtrip_and_binding`: target/plan/
   fingerprint hashes точні; `test_adoption_receipt_cross_operation_refused`
   міняє тільки operation_id і очікує відмову.
-- [ ] RED `test_adoption_operator_requires_live_tty_and_exact_action`:
+- [x] RED `test_adoption_operator_requires_live_tty_and_exact_action`:
   fake TTY/root/env adapters; неправильна фраза, action, не-Linux, non-root,
   не-TTY та наявний test mode/failpoint відхиляються без psycopg.connect;
   sentinel credential не присутній у stdout/stderr.
-- [ ] Запустити два unit files; підтвердити RED нового інтерфейсу.
+- [x] Запустити два unit files; підтвердити RED нового інтерфейсу.
   Команда: `python -m pytest -c services/backend/pytest.ini services/backend/tests/unit/test_adoption_operation.py services/backend/tests/unit/test_adoption_operator.py -q`.
-- [ ] Реалізувати strict canonical manifests/records. Production filenames:
+- [x] Реалізувати strict canonical manifests/records. Production filenames:
   `production-operation.json`, `production-apply-intent.json`,
   `production-committed.json`, `production-accepted.json`,
   `production-inverse-intent.json`, `production-inverse-committed.json`,
   `production-inverse-accepted.json`. Усі records містять version/operation/
   target/plan/before/expected та phase/category; невідомий phase заборонений.
   Рядки DSN, passwords, SQL errors чи application data не включати.
-- [ ] Додати tests duplicate/unknown fields, corrupt/foreign disposable
+- [x] Додати tests duplicate/unknown fields, corrupt/foreign disposable
   receipt, overwrite, checksum tampering, symlink/hardlink, permissions,
   interrupted publication. Використати існуючі evidence helpers без дубля.
   Окремо absolute/outside-checkout test: relative path і вкладений у checkout
   каталог відхиляються навіть із 0700; невідомий/порожній roots tuple теж.
-- [ ] GREEN unit files на Linux; commit operation/operator і тестів.
+- [x] GREEN unit files на Linux; commit operation/operator і тестів.
 
 ## Task 3: DB quiescence та обмежені locks
 
@@ -156,25 +158,25 @@ Test unit `test_adoption_preflight.py` та DB production test file.
 -> None`. Consumes AdoptionError і чинний перелік application lock targets
 із postgres_adoption/privilege_gate, без нового дубльованого ACL контракту.
 
-- [ ] RED `test_adoption_quiescence_rejects_idle_session`: друга idle client
+- [x] RED `test_adoption_quiescence_rejects_idle_session`: друга idle client
   session дає відмову; `test_adoption_quiescence_jobs` відхиляє scheduled,
   Running, неповний/unknown job metadata та непідтримуваний background writer.
   Mock prepared transaction для unit; відсутність read permission теж відмова.
-- [ ] RED `test_adoption_advisory_wait_is_bounded`: зайнятий session advisory
+- [x] RED `test_adoption_advisory_wait_is_bounded`: зайнятий session advisory
   lock завершує очікування timeout, не чекає безмежно й не міняє ACL.
-- [ ] Запустити unit file і відповідний DB selector; підтвердити RED.
+- [x] Запустити unit file і відповідний DB selector; підтвердити RED.
   Команди: `python -m pytest -c services/backend/pytest.ini services/backend/tests/unit/test_adoption_preflight.py -q`;
   `AVELREN_ADOPTION_TEST_SELECTOR=adoption_quiescence bash scripts/test_database.sh adoption`.
   Lock-wait DB test: `AVELREN_ADOPTION_TEST_SELECTOR=adoption_advisory bash scripts/test_database.sh adoption`.
-- [ ] Реалізувати reads pg_stat_activity, pg_prepared_xacts та Timescale
+- [x] Реалізувати reads pg_stat_activity, pg_prepared_xacts та Timescale
   jobs/job_stats. Не зберігати query text/config із потенційними секретами
   в diagnostics. Звірити фактичні pinned 2.30.1 columns/worker identities
   у test DB; невідомі worker types — відмова, не широка allowlist за name.
-- [ ] Lock очікувати в autocommit із statement timeout 10000ms, після нього
+- [x] Lock очікувати в autocommit із statement timeout 10000ms, після нього
   почати repeatable-read й отримати ті самі application object locks до
   першого capture. Identity reads до RR виконуються окремо, не створюють
   stale transaction snapshot. Timeout не завершує чужі sessions.
-- [ ] Unit/DB GREEN, включно з появою session під час lock wait;
+- [x] Unit/DB GREEN, включно з появою session під час lock wait;
   commit preflight і tests. Jobs не pause/resume у цьому етапі.
 
 ## Task 4: спільний engine зі збереженням disposable поведінки
@@ -191,19 +193,19 @@ None або AdoptionError. Engine не пише receipts, не підтверд�
 не керує runtime і не виконує автоматичний post-commit inverse.
 Consumes read_snapshot/fingerprint/capture, план і locks із задачі 3.
 
-- [ ] Спершу запустити чинний unit CLI і adoption DB suite як baseline.
+- [x] Спершу запустити чинний unit CLI і adoption DB suite як baseline.
   RED new `test_adoption_mutation_commit_ack_loss_closes_connection`:
   commit error викликає close, не повторний context-manager COMMIT/rollback;
   `test_adoption_inverse_commit_ack_loss_is_unknown` має той самий результат.
-- [ ] Реалізувати engine: validated/regenerated plan, locks, callback,
+- [x] Реалізувати engine: validated/regenerated plan, locks, callback,
   re-capture очікуваного from fingerprint, statements, перевірка to fingerprint,
   before_commit callback, commit. До commit exception — rollback та окремий
   read-only доказ from; непідтверджений rollback — rollback_failed.
-- [ ] Перенести disposable orchestration на engine, зберігши _guards,
+- [x] Перенести disposable orchestration на engine, зберігши _guards,
   FAILPOINTS, private API _inverse і AdoptionResult signatures, старі filenames,
   automatic guarded inverse після disposable acceptance failure та CLI rc.
   Production-only quiescence не нав'язувати disposable fixtures без потреби.
-- [ ] GREEN unit file, existing CLI, lock-wait regression і весь adoption
+- [x] GREEN unit file, existing CLI, lock-wait regression і весь adoption
   DB suite; assert no diff у db/migrations/bootstrap; commit engine/refactor.
   Команди: `python -m pytest -c services/backend/pytest.ini services/backend/tests/unit/test_adoption_transaction.py services/backend/tests/unit/test_postgres_adoption_cli.py -q`;
   `bash scripts/test_database.sh adoption`.
@@ -224,15 +226,15 @@ evidence_dir: Path, context: MaintenanceContext, confirmation: Confirmation,
 runtime: RuntimeVerifier) -> AdoptionResult` та `inverse_production` з такими
 самими параметрами. Consumes задачі 1–4 і privilege_gate.audit.
 
-- [ ] RED `test_adoption_production_rejects_context_before_connect`:
+- [x] RED `test_adoption_production_rejects_context_before_connect`:
   mismatched operation/target/plan/runtime або phase дає нуль mutation;
   runtime verification не можна замінити receipt/timestamp.
   `test_adoption_production_rechecks_runtime_under_locks` відхиляє drift
   після початкового runtime verify, навіть за незмінного DB fingerprint.
-- [ ] RED DB forward acceptance та explicit inverse: synthetic legacy-like
+- [x] RED DB forward acceptance та explicit inverse: synthetic legacy-like
   ownership, compressed chunks/CAGG, hashes journal/data/function definitions
   точні; privilege gate приймає forward; inverse повертає before fingerprint.
-- [ ] Реалізувати apply: production env guard, binding/manifest/confirmation,
+- [x] Реалізувати apply: production env guard, binding/manifest/confirmation,
   runtime verify, evidence location guard, plan regeneration, preflight, intent;
   engine callback повторює
   binding/runtime/quiescence. Після commit committed receipt, fresh capture,
@@ -240,20 +242,20 @@ runtime: RuntimeVerifier) -> AdoptionResult` та `inverse_production` з так
   Підтверджене gate failure → rollback_failed/category acceptance_failed,
   без автоматичного inverse. already_target вимагає валідний receipt chain
   і фактичний expected fingerprint; неповний intent блокує повтор.
-- [ ] Реалізувати inverse: окремий INVERSE confirmation, валідні production
+- [x] Реалізувати inverse: окремий INVERSE confirmation, валідні production
   intent/committed records, maintenance і exact expected fingerprint під locks.
   Explicit inverse допустимий при збереженому committed receipt навіть без
   accepted після підтвердженої gate failure; відсутній committed не дозволяє
   компенсацію. Post-inverse capture/receipt loss → commit_unknown.
-- [ ] RED/GREEN assertions для before_commit SQL failure, commit_ack_loss,
+- [x] RED/GREEN assertions для before_commit SQL failure, commit_ack_loss,
   receipt fsync failure, acceptance failure, inverse error та чужого drift;
   чужий GRANT збережено, automatic inverse не викликано. Corrupt receipt
   відмовляє до mutation, stdout/stderr без sentinel DSN.
-- [ ] У isolated tests injected runtime/operator adapters не походять із CLI;
+- [x] У isolated tests injected runtime/operator adapters не походять із CLI;
   fixture спершу звіряє test DB prefix/DSN, після цього прибирає production-
   forbidden env тільки на час coordinator call. Немає bypass flag у коді.
   Test failpoints підміняють connection/filesystem/gate, не environment mode.
-- [ ] GREEN unit/DB tests; commit coordinator. Жодного apply-production/
+- [x] GREEN unit/DB tests; commit coordinator. Жодного apply-production/
   inverse-production parser route, інсталяції чи service mutation.
   Команди: `python -m pytest -c services/backend/pytest.ini services/backend/tests/unit/test_adoption_production.py -q`;
   `AVELREN_ADOPTION_TEST_SELECTOR=adoption_production bash scripts/test_database.sh adoption`.
@@ -265,21 +267,21 @@ fixture; Modify `ops/POSTGRES-ADOPTION.md`, production runbook,
 `docs/MIGRATION-REMAINING.md`, `docs/RELEASE-READINESS.md`;
 Modify `.github/workflows/database.yml` тільки для нового isolated rehearsal.
 
-- [ ] RED two-cluster rehearsal: один план/catalog і однакове dbname,
+- [x] RED two-cluster rehearsal: один план/catalog і однакове dbname,
   target від першого кластера не приймається другим; перший/другий
   fingerprints незмінні. Runner створює тільки власні random Compose
   projects/БД, без live env; cleanup перевіряє ownership resource names.
-- [ ] Реалізувати runner на тому самому pinned Timescale image, reuse
+- [x] Реалізувати runner на тому самому pinned Timescale image, reuse
   existing fixture helpers. Physical-clone identity ambiguity перевірити
   unit fake runtime із тим самим system identifier та іншим host manifest.
-- [ ] GREEN rehearsal і adoption restore rehearsal; cleanup без власних
+- [x] GREEN rehearsal і adoption restore rehearsal; cleanup без власних
   залишкових контейнерів/volumes. Не змінювати checkout під bind-mounted run.
   Команди: `bash ops/postgres-production-adoption-test.sh` та
   `bash ops/postgres-adoption-restore-test.sh`.
-- [ ] Оновити docs: DB executor source готовий, production CLI закритий,
+- [x] Оновити docs: DB executor source готовий, production CLI закритий,
   maintenance adapter, DSN cutover та operational acceptance залишаються.
   Записати фактичні commit/test межі, не називати сервер прийнятим.
-- [ ] Фінально: backend unit suite; Ruff; verify_ci_scopes.py;
+- [x] Фінально: backend unit suite; Ruff; verify_ci_scopes.py;
   verify_core_provenance.py; git diff --check; bash scripts/test_database.sh
   adoption; bash ops/postgres-adoption-restore-test.sh; новий rehearsal.
   Success — exit 0, усі обрані tests PASS, cleanup підтверджений.
@@ -328,7 +330,7 @@ MaintenanceContext/RuntimeVerifier тільки контракт цього ет
 stop/start, job pause/resume, runtime rc 5 і DSN cutover належать наступним
 планам; їх немає в production CLI поточної зміни.
 
-Рекомендую native: реалізую задачі послідовно в цій сесії, із одним
-незалежним whole-branch review. Задачі залежать від спільних binding,
-manifest і transaction interfaces; цей спосіб зменшує передачу контексту
-та витрати. План потребує перегляду власником перед реалізацією.
+Власник погодив план 11.10.2026 та обрав окремих послідовних implementers
+із review кожної задачі. Задачі 1–5 реалізовані й прийняті task reviews
+(`c84d0a9..69c25cc`). Whole-branch review, exact-head CI та integration
+залишаються окремими незакритими gates задачі 6.

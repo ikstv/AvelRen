@@ -1,7 +1,11 @@
 # Production adoption PostgreSQL 001–016: специфікація для перегляду
 
 Дата: 11.10.2026. Статус: підхід і письмову специфікацію погоджено
-власником 11.10.2026; готується план етапу 1. Код ще не реалізовано.
+власником 11.10.2026. Етап 1 реалізований та ізольовано перевірений як
+source кандидат; публічний production CLI закритий. Actual maintenance
+adapter, DSN cutover і operational acceptance не виконані. Whole-branch
+review, exact-head CI та integration ведуться окремими gates у
+[плані](../plans/2026-10-11-postgres-production-executor.md).
 
 ## Мета й погоджені межі
 

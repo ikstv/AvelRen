@@ -1,8 +1,10 @@
 # Перенесення ownership та ACL PostgreSQL — кандидат 001–016
 
 Цей компонент переносить контракт прав із двох старих репозиторіїв у
-AvelRen-ORIGINAL. Виконавець змін підтримує тільки одноразові тестові БД.
-Production adoption, створення ролей, DSN cutover та retirement не виконуються.
+AvelRen-ORIGINAL. DB executor production adoption реалізований як source
+кандидат; публічний production apply/inverse CLI закритий до приймання
+maintenance adapter. Production adoption, створення ролей, DSN cutover
+та retirement не виконуються.
 Залежність: [PR #106](https://github.com/ikstv/AvelRen-ORIGINAL/pull/106).
 Специфікація: [design](../docs/POSTGRES-ADOPTION-016-DESIGN.md).
 
@@ -69,8 +71,47 @@ Exit codes: 0 — adopted/already_target/inspected; 1 — refused/rolled_back;
 
 ## Окремі наступні production етапи
 
-Потрібні свіжий read-only audit і погоджений production executor. Далі окремо:
+Потрібні свіжий read-only audit та прийнятий maintenance adapter. Далі окремо:
 provisioning ролей; ownership adoption із приватним evidence та перевіреним
 rollback; runtime DSN cutover; acceptance кожної служби; soak і retirement
 legacy ролей. Кожен етап має власний явний GO. Поточний кандидат не містить
 production apply-команди і не змінює міграції, bootstrap чи service runtime.
+
+## DB executor — source кандидат 11.10.2026
+
+`adoption_production.apply_production` та `inverse_production` споживають
+окремі target binding, operation manifest, confirmation і MaintenanceContext.
+Binding включає system identifier, dbname/OID, session role, source commit
+і runtime digest. RuntimeVerifier має доводити фактичний runtime та походження
+checkout roots; цей етап містить його контракт та injected test adapters.
+Production path відхиляє саму присутність test environment/failpoint variables.
+
+DB identity, quiescence і runtime перевіряються до mutation, під locks,
+перед COMMIT та під час acceptance. Невідомі сесії/jobs блокують операцію;
+production код не зупиняє jobs або sessions. Manifest і receipts мають
+окремий format 1; intent публікується до першого SQL, committed після COMMIT,
+accepted після свіжого read-only gate. Production inverse потребує окремого
+INVERSE confirmation і не запускається автоматично після gate failure.
+Втрата acknowledgement або доказу після COMMIT означає `commit_unknown`.
+Disposable CLI та його компенсація зберігають чинний контракт.
+
+```bash
+bash ops/postgres-production-adoption-test.sh
+```
+
+Новий runner використовує два власні випадкові Compose projects, той самий
+pinned TimescaleDB 2.30.1/PG16 образ і bootstrap fixture. Однакові dbname,
+catalog fingerprint та plan не дозволяють прийняти binding першого кластера
+на другому: обидва ACL/data fingerprints лишаються незмінними. Лише свіжі
+синтетичні journals отримують однаковий фіксований `applied_at` перед baseline;
+production/відновлені journals не нормалізуються. Resource names,
+Compose labels та network endpoints перевіряються перед attachment/cleanup;
+після cleanup підтверджується відсутність власних containers/networks/volumes.
+Physical clone з тим самим system identifier та іншим host manifest перевіряє
+unit fake RuntimeVerifier: він має відхилити інший runtime digest до connect.
+Це не перевірка реального host adapter або production maintenance.
+
+Код executor — коміти `c84d0a9..69c25cc`; isolated acceptance і актуальні
+межі наведено в [runbook](../docs/POSTGRES-ADOPTION-PRODUCTION-RUNBOOK.md).
+Maintenance stop/start, job pause/resume, runtime failure/restart, DSN cutover
+та operational acceptance залишаються окремими етапами.
