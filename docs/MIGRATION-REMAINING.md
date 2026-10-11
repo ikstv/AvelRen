@@ -1,5 +1,17 @@
 # Залишки перенесення
 
+## Актуальний підсумок — 11.10.2026
+
+[Свіжа звірка сервера й підготовлених PR](audits/MIGRATION-SERVER-2026-10-11.md)
+уточнює історичні рядки нижче: на сервері schema 001–016 і TimescaleDB 2.30.1,
+collector працює щохвилини, прогноз має non-null scores на чотирьох КПП.
+Collector/watchdog досі під legacy superuser; повний restore зі spool
+і production перехід прав не прийняті. PR #106/#107 злиті в main;
+#113/#114/#115 оновлені щодо цієї основи й очікують нового CI.
+Насамперед завершити їхню інтеграцію та спільні ізольовані перевірки,
+потім права/recovery/monitoring і release acceptance. Не повторювати
+вже прийняті переноси лише через незакритий історичний рядок.
+
 ## Ownership/ACL — кандидат 08.10.2026
 
 Додано [inventory, forward/inverse та disposable executor](../ops/POSTGRES-ADOPTION.md)
