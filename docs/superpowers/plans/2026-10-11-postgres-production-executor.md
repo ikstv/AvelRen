@@ -70,7 +70,7 @@ DB quiescence; `adoption_transaction.py` — транзакції; `adoption_pro
 та `--network none`; не встановлюємо повторно залежності лише заради плану.
 Не перемикаємо checkout, поки тестовий контейнер читає його bind mount.
 
-## Задача 1: target binding без зміни snapshot format
+## Task 1: target binding без зміни snapshot format
 
 **Files:** Create `services/backend/src/avelren/adoption_target.py`;
 Test `services/backend/tests/unit/test_adoption_target.py` та DB test file.
@@ -99,7 +99,7 @@ Consumes existing `AdoptionError`; helpers не відкривають з'єдн
   Two-cluster case зі справжніми різними clusters належить задачі 6.
 - [ ] Unit GREEN; DB case GREEN через adoption runner; commit модуля й тестів.
 
-## Задача 2: operation manifest, receipts та підтвердження
+## Task 2: operation manifest, receipts та підтвердження
 
 **Files:** Create `adoption_operation.py`, `adoption_operator.py` у src;
 Test `test_adoption_operation.py`, `test_adoption_operator.py` у unit.
@@ -146,7 +146,7 @@ Actions — тільки ADOPT/INVERSE. Фраза: action, пробіл, пов
   каталог відхиляються навіть із 0700; невідомий/порожній roots tuple теж.
 - [ ] GREEN unit files на Linux; commit operation/operator і тестів.
 
-## Задача 3: DB quiescence та обмежені locks
+## Task 3: DB quiescence та обмежені locks
 
 **Files:** Create `services/backend/src/avelren/adoption_preflight.py`;
 Test unit `test_adoption_preflight.py` та DB production test file.
@@ -177,7 +177,7 @@ Test unit `test_adoption_preflight.py` та DB production test file.
 - [ ] Unit/DB GREEN, включно з появою session під час lock wait;
   commit preflight і tests. Jobs не pause/resume у цьому етапі.
 
-## Задача 4: спільний engine зі збереженням disposable поведінки
+## Task 4: спільний engine зі збереженням disposable поведінки
 
 **Files:** Create `services/backend/src/avelren/adoption_transaction.py`;
 Modify `postgres_adoption.py` (_lock, _inverse, apply_disposable);
@@ -208,7 +208,7 @@ Consumes read_snapshot/fingerprint/capture, план і locks із задачі 
   Команди: `python -m pytest -c services/backend/pytest.ini services/backend/tests/unit/test_adoption_transaction.py services/backend/tests/unit/test_postgres_adoption_cli.py -q`;
   `bash scripts/test_database.sh adoption`.
 
-## Задача 5: production coordinator та explicit inverse
+## Task 5: production coordinator та explicit inverse
 
 **Files:** Create `services/backend/src/avelren/adoption_production.py`;
 Test unit `test_adoption_production.py`, DB production test file.
@@ -258,7 +258,7 @@ runtime: RuntimeVerifier) -> AdoptionResult` та `inverse_production` з так
   Команди: `python -m pytest -c services/backend/pytest.ini services/backend/tests/unit/test_adoption_production.py -q`;
   `AVELREN_ADOPTION_TEST_SELECTOR=adoption_production bash scripts/test_database.sh adoption`.
 
-## Задача 6: приймання, документація та whole-branch review
+## Task 6: приймання, документація та whole-branch review
 
 **Files:** Create `ops/postgres-production-adoption-test.sh` для two-cluster
 fixture; Modify `ops/POSTGRES-ADOPTION.md`, production runbook,
