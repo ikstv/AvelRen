@@ -112,13 +112,44 @@ def validate_mirror(repo: Path) -> None:
     sha(repo, "refs/heads/main^{commit}")
 
 
+def reviewed_fingerprints(repo: Path) -> list[str]:
+    """Виняток прив'язаний до commit/path/rule/line та незмінного Git blob."""
+    policy = Path(__file__).with_name("consolidation-secret-exceptions.json")
+    document = json.loads(policy.read_text(encoding="utf-8"))
+    if document.get("version") != 1:
+        raise MigrationError("Невідома версія реєстру scanner exceptions.")
+    accepted = []
+    seen = set()
+    for entry in document["entries"]:
+        fingerprint = entry["fingerprint"]
+        match = re.fullmatch(r"([0-9a-f]{40}):([^:\r\n]+):generic-api-key:([1-9][0-9]*)", fingerprint)
+        if (match is None or fingerprint in seen
+                or not re.fullmatch(r"[0-9a-f]{64}", entry["blob_sha256"])
+                or entry.get("classification") != "false-positive-file-checksum"
+                or not entry.get("evidence")):
+            raise MigrationError("Некоректний або повторний scanner exception.")
+        seen.add(fingerprint)
+        commit, path, _ = match.groups()
+        # Старі джерела не містять комітів ORIGINAL: їм не додаємо винятків.
+        try:
+            git(repo, "cat-file", "-e", commit + "^{commit}")
+        except MigrationError:
+            continue
+        content = git(repo, "show", commit + ":" + path)
+        if hashlib.sha256(content).hexdigest() != entry["blob_sha256"]:
+            raise MigrationError("Git blob scanner exception не збігається з доказом.")
+        accepted.append(fingerprint)
+    return accepted
+
+
 def scan_secrets(repo: Path, work: Path) -> None:
     if shutil.which("gitleaks") is None:
         raise MigrationError("Потрібен gitleaks; перевірку секретів пропускати заборонено.")
     config = work / "migration-gitleaks.toml"
     config.write_text('[extend]\nuseDefault = true\n', encoding="utf-8")
-    ignore = work / "empty.gitleaksignore"
-    ignore.write_text("", encoding="utf-8")
+    ignore = work / "reviewed.gitleaksignore"
+    fingerprints = reviewed_fingerprints(repo)
+    ignore.write_text("".join(item + "\n" for item in fingerprints), encoding="utf-8")
     result = subprocess.run(
         ["gitleaks", "git", str(repo), "--log-opts=--all", "--redact=100",
          "--no-banner", "--ignore-gitleaks-allow", "--config", str(config),

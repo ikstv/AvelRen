@@ -1,20 +1,49 @@
 {
   "scanner": "gitleaks 8.30.1",
-  "mode": "dir: exact committed blobs for explicit publication files only; existing target history scanned separately",
+  "mode": "dir: exact staged Git blobs; no exceptions; history checked separately",
   "exit_code": 0,
   "findings": 0,
   "status": "passed",
   "files": {
-    "docs/RELEASE-READINESS.md": "87a04d478ae141aac6b133b4be7b3270e5e1bf4ceb4b5820b3b8206dcf3db48d",
-    "docs/REPOSITORY-CONSOLIDATION-2026-10-10.md": "3b9af7b0ed42944238271ddaebc4d67e5a9431dbf01c0e019fc71947bb0ac700",
-    "docs/TASK-01-2026-10-10.md": "62026cf66032f1b419b8bc8b43d9ca1400d6d4903aa34cdfc36329b543722d24",
-    "docs/task01-inventory/coverage-check.json": "c63385bbd3dbfd4eb2c26077937d20899fe7dd6a80f8a5b821ea81c2155c0c5d",
-    "docs/task01-inventory/files.json": "20eab34ed67be30d93780ec1506fa19911e617fea2fe41bf7b4ebddba9c51fcd",
-    "docs/task01-inventory/github-objects.json": "836282af3d04856df3eaa2894694e820126170a4c66f303eb323f11f502a420d",
-    "docs/task01-inventory/manifest.json": "311303a302c688cac0d49005e0676cf7dbd4d3265f1423a8b5ce964a1f27ba34",
-    "tools/consolidate_legacy_repositories.py": "2dcd4d91c20e866025404c6e3ceed9355f59622175925d99f98311d908044fea",
-    "tools/inventory_legacy_repositories.py": "b5cfd70b2934874e8a6a0ca5446c9733af2cb57c78146fe7e2378e899360a521",
-    "tools/tests/test_consolidate_legacy_repositories.py": "3c306f26c991d33e26387375aed9fb4c232f10e58aa9da34048d6c2e9b9dd210"
+    ".github/workflows/repository.yml": {
+      "sha256": "7ee02c8bbb8df9d7dc2be1262eff0fb3adc24dd0498551c80ad55b7b6b12a690"
+    },
+    "docs/RELEASE-READINESS.md": {
+      "sha256": "87a04d478ae141aac6b133b4be7b3270e5e1bf4ceb4b5820b3b8206dcf3db48d"
+    },
+    "docs/REPOSITORY-CONSOLIDATION-2026-10-10.md": {
+      "sha256": "3b9af7b0ed42944238271ddaebc4d67e5a9431dbf01c0e019fc71947bb0ac700"
+    },
+    "docs/TASK-01-2026-10-10.md": {
+      "sha256": "d29178a8ca2f00159e67b1fa8da07f050d5125af75a29195eb56c1b108f00368"
+    },
+    "docs/task01-inventory/coverage-check.json": {
+      "sha256": "c63385bbd3dbfd4eb2c26077937d20899fe7dd6a80f8a5b821ea81c2155c0c5d"
+    },
+    "docs/task01-inventory/files.json": {
+      "sha256": "20eab34ed67be30d93780ec1506fa19911e617fea2fe41bf7b4ebddba9c51fcd"
+    },
+    "docs/task01-inventory/github-objects.json": {
+      "sha256": "836282af3d04856df3eaa2894694e820126170a4c66f303eb323f11f502a420d"
+    },
+    "docs/task01-inventory/manifest.json": {
+      "sha256": "311303a302c688cac0d49005e0676cf7dbd4d3265f1423a8b5ce964a1f27ba34"
+    },
+    "docs/task01-inventory/secret-review-scan-2026-10-11.json": {
+      "sha256": "714c8258379b02948eca5ec5663a0ae9615340ac15fe483f2905b1ad4a869a37"
+    },
+    "tools/consolidate_legacy_repositories.py": {
+      "sha256": "e1cba69102073953809eae2f6cd198cb27e0fac05512e4645f8ec69dca98a917"
+    },
+    "tools/consolidation-secret-exceptions.json": {
+      "sha256": "1d7818642b0f0b4eb12fa2d594baae57d24cb6e6c0489d4e4707b96fd391bd7a"
+    },
+    "tools/inventory_legacy_repositories.py": {
+      "sha256": "b5cfd70b2934874e8a6a0ca5446c9733af2cb57c78146fe7e2378e899360a521"
+    },
+    "tools/tests/test_consolidate_legacy_repositories.py": {
+      "sha256": "7d4336cb20d02754375e4c9e762e89a524caec4faa4521500fd40433e07d42b2"
+    }
   },
   "receipt_excluded_from_own_hashes": true
 }

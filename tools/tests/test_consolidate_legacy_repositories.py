@@ -1,4 +1,5 @@
 """Синтетичні Git-тести без GitHub, production і реальних секретів."""
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -167,6 +168,66 @@ class ConsolidationTests(unittest.TestCase):
         with mock.patch.object(m.shutil, "which", return_value=None):
             with self.assertRaisesRegex(m.MigrationError, "gitleaks"):
                 m.scan_secrets(self.a, self.root)
+
+    def exception_policy(self):
+        commit = m.sha(self.a, "main")
+        content = m.git(self.a, "show", commit + ":README.md")
+        return {"version": 1, "entries": [{
+            "fingerprint": commit + ":README.md:generic-api-key:1",
+            "blob_sha256": hashlib.sha256(content).hexdigest(),
+            "classification": "false-positive-file-checksum",
+            "evidence": "Синтетичний доказ для контрактного тесту.",
+        }]}
+
+    def test_exception_requires_exact_blob_and_commit(self):
+        policy = self.exception_policy()
+        with mock.patch.object(m.Path, "read_text", return_value=json.dumps(policy)):
+            self.assertEqual(m.reviewed_fingerprints(self.a),
+                             [policy["entries"][0]["fingerprint"]])
+            self.assertEqual(m.reviewed_fingerprints(self.b), [])
+        policy["entries"][0]["blob_sha256"] = "0" * 64
+        with mock.patch.object(m.Path, "read_text", return_value=json.dumps(policy)):
+            with self.assertRaisesRegex(m.MigrationError, "Git blob"):
+                m.reviewed_fingerprints(self.a)
+
+    def test_broad_or_duplicate_exceptions_are_rejected(self):
+        for fingerprint in ("*", "a" * 40 + ":README.md:generic-api-key:*",
+                            "a" * 40 + ":README.md:other-rule:1"):
+            policy = self.exception_policy()
+            policy["entries"][0]["fingerprint"] = fingerprint
+            with mock.patch.object(m.Path, "read_text", return_value=json.dumps(policy)):
+                with self.assertRaises(m.MigrationError):
+                    m.reviewed_fingerprints(self.a)
+        policy = self.exception_policy()
+        policy["entries"].append(policy["entries"][0])
+        with mock.patch.object(m.Path, "read_text", return_value=json.dumps(policy)):
+            with self.assertRaises(m.MigrationError):
+                m.reviewed_fingerprints(self.a)
+
+    @unittest.skipUnless(m.shutil.which("gitleaks"), "Потрібен реальний Gitleaks у PATH")
+    def test_real_scanner_does_not_allow_new_occurrences(self):
+        work = self.root / "a"
+        # Синтетична контрольна сума, не облікові дані.
+        checksum = hashlib.sha256(b"synthetic checksum regression fixture").hexdigest()
+        (work / "audit.md").write_text("API: " + checksum + "\n", encoding="utf-8")
+        m.git(work, "add", ".")
+        m.git(work, "commit", "-m", "synthetic checksum")
+        commit = m.sha(work, "HEAD")
+        policy = {"version": 1, "entries": [{
+            "fingerprint": commit + ":audit.md:generic-api-key:1",
+            "blob_sha256": hashlib.sha256(m.git(work, "show", commit + ":audit.md")).hexdigest(),
+            "classification": "false-positive-file-checksum", "evidence": "Синтетична SHA-256.",
+        }]}
+        with mock.patch.object(m.Path, "read_text", return_value=json.dumps({"version": 1, "entries": []})):
+            with self.assertRaises(m.MigrationError):
+                m.scan_secrets(work, self.root)
+        with mock.patch.object(m.Path, "read_text", return_value=json.dumps(policy)):
+            m.scan_secrets(work, self.root)
+            (work / "audit.md").write_text("API: " + hashlib.sha256(b"new checksum").hexdigest() + "\n")
+            m.git(work, "add", ".")
+            m.git(work, "commit", "-m", "new occurrence must fail")
+            with self.assertRaises(m.MigrationError):
+                m.scan_secrets(work, self.root)
 
     def test_target_history_scan_failure_creates_no_candidate(self):
         def scanner(repo, output):
