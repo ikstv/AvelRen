@@ -1,10 +1,10 @@
 name: Контракти зовнішнього монітора
 on:
   pull_request:
-    paths: ['scripts/classify_alert_channel.py', 'scripts/tests/test_alert_channel_monitor.py', '.github/workflows/external-health-monitor.yml', '.github/workflows/external-monitor-checks.yml']
+    paths: ['scripts/classify_alert_channel.py', 'scripts/tests/**', '.github/workflows/external-health-monitor.yml', '.github/workflows/external-monitor-checks.yml']
   push:
     branches: [main]
-    paths: ['scripts/classify_alert_channel.py', 'scripts/tests/test_alert_channel_monitor.py', '.github/workflows/external-health-monitor.yml', '.github/workflows/external-monitor-checks.yml']
+    paths: ['scripts/classify_alert_channel.py', 'scripts/tests/**', '.github/workflows/external-health-monitor.yml', '.github/workflows/external-monitor-checks.yml']
 permissions:
   contents: read
 jobs:
@@ -19,6 +19,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Тестовий інструмент
-        run: python -m pip install pytest==9.1.1
+        run: python -m pip install pytest==9.1.1 PyYAML==6.0.3
       - name: Класифікація без мережі й production
-        run: python -m pytest scripts/tests/test_alert_channel_monitor.py -q
+        run: python -m pytest scripts/tests -q

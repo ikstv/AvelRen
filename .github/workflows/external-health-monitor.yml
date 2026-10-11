@@ -53,8 +53,8 @@ jobs:
           status=unknown
           age=null
           if [ "$curl_exit" -eq 0 ] && [ -s /tmp/health.json ]; then
-            status=$(jq -r 'if .status == "ok" then "ok" else "unknown" end' /tmp/health.json 2>/dev/null || echo unknown)
-            age=$(jq -r 'if (.age_seconds | type) == "number" then .age_seconds else null end' /tmp/health.json 2>/dev/null || echo null)
+            status=$(jq -rs 'if length == 1 and (.[0] | type) == "object" then (if .[0].status == "ok" then "ok" else "unknown" end) else "unknown" end' /tmp/health.json 2>/dev/null || echo unknown)
+            age=$(jq -rs 'if length == 1 and (.[0] | type) == "object" then (if (.[0].age_seconds | type) == "number" then .[0].age_seconds else null end) else null end' /tmp/health.json 2>/dev/null || echo null)
           fi
 
           healthy=false
@@ -144,7 +144,7 @@ jobs:
           probes=()
           for i in 1 2 3; do
             v=$(curl -sS --connect-timeout 10 --max-time 15 "$HEALTH_URL" \
-                  | jq -r '.alert_channel // "unknown"' 2>/dev/null || echo unknown)
+                  | jq -rs 'if length == 1 and (.[0] | type) == "object" then .[0].alert_channel // "unknown" else "unknown" end' 2>/dev/null || echo unknown)
             case "$v" in ok|empty|unknown) ;; *) v=unknown ;; esac
             probes+=("$v")
             [ "$i" -lt 3 ] && sleep 5 || true
@@ -207,7 +207,7 @@ jobs:
       - name: Probe undelivered_alerts
         id: undelivered
         run: |
-          v=$(curl -sS --connect-timeout 10 --max-time 15 "$HEALTH_URL"                 | jq -r '.undelivered_alerts // "unknown"' 2>/dev/null || echo unknown)
+          v=$(curl -sS --connect-timeout 10 --max-time 15 "$HEALTH_URL"                 | jq -rs 'if length == 1 and (.[0] | type) == "object" then .[0].undelivered_alerts // "unknown" else "unknown" end' 2>/dev/null || echo unknown)
           case "$v" in ok|stalled|unknown) ;; *) v=unknown ;; esac
           # Only `stalled` raises. `unknown` is left alone on purpose: an
           # unreadable /health is already the alert-channel gate's business above,

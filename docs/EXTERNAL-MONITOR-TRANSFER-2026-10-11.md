@@ -18,7 +18,9 @@ empty викликає тривогу одразу, три unknown поспіл�
 
 Шлях classifier адаптовано; checkout закріплено SHA, credentials не зберігаються.
 Вхідні значення health обмежено дозволеними значеннями перед використанням
-у workflow outputs; age — число або null. Concurrency запобігає паралельним
+у workflow outputs; приймається лише один JSON object, age — число або null.
+Fixtures перевіряють malformed/multiple JSON і безпечний workflow/CI контракт.
+Concurrency запобігає паралельним
 прогонам, які могли б створити дублікати issues. Автоматичні CI contracts
 працюють без production запитів і без issues:write.
 
