@@ -1,5 +1,17 @@
 # Перехід прав PostgreSQL: звірка залишку
 
+Новіший source кандидат 08.10.2026: [adoption runbook](../ops/POSTGRES-ADOPTION.md),
+inventory/fingerprint, forward/inverse і тестовий executor для 001–016.
+Додано topology та failure regression tests і synthetic restore acceptance.
+Залежність — [PR #106](https://github.com/ikstv/AvelRen-ORIGINAL/pull/106).
+CI приймання кандидата та production adoption — різні етапи; production не
+змінено. Нижчі висновки про відсутність цих source компонентів є історичними.
+
+Доповнення 08.10.2026: [read-only gate](../ops/POSTGRES-PRIVILEGE-GATE.md)
+адаптовано до міграцій 001–016 із disposable regression tests.
+Нижче збережено історичний зріз. Ownership adoption, forward/inverse
+та runtime cutover ще не перенесені; production не змінено.
+
 Зріз 01.10.2026, без доступу до production і без запуску сценаріїв зміни
 прав. Порівняно `ikstv/AvelRen` на
 [`4a8e010`](https://github.com/ikstv/AvelRen/tree/4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27),

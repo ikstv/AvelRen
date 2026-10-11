@@ -6,10 +6,29 @@
 уточнює історичні рядки нижче: на сервері schema 001–016 і TimescaleDB 2.30.1,
 collector працює щохвилини, прогноз має non-null scores на чотирьох КПП.
 Collector/watchdog досі під legacy superuser; повний restore зі spool
-і перехід прав не прийняті. PR #106/#107/#113/#114/#115 ще не злиті.
+і production перехід прав не прийняті. PR #106/#107 злиті в main;
+#113/#114/#115 оновлені щодо цієї основи й очікують нового CI.
 Насамперед завершити їхню інтеграцію та спільні ізольовані перевірки,
 потім права/recovery/monitoring і release acceptance. Не повторювати
 вже прийняті переноси лише через незакритий історичний рядок.
+
+## Ownership/ACL — кандидат 08.10.2026
+
+Додано [inventory, forward/inverse та disposable executor](../ops/POSTGRES-ADOPTION.md)
+для 001–016, включно зі стисненими chunks і continuous aggregate. Це source
+кандидат поверх [PR #106](https://github.com/ikstv/AvelRen-ORIGINAL/pull/106);
+CI має підтвердити точний head. Production adoption, provisioning, DSN cutover
+та retirement ще не прийняті. Попередні датовані рядки описують історичний стан.
+
+## Перевірка прав БД — кандидат 08.10.2026
+
+Додано [read-only privilege gate](../ops/POSTGRES-PRIVILEGE-GATE.md) для
+схеми 001–016 із негативними тестами на одноразовій TimescaleDB.
+Це перенос introspection-контракту старого `AvelRen`, а не adoption.
+Ownership forward/inverse, runtime DSN cutover і процедура зі старого
+`AvelRen-ops` залишаються наступним блоком. Production gate не запускали;
+міграції, ролі та active DSN не змінювали. Нижчі датовані рядки про відсутній
+gate описують стан до цього кандидата.
 
 Оновлення 03.10.2026: [серверна частина 1.0.3 прийнята](audits/RELEASE-1.0.3-SERVER-2026-10-03.md),
 прогноз увімкнений; TimescaleDB 2.30.1, schema 016. API/notifier/worker
