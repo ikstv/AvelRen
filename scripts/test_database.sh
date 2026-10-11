@@ -3,8 +3,8 @@ set -euo pipefail
 
 SUITE=${1:-database}
 case "$SUITE" in
-    database|api|watchdog|surge) ;;
-    *) echo 'Expected database, api, watchdog or surge' >&2; exit 2 ;;
+    database|api|watchdog|surge|adoption) ;;
+    *) echo 'Expected database, api, watchdog, surge or adoption' >&2; exit 2 ;;
 esac
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -61,6 +61,12 @@ if [ "$SUITE" = surge ]; then
         services/backend/tests/database/test_surge_delivery.py \
         services/backend/tests/database/api/test_surge_end_to_end.py \
         -q -p no:cacheprovider </dev/null
+elif [ "$SUITE" = adoption ]; then
+    compose run --rm --no-deps -T test python -m pytest \
+        -c services/backend/pytest.ini services/backend/tests/database \
+        --ignore=services/backend/tests/database/api \
+        --ignore=services/backend/tests/database/watchdog \
+        -k "${AVELREN_ADOPTION_TEST_SELECTOR:-adoption}" -q -p no:cacheprovider </dev/null
 elif [ "$SUITE" = api ] || [ "$SUITE" = watchdog ]; then
     report_args=()
     perf_args=()

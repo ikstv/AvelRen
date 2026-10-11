@@ -1,5 +1,13 @@
 # Що має дійти до телефона
 
+## Ownership/ACL — source кандидат 08.10.2026
+
+[Adoption компонент](../ops/POSTGRES-ADOPTION.md) додає приватний inventory,
+планування та disposable forward/inverse для схеми 001–016. Restore-приймання
+входить до database CI; остаточний CI статус визначається за exact head PR.
+Залежність — [PR #106](https://github.com/ikstv/AvelRen-ORIGINAL/pull/106).
+Production executor і DSN cutover відсутні; сервер та APK не змінювали.
+
 ## Read-only перевірка прав БД — кандидат 08.10.2026
 
 Окремий [операторський gate](../ops/POSTGRES-PRIVILEGE-GATE.md) перевіряє
