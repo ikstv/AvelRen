@@ -56,6 +56,47 @@ async def process(database, now):
 
 
 @pytest.mark.anyio
+async def test_failed_prediction_recovers_same_hour_without_duplicate(database, monkeypatch):
+    prepare(database)
+
+    def recovering(cp, observations, issued):
+        if issued == T:
+            return SurgePrediction(
+                issued,
+                issued + timedelta(hours=1),
+                issued + timedelta(hours=24),
+                None,
+                "insufficient_history",
+            )
+        return positive(cp, observations, issued)
+
+    monkeypatch.setattr(surge_store, "predict_surge", recovering)
+    await process(database, T)
+    await process(database, T)  # No fresh measurement, no retry.
+    with psycopg.connect(database("admin")) as c:
+        assert c.execute("SELECT count(*) FROM surge_predictions").fetchone()[0] == 1
+        assert c.execute("SELECT last_forecast_hour FROM surge_checkpoint_state").fetchone()[0] == T
+        c.execute(
+            "INSERT INTO observations(time,checkpoint_id,wait_time_seconds,"
+            "vehicles_in_queue,is_paused) VALUES(%s,17,0,100,false)",
+            (T + timedelta(minutes=1),),
+        )
+    await asyncio.gather(
+        process(database, T + timedelta(minutes=1)), process(database, T + timedelta(minutes=1))
+    )
+    await process(database, T + timedelta(minutes=2))
+    with psycopg.connect(database("admin")) as c:
+        assert c.execute("SELECT count(*) FROM surge_predictions").fetchone()[0] == 2
+        assert (
+            c.execute(
+                "SELECT score FROM surge_predictions ORDER BY issued_at DESC LIMIT 1"
+            ).fetchone()[0]
+            == 0.99
+        )
+        assert c.execute("SELECT count(*) FROM surge_events").fetchone()[0] == 1
+
+
+@pytest.mark.anyio
 async def test_repeated_and_concurrent_cycles_are_idempotent(database, monkeypatch):
     prepare(database)
     monkeypatch.setattr(surge_store, "predict_surge", positive)
