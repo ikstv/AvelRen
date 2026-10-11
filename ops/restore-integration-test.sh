@@ -250,6 +250,17 @@ PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
     psql -U avelren_admin -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q \
     -c 'DROP TABLE public.unexpected_relation;'
 
+if [ "${AVELREN_ADOPTION_RESTORE_ACCEPTANCE:-0}" = 1 ]; then
+    # Preserve the existing one-row fixture while proving compressed/CAGG restore.
+    PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+        psql -U avelren_admin -d "$SOURCE_DB" -v ON_ERROR_STOP=1 -q \
+        -c "INSERT INTO observations SELECT time-interval '14 days', checkpoint_id,
+             wait_time_seconds, vehicles_in_queue, is_paused, wait_time_status FROM observations;
+             DELETE FROM observations WHERE time>now()-interval '7 days';" \
+        -c "CALL refresh_continuous_aggregate('observations_hourly', now()-interval '20 days', now());" \
+        -c "SELECT compress_chunk(show_chunks('observations'), if_not_compressed=>true);"
+fi
+
 PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db \
     pg_dump --no-owner -U avelren_backup -d "$SOURCE_DB" | gzip -9 >"$DUMP"
 
@@ -428,6 +439,27 @@ surge_restored=$(PGPASSWORD="$BACKUP_PASSWORD" compose exec -T -e PGPASSWORD db 
 echo 'surge restore passed: ACK, attempt UUID, model, subscription and checkpoint state preserved'
 
 echo "restore integration passed: backup=read-only dump, target=$TARGET_DB, least-privilege schema/smoke verified"
+
+# Optional acceptance runs only inside this script's disposable project. The
+# production restore engine and its exact restore_test target stay unchanged.
+if [ "${AVELREN_ADOPTION_RESTORE_ACCEPTANCE:-0}" = 1 ]; then
+    adoption_target="avelren_case_$(printf '%08x%08x%08x%08x' "$RANDOM" "$RANDOM" "$RANDOM" "$RANDOM")_test"
+    PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+        psql -U avelren_admin -d postgres -v ON_ERROR_STOP=1 -c \
+        "ALTER DATABASE restore_test ALLOW_CONNECTIONS false;
+         SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+         WHERE datname='restore_test' AND pid<>pg_backend_pid();"
+    PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+        psql -U avelren_admin -d postgres -v ON_ERROR_STOP=1 -c \
+        "CREATE DATABASE $adoption_target TEMPLATE restore_test OWNER avelren_admin;"
+    PGPASSWORD="$ADMIN_PASSWORD" compose exec -T -e PGPASSWORD db \
+        psql -U avelren_admin -d postgres -v ON_ERROR_STOP=1 -c \
+        'ALTER DATABASE restore_test ALLOW_CONNECTIONS true;'
+    compose run --rm --no-deps -T -e AVELREN_DATABASE_TEST=1 \
+        -e "AVELREN_ADOPTION_TARGET=$adoption_target" \
+        -e "AVELREN_ADOPTION_DSN=postgresql://avelren_admin:ci-only@db:5432/$adoption_target" \
+        test python /workspace/ops/postgres-adoption-restore-acceptance.py </dev/null
+fi
 
 bad_dump="$WORK/fails-after-pre.sql.gz"
 {
