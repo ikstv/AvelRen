@@ -9,6 +9,22 @@
 Source-зміна готується в окремому PR; CI відображено в ньому.
 Production deployment і робоче restore не виконані. Android не змінено.
 
+## Ownership/ACL — source кандидат 08.10.2026
+
+[Adoption компонент](../ops/POSTGRES-ADOPTION.md) додає приватний inventory,
+планування та disposable forward/inverse для схеми 001–016. Restore-приймання
+входить до database CI; остаточний CI статус визначається за exact head PR.
+Залежність — [PR #106](https://github.com/ikstv/AvelRen-ORIGINAL/pull/106).
+Production executor і DSN cutover відсутні; сервер та APK не змінювали.
+
+## Read-only перевірка прав БД — кандидат 08.10.2026
+
+Окремий [операторський gate](../ops/POSTGRES-PRIVILEGE-GATE.md) перевіряє
+контракт схеми 001–016. Код і disposable-тести — у цьому PR; CI має
+підтвердити точний head. На сервері gate не встановлювали й не запускали.
+Зміна не потребує APK або Play-публікації; runtime adoption і телефонні
+сценарії інших функцій залишаються окремими етапами.
+
 ## Відновлення прогнозу й причини помилок джерела — 08.10.2026
 
 [Інцидент і виправлення](SURGE-RECOVERY-DIAGNOSTICS-2026-10-08.md).
