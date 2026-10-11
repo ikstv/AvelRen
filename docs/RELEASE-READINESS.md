@@ -18,6 +18,10 @@
 доставка GitHub notifications та заміна старого scheduled monitor ще
 не прийняті. APK/телефон не змінюються.
 
+Права БД: [адаптована production процедура](POSTGRES-ADOPTION-PRODUCTION-RUNBOOK.md)
+відокремлює ownership/ACL, DSN cutover і retirement; це документація,
+не production executor, deployment або приймання live DB. Android незмінний.
+
 ## Зупинка клієнтів після помилки restore — 11.10.2026
 
 [Контракт та перевірки](RESTORE-FAILURE-STATE-2026-10-11.md).

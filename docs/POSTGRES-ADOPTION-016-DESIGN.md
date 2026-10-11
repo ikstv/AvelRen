@@ -2,6 +2,11 @@
 
 Дата: 08.10.2026. Статус: пропозиція, реалізація ще не розпочата.
 
+Уточнення 11.10: disposable реалізацію з цього дизайну прийнято PR #107,
+merge `297ae1d`. Нижчий текст зберігає початковий дизайн 08.10.
+[Production runbook](POSTGRES-ADOPTION-PRODUCTION-RUNBOOK.md) адаптовано
+окремо; production executor і DSN cutover не реалізовані цим етапом.
+
 ## Мета та підстава
 
 Перенести ownership/adoption і перевірений відкат зі старих AvelRen та
