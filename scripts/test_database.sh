@@ -22,6 +22,8 @@ readonly ROOT_FOR_COMPOSE ENV_FILE_FOR_COMPOSE
 overlay_args=()
 if [ "$SUITE" = surge ]; then
     overlay_args=(-f "$ROOT_FOR_COMPOSE/ops/compose.surge-test.yml")
+elif [ "$SUITE" = database ] || [ "$SUITE" = adoption ]; then
+    overlay_args=(-f "$ROOT_FOR_COMPOSE/ops/compose.adoption-test.yml")
 fi
 
 compose() {

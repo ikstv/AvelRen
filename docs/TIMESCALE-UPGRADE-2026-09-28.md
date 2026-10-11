@@ -28,6 +28,11 @@ Registry digest кандидата перевірено. Усередині об
 `bash ops/timescale-upgrade-test.sh` без аргументів. Власний випадковий
 Compose project, внутрішня мережа й новий named volume; явний порожній
 env-file та тимчасовий project-directory виключають підхоплення `.env`.
+Уточнення fixture contract від 11.10.2026: owned сервер має `autovacuum=off`
+на обох версіях, що runner перевіряє через `SHOW` після кожного startup.
+Повний post-upgrade pytest-набір містить production quiescence cases, які
+правильно відхиляють active autovacuum. Natural vacuum scheduling тут не
+перевіряється; production guard та окремі API/watchdog/surge профілі не змінені.
 Створені цим запуском контейнери/мережа/volume та тег тестового Python-образу прибираються при виході;
 синтетичні тимчасові dumps теж. При аварійному завершенні ОС автоматичне
 прибирання не гарантується; не застосовувати глобальні prune-команди.

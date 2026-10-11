@@ -91,6 +91,10 @@ jobs:
         run: |
           bash -n ops/postgres-adoption-restore-test.sh
           bash ops/postgres-adoption-restore-test.sh
+      - name: Відмова production target між двома ізольованими кластерами
+        run: |
+          bash -n ops/postgres-production-adoption-test.sh
+          bash ops/postgres-production-adoption-test.sh
       - name: Контракт production Compose без запуску служб
         run: |
           python3 ops/compose-profile-regression-test.py

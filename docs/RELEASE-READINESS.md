@@ -19,8 +19,15 @@
 не прийняті. APK/телефон не змінюються.
 
 Права БД: [адаптована production процедура](POSTGRES-ADOPTION-PRODUCTION-RUNBOOK.md)
-відокремлює ownership/ACL, DSN cutover і retirement; це документація,
-не production executor, deployment або приймання live DB. Android незмінний.
+відокремлює ownership/ACL, DSN cutover і retirement. DB executor source
+етапу 1 реалізований та ізольовано перевірений (`c84d0a9..69c25cc`): binding,
+manifest/confirmation, quiescence, transactions, receipts та explicit inverse.
+Два кластери з однаковими dbname/catalog/plan відхиляють чужий target без
+зміни ACL/data; physical-clone runtime boundary перевіряється unit fake.
+Публічний production CLI закритий. Actual maintenance adapter, runtime DSN
+cutover та operational acceptance залишаються окремими етапами. Review,
+exact-head hosted CI та злиття кандидата ще не прийняті цим записом;
+deployment/live DB, APK/телефон/Play не виконані. Android незмінний.
 
 ## Зупинка клієнтів після помилки restore — 11.10.2026
 

@@ -9,7 +9,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import psycopg
-from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
 from . import privilege_gate
@@ -17,17 +16,14 @@ from .adoption_evidence import read_private, read_verified, write_private
 from .adoption_inventory import (
     AdoptionError,
     _capture_catalog,
-    capture,
     decode,
     encode,
     fingerprint,
 )
 from .adoption_plan import AdoptionPlan, build_plan, decode_plan, encode_plan, plan_digest
+from .adoption_preflight import acquire_adoption_locks
+from .adoption_transaction import READ_OPTIONS, read_snapshot, run_mutation
 
-READ_OPTIONS = "-c default_transaction_read_only=on -c statement_timeout=30000"
-WRITE_OPTIONS = (
-    "-c default_transaction_read_only=off -c lock_timeout=10000 -c statement_timeout=30000"
-)
 FAILPOINTS = {None, "before_commit", "after_commit", "during_inverse", "receipt_write"}
 
 
@@ -37,12 +33,6 @@ class AdoptionResult:
     category: str | None
     before_fingerprint: str
     after_fingerprint: str | None
-
-
-def read_snapshot(dsn):
-    with psycopg.connect(dsn, connect_timeout=10, options=READ_OPTIONS) as conn:
-        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        return capture(conn)
 
 
 def _record(directory, name, record):
@@ -94,22 +84,10 @@ def _guards(dsn, target, plan, failpoint):
 
 
 def _lock(conn, target):
-    if conn.info.dbname != target:
-        raise AdoptionError("database_identity")
-    # The wait must finish before the repeatable-read transaction takes a snapshot.
-    # Session lock is released when this dedicated connection closes.
-    conn.autocommit = True
-    conn.execute(
-        "SELECT pg_advisory_lock(hashtextextended(current_database() || ':avelren-adoption-016',0))"
-    )
-    conn.autocommit = False
-    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-    for name in sorted(set(privilege_gate.TABLES) - {"observations_hourly"}):
-        conn.execute(
-            sql.SQL("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE").format(
-                sql.Identifier("public", name),
-            )
-        )
+    acquire_adoption_locks(conn, target)
+
+
+def _require_disposable_quiescent(conn, target):
     if conn.execute(
         "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=%s "
         "AND pid<>pg_backend_pid() AND backend_type='client backend')",
@@ -128,23 +106,33 @@ def _inverse(dsn, target, plan, directory, *, failpoint):
     _verify_commit_records(directory, target, plan)
     desired = fingerprint(plan.before)
     current = fingerprint(plan.expected)
+
+    def before_write(conn):
+        _require_disposable_quiescent(conn, target)
+        if fingerprint(_capture_catalog(conn)) != current:
+            raise AdoptionError("inverse_drift")
+        _record(
+            directory,
+            "inverse-intent.json",
+            {"plan_sha256": plan_digest(plan), "from": current, "to": desired},
+        )
+
+    def before_commit(conn):
+        if failpoint == "during_inverse":
+            raise AdoptionError("test_inverse_failure")
+
     try:
-        with psycopg.connect(dsn, connect_timeout=10, options=WRITE_OPTIONS) as conn:
-            _lock(conn, target)
-            if fingerprint(_capture_catalog(conn)) != current:
-                raise AdoptionError("inverse_drift")
-            _record(
-                directory,
-                "inverse-intent.json",
-                {"plan_sha256": plan_digest(plan), "from": current, "to": desired},
-            )
-            for index, statement in enumerate(plan.inverse):
-                conn.execute(statement)
-                if failpoint == "during_inverse" and index == 0:
-                    raise AdoptionError("test_inverse_failure")
-            if fingerprint(_capture_catalog(conn)) != desired:
-                raise AdoptionError("inverse_verification")
-            conn.commit()
+        outcome = run_mutation(
+            dsn,
+            plan,
+            direction="inverse",
+            before_write=before_write,
+            before_commit=before_commit,
+        )
+        if outcome.status == "commit_unknown":
+            return AdoptionResult("commit_unknown", outcome.category, desired, None)
+        if outcome.status != "committed":
+            return AdoptionResult("rollback_failed", "inverse_unverified", desired, None)
         restored = fingerprint(read_snapshot(dsn))
         if restored != desired:
             raise AdoptionError("inverse_verification")
@@ -185,8 +173,9 @@ def apply_disposable(
         return AdoptionResult("already_target", None, before, actual)
     if actual != before:
         raise AdoptionError("plan_drift")
-    with psycopg.connect(dsn, connect_timeout=10, options=WRITE_OPTIONS) as conn:
-        _lock(conn, target)
+
+    def before_write(conn):
+        _require_disposable_quiescent(conn, target)
         if fingerprint(_capture_catalog(conn)) != before:
             raise AdoptionError("plan_drift")
         _record(
@@ -200,29 +189,39 @@ def apply_disposable(
                 "expected_fingerprint": expected,
             },
         )
-        try:
-            for statement in plan.forward:
-                conn.execute(statement)
-            if failpoint == "before_commit":
-                raise AdoptionError("test_before_commit")
-            if fingerprint(_capture_catalog(conn)) != expected:
-                raise AdoptionError("forward_verification")
-        except (psycopg.Error, AdoptionError):
-            conn.rollback()
-            restored = fingerprint(read_snapshot(dsn))
-            if restored != before:
-                return AdoptionResult("rollback_failed", "pre_commit_unverified", before, restored)
-            result = AdoptionResult("rolled_back", "pre_commit_failure", before, restored)
-            _record(directory, "rolled-back.json", asdict(result))
-            return result
-        try:
-            conn.commit()
-        except psycopg.Error:
-            # Never let context-manager exit retry COMMIT on an unknown outcome.
-            conn.close()
-            return AdoptionResult(
-                "commit_unknown", "commit_acknowledgement_unavailable", before, None
-            )
+
+    def before_commit(conn):
+        if failpoint == "before_commit":
+            raise AdoptionError("test_before_commit")
+
+    try:
+        outcome = run_mutation(
+            dsn,
+            plan,
+            direction="forward",
+            before_write=before_write,
+            before_commit=before_commit,
+        )
+    except AdoptionError as exc:
+        if exc.category in {
+            "pre_commit_failure",
+            "mutation_connection_unavailable",
+            "adoption_lock_failed",
+            "adoption_lock_timeout",
+        }:
+            # Retain the disposable CLI's unavailable exit code without raw backend errors.
+            raise psycopg.OperationalError("adoption unavailable") from None
+        raise
+    if outcome.status == "commit_unknown":
+        return AdoptionResult("commit_unknown", outcome.category, before, None)
+    if outcome.status == "rollback_failed":
+        return AdoptionResult(
+            "rollback_failed", "pre_commit_unverified", before, outcome.fingerprint
+        )
+    if outcome.status == "rolled_back":
+        result = AdoptionResult("rolled_back", "pre_commit_failure", before, outcome.fingerprint)
+        _record(directory, "rolled-back.json", asdict(result))
+        return result
     try:
         if failpoint == "receipt_write":
             raise AdoptionError("test_receipt_failure")

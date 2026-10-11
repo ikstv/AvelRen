@@ -124,6 +124,53 @@ def test_adoption_ambiguous_commit_never_retries_or_compensates(
     )
 
 
+@pytest.mark.parametrize("server_committed", [False, True])
+def test_adoption_inverse_commit_ack_loss_preserves_unknown(
+    database,
+    tmp_path,
+    monkeypatch,
+    server_committed,
+):
+    from avelren.postgres_adoption import _inverse
+
+    plan = prepared(database)
+    evidence = tmp_path / "proof"
+    assert apply(database, plan, evidence).status == "adopted"
+    commit = psycopg.Connection.commit
+    failed_connection = None
+    commit_calls = 0
+    rollback_calls = []
+
+    def lost_ack(conn):
+        nonlocal failed_connection, commit_calls
+        if "default_transaction_read_only=off" in conn.info.options:
+            commit_calls += 1
+            failed_connection = conn
+            if server_committed:
+                commit(conn)
+            raise psycopg.OperationalError("lost inverse acknowledgement")
+        return commit(conn)
+
+    def forbidden_rollback(conn):
+        rollback_calls.append(True)
+        raise AssertionError("ambiguous inverse must not attempt rollback")
+
+    monkeypatch.setattr(psycopg.Connection, "commit", lost_ack)
+    monkeypatch.setattr(psycopg.Connection, "rollback", forbidden_rollback)
+    result = _inverse(database("admin"), plan.before.database, plan, evidence, failpoint=None)
+    assert result.status == "commit_unknown"
+    assert result.category == "commit_acknowledgement_unavailable"
+    assert result.after_fingerprint is None
+    assert commit_calls == 1
+    assert rollback_calls == []
+    assert failed_connection.closed
+    assert not (evidence / "rolled-back.json").exists()
+    monkeypatch.undo()
+    assert fingerprint(snapshot(database)) == fingerprint(
+        plan.before if server_committed else plan.expected,
+    )
+
+
 def test_adoption_detects_disabled_constraint_triggers(database):
     before = snapshot(database)
     with psycopg.connect(database("admin")) as conn:
