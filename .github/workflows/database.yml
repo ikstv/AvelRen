@@ -77,6 +77,8 @@ jobs:
           bash ops/restore-production-preflight-contract-test.sh
           bash ops/restore-contract-test.sh
           bash ops/restore-engine-contract-test.sh
+          bash -n ops/restore-interruption-contract-test.sh
+          bash ops/restore-interruption-contract-test.sh
           bash ops/restore-production-engine-contract-test.sh
           sudo bash ops/restore-production-contract-test.sh
           bash ops/restore-verify-guard-contract-test.sh

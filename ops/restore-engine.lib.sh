@@ -47,6 +47,57 @@ avelren_restore_engine() {
 }
 
 _avelren_restore_engine_primitive() {
+    # Keep caller handlers intact after a normal return. On interruption the
+    # engine finalizes TimescaleDB first, then invokes the caller's EXIT action
+    # with the original status (including the production fail-closed handler).
+    local _avelren_restore_saved_traps _avelren_restore_saved_exit
+    _avelren_restore_saved_traps=$(trap -p EXIT HUP INT TERM)
+    _avelren_restore_saved_exit=$(trap -p EXIT)
+    local _avelren_restore_caller_exit=
+    if [ -n "$_avelren_restore_saved_exit" ]; then
+        local quoted_exit=${_avelren_restore_saved_exit#trap -- }
+        quoted_exit=${quoted_exit% EXIT}
+        # trap -p emits shell-quoted code already trusted by this caller.
+        eval "_avelren_restore_caller_exit=$quoted_exit"
+    fi
+    AVELREN_RESTORE_POST_PENDING=false
+    trap _avelren_restore_engine_exit EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    _avelren_restore_engine_body "$@"
+    local status=$?
+    trap - EXIT HUP INT TERM
+    eval "$_avelren_restore_saved_traps"
+    return "$status"
+}
+
+_avelren_restore_return_status() { return "$1"; }
+
+_avelren_restore_engine_exit() {
+    local status=$?
+    trap - EXIT
+    # A second signal must not interrupt the single cleanup attempt.
+    trap '' HUP INT TERM
+    set +e
+    if [ "${AVELREN_RESTORE_POST_PENDING:-false}" = true ]; then
+        AVELREN_RESTORE_POST_PENDING=false
+        restore_log "restore interrupted (exit=$status); attempting timescaledb_post_restore"
+        restore_psql -d "$AVELREN_RESTORE_TARGET" -q -c "SELECT timescaledb_post_restore();"
+        local cleanup_status=$?
+        if [ "$cleanup_status" -ne 0 ]; then
+            restore_log "ERROR: restore interrupted (exit=$status) and timescaledb_post_restore cleanup failed (exit=$cleanup_status)"
+        fi
+    fi
+    if [ -n "${_avelren_restore_caller_exit:-}" ]; then
+        _avelren_restore_return_status "$status"
+        eval "$_avelren_restore_caller_exit"
+    fi
+    exit "$status"
+}
+
+_avelren_restore_engine_body() {
     [ "$#" -eq 6 ] || {
         echo "DENIED: restore primitive requires exactly six arguments" >&2
         return 2
@@ -350,10 +401,10 @@ SQL
     if [ "$primary_status" -ne 0 ]; then
         set +e
         restore_log "primary restore failure (exit=$primary_status); attempting timescaledb_post_restore"
+        AVELREN_RESTORE_POST_PENDING=false
         restore_psql -d "$AVELREN_RESTORE_TARGET" -q -c "SELECT timescaledb_post_restore();"
         local cleanup_status=$?
         set -e
-        AVELREN_RESTORE_POST_PENDING=false
         if [ "$cleanup_status" -eq 0 ]; then
             restore_log "timescaledb_post_restore cleanup succeeded after primary failure"
         else
@@ -364,10 +415,10 @@ SQL
 
     restore_log "timescaledb_post_restore"
     set +e
+    AVELREN_RESTORE_POST_PENDING=false
     restore_psql -d "$target" -q -c "SELECT timescaledb_post_restore();"
     local post_status=$?
     set -e
-    AVELREN_RESTORE_POST_PENDING=false
     if [ "$post_status" -ne 0 ]; then
         restore_log "ERROR: timescaledb_post_restore failed (exit=$post_status)"
         exit "$post_status"
