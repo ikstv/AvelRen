@@ -8,6 +8,9 @@
     ".github/workflows/repository.yml": {
       "sha256": "7ee02c8bbb8df9d7dc2be1262eff0fb3adc24dd0498551c80ad55b7b6b12a690"
     },
+    "docs/FUNCTIONAL-MIGRATION-REVIEW-2026-10-11.md": {
+      "sha256": "0e7cf702f9348de021a697637839f45666da603b923ca4602854f5b080f905fc"
+    },
     "docs/RELEASE-READINESS.md": {
       "sha256": "87a04d478ae141aac6b133b4be7b3270e5e1bf4ceb4b5820b3b8206dcf3db48d"
     },
@@ -15,7 +18,7 @@
       "sha256": "3b9af7b0ed42944238271ddaebc4d67e5a9431dbf01c0e019fc71947bb0ac700"
     },
     "docs/TASK-01-2026-10-10.md": {
-      "sha256": "d29178a8ca2f00159e67b1fa8da07f050d5125af75a29195eb56c1b108f00368"
+      "sha256": "e7aeec8abc5e19c7a772ea0d529cc6fc657ae96ce57dbfc8b703cdb05e240c4b"
     },
     "docs/task01-inventory/coverage-check.json": {
       "sha256": "c63385bbd3dbfd4eb2c26077937d20899fe7dd6a80f8a5b821ea81c2155c0c5d"
@@ -23,8 +26,14 @@
     "docs/task01-inventory/files.json": {
       "sha256": "20eab34ed67be30d93780ec1506fa19911e617fea2fe41bf7b4ebddba9c51fcd"
     },
+    "docs/task01-inventory/functional-review-2026-10-11.json": {
+      "sha256": "fbf257c3857582292f1a8d9e4de2fb556462f187bc4cc0c041f5dd50ad15fb2f"
+    },
     "docs/task01-inventory/github-objects.json": {
       "sha256": "836282af3d04856df3eaa2894694e820126170a4c66f303eb323f11f502a420d"
+    },
+    "docs/task01-inventory/github-settings-2026-10-11.json": {
+      "sha256": "2d1a0393a664af8bb04b168a539dedccb2718875121f031cc235da928516ec08"
     },
     "docs/task01-inventory/manifest.json": {
       "sha256": "311303a302c688cac0d49005e0676cf7dbd4d3265f1423a8b5ce964a1f27ba34"
