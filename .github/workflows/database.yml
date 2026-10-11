@@ -81,6 +81,10 @@ jobs:
           bash ops/restore-interruption-contract-test.sh
           bash ops/restore-production-engine-contract-test.sh
           sudo bash ops/restore-production-contract-test.sh
+          bash -n ops/restore-failure-state-contract-test.sh
+          bash ops/restore-failure-state-contract-test.sh
+          bash -n ops/restore-failure-state-integration-test.sh
+          bash ops/restore-failure-state-integration-test.sh
           bash ops/restore-verify-guard-contract-test.sh
           python3 ops/restore-allowlist-contract-test.py
       - name: Повна restore-репетиція та adoption/inverse у тимчасовій TimescaleDB

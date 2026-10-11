@@ -23,6 +23,7 @@ AVELREN_RESTORE_RECEIPT=
 AVELREN_RESTORE_ARTIFACT=
 AVELREN_RESTORE_ARTIFACT_STAT=
 AVELREN_RESTORE_ARTIFACT_SHA=
+AVELREN_RESTORE_FAILURE_STATE=unverified
 
 avelren_compose() {
     docker compose --project-directory "$AVELREN_PRODUCTION_STACK" \
@@ -146,8 +147,42 @@ avelren_stop_production_clients() {
     avelren_compose stop api collector notifier watchdog
 }
 
-avelren_stop_caddy_fail_closed() {
-    avelren_compose stop caddy >/dev/null 2>&1 || true
+avelren_stop_restore_clients_fail_closed() {
+    local service ids id state failed=0
+    local -a services=(caddy api collector notifier watchdog)
+    AVELREN_RESTORE_FAILURE_STATE=unverified
+    # Try each service even when one stop fails. Never recreate containers or
+    # stop the database needed for a manual recovery.
+    for service in "${services[@]}"; do
+        if ! avelren_compose stop "$service" >/dev/null 2>&1; then
+            printf 'ERROR: restore cleanup could not stop %s\n' "$service" >&2
+            failed=1
+        fi
+    done
+    for service in "${services[@]}"; do
+        if ! ids=$(avelren_compose ps --all --quiet "$service" 2>/dev/null) || [ -z "$ids" ]; then
+            printf 'ERROR: restore cleanup cannot verify containers for %s\n' "$service" >&2
+            failed=1
+            continue
+        fi
+        for id in $ids; do
+            if [[ ! "$id" =~ ^[0-9a-f]{12,64}$ ]] ||
+               ! state=$(docker inspect --format '{{.State.Status}}' "$id" 2>/dev/null); then
+                printf 'ERROR: restore cleanup cannot inspect %s\n' "$service" >&2
+                failed=1
+                continue
+            fi
+            case "$state" in
+                exited|created) ;;
+                *) printf 'ERROR: restore cleanup did not verify stopped state for %s\n' "$service" >&2
+                   failed=1 ;;
+            esac
+        done
+    done
+    if [ "$failed" -eq 0 ]; then
+        AVELREN_RESTORE_FAILURE_STATE=stopped-verified
+    fi
+    return "$failed"
 }
 
 avelren_verify_post_restore_schema_roles() {
@@ -223,19 +258,21 @@ avelren_clear_restore_maintenance() {
 
 avelren_restore_recovery_summary() {
     printf '%s\n' \
-      "production restore stopped fail-closed" \
+      "production restore failed; manual recovery required" \
       "phase=$AVELREN_RESTORE_PHASE" \
-      "ingress=caddy-stopped" \
+      "failure_state=$AVELREN_RESTORE_FAILURE_STATE" \
       "verified_snapshot_receipt=${AVELREN_RESTORE_RECEIPT:-unavailable}" \
       "runbook=ops/RECOVERY.md#production-restore-failure" >&2
 }
 
 avelren_restore_exit_trap() {
     local status=$?
-    trap - EXIT HUP INT TERM
+    trap - EXIT
+    # Finish all stop attempts even if another termination signal arrives.
+    trap '' HUP INT TERM
     if [ "$status" -ne 0 ] && [ "$AVELREN_RESTORE_MAINTENANCE_STARTED" = true ] && \
        [ "$AVELREN_RESTORE_PHASE" != complete ]; then
-        avelren_stop_caddy_fail_closed
+        avelren_stop_restore_clients_fail_closed || true
         avelren_restore_recovery_summary
     fi
     exit "$status"
