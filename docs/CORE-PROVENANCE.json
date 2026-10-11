@@ -14,8 +14,8 @@
       "destination": "services/backend/src/avelren/collector.py",
       "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
       "revision": {
-        "sha256": "11a70733d93238c69cf23179be85b970be11e1ecf5da53b67a24357627ee107f",
-        "notes": "ops/COLLECTOR-SPOOL.md"
+        "sha256": "e1438e4976e314b848f48b2f8e4eea707c32161008139ae6da79172041159bdd",
+        "notes": "docs/COLLECTOR-REQUEST-PACING.md"
       }
     },
     {
@@ -98,8 +98,8 @@
       "destination": "services/backend/src/avelren/echerha.py",
       "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
       "revision": {
-        "sha256": "8aa0eddbc6f66c1b0b1a5011908f6fbfb9a1f0ae7a7baf12bd097c6acead44ba",
-        "notes": "docs/SURGE-RECOVERY-DIAGNOSTICS-2026-10-08.md"
+        "sha256": "d21e0a3255a63bf84b2c0041c5c2ba15612b22c315c223ad1d213b7cbd445557",
+        "notes": "docs/COLLECTOR-REQUEST-PACING.md"
       }
     },
     {
