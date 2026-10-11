@@ -17,6 +17,10 @@ Collector/watchdog досі під legacy superuser; повний restore зі s
 після 4/4 CI checks head `f94243c` та незалежного review. Live приймання попереду;
 старий scheduled monitor активний, автоматичний запуск у ORIGINAL не увімкнено.
 
+Права БД: [production adoption runbook 001–016](POSTGRES-ADOPTION-PRODUCTION-RUNBOOK.md)
+адаптує процедуру старого AvelRen-ops. Production executor, maintenance,
+explicit inverse та runtime DSN cutover ще потребують реалізації й приймання.
+
 ## Ownership/ACL — кандидат 08.10.2026
 
 Додано [inventory, forward/inverse та disposable executor](../ops/POSTGRES-ADOPTION.md)
