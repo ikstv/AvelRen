@@ -289,7 +289,7 @@ Modify `.github/workflows/database.yml` тільки для нового isolate
   Ruff: `python -m ruff check services/backend/src services/backend/tests scripts/*.py`.
   Repository: `python scripts/verify_ci_scopes.py`,
   `python scripts/verify_core_provenance.py`, `git diff --check`.
-- [ ] Whole-branch review через requesting-code-review: один незалежний
+- [x] Whole-branch review через requesting-code-review: один незалежний
   reviewer; поправки перевірити відповідними regression tests.
 - [ ] Draft PR до main, attach artifact, exact-head relevant CI; integration
   лише після review/CI. Серверні операції й новий maintenance план — окремо.
@@ -334,3 +334,6 @@ stop/start, job pause/resume, runtime rc 5 і DSN cutover належать на�
 із review кожної задачі. Задачі 1–5 реалізовані й прийняті task reviews
 (`c84d0a9..69c25cc`). Whole-branch review, exact-head CI та integration
 залишаються окремими незакритими gates задачі 6.
+
+
+Фінальні локальні докази та рішення: [verification](2026-10-11-postgres-production-executor-verification.md). Hosted CI та серверне приймання перевіряються окремо.
