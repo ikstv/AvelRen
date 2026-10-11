@@ -1,10 +1,10 @@
 name: Правила репозиторію
 on:
   pull_request:
-    paths: ['.github/**', 'docs/**', 'scripts/**', 'AGENTS.md', 'CONTRIBUTING.md', 'README.md']
+    paths: ['.github/**', 'docs/**', 'scripts/**', 'tools/**', 'AGENTS.md', 'CONTRIBUTING.md', 'README.md']
   push:
     branches: [main]
-    paths: ['.github/**', 'docs/**', 'scripts/**', 'AGENTS.md', 'CONTRIBUTING.md', 'README.md']
+    paths: ['.github/**', 'docs/**', 'scripts/**', 'tools/**', 'AGENTS.md', 'CONTRIBUTING.md', 'README.md']
 permissions:
   contents: read
 jobs:
@@ -26,3 +26,6 @@ jobs:
           python3 scripts/verify_ci_scopes.py
           python3 scripts/verify_core_provenance.py
           python3 scripts/verify_android.py
+      - name: Контракти інструмента перенесення
+        # Реальний Gitleaks-тест потребує binary у PATH; окремий локальний доказ у TASK-01.
+        run: python3 -m unittest discover -s tools/tests -p 'test_consolidate_legacy_repositories.py' -v

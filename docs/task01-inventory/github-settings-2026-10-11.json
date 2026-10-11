@@ -1,0 +1,159 @@
+{
+  "checked_at_utc": "2026-10-11T06:12:59.813758+00:00",
+  "read_only": true,
+  "repositories": {
+    "AvelRen": {
+      "main_protection": {
+        "status": "read",
+        "pages": 1,
+        "required_status_checks_present": true
+      },
+      "rulesets": {
+        "status": "read",
+        "pages": 1,
+        "count": 0
+      },
+      "webhooks": {
+        "status": "read",
+        "pages": 1,
+        "count": 0
+      },
+      "environments": {
+        "status": "read",
+        "pages": 1,
+        "count": 0
+      },
+      "actions_permissions": {
+        "status": "read",
+        "pages": 1,
+        "enabled": true,
+        "allowed_actions": "all"
+      },
+      "workflows": {
+        "status": "read",
+        "pages": 1,
+        "workflows": [
+          {
+            "path": ".github/workflows/ci.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/codeql.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/dependency-audit.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/external-health-monitor.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/state.yml",
+            "state": "active"
+          },
+          {
+            "path": "dynamic/dependabot/dependabot-updates",
+            "state": "active"
+          }
+        ]
+      }
+    },
+    "AvelRen-ops": {
+      "main_protection": {
+        "status": "unavailable",
+        "http_status": 403
+      },
+      "rulesets": {
+        "status": "unavailable",
+        "http_status": 403
+      },
+      "webhooks": {
+        "status": "read",
+        "pages": 1,
+        "count": 0
+      },
+      "environments": {
+        "status": "read",
+        "pages": 1,
+        "count": 0
+      },
+      "actions_permissions": {
+        "status": "read",
+        "pages": 1,
+        "enabled": true,
+        "allowed_actions": "all"
+      },
+      "workflows": {
+        "status": "read",
+        "pages": 1,
+        "workflows": []
+      }
+    },
+    "AvelRen-ORIGINAL": {
+      "main_protection": {
+        "status": "unavailable",
+        "http_status": 403
+      },
+      "rulesets": {
+        "status": "unavailable",
+        "http_status": 403
+      },
+      "webhooks": {
+        "status": "read",
+        "pages": 1,
+        "count": 0
+      },
+      "environments": {
+        "status": "read",
+        "pages": 1,
+        "count": 0
+      },
+      "actions_permissions": {
+        "status": "read",
+        "pages": 1,
+        "enabled": true,
+        "allowed_actions": "all"
+      },
+      "workflows": {
+        "status": "read",
+        "pages": 1,
+        "workflows": [
+          {
+            "path": ".github/workflows/android.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/api.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/backend-core.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/database.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/repository.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/research.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/supply-chain.yml",
+            "state": "active"
+          },
+          {
+            "path": ".github/workflows/watchdog.yml",
+            "state": "active"
+          }
+        ]
+      }
+    }
+  }
+}

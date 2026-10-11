@@ -1,0 +1,17 @@
+{
+  "files": {
+    "AvelRen": {
+      "main_files": 213,
+      "ref_delta_occurrences": 23486,
+      "exact_coverage": true
+    },
+    "AvelRen-ops": {
+      "main_files": 38,
+      "ref_delta_occurrences": 3,
+      "exact_coverage": true
+    }
+  },
+  "discussion_comment_counts": "matched",
+  "review_requests": "all-accessible",
+  "collection_expected_totals": "matched"
+}
