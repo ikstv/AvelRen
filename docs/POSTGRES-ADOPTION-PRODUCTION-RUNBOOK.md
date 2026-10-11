@@ -48,7 +48,8 @@ Forward/inverse застосовуються лише до application ownership
    відсутність цього доступу блокує операцію до target mutation.
    Активний autovacuum також не проходить production quiescence; майбутня
    maintenance процедура має врахувати його окремо. Вимкнення autovacuum у
-   disposable adoption test profile не є production інструкцією чи дозволом.
+   isolated database/adoption test profiles не є production інструкцією чи
+   дозволом; ці fixtures не перевіряють natural autovacuum scheduling.
 5. Evidence приватне: каталог 0700, файли 0600, власник оператор,
    абсолютний шлях поза checkout, без symlink/hardlink і перезапису.
    Credentials тільки через захищене середовище, не argv, Git або logs.

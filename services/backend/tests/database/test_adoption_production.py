@@ -568,7 +568,8 @@ def test_adoption_production_post_commit_capture_loss(production_case, monkeypat
 def test_adoption_production_post_commit_evidence_drift_is_unknown(production_case, inverse):
     case = production_case
     if inverse:
-        assert case.call().status == "adopted"
+        initial = case.call()
+        assert initial.status == "adopted", initial
     start = case.runtime.calls
 
     def corrupt(calls):
@@ -577,7 +578,7 @@ def test_adoption_production_post_commit_evidence_drift_is_unknown(production_ca
 
     case.runtime.on_verify = corrupt
     result = case.call(inverse=inverse)
-    assert (result.status, result.category) == ("commit_unknown", "post_commit_unverified")
+    assert (result.status, result.category) == ("commit_unknown", "post_commit_unverified"), result
     assert not (
         case.directory
         / ("production-inverse-accepted.json" if inverse else "production-accepted.json")

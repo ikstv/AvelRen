@@ -68,6 +68,7 @@ def test_adoption_quiescence_jobs_unknown_or_active_metadata_refuses(job):
 @pytest.mark.parametrize(
     "session",
     [
+        pytest.param((42, "autovacuum worker", "", "active"), id="active-autovacuum"),
         (42, "client backend", "TimescaleDB Background Worker Scheduler", "idle"),
         (42, "unknown writer", "TimescaleDB Background Worker Scheduler", "idle"),
         (42, "TimescaleDB Background Worker Scheduler", "other", "idle"),

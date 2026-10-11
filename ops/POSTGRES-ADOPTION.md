@@ -95,6 +95,12 @@ INVERSE confirmation і не запускається автоматично п�
 Втрата acknowledgement або доказу після COMMIT означає `commit_unknown`.
 Disposable CLI та його компенсація зберігають чинний контракт.
 
+Ізольовані `scripts/test_database.sh database` (також default) та `adoption`
+виконують quiescence cases з однаковим fixture overlay `autovacuum=off`.
+API/watchdog/surge профілі цього override не мають. Production guard далі
+відхиляє active autovacuum; natural vacuum scheduling у цих двох fixtures
+не перевіряється. Це test configuration, не production maintenance інструкція.
+
 Production API додатково тримає session advisory lock на весь lifecycle,
 включно з committed receipt, fresh capture/gate та accepted publication.
 Окреме read-only/autocommit підключення використовує ті самі server/credentials,
