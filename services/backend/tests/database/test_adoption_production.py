@@ -3,6 +3,7 @@
 import hashlib
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -94,7 +95,7 @@ def production_case(database, tmp_path, monkeypatch, request):
 
     runtime = Runtime()
 
-    def call(inverse=False, confirmation=None):
+    def arguments(inverse=False, confirmation=None):
         # Validate the *entire* disposable DSN before temporarily removing the
         # forbidden environment; production code has no fixture mode/bypass.
         parsed = conninfo_to_dict(dsn)
@@ -111,14 +112,19 @@ def production_case(database, tmp_path, monkeypatch, request):
         confirmation = confirmation or Confirmation(
             action, manifest.operation_id, manifest.target_digest, manifest.plan_digest
         )
+        return dsn, binding, plan, directory, context, confirmation, runtime
+
+    def call(inverse=False, confirmation=None):
+        args = arguments(inverse, confirmation)
         function = production.inverse_production if inverse else production.apply_production
         with monkeypatch.context() as isolated:
             isolated.delenv("AVELREN_DATABASE_TEST")
             isolated.delenv("AVELREN_ADOPTION_TEST_FAILPOINT", raising=False)
-            return function(dsn, binding, plan, directory, context, confirmation, runtime)
+            return function(*args)
 
     return SimpleNamespace(
         call=call,
+        arguments=arguments,
         runtime=runtime,
         plan=plan,
         manifest=manifest,
@@ -127,6 +133,85 @@ def production_case(database, tmp_path, monkeypatch, request):
         production=production,
         read=lambda: read_snapshot(dsn),
     )
+
+
+@pytest.mark.parametrize("competitor", ["inverse", "other_operation"])
+def test_adoption_production_lifecycle_serializes_post_commit_acceptance(
+    production_case, monkeypatch, competitor
+):
+    from avelren.adoption_inventory import fingerprint
+    from avelren.adoption_operation import make_operation, write_operation
+    from avelren.adoption_operator import Confirmation
+    from avelren.adoption_plan import build_plan
+
+    case = production_case
+    forward_args = case.arguments()
+    inverse_args = case.arguments(inverse=True)
+    captured, resume = threading.Event(), threading.Event()
+    original = case.production._read_state
+
+    def paused_read(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if kwargs.get("gate") and not captured.is_set():
+            captured.set()
+            if not resume.wait(20):
+                raise RuntimeError("fixture was not resumed")
+        return result
+
+    with monkeypatch.context() as injected:
+        injected.setattr(case.production, "_read_state", paused_read)
+        # Both argument sets were validated against the isolated DSN before
+        # disabling forbidden environment for these two overlapping API calls.
+        injected.delenv("AVELREN_DATABASE_TEST")
+        injected.delenv("AVELREN_ADOPTION_TEST_FAILPOINT", raising=False)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(case.production.apply_production, *forward_args)
+            try:
+                assert captured.wait(15), "forward never reached post-commit capture"
+                assert (case.directory / "production-committed.json").is_file()
+                if competitor == "inverse":
+                    function, args = case.production.inverse_production, inverse_args
+                else:
+                    # A different manifest/evidence directory for the same DB
+                    # must share the lifecycle lock, including a no-op plan.
+                    plan = build_plan(case.read())
+                    manifest = make_operation(forward_args[1], plan)
+                    directory = case.directory.parent / "competing-evidence"
+                    write_operation(directory, manifest)
+                    context = replace(
+                        forward_args[4],
+                        operation_id=manifest.operation_id,
+                        plan_digest=manifest.plan_digest,
+                    )
+                    confirmation = Confirmation(
+                        "ADOPT", manifest.operation_id, manifest.target_digest, manifest.plan_digest
+                    )
+                    runtime = SimpleNamespace(
+                        verify=lambda context, operation: None,
+                        checkout_roots=case.runtime.checkout_roots,
+                    )
+                    function = case.production.apply_production
+                    args = (
+                        case.dsn,
+                        forward_args[1],
+                        plan,
+                        directory,
+                        context,
+                        confirmation,
+                        runtime,
+                    )
+                with pytest.raises(AdoptionError, match="^production_operation_busy$"):
+                    function(*args)
+                assert not (case.directory / "production-inverse-intent.json").exists()
+                assert fingerprint(case.read()) == fingerprint(case.plan.expected)
+            finally:
+                resume.set()
+            assert future.result(timeout=20).status == "adopted"
+    assert (case.directory / "production-accepted.json").is_file()
+    assert fingerprint(case.read()) == fingerprint(case.plan.expected)
+    # Successful return has released the guard; a newly confirmed inverse can run.
+    assert case.call(inverse=True).status == "rolled_back"
+    assert fingerprint(case.read()) == fingerprint(case.plan.before)
 
 
 def _content_digest(dsn):
@@ -143,6 +228,82 @@ def _content_digest(dsn):
             )
         ]
     return hashlib.sha256(repr(content).encode()).hexdigest()
+
+
+@pytest.mark.parametrize("failure", ["connect", "release", "close", "lost_after_capture"])
+def test_adoption_production_lifecycle_failure_is_conservative(
+    production_case, monkeypatch, failure, capsys
+):
+    from avelren.adoption_inventory import fingerprint
+
+    case = production_case
+    connect, execute, close = psycopg.connect, psycopg.Connection.execute, psycopg.Connection.close
+    read = case.production._read_state
+    guards = []
+
+    def connection(dsn, **kwargs):
+        if kwargs.get("dbname") == "postgres" and failure == "connect":
+            raise psycopg.OperationalError("password=DO_NOT_EXPOSE")
+        conn = connect(dsn, **kwargs)
+        if kwargs.get("dbname") == "postgres":
+            guards.append(conn)
+        return conn
+
+    def query(conn, statement, *args, **kwargs):
+        if conn in guards and "pg_advisory_unlock" in str(statement) and failure == "release":
+            raise psycopg.OperationalError("password=DO_NOT_EXPOSE")
+        return execute(conn, statement, *args, **kwargs)
+
+    def closing(conn):
+        close(conn)
+        if conn in guards and failure == "close":
+            raise psycopg.OperationalError("password=DO_NOT_EXPOSE")
+
+    def state(*args, **kwargs):
+        result = read(*args, **kwargs)
+        if kwargs.get("gate") and failure == "lost_after_capture" and guards:
+            close(guards[0])
+        return result
+
+    with monkeypatch.context() as injected:
+        injected.setattr(psycopg, "connect", connection)
+        injected.setattr(psycopg.Connection, "execute", query)
+        injected.setattr(psycopg.Connection, "close", closing)
+        injected.setattr(case.production, "_read_state", state)
+        if failure == "connect":
+            with pytest.raises(AdoptionError, match="^production_lock_unavailable$"):
+                case.call()
+        else:
+            result = case.call()
+            assert result.status == "commit_unknown"
+            assert result.after_fingerprint is None
+    assert all(conn.closed for conn in guards)
+    assert "DO_NOT_EXPOSE" not in "".join(capsys.readouterr())
+    if failure == "connect":
+        assert fingerprint(case.read()) == fingerprint(case.plan.before)
+        assert not (case.directory / "production-apply-intent.json").exists()
+    else:
+        assert fingerprint(case.read()) == fingerprint(case.plan.expected)
+        if failure == "lost_after_capture":
+            assert not (case.directory / "production-accepted.json").exists()
+        assert case.call(inverse=True).status == "rolled_back"  # Guard was released on error.
+
+
+def test_adoption_production_lifecycle_releases_after_zero_write_refusal(production_case):
+    from avelren.adoption_inventory import fingerprint
+
+    case = production_case
+
+    def refuse(calls):
+        if calls == 2:
+            raise AdoptionError("runtime_drift")
+
+    case.runtime.on_verify = refuse
+    with pytest.raises(AdoptionError, match="^runtime_drift$"):
+        case.call()
+    assert fingerprint(case.read()) == fingerprint(case.plan.before)
+    case.runtime.on_verify = None
+    assert case.call().status == "adopted"
 
 
 @pytest.mark.parametrize("production_case", [True], indirect=True)

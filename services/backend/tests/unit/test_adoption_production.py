@@ -3,6 +3,7 @@
 import hashlib
 from dataclasses import replace
 from importlib import import_module, util
+from types import SimpleNamespace
 
 import pytest
 
@@ -145,3 +146,147 @@ def test_adoption_production_physical_clone_requires_original_host_runtime(tmp_p
         )
     assert not connected
     assert not (directory / "production-apply-intent.json").exists()
+
+
+class GuardConnection:
+    """Session double keeps acquisition, ownership and closure independently observable."""
+
+    def __init__(self):
+        self.identity = ("1234", "admin", "unit_database", 16384, "postgres")
+        self.held = False
+        self.busy = False
+        self.fail = None
+        self.acquisitions = 0
+        self.closed = False
+        self.close_calls = 0
+
+    def execute(self, query, params=None):
+        if "pg_control_system" in query:
+            kind, row = "identity", self.identity
+        elif "pg_try_advisory_lock" in query:
+            self.acquisitions += 1
+            kind, row = "acquire", (not self.busy,)
+            self.held = not self.busy
+        elif "pg_locks" in query:
+            kind, row = "verify", (self.held,)
+        elif "pg_advisory_unlock" in query:
+            kind, row = "release", (self.held,)
+            self.held = False
+        else:
+            raise AssertionError("unexpected guard query")
+        if self.fail == kind:
+            raise RuntimeError("password=DO_NOT_EXPOSE")
+        self.row = row
+        return self
+
+    def fetchone(self):
+        return self.row
+
+    def close(self):
+        self.close_calls += 1
+        self.closed = True
+        self.held = False
+        if self.fail == "close":
+            raise RuntimeError("password=DO_NOT_EXPOSE")
+
+
+def guard_inputs(monkeypatch):
+    module = import_module("avelren.adoption_production")
+    assert hasattr(module, "_LifecycleLock"), "production lifecycle lock is missing"
+    conn = GuardConnection()
+    binding = TargetBinding(1, "1234", "unit_database", 16384, "admin", "a" * 40, "b" * 64)
+
+    def connect(dsn, **kwargs):
+        assert dsn == "private supplied DSN"
+        assert kwargs["dbname"] == "postgres"
+        assert kwargs["autocommit"] is True
+        assert "default_transaction_read_only=on" in kwargs["options"]
+        return conn
+
+    monkeypatch.setattr(module.psycopg, "connect", connect)
+    return module, conn, binding
+
+
+def test_production_lifecycle_guard_owns_one_lock_and_closes(monkeypatch):
+    module, conn, binding = guard_inputs(monkeypatch)
+    guard = module._LifecycleLock.acquire("private supplied DSN", binding)
+    assert conn.held and not conn.closed
+    guard.verify()
+    guard.verify()
+    assert conn.acquisitions == 1  # A liveness probe must not reenter the advisory lock.
+    assert guard.release() is True
+    assert not conn.held and conn.closed and conn.close_calls == 1
+
+
+@pytest.mark.parametrize("field", range(5))
+def test_production_lifecycle_guard_identity_precedes_lock(monkeypatch, field):
+    module, conn, binding = guard_inputs(monkeypatch)
+    changed = list(conn.identity)
+    changed[field] = "wrong" if field != 3 else 999
+    conn.identity = tuple(changed)
+    with pytest.raises(AdoptionError, match="^target_mismatch$"):
+        module._LifecycleLock.acquire("private supplied DSN", binding)
+    assert conn.acquisitions == 0 and conn.closed
+
+
+@pytest.mark.parametrize("failure", ["identity", "acquire", "busy"])
+def test_production_lifecycle_guard_refusal_closes_without_secret(monkeypatch, failure):
+    module, conn, binding = guard_inputs(monkeypatch)
+    conn.fail = failure
+    conn.busy = failure == "busy"
+    expected = "production_operation_busy" if conn.busy else "production_lock_unavailable"
+    with pytest.raises(AdoptionError, match="^" + expected + "$") as caught:
+        module._LifecycleLock.acquire("private supplied DSN", binding)
+    assert conn.closed and not conn.held
+    assert "DO_NOT_EXPOSE" not in str(caught.value)
+
+
+@pytest.mark.parametrize("failure", ["verify", "lost_ownership"])
+def test_production_lifecycle_guard_lost_session_cannot_authorize(monkeypatch, failure):
+    module, conn, binding = guard_inputs(monkeypatch)
+    guard = module._LifecycleLock.acquire("private supplied DSN", binding)
+    conn.fail = failure
+    if failure == "lost_ownership":
+        conn.held = False
+    with pytest.raises(AdoptionError, match="^production_lock_unavailable$"):
+        guard.verify()
+    assert conn.acquisitions == 1
+    guard.release()
+    assert conn.closed
+
+
+@pytest.mark.parametrize("failure", ["release", "close", "lost_ownership"])
+def test_production_lifecycle_guard_release_failure_still_closes(monkeypatch, failure):
+    module, conn, binding = guard_inputs(monkeypatch)
+    guard = module._LifecycleLock.acquire("private supplied DSN", binding)
+    conn.fail = failure
+    if failure == "lost_ownership":
+        conn.held = False
+    assert guard.release() is False
+    assert conn.close_calls == 1 and conn.closed
+
+
+@pytest.mark.parametrize(
+    "status,expected_category",
+    [
+        ("rollback_failed", "pre_commit_unverified"),
+        ("rolled_back", "production_lock_release_unavailable"),
+    ],
+)
+def test_production_lifecycle_cleanup_cannot_downgrade_mutation_outcome(
+    tmp_path, monkeypatch, status, expected_category
+):
+    from avelren.adoption_operation import read_operation
+    from avelren.postgres_adoption import AdoptionResult
+
+    module, binding, plan, directory, context, confirmation = inputs(tmp_path)
+    manifest = read_operation(directory)
+    outcome = AdoptionResult(status, "pre_commit_unverified", manifest.before_fingerprint, None)
+    guard = SimpleNamespace(possible_commit=False, release=lambda: False)
+    monkeypatch.setattr(module, "_authority", lambda *args: (manifest, plan, set()))
+    monkeypatch.setattr(module._LifecycleLock, "acquire", lambda dsn, binding: guard)
+    monkeypatch.setattr(module, "_coordinate_locked", lambda *args, **kwargs: outcome)
+    result = module.apply_production(
+        "private supplied DSN", binding, plan, directory, context, confirmation, object()
+    )
+    assert (result.status, result.category) == ("rollback_failed", expected_category)

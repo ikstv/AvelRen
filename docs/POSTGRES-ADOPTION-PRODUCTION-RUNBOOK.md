@@ -42,6 +42,13 @@ Forward/inverse застосовуються лише до application ownership
    Інша версія, relation layout, function/role drift — відмова до запису.
 4. Потрібні ролі вже існують; відсутні/надмірні права не виправляються
    побічно. Provisioning або ротація — окрема зміна й окремий GO.
+   Обліковий запис executor має підключатися також до фіксованої maintenance
+   DB `postgres` на тому самому сервері та читати control/database identity.
+   Production lifecycle guard не має альтернативної або fallback DB;
+   відсутність цього доступу блокує операцію до target mutation.
+   Активний autovacuum також не проходить production quiescence; майбутня
+   maintenance процедура має врахувати його окремо. Вимкнення autovacuum у
+   disposable adoption test profile не є production інструкцією чи дозволом.
 5. Evidence приватне: каталог 0700, файли 0600, власник оператор,
    абсолютний шлях поза checkout, без symlink/hardlink і перезапису.
    Credentials тільки через захищене середовище, не argv, Git або logs.
@@ -87,6 +94,18 @@ catalog snapshot; SQL повторно генерується з перевір�
 - Опублікувати apply-intent, виконати лише ownership/ACL forward,
   перевірити expected fingerprint і commit. Потім записати committed
   receipt, виконати read-only privilege gate й acceptance receipt.
+
+Production executor утримує окремий database-wide session advisory lock від
+початкової target перевірки до завершення receipt/acceptance. Guard працює в
+`postgres` після звірки cluster/session/target identity, тому не послаблює
+перевірку target sessions. Один ключ охоплює різні operation IDs/evidence paths
+для тієї самої target DB. Конкурентний apply або inverse отримує
+`production_operation_busy`; він не може вклинитися між fresh capture та
+accepted receipt іншої операції. Володіння lock перевіряється без повторного
+захоплення перед acceptance; після release connection закривається. Втрата
+guard або непідтверджене звільнення після можливого COMMIT означає
+`commit_unknown`, навіть якщо accepted файл уже опублікований. Автоматичних
+повторів, inverse чи runtime restart у такому стані немає.
 
 Цей етап не змінює DSN, паролі або ролі й не застосовує міграції.
 Перезапуск можливий лише після підтвердженого DB outcome, на збережених

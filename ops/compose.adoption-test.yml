@@ -1,0 +1,6 @@
+# Лише owned disposable adoption fixture: фоновий vacuum може початися між
+# quiescence checks. Production перевірка далі відхиляє autovacuum worker.
+# Базові database/api/watchdog/surge профілі не використовують цей override.
+services:
+  test-db:
+    command: [postgres, -c, timescaledb.telemetry_level=off, -c, autovacuum=off]

@@ -95,6 +95,22 @@ INVERSE confirmation і не запускається автоматично п�
 Втрата acknowledgement або доказу після COMMIT означає `commit_unknown`.
 Disposable CLI та його компенсація зберігають чинний контракт.
 
+Production API додатково тримає session advisory lock на весь lifecycle,
+включно з committed receipt, fresh capture/gate та accepted publication.
+Окреме read-only/autocommit підключення використовує ті самі server/credentials,
+але завжди maintenance DB `postgres`: потрібні `CONNECT` до неї та читання
+`pg_control_system()`/database identity. Іншої або fallback DB немає.
+Перед lock звіряються system identifier, session role та target dbname/OID;
+ключ залежить від cluster identity й target OID, а не operation ID, plan або
+evidence directory. Конкурентний apply/inverse відхиляється як
+`production_operation_busy` без очікування та target mutation. Guard session
+не входить до target DB, тому винятків для client sessions у quiescence немає.
+Перед acceptance перевіряється фактичне володіння lock без повторного захоплення.
+Втрата guard/release/close після можливого COMMIT дає `commit_unknown`;
+до mutation — категоричну відмову. Lock звільняється і connection закривається
+також після помилок. Це додаткова source передумова, не дозвіл на provisioning
+або серверний запуск.
+
 ```bash
 bash ops/postgres-production-adoption-test.sh
 ```
