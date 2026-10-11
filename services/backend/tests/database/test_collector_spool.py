@@ -203,3 +203,16 @@ def test_producer_continues_while_writer_database_unavailable(database, tmp_path
         assert conn.execute("SELECT count(*) FROM collector_runs").fetchone()[0] == 5
         assert conn.execute("SELECT count(*) FROM observations").fetchone()[0] == 5
     assert restored.status().pending_count == 0
+
+
+def test_safe_dns_diagnostic_replays_to_primary(database, tmp_path):
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    reason = "ConnectError: reason=dns errno=-2"
+    store.finish(store.begin(AT), FetchResult(None, None, 4125, None, reason), 1)
+    assert _run(database("collector"), store, AT + timedelta(minutes=1))
+    with psycopg.connect(database("collector")) as c:
+        assert c.execute(
+            "SELECT error,duration_ms,http_status,rows_written FROM collector_runs"
+        ).fetchone() == (reason, 4125, None, 0)
+    assert store.status().pending_count == 0
+    store.close()

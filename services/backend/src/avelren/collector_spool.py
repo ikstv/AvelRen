@@ -74,6 +74,15 @@ def _source_error(result: FetchResult) -> str | None:
     if result.http_status is not None and result.http_status != 200:
         return f"HTTP {result.http_status}"
     kind = result.error.partition(":")[0]
+    if re.fullmatch(
+        r"(?:ReadTimeout|ConnectTimeout|WriteTimeout|PoolTimeout|ReadError|ConnectError|"
+        r"WriteError|CloseError|RemoteProtocolError|LocalProtocolError|ProxyError|"
+        r"UnsupportedProtocol|DecodingError|TooManyRedirects|HTTPError): "
+        r"reason=(?:dns|tls|connection_refused|network_unreachable|host_unreachable|"
+        r"connection_reset|timeout|os_error|unknown) errno=(?:-?[0-9]{1,8}|none)",
+        result.error,
+    ):
+        return result.error
     if kind in {
         "ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout",
         "ReadError", "ConnectError", "WriteError", "CloseError",
