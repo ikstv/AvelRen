@@ -12,8 +12,9 @@
 Нижчі записи про підготовку цих PR є історичними. Нове розгортання не виконане;
 готовність APK/телефона/Play не змінюється.
 
-Зовнішній monitor: [ручний кандидат](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
-переносить outage/alert-channel/undelivered перевірки. Live запуск,
+Зовнішній monitor: [ручний перенос](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
+переносить outage/alert-channel/undelivered перевірки. Source прийнято PR #118
+у main `1fdcbf2`, CI head `f94243c`: 4/4 success, 17 tests PASS. Live запуск,
 доставка GitHub notifications та заміна старого scheduled monitor ще
 не прийняті. APK/телефон не змінюються.
 

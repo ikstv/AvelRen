@@ -12,8 +12,9 @@ Collector/watchdog досі під legacy superuser; повний restore зі s
 права/recovery/monitoring і release acceptance. Не повторювати
 вже прийняті переноси лише через незакритий історичний рядок.
 
-Зовнішній monitor: [кандидат ручного переносу](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
-зберігає три перевірки та lifecycle issues. Source/CI ще потребують приймання;
+Зовнішній monitor: [ручний перенос](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
+зберігає три перевірки та lifecycle issues. PR #118 злитий у main `1fdcbf2`
+після 4/4 CI checks head `f94243c` та незалежного review. Live приймання попереду;
 старий scheduled monitor активний, автоматичний запуск у ORIGINAL не увімкнено.
 
 ## Ownership/ACL — кандидат 08.10.2026

@@ -1,5 +1,11 @@
 # Зовнішній моніторинг — перенос 11.10.2026
 
+[PR #118](https://github.com/ikstv/AvelRen-ORIGINAL/pull/118) злитий у main
+merge-комітом `1fdcbf28c209f961cbc501c7f5d531c89d6082e8`.
+Head `f94243c498f5610b194d2850f2fb6a68bbf69160` має 4/4 успішні CI checks,
+17 unit/CLI/workflow tests PASS та незалежний review без Critical/Important.
+Live приймання й постійний розклад залишаються відкритими.
+
 ## Джерело та зміни
 
 Джерело — [AvelRen 4a8e010](https://github.com/ikstv/AvelRen/tree/4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27):
