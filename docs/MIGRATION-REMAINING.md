@@ -12,6 +12,10 @@ Collector/watchdog досі під legacy superuser; повний restore зі s
 права/recovery/monitoring і release acceptance. Не повторювати
 вже прийняті переноси лише через незакритий історичний рядок.
 
+Зовнішній monitor: [кандидат ручного переносу](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
+зберігає три перевірки та lifecycle issues. Source/CI ще потребують приймання;
+старий scheduled monitor активний, автоматичний запуск у ORIGINAL не увімкнено.
+
 ## Ownership/ACL — кандидат 08.10.2026
 
 Додано [inventory, forward/inverse та disposable executor](../ops/POSTGRES-ADOPTION.md)
