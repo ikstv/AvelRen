@@ -98,7 +98,9 @@ Disposable CLI та його компенсація зберігають чин�
 Ізольовані `scripts/test_database.sh database` (також default) та `adoption`
 виконують quiescence cases з однаковим fixture overlay `autovacuum=off`.
 API/watchdog/surge профілі цього override не мають. Production guard далі
-відхиляє active autovacuum; natural vacuum scheduling у цих двох fixtures
+відхиляє active autovacuum. Окремий owned upgrade fixture також задає
+`autovacuum=off`, бо після оновлення збирає весь DB/API/watchdog pytest-набір.
+Natural vacuum scheduling у цих database/adoption/upgrade fixtures
 не перевіряється. Це test configuration, не production maintenance інструкція.
 
 Production API додатково тримає session advisory lock на весь lifecycle,

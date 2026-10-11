@@ -107,6 +107,7 @@ docker pull "$NEW_IMAGE"
 compose build test
 BUILT=true
 compose up -d --wait test-db
+[ "$(sql postgres 'SHOW autovacuum')" = off ]
 compose exec -T \
     -e AVELREN_TEST_DB=1 -e AVELREN_DB_NAME=avelren_database_test \
     -e AVELREN_ADMIN_DSN=postgresql://avelren_admin:ci-only@127.0.0.1:5432/postgres \
@@ -151,6 +152,7 @@ echo 'PASS: old-version compressed backup/restore'
 compose stop test-db
 export AVELREN_UPGRADE_IMAGE=$NEW_IMAGE
 compose up -d --wait test-db
+[ "$(sql postgres 'SHOW autovacuum')" = off ]
 for database in avelren_database_test restore_test postgres template1; do
     # ALTER EXTENSION має бути першим зверненням до extension у новій сесії.
     sql "$database" "ALTER EXTENSION timescaledb UPDATE TO '2.30.1';"

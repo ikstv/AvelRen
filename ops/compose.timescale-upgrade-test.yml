@@ -1,7 +1,9 @@
 services:
   test-db:
     image: ${AVELREN_UPGRADE_IMAGE:?test image required}
-    command: [postgres, -c, timescaledb.telemetry_level=off]
+    # Повний post-upgrade suite містить production quiescence cases.
+    # Лише owned fixture; production guard далі відхиляє active autovacuum.
+    command: [postgres, -c, timescaledb.telemetry_level=off, -c, autovacuum=off]
     environment:
       POSTGRES_USER: avelren_admin
       POSTGRES_PASSWORD: ci-only
