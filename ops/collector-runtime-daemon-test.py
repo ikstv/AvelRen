@@ -347,7 +347,8 @@ def main(source):
                 )
 
             print("capture two pending cycles with database offline", flush=True)
-            wait(lambda: check()["status"]["pending_count"] >= 2)
+            # Startup pause + two captures at t=60/120, with scheduling margin.
+            wait(lambda: check()["status"]["pending_count"] >= 2, 150)
             command(
                 [
                     "docker",

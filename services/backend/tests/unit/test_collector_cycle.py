@@ -5,10 +5,67 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from avelren import collector
+import httpx
+
+from avelren import collector, echerha
 from avelren.collector_replay import ReplayConflict
 from avelren.collector_spool import SpoolStore
+from avelren.config import Settings
 from avelren.echerha import FetchResult
+
+
+def test_poll_loop_paces_actual_sends_after_preparation(tmp_path, monkeypatch):
+    """A slow first preparation must not make the next HTTP attempt arrive early."""
+    store = SpoolStore(tmp_path / "cycles.sqlite3")
+    clock = SimpleNamespace(value=0.0)
+    starts = []
+    begun = []
+    original_begin = store.begin
+
+    def begin(at):
+        begun.append(clock.value)
+        seq = original_begin(at)
+        clock.value += 15 if len(begun) == 1 else 0
+        return seq
+
+    async def sleep(delay):
+        clock.value += delay
+
+    async def wait_for(coro, timeout):
+        coro.close()
+        clock.value += timeout
+        raise TimeoutError
+
+    class Stop:
+        def is_set(self):
+            return len(starts) >= 3
+
+        async def wait(self):
+            pass
+
+    async def handler(request):
+        starts.append(clock.value)
+        return httpx.Response(503, request=request)
+
+    monkeypatch.setattr(store, "begin", begin)
+    monkeypatch.setattr(echerha, "settings", Settings(
+        _env_file=None, echerha_device_id="11111111-1111-4111-8111-111111111111",
+    ))
+    monkeypatch.setattr(collector.asyncio, "wait_for", wait_for)
+    original_pacer = echerha.RequestPacer
+    monkeypatch.setattr(collector, "RequestPacer", lambda **kwargs: original_pacer(
+        **kwargs, sleep=sleep,
+    ))
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await collector.poll_loop(client, store, Stop(), clock=lambda: clock.value)
+
+    asyncio.run(scenario())
+    assert begun == [60.0, 120.0, 180.0]
+    assert starts == [75.0, 135.0, 195.0]
+    assert store.status().pending_count == 3
+    store.close()
 
 
 def test_one_fetch_per_cycle_when_db_down(tmp_path, monkeypatch):
