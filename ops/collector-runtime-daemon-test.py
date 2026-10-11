@@ -90,6 +90,20 @@ def wait(check, seconds=100):
     raise AssertionError("synthetic acceptance timed out")
 
 
+def wait_for_replayed_cycle(check, previous_count, seconds=90):
+    """Require a new HTTP attempt and its completed FIFO replay after rollback."""
+    def ready():
+        snapshot = check()
+        count = len(snapshot["calls"])
+        return (
+            count > previous_count
+            and snapshot["status"]["pending_count"] == 0
+            and snapshot["status"]["acked_count"] == count
+        )
+
+    wait(ready, seconds)
+
+
 def cleanup_resources(containers: list[str], volume: str | None, network: str | None):
     if not all(
         re.fullmatch("avelren-runtime-test-[a-z0-9-]+", name)
@@ -557,6 +571,7 @@ def main(source):
             )
             wait(lambda: check()["status"]["mode_ack"] is True, 15)
             assert check()["status"]["pending_count"] > 0
+            rollback_count = len(check()["calls"])
             command(
                 [
                     "docker",
@@ -569,7 +584,7 @@ def main(source):
                     "off",
                 ]
             )
-            wait(lambda: check()["status"]["pending_count"] == 0, 45)
+            wait_for_replayed_cycle(check, rollback_count)
             command(
                 [
                     "docker",
