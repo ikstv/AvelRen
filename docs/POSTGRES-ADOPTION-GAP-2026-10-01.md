@@ -1,5 +1,10 @@
 # Перехід прав PostgreSQL: звірка залишку
 
+Доповнення 08.10.2026: [read-only gate](../ops/POSTGRES-PRIVILEGE-GATE.md)
+адаптовано до міграцій 001–016 із disposable regression tests.
+Нижче збережено історичний зріз. Ownership adoption, forward/inverse
+та runtime cutover ще не перенесені; production не змінено.
+
 Зріз 01.10.2026, без доступу до production і без запуску сценаріїв зміни
 прав. Порівняно `ikstv/AvelRen` на
 [`4a8e010`](https://github.com/ikstv/AvelRen/tree/4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27),
