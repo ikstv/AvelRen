@@ -1,5 +1,24 @@
 # Що має дійти до телефона
 
+## API та notifier — production приймання 12.10.2026
+
+Після окремого дозволу власника API і notifier розгорнуто з канонічної
+`main` `574b25cbf622c008a9e7d11a4d280af91963f71b`;
+[PR #124](https://github.com/ikstv/AvelRen-ORIGINAL/pull/124) злитий,
+усі 11 main CI jobs успішні. [Датований аудит розгортання](audits/API-NOTIFIER-DEPLOYMENT-2026-10-12.md)
+фіксує installed-image перевірки та фактичний server readback о 19:57 UTC.
+Обидві служби працюють на новому immutable image, RestartCount=0;
+інші п'ять контейнерів та їхні images не змінилися. Health `ok`, age 16 s,
+maintenance `null`. Плашка діяла 19:53:12–19:55:27 UTC: 135.263 s;
+service window — 74.301 s. Production rollback не знадобився.
+
+Власник прийняв короткий простій; подальша реалізація розширеного maintenance
+плану для цього application deployment втратила актуальність. Збережені
+часткові напрацювання не отримали нового operational приймання.
+DB CLI залишається закритим; права БД/DSN, restore зі spool і live monitor —
+окремі роботи. Нові APK/AAB, ручний FCM push, телефонні сценарії та Play
+цим розгортанням не прийняті. Нижчі source/CI записи збережено як історичні.
+
 ## Єдиний CI-gate — source кандидат 12.10.2026
 
 [Погоджений дизайн](superpowers/specs/2026-10-12-ci-aggregate-gate-design.md),

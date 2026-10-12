@@ -1,5 +1,26 @@
 # Залишки перенесення
 
+## API та notifier — актуальне production приймання 12.10.2026
+
+API/notifier уже оновлено після конкретного owner GO з канонічної main
+`574b25cbf622c008a9e7d11a4d280af91963f71b`;
+[PR #124](https://github.com/ikstv/AvelRen-ORIGINAL/pull/124) злитий,
+11 main CI jobs SUCCESS. [Новий аудит](audits/API-NOTIFIER-DEPLOYMENT-2026-10-12.md)
+уточнює нижчі датовані записи про ще не виконане application deployment.
+Фактична service window — 74.301 s; звичайна плашка — 135.263 s,
+19:53:12–19:55:27 UTC. Новий image API/notifier підтверджено на сервері;
+сім контейнерів running, DB healthy, health `ok`, maintenance `null`,
+інші п'ять контейнерів та images незмінні. Відкат у production не виконувався.
+
+Власник змінив підхід і прийняв короткий простій. Подальшу реалізацію
+розширеного maintenance плану для цього deployment замінено цим прийманням;
+часткові напрацювання збережені без підвищення їхнього статусу до verified.
+DB production CLI лишається закритим; adoption прав/DSN, повний restore зі
+spool, зовнішній моніторинг і решта backend operational acceptance відкриті.
+Android APK/телефон/FCM delivery/Play потребують власних gates.
+Перенесення загалом не оголошується завершеним. Репозиторій тимчасово PUBLIC
+за рішенням власника; цей deployment не змінював visibility чи доступів.
+
 ## Єдиний CI-gate — актуальний source стан 12.10.2026
 
 [Дизайн](superpowers/specs/2026-10-12-ci-aggregate-gate-design.md) і
