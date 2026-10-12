@@ -18,7 +18,35 @@ import androidx.security.crypto.MasterKey
  */
 object DeviceStore {
 
-    data class Credentials(val deviceId: String, val deviceSecret: String)
+    data class Credentials(val deviceId: String, val deviceSecret: String) {
+        override fun toString() = "Credentials([redacted])"
+    }
+
+    internal val preferencesLock = Any()
+    private var acknowledgedPreferences: AcknowledgedRecoveryPreferences? = null
+
+    internal fun recoveryPreferences(context: Context): RecoveryPreferences = synchronized(preferencesLock) {
+        acknowledgedPreferences ?: AcknowledgedRecoveryPreferences(
+            SharedRecoveryPreferences(prefs(context), preferencesLock),
+        ).also { acknowledgedPreferences = it }
+    }
+
+    private fun editUnrelated(context: Context, edit: (SharedPreferences.Editor) -> Unit) {
+        synchronized(preferencesLock) {
+            recoveryPreferences(context)
+            acknowledgedPreferences!!.editUnrelated {
+                val editor = prefs(context).edit()
+                edit(editor)
+                editor.apply()
+            }
+        }
+    }
+
+    /** Publishes only a disk-acknowledged exact-pair replacement. */
+    fun commitCredentialsIfMatches(context: Context, expected: Credentials?, replacement: Credentials?): Boolean =
+        synchronized(preferencesLock) {
+            DeviceRecoveryStore.commitCredentials(recoveryPreferences(context), expected, replacement)
+        }
 
     private const val FILE = "avelren_secure"
     private const val KEY_DEVICE_ID = "device_id"
@@ -52,7 +80,7 @@ object DeviceStore {
         // crashes (KeyStoreException) and keyset corruption with irreversible loss
         // of the device credentials (audit H-4).
         prefs?.let { return it }
-        return synchronized(this) {
+        return synchronized(preferencesLock) {
             prefs ?: run {
                 val key = MasterKey.Builder(context)
                     .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -68,30 +96,21 @@ object DeviceStore {
         }
     }
 
-    fun credentials(context: Context): Credentials? {
-        val p = prefs(context)
-        val id = p.getString(KEY_DEVICE_ID, null) ?: return null
-        val secret = p.getString(KEY_DEVICE_SECRET, null) ?: return null
-        return Credentials(id, secret)
+    fun credentials(context: Context): Credentials? = synchronized(preferencesLock) {
+        DeviceRecoveryStore.credentials(recoveryPreferences(context))
     }
 
     fun saveCredentials(context: Context, creds: Credentials) {
-        prefs(context).edit()
-            .putString(KEY_DEVICE_ID, creds.deviceId)
-            .putString(KEY_DEVICE_SECRET, creds.deviceSecret)
-            .apply()
+        synchronized(preferencesLock) {
+            commitCredentialsIfMatches(context, credentials(context), creds)
+        }
     }
 
-    /**
-     * Clear the stored pair. We call this when the server returned a 401 on
-     * guaranteed-ours headers — the installation no longer exists (for example, a
-     * DB restore rolled back the registration). The next start will create a new one.
-     */
+    /** Legacy caller; permission and onboarding history remain intact. */
     fun clearCredentials(context: Context) {
-        prefs(context).edit()
-            .remove(KEY_DEVICE_ID)
-            .remove(KEY_DEVICE_SECRET)
-            .apply()
+        synchronized(preferencesLock) {
+            commitCredentialsIfMatches(context, credentials(context), null)
+        }
     }
 
     fun notificationHistory(context: Context): NotificationPermission.History {
@@ -104,11 +123,9 @@ object DeviceStore {
     }
 
     fun saveNotificationHistory(context: Context, h: NotificationPermission.History) {
-        prefs(context).edit()
-            .putBoolean(KEY_NOTIF_ASKED, h.asked)
+        editUnrelated(context) { it.putBoolean(KEY_NOTIF_ASKED, h.asked)
             .putBoolean(KEY_NOTIF_DENIED, h.deniedOnce)
-            .putBoolean(KEY_NOTIF_GRANTED, h.everGranted)
-            .apply()
+            .putBoolean(KEY_NOTIF_GRANTED, h.everGranted) }
     }
 
     /** Whether the one-time legacy migration of the permission history is already done (AND-2 B2). */
@@ -116,7 +133,7 @@ object DeviceStore {
         prefs(context).getBoolean(KEY_NOTIF_MIGRATED, false)
 
     fun markNotificationLegacyMigrated(context: Context) {
-        prefs(context).edit().putBoolean(KEY_NOTIF_MIGRATED, true).apply()
+        editUnrelated(context) { it.putBoolean(KEY_NOTIF_MIGRATED, true) }
     }
 
     /** #117: whether the background-delivery hint was dismissed by the user. */
@@ -124,26 +141,28 @@ object DeviceStore {
         prefs(context).getBoolean(KEY_BG_HINT_DISMISSED, false)
 
     fun markBackgroundHintDismissed(context: Context) {
-        prefs(context).edit().putBoolean(KEY_BG_HINT_DISMISSED, true).apply()
+        editUnrelated(context) { it.putBoolean(KEY_BG_HINT_DISMISSED, true) }
     }
 
     fun selectedCheckpoint(context: Context): Int =
         prefs(context).getInt(KEY_SELECTED, -1)
 
     fun saveSelectedCheckpoint(context: Context, id: Int) {
-        prefs(context).edit().putInt(KEY_SELECTED, id).apply()
+        editUnrelated(context) { it.putInt(KEY_SELECTED, id) }
     }
 
-    fun pendingFcmToken(context: Context): String? =
-        prefs(context).getString(KEY_PENDING_FCM_TOKEN, null)
+    fun pendingFcmToken(context: Context): String? = synchronized(preferencesLock) {
+        recoveryPreferences(context).get(KEY_PENDING_FCM_TOKEN)
+    }
 
-    /** Synchronous disk handoff: callers must not start enqueue/network when this returns false. */
-    fun savePendingFcmToken(context: Context, token: String): Boolean =
-        prefs(context).edit().putString(KEY_PENDING_FCM_TOKEN, token).commit()
+    /** Synchronous disk handoff: callers must not start enqueue/network when false. */
+    fun savePendingFcmToken(context: Context, token: String): Boolean = synchronized(preferencesLock) {
+        recoveryPreferences(context).commit(mapOf(KEY_PENDING_FCM_TOKEN to token))
+    }
 
-    fun clearPendingFcmTokenIfMatches(context: Context, expected: String): Boolean {
-        val p = prefs(context)
-        if (p.getString(KEY_PENDING_FCM_TOKEN, null) != expected) return false
-        return p.edit().remove(KEY_PENDING_FCM_TOKEN).commit()
+    fun clearPendingFcmTokenIfMatches(context: Context, expected: String): Boolean = synchronized(preferencesLock) {
+        val p = recoveryPreferences(context)
+        if (p.get(KEY_PENDING_FCM_TOKEN) != expected) return@synchronized false
+        p.commit(mapOf(KEY_PENDING_FCM_TOKEN to null))
     }
 }
