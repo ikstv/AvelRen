@@ -66,7 +66,11 @@ for version in ("0.1.0", "0.1.1", "0.1.2", "0.1.3"):
         )
     if asset not in about_screen:
         raise SystemExit(f"About screen does not read the canonical {version} release notes")
-play_notes = (root / "docs/release-notes/v0.1.3.play.uk.txt").read_text(encoding="utf-8").rstrip("\r\n")
+play_notes = (
+    (root / "docs/release-notes/v0.1.3.play.uk.txt").read_text(encoding="utf-8").rstrip("\r\n")
+)
 if not play_notes or len(play_notes) > 500:
-    raise SystemExit(f"Play 0.1.3 notes must contain 1–500 Unicode characters; got {len(play_notes)}")
+    raise SystemExit(
+        f"Play 0.1.3 notes must contain 1–500 Unicode characters; got {len(play_notes)}"
+    )
 print(f"Android: verified {len(manifest['files'])} source records and asset provenance")
