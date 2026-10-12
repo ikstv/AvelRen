@@ -18,6 +18,17 @@ main workflows успішні. Hosted DB: 176 passed; upgrade: 262 passed, 1 п�
 для перегляду власником. Його реалізація, isolated приймання та operational GO попереду.
 DSN cutover, recovery PostgreSQL/SQLite, live monitor, телефонне приймання
 і закриття старих репозиторіїв залишаються окремими роботами.
+## Оновлення urllib3 — source кандидат 12.10.2026
+
+[Обмежений security update](URLLIB3-SECURITY-UPDATE-2026-10-12.md) змінює
+лише urllib3 2.7.0 → 2.8.0 та його офіційні hashes. Оригінальне походження
+lock збережено окремо від revision. У повторній PyPI metadata перевірці
+35 точних Python pins: 0 affected packages, 0 помилок; контейнерні/Gradle
+та live залежності не перевірялися цим scan. Review, інтеграція та hosted
+CI кандидата від `c70dd8c` ще очікуються. Exact-image handoff і окремо
+погоджене deployment залишаються відкритими; production та телефон
+не прийняті цим source оновленням. Загальний scope supply-chain #23
+залишається ширшим за ці три urllib3 advisories.
 
 ## Захист оновленого FCM-токена — кандидат 12.10.2026
 

@@ -12,6 +12,17 @@ head 418b747; relevant main workflows також успішні. Hosted осно
 підготовлений для перегляду, ще не реалізований. Actual adapter, production
 операції та DSN cutover не прийняті; production CLI закритий. APK/телефон/Play
 цим етапом не змінюються.
+## Оновлення безпеки urllib3 — кандидат 12.10.2026
+
+[Залежність і межі перевірки](URLLIB3-SECURITY-UPDATE-2026-10-12.md): pin
+urllib3 2.7.0 замінено на vendor-fixed 2.8.0 з офіційними SHA-256;
+решта 34 Python pins незмінні. Ізольований Linux / Python 3.14.7 runtime
+використовує 2.8.0, hash install, pip check і requests/google-auth imports
+успішні; full unit — 669 passed, 2 dependency deprecation warnings.
+Source кандидат від `c70dd8c`; review, інтеграція, hosted CI та
+окремо погоджене server deployment ще відкриті. Android/APK, телефон і
+Play цими локальними перевірками не прийняті; scan Python lock metadata
+не є загальним CVE all-clear для контейнерів або production.
 
 ## Захист оновленого FCM-токена — кандидат 12.10.2026
 
