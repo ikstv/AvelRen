@@ -22,6 +22,10 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import ua.avelren.app.BuildConfig
 
 object Timeouts {
@@ -425,21 +429,40 @@ object Api {
         val tolerance_seconds: Int = 900,
     )
 
-    suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials {
-        val out = client.post("$base/devices") {
+    suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials = registerDeviceWith(client, fcmToken)
+
+    internal suspend fun registerDeviceWith(http: HttpClient, fcmToken: String): DeviceStore.Credentials = tokenMutation {
+        val out = http.post("$base/devices") {
             contentType(ContentType.Application.Json)
             setBody(DeviceIn(fcmToken))
         }.body<DeviceOut>()
-        return DeviceStore.Credentials(out.device_id, out.device_secret)
+        DeviceStore.Credentials(out.device_id, out.device_secret)
     }
 
-    suspend fun updateToken(creds: DeviceStore.Credentials, fcmToken: String) {
-        client.put("$base/devices/token") {
+    suspend fun updateToken(creds: DeviceStore.Credentials, fcmToken: String) = updateTokenWith(client, creds, fcmToken)
+
+    internal suspend fun updateTokenWith(http: HttpClient, creds: DeviceStore.Credentials, fcmToken: String): Unit = tokenMutation {
+        http.put("$base/devices/token") {
             auth(creds)
             contentType(ContentType.Application.Json)
             setBody(TokenIn(fcmToken))
         }
     }
+
+    private suspend fun <T> tokenMutation(block: suspend () -> T): T = try { block() }
+    catch (error: ClientRequestException) {
+        if (error.response.status == HttpStatusCode.Conflict) {
+            val typed = try {
+                val body = Json.parseToJsonElement(error.response.bodyAsText()).jsonObject
+                body["detail"]?.jsonObject?.get("code")?.jsonPrimitive?.content == "fcm_token_conflict"
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { false }
+            if (typed) throw TokenConflictException()
+        }
+        throw error
+    }
+
+    fun isTokenConflict(error: Throwable): Boolean = error is TokenConflictException
 
     suspend fun checkpoints(): List<Checkpoint> = client.get("$base/checkpoints").body()
 
@@ -548,3 +571,6 @@ object Api {
         }
     }
 }
+
+/** Categorical ownership conflict; no response, cause or credentials retained. */
+class TokenConflictException : IllegalStateException("FCM token conflict")

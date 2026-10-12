@@ -7,8 +7,12 @@
       "destination": "services/backend/src/avelren/api.py",
       "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
       "revision": {
-        "sha256": "3e164f20eaac9f08b390346047c73603b8c28f88b4da70142041f8832fe0e5c9",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "0a46cd3c775661d0b8a274aeb1167ed8f7ae836392e8690a62123a6466a5bbbf",
+        "notes": "docs/superpowers/specs/2026-10-12-fcm-token-ownership-design.md",
+        "previous": {
+          "sha256": "3e164f20eaac9f08b390346047c73603b8c28f88b4da70142041f8832fe0e5c9",
+          "notes": "docs/RELEASE-READINESS.md"
+        }
       }
     },
     {
@@ -18,8 +22,12 @@
       "destination": "services/backend/src/avelren/subscriptions_api.py",
       "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
       "revision": {
-        "sha256": "9f8659f7858f3cc8bd0d2a76ba0cc3ae209e419ea6bb6bc0c5d4b1e54f066bf3",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "7c8c35e77866a05e4619c9b5a0be2f9f5d83831def96d6719e00ecf2db96b443",
+        "notes": "docs/superpowers/specs/2026-10-12-fcm-token-ownership-design.md",
+        "previous": {
+          "sha256": "9f8659f7858f3cc8bd0d2a76ba0cc3ae209e419ea6bb6bc0c5d4b1e54f066bf3",
+          "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        }
       }
     },
     {
@@ -150,7 +158,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/tests/test_auth.py",
       "destination": "services/backend/tests/database/api/test_auth.py",
-      "sha256": "40435d60245adc3ff7e07bd48e98ca285fe836a8c882cf6d20dcdaedbce0e521"
+      "sha256": "40435d60245adc3ff7e07bd48e98ca285fe836a8c882cf6d20dcdaedbce0e521",
+      "revision": {
+        "sha256": "671ad1b70db96e7472f4d162023dcf0571c8b3e4f46367ddcd110a5d6a87aed4",
+        "notes": "docs/superpowers/specs/2026-10-12-fcm-token-ownership-design.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",

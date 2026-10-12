@@ -1,5 +1,58 @@
 # Що має дійти до телефона
 
+## Власність FCM-токена — локальне source приймання 12.10.2026
+
+Після whole-branch findings R1–R3/M1 Android source виправлено комітом
+`5ab29ea4a49dfed1075cd2e935c5db1f7fe2233a`: точна full JVM suite
+**301/0/0**, compile/lint успішні; lint **0 errors/40 warnings/6 hints**.
+Same-token active callback coalesced, scheduler APPEND_OR_REPLACE,
+реальний foreground pending recovery і blocked startup SDK readback
+перевірені; terminal Rejected має explicit retry без rotation.
+[Точний контракт, RED/GREEN і межі](FCM-TOKEN-OWNERSHIP-2026-10-12.md).
+Scoped re-review та exact-head hosted CI/SBOM ще очікуються. M2 warning baseline
+збережено; acknowledged commit не замінювався apply. Server deployment,
+APK/version/SHA-256, телефон і Play не виконувалися й приймаються окремо.
+
+[Контракт, перевірки та послідовність релізу](FCM-TOKEN-OWNERSHIP-2026-10-12.md)
+описують server typed409 та bounded durable Android recovery. Інтегрований
+попередній кандидат від `f1cfde8` до `3d1358a`: backend unit 669 passed, full API 104 passed;
+default DB 190 passed (14 notifier), Android JVM 293/0/0, compile/lint успішні;
+фактичний urllib3 2.8.0. Whole-branch review, exact-head hosted CI/SBOM та
+злиття ще очікуються; API deployment, APK/SHA-256, телефон і Play — окремі gates.
+
+Цей запис уточнює нижчі датовані статуси: notifier PR #122 MERGED у main
+`ad9e92a6`, 7 PR checks успішні, main push run не спостерігався. urllib3
+update `162669e` незалежно reviewed та інтегрований у кандидата. Maintenance
+plan і CI-gate plan погоджені, але не реалізовані. Production CLI/DSN cutover
+залишаються закритими; PostgreSQL logging і свіжий rollback перевіряються
+перед окремим deployment GO. Старий APK може потребувати update для conflict
+recovery; доступ до оновлення не повинен залежати від push. Release 0.1.3
+не опублікований до phone/Play gates.
+
+## Source acceptance DB executor — 12.10.2026
+
+[PR #121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121) злитий у main
+eed0cb0f5a337e88467943017bbca3a04d2593e2 після 8/8 успішних перевірок
+head 418b747; relevant main workflows також успішні. Hosted основний DB набір
+176 passed, upgrade 262 passed з одним попереднім skip. Це уточнює нижчий
+запис про не підтверджене source review/CI/злиття, не є серверним прийманням.
+
+Наступний source етап: [план maintenance та відновлення служб](superpowers/plans/2026-10-12-postgres-production-maintenance.md),
+підготовлений для перегляду, ще не реалізований. Actual adapter, production
+операції та DSN cutover не прийняті; production CLI закритий. APK/телефон/Play
+цим етапом не змінюються.
+## Оновлення безпеки urllib3 — кандидат 12.10.2026
+
+[Залежність і межі перевірки](URLLIB3-SECURITY-UPDATE-2026-10-12.md): pin
+urllib3 2.7.0 замінено на vendor-fixed 2.8.0 з офіційними SHA-256;
+решта 34 Python pins незмінні. Ізольований Linux / Python 3.14.7 runtime
+використовує 2.8.0, hash install, pip check і requests/google-auth imports
+успішні; full unit — 669 passed, 2 dependency deprecation warnings.
+Source кандидат від `c70dd8c`; review, інтеграція, hosted CI та
+окремо погоджене server deployment ще відкриті. Android/APK, телефон і
+Play цими локальними перевірками не прийняті; scan Python lock metadata
+не є загальним CVE all-clear для контейнерів або production.
+
 ## Захист оновленого FCM-токена — кандидат 12.10.2026
 
 [Notifier fix і докази](NOTIFIER-TOKEN-RACE-2026-10-12.md) зберігають новий

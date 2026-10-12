@@ -65,7 +65,10 @@ async def _database_unavailable(request: Request, exc: Exception) -> JSONRespons
     unavailability from an error. _device in subscriptions_api already maps this
     to 503 locally; here is the global safety net for the remaining paths
     (audit M-9)."""
-    log.warning("DB unavailable (%s): %s", type(exc).__name__, exc)
+    # Повідомлення/params PostgreSQL можуть містити токени або credentials.
+    log.warning(
+        "DB unavailable (%s), SQLSTATE=%s", type(exc).__name__, getattr(exc, "sqlstate", None)
+    )
     return JSONResponse(
         status_code=503,
         content={"detail": "Service temporarily unavailable, please try again later"},

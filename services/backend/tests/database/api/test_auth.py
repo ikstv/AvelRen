@@ -16,9 +16,8 @@ def test_repeat_registration_with_known_token_does_not_leak_device_id(
 
     The attacker knows the victim's FCM token (it lives on the client, in Google's
     logs, in crashes). Before the fix, `POST /devices {fcm_token}` returned the
-    victim's existing device_id — and the attack was complete. Now a repeated
-    registration always creates a new installation with a new `(id, secret)` pair;
-    someone else's subscriptions stay out of reach.
+    victim's existing device_id — and the attack was complete. A claimed token
+    now returns a conflict; only a free token creates fresh credentials.
     """
     token = "shared-fcm-token-32chars-abcdefgh"
     victim = api_client.post("/devices", json={"fcm_token": token})
@@ -35,6 +34,12 @@ def test_repeat_registration_with_known_token_does_not_leak_device_id(
 
     # The attacker, knowing the same FCM token, calls POST /devices.
     attacker = api_client.post("/devices", json={"fcm_token": token})
+    assert attacker.status_code == 409
+    assert attacker.json() == {"detail": {"code": "fcm_token_conflict"}}
+    assert conn.execute(
+        "SELECT fcm_token FROM devices WHERE id=%s", (victim_id,)
+    ).fetchone()["fcm_token"] == token
+    attacker = api_client.post("/devices", json={})
     assert attacker.status_code == 201
     attacker_id = attacker.json()["device_id"]
     attacker_secret = attacker.json()["device_secret"]

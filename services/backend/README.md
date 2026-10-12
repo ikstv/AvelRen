@@ -1,8 +1,10 @@
 # Серверне ядро
 
-Перенесено collector, notifier та їхні спільні модулі. Усі 19 вихідних
-файлів, включно з трьома наборами тестів, pyproject і lock, незмінні
-відносно коміту в [маніфесті](../../docs/CORE-PROVENANCE.json).
+Перенесено collector, notifier та їхні спільні модулі. Походження 19 вихідних
+файлів, включно з трьома наборами тестів, pyproject і lock, збережено
+в [маніфесті](../../docs/CORE-PROVENANCE.json); наступні зміни мають окремі
+revision-хеші та пояснення. [Оновлення urllib3 12.10.2026](../../docs/URLLIB3-SECURITY-UPDATE-2026-10-12.md)
+змінює лише його pin і два SHA-256 у lock; решта 34 пакетів незмінні.
 Старі технічні коментарі збережено для точного порівняння; нова документація
 й пояснення українською.
 
@@ -52,3 +54,11 @@ HTTP підмінений; справжні HTTP-транспорти й під�
 Перевірений результат CI на 2026-09-22: 123 unit-тести успішні
 на Linux / Python 3.14 (коміт `0b2c30b`). Ці unit-тести не доводять
 сумісність реальної БД, придатність backup/restore або готовність до deploy.
+
+## FCM ownership — 12.10.2026
+
+[Контракт та приймання](../../docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md):
+POST чужого token та authenticated PUT чужого token повертають typed409
+без takeover. API-first rollout потребує окремого GO й PostgreSQL logging
+перевірки. Локальний integrated кандидат: full unit669/API104 passed,
+фактичний urllib3 2.8.0; hosted CI/SBOM/merge/deployment ще окремі gates.

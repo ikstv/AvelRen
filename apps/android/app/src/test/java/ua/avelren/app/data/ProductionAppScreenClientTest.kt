@@ -18,8 +18,10 @@ class ProductionAppScreenClientTest {
                 override fun save(creds: DeviceStore.Credentials) = Unit
                 override fun clear() = Unit
             },
-            object : FcmTokenProvider { override suspend fun currentToken() = "local-token" },
-            backgroundScope, logUnavailable = { _, _ -> },
+            WiringTokens("local-token"),
+            backgroundScope, recoveryStore = TestRecoveryRecords(), credentialCommitter = object : CredentialCommitter {
+                override suspend fun commit(expected: DeviceStore.Credentials?, replacement: DeviceStore.Credentials?) = false
+            },
         )
         installation.initialize()
         val client = ProductionAppScreenClient(installation,

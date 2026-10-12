@@ -36,3 +36,22 @@ Services plugin; Firebase-ключі, підпис і реальні мереж�
 APK на телефон дозволений лише з чистої погодженої main із записом SHA-256
 та перевіркою встановленого файла. У цьому PR main не змінюємо, Play-реліз
 не публікуємо. Секретні локальні файли й кеші не копіювалися.
+
+## FCM recovery — 12.10.2026
+
+[Контракт та приймання](../../docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md):
+єдиний durable coordinator зберігає identity на PUT409, допускає одну
+automatic rotation на incident і показує push status/обмежений повтор.
+Legacy POST201/PUT200 та new typed409 перевіряються через Ktor MockEngine;
+JVM/compile не доводять live FCM або телефонне приймання. Firebase BOM33.7.0
+незмінний. До фінальної команди вище можна додати `:app:lintDebug`.
+API розгортається першим за окремим GO; старому APK може знадобитися update
+через доступний без push канал. APK/phone/Play приймаються окремо.
+
+Whole-branch fix source `5ab29ea4a49dfed1075cd2e935c5db1f7fe2233a`:
+301 JVM tests/0 failures/0 errors, compile/lint успішні; lint має
+40 warnings/6 hints. Foreground відновлює existing pending після failed enqueue;
+same canonical active callback не скасовує worker і не змінює generation.
+APPEND_OR_REPLACE додає successor для справді нового candidate; blocked startup
+перевіряє SDK token без скидання budget1. Terminal Rejected показує explicit retry,
+не запускає rotation для 400/403/422/unrelated409. CI, APK і live FCM — окремі gates.

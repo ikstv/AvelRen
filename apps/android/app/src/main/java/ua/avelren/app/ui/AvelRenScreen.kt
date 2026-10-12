@@ -43,6 +43,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import ua.avelren.app.data.PushSyncState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -222,6 +224,8 @@ internal fun AvelRenScreen(
         if (screenClient == null) (context.applicationContext as AvelRenApp).installation else null
     }
     val installationState = installation?.state?.collectAsStateWithLifecycle()?.value
+    val pushState = if (BuildConfig.ENABLE_PUSH) installation?.pushState?.collectAsStateWithLifecycle()?.value else null
+    val retryPush = { scope.launch { installation?.retryBlocked() }; Unit }
     val dataClient = remember(installation, screenClient) {
         screenClient ?: ua.avelren.app.data.ProductionAppScreenClient(
             requireNotNull(installation), mutationCredentials = { DeviceStore.credentials(context) },
@@ -496,6 +500,7 @@ internal fun AvelRenScreen(
                 showServerStatus = false,
                 title = "Моніторинг",
             )
+            PushSyncStatus(pushState, retryPush)
             if (notificationsSilent) {
                 NotificationSilentBanner(onOpenNotificationSettings)
             }
@@ -563,6 +568,9 @@ internal fun AvelRenScreen(
                     status = serverStatus,
                     remainingMinutes = maintenance?.remainingMinutes(freshnessNow),
                 )
+            }
+            if (pushState != null && pushState != PushSyncState.Synced) {
+                item { PushSyncStatus(pushState, retryPush) }
             }
             if (notificationsSilent) {
                 item { NotificationSilentBanner(onOpenNotificationSettings) }
@@ -2597,3 +2605,22 @@ private val TARGET_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM H
 private fun formatTarget(iso: String): String =
     runCatching { OffsetDateTime.parse(iso).atZoneSameInstant(KYIV).format(TARGET_FMT) }
         .getOrDefault(iso)
+
+/** Delivery readiness is independent of authenticated installation readiness. */
+@Composable
+private fun PushSyncStatus(state: PushSyncState?, onRetry: () -> Unit) {
+    if (state == null || state == PushSyncState.Synced) return
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            when (state) {
+                PushSyncState.Pending, PushSyncState.Retrying -> "Синхронізуємо сповіщення…"
+                PushSyncState.Rejected -> "Не вдалося синхронізувати сповіщення. Спробуйте ще раз."
+                else -> "Сповіщення тимчасово недоступні. Спробуйте ще раз."
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (state == PushSyncState.ConflictBlocked || state == PushSyncState.Rejected) {
+            TextButton(onClick = onRetry) { Text("Спробувати ще раз") }
+        }
+    }
+}

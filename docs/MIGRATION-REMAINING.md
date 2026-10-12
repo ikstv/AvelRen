@@ -1,5 +1,64 @@
 # Залишки перенесення
 
+## Власність FCM-токена — локальне source приймання 12.10.2026
+
+Після whole-branch findings R1–R3/M1 Android source виправлено комітом
+`5ab29ea4a49dfed1075cd2e935c5db1f7fe2233a`: точна full JVM suite
+**301/0/0**, compile/lint успішні; lint **0 errors/40 warnings/6 hints**.
+Same-token active callback coalesced, scheduler APPEND_OR_REPLACE,
+реальний foreground pending recovery і blocked startup SDK readback
+перевірені; terminal Rejected має explicit retry без rotation.
+[Точний контракт, RED/GREEN і межі](FCM-TOKEN-OWNERSHIP-2026-10-12.md).
+Scoped re-review та exact-head hosted CI/SBOM ще очікуються. M2 warning baseline
+збережено; acknowledged commit не замінювався apply. Server deployment,
+APK/version/SHA-256, телефон і Play не виконувалися й приймаються окремо.
+
+[Контракт, перевірки та послідовність релізу](FCM-TOKEN-OWNERSHIP-2026-10-12.md)
+описують server typed409 та bounded durable Android recovery. Інтегрований
+попередній кандидат від `f1cfde8` до `3d1358a`: backend unit 669 passed, full API 104 passed;
+default DB 190 passed (14 notifier), Android JVM 293/0/0, compile/lint успішні;
+фактичний urllib3 2.8.0. Whole-branch review, exact-head hosted CI/SBOM та
+злиття ще очікуються; API deployment, APK/SHA-256, телефон і Play — окремі gates.
+
+Цей запис уточнює нижчі датовані статуси: notifier PR #122 MERGED у main
+`ad9e92a6`, 7 PR checks успішні, main push run не спостерігався. urllib3
+update `162669e` незалежно reviewed та інтегрований у кандидата. Maintenance
+plan і CI-gate plan погоджені, але не реалізовані. Production CLI/DSN cutover
+залишаються закритими; PostgreSQL logging і свіжий rollback перевіряються
+перед окремим deployment GO. Старий APK може потребувати update для conflict
+recovery; доступ до оновлення не повинен залежати від push. Release 0.1.3
+не опублікований до phone/Play gates.
+
+## Уточнення — 12.10.2026
+
+[Звірка надісланого аудиту](audits/AUDIT-TRIAGE-2026-10-12.md) підтвердила
+два кодові сценарії FCM token і відсутність main protection. Виправлення,
+real API/PostgreSQL-регресії та aggregate CI gate ще не реалізовані.
+Rulesets API повертає тарифний403; privacy/billing не змінені.
+
+
+DB executor source етапу 1 прийнято [PR #121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121),
+main eed0cb0f5a337e88467943017bbca3a04d2593e2. Усі 8 exact-head PR checks та relevant
+main workflows успішні. Hosted DB: 176 passed; upgrade: 262 passed, 1 попередній skip.
+Це уточнює нижчий запис про source кандидата, review/CI та злиття; live adoption
+не виконаний, production CLI залишається закритим.
+
+Підготовлено [план maintenance adapter та відновлення служб](superpowers/plans/2026-10-12-postgres-production-maintenance.md)
+для перегляду власником. Його реалізація, isolated приймання та operational GO попереду.
+DSN cutover, recovery PostgreSQL/SQLite, live monitor, телефонне приймання
+і закриття старих репозиторіїв залишаються окремими роботами.
+## Оновлення urllib3 — source кандидат 12.10.2026
+
+[Обмежений security update](URLLIB3-SECURITY-UPDATE-2026-10-12.md) змінює
+лише urllib3 2.7.0 → 2.8.0 та його офіційні hashes. Оригінальне походження
+lock збережено окремо від revision. У повторній PyPI metadata перевірці
+35 точних Python pins: 0 affected packages, 0 помилок; контейнерні/Gradle
+та live залежності не перевірялися цим scan. Review, інтеграція та hosted
+CI кандидата від `c70dd8c` ще очікуються. Exact-image handoff і окремо
+погоджене deployment залишаються відкритими; production та телефон
+не прийняті цим source оновленням. Загальний scope supply-chain #23
+залишається ширшим за ці три urllib3 advisories.
+
 ## Захист оновленого FCM-токена — кандидат 12.10.2026
 
 [Контракт і локальна перевірка](NOTIFIER-TOKEN-RACE-2026-10-12.md): notifier
@@ -89,8 +148,8 @@ source-sbom та image-sbom checks цього коміту успішні.
 | Блок | Конкретний результат для закриття |
 | --- | --- |
 | Supply-chain legacy #140 / issue #23 | Source та candidate image SBOM уже реалізовані й мають успішні checks; повторно переносити їх не потрібно. Залишилися рішення по Gradle artifact checksums, Dependabot, dependency/container vulnerability audits і CodeQL із ліцензійним блокером для приватного user-owned repo. Перед exact-image deployment потрібен окремий handoff immutable image/digest: SBOM CI candidate не засвідчує окремо перебудований production image. |
-| Production adoption прав БД, legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | [Звірка 01.10](POSTGRES-ADOPTION-GAP-2026-10-01.md) описує історичний gap. На 11.10 DB executor 001–016, binding/receipts, explicit inverse та isolated tests реалізовані як [source кандидат](../ops/POSTGRES-ADOPTION.md); review/CI/integration цього кандидата ще відкриті. `ops/postgres-bootstrap.sh` лишається fresh/disposable fixture. Публічний production CLI закритий до actual maintenance adapter із host/runtime provenance, stop/start/job pause/resume і failure-state acceptance. DSN cutover та operational приймання потребують окремих планів, явного GO й свіжої read-only звірки. |
-| Forecast legacy #111 / ORIGINAL [#70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) | Семантику missing/0/legacy_unknown описано в погодженій специфікації та чернетці плану [PR #71](https://github.com/ikstv/AvelRen-ORIGINAL/pull/71); ці файли ще не в main. Draft [PR #72](https://github.com/ikstv/AvelRen-ORIGINAL/pull/72) — кандидат серверних задач 1–3, 8/8 CI checks на `e68e731` та короткий незалежний backtest із `count_hours` без фільтра за wait. MAE кількості нижча за базиси на чотирьох КПП, але час піку гірший на КПП 1, 29 і 6; це не release gate. Залишаються Android DTO/UI, rollback/restore gate, довший holdout і приймання після окремого deployment GO. Старе held-out evaluation вже перенесено; повторювати його перенос не потрібно. |
+| Production adoption прав БД, legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | DB executor001–016, binding/receipts та explicit inverse прийняті [PR121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121), main eed0cb0, exact-head CI успішний. Повторна реалізація не потрібна. Production CLI закритий до actual maintenance adapter: [план для перегляду](superpowers/plans/2026-10-12-postgres-production-maintenance.md). Actual host/runtime provenance, stop/start/jobs, DSN cutover і operational acceptance ще попереду з окремими GO та свіжим audit. |
+| Forecast legacy #111 / ORIGINAL [#70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) | PR #72 злитий 02.10.2026, merge d134c0b; server missing/0/legacy_unknown і Android wait_estimate/DTO/UI уже у main. Повторний перенос не потрібний. Короткий історичний backtest не є release gate: залишилися довший holdout, recovery та окреме приймання на телефоні. Див. [звірку аудиту12.10](audits/AUDIT-TRIAGE-2026-10-12.md); не оголошувати missing справжнім нулем без урахування status. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
 | Ops і recovery | Аудит із AvelRen-ops PR #1 перенесено; сам старий PR лишився відкритим. Завершити звірку deployment/recovery runbooks, доступів/key escrow, матеріалів Play та унікальних серверних змін із новим кодом. Історичні документи потребують рішення про збереження або заміну. Наявність архіву не доводить відновлення. |

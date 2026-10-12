@@ -6,7 +6,7 @@ import androidx.work.WorkerParameters
 
 internal suspend fun runFcmTokenSync(repository: InstallationRepository?): androidx.work.ListenableWorker.Result {
     if (repository == null) return androidx.work.ListenableWorker.Result.retry()
-    return when (repository.syncPendingTokenOnce()) {
+    return when (repository.syncOnce()) {
         PendingTokenSyncOutcome.NothingPending,
         PendingTokenSyncOutcome.Synced -> androidx.work.ListenableWorker.Result.success()
         is PendingTokenSyncOutcome.RetryableFailure -> androidx.work.ListenableWorker.Result.retry()

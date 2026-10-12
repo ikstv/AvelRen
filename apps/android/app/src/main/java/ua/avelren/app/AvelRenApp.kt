@@ -18,9 +18,10 @@ import ua.avelren.app.data.Api
 import ua.avelren.app.data.CredentialStore
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.FcmTokenProvider
-import ua.avelren.app.data.DevicePendingFcmTokenStore
+import ua.avelren.app.data.DeviceRecoveryStore
 import ua.avelren.app.data.InstallationApi
 import ua.avelren.app.data.InstallationRepository
+import ua.avelren.app.data.InstallationForegroundRecovery
 import ua.avelren.app.data.WorkManagerFcmTokenRetryScheduler
 import ua.avelren.app.data.ProtectedLoad
 import ua.avelren.app.notify.NotificationReconciler
@@ -90,6 +91,7 @@ class AvelRenApp : Application() {
         Notifications.ensureChannel(this)
 
         val ctx: Context = this
+        val recoveryStorage = DeviceRecoveryStore(ctx)
         installationRef = InstallationRepository(
             api = object : InstallationApi {
                 override suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials =
@@ -99,6 +101,8 @@ class AvelRenApp : Application() {
                     creds: DeviceStore.Credentials,
                     fcmToken: String,
                 ) = Api.updateToken(creds, fcmToken)
+
+                override fun isTokenConflict(exc: Throwable): Boolean = Api.isTokenConflict(exc)
 
                 override fun isStaleInstallation(exc: Throwable): Boolean =
                     Api.isStaleInstallation(exc)
@@ -112,9 +116,13 @@ class AvelRenApp : Application() {
             tokens = object : FcmTokenProvider {
                 override suspend fun currentToken(): String =
                     FirebaseMessaging.getInstance().token.await()
+                override suspend fun deleteCurrentToken() {
+                    FirebaseMessaging.getInstance().deleteToken().await()
+                }
             },
             scope = appScope,
-            pendingTokens = DevicePendingFcmTokenStore(ctx),
+            recoveryStore = recoveryStorage,
+            credentialCommitter = recoveryStorage,
             retryScheduler = WorkManagerFcmTokenRetryScheduler(ctx),
         )
         // A connected side-by-side APK exercises the real public API and UI,
@@ -134,6 +142,9 @@ class AvelRenApp : Application() {
                 kotlinx.coroutines.withContext(Dispatchers.Main.immediate) { recoverVoices() }
             }
         }
+
+        // Resume durable push handoffs, including a prior unacknowledged enqueue.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(InstallationForegroundRecovery(installation, appScope))
 
         // Reconciliation on return to foreground (A-02, layer 2): if a
         // cancel-push was lost, reconcile the shown notifications against the

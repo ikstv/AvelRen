@@ -1,163 +1,49 @@
 package ua.avelren.app.data
 
-import android.util.Log
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
+/** All identity/token mutations share the durable coordinator, including worker and 401 recovery. */
 class InstallationRepository(
-    private val api: InstallationApi,
-    private val store: CredentialStore,
-    private val tokens: FcmTokenProvider,
+    api: InstallationApi,
+    store: CredentialStore,
+    tokens: FcmTokenProvider,
     private val scope: CoroutineScope,
-    private val pendingTokens: PendingFcmTokenStore = InMemoryPendingFcmTokenStore(),
-    private val retryScheduler: FcmTokenRetryScheduler = ImmediateFcmTokenRetryScheduler(),
-    // Injected, like the rest of the dependencies above: android.util.Log is a
-    // platform stub that throws "not mocked" in plain JUnit. Production gets the real
-    // Log.w by default; tests substitute a no-op without touching the global
-    // testOptions (see the comment in InstallationRepositoryTest.kt).
-    private val logUnavailable: (String, Throwable?) -> Unit =
-        { msg, cause -> Log.w("Installation", msg, cause) },
+    recoveryStore: RecoveryStore,
+    credentialCommitter: CredentialCommitter,
+    retryScheduler: FcmTokenRetryScheduler = ImmediateFcmTokenRetryScheduler(),
 ) {
-    private val _state = MutableStateFlow<InstallationState>(InstallationState.Initializing)
-    val state: StateFlow<InstallationState> = _state.asStateFlow()
-    private val mutex = Mutex()
-    private val pendingTokenMutex = Mutex()
-    private val tokenSyncMutex = Mutex()
-    @Volatile private var creds: DeviceStore.Credentials? = null
+    private val coordinator = FcmRecoveryCoordinator(
+        api = object : RecoveryApi {
+            override suspend fun register(token: String) = api.registerDevice(token)
+            override suspend fun update(creds: DeviceStore.Credentials, token: String) = api.updateToken(creds, token)
+            override fun isStale(error: Throwable) = api.isStaleInstallation(error)
+            override fun isTokenConflict(error: Throwable) = api.isTokenConflict(error)
+        },
+        credentials = store::load,
+        committer = credentialCommitter,
+        records = recoveryStore,
+        tokens = tokens,
+        scheduler = retryScheduler,
+    )
+    val state: StateFlow<InstallationState> = coordinator.state
+    val pushState: StateFlow<PushSyncState> = coordinator.pushState
 
     fun start() { scope.launch { initialize() } }
+    internal suspend fun initialize() = coordinator.initialize()
 
-    internal suspend fun initialize() {
-        mutex.withLock {
-            store.load()?.also { creds = it; _state.value = InstallationState.Ready(it.deviceId) }
-        }
-        resumePendingTokenSync()
-        val tokenResult = runCatching { tokens.currentToken() }
-        val token = tokenResult.getOrNull()
-        if (token != null) onNewFcmToken(token)
-        else if (mutex.withLock { creds ?: store.load() } == null &&
-            pendingTokenMutex.withLock { pendingTokens.load() } == null) {
-            // Audit 2026-08-15: this exception was previously swallowed silently
-            // (.getOrNull()), which is exactly why a temporary Log.e was needed
-            // to extract the real cause (an invalid google-services.json
-            // → FirebaseMessaging.getToken() threw IllegalArgumentException
-            // before the network). Reason now carries the exception's message, not
-            // generic text; Log.w is permanent, so that next time the cause is
-            // visible from the first logcat, without a temporary code change.
-            val cause = tokenResult.exceptionOrNull()
-            val reason = cause?.message ?: "немає FCM-токена для реєстрації"
-            logUnavailable("FCM-токен недоступний: installation Unavailable", cause)
-            _state.value = InstallationState.Unavailable(reason)
-        }
-    }
-
-    suspend fun onNewFcmToken(token: String) {
-        if (!pendingTokenMutex.withLock { pendingTokens.save(token) }) return
-        if (retryScheduler.enqueue() is ScheduleResult.Enqueued) syncPendingTokenOnce()
-    }
-
-    internal suspend fun resumePendingTokenSync(): PendingTokenSyncOutcome {
-        if (pendingTokenMutex.withLock { pendingTokens.load() } == null) return PendingTokenSyncOutcome.NothingPending
-        return when (val result = retryScheduler.enqueue()) {
-            is ScheduleResult.Enqueued -> syncPendingTokenOnce()
-            is ScheduleResult.Failed -> PendingTokenSyncOutcome.RetryableFailure(result.cause)
-        }
-    }
-
-    internal suspend fun syncPendingTokenOnce(): PendingTokenSyncOutcome = tokenSyncMutex.withLock {
-        val token = pendingTokenMutex.withLock { pendingTokens.load() }
-            ?: return@withLock PendingTokenSyncOutcome.NothingPending
-        try {
-            syncToken(token)
-            pendingTokenMutex.withLock { pendingTokens.clearIfMatches(token) }
-            PendingTokenSyncOutcome.Synced
-        } catch (e: CancellationException) { throw e }
-        catch (e: Throwable) { classifyTokenSyncFailure(e) }
-    }
-
-    private suspend fun syncToken(token: String) {
-        val current = mutex.withLock { creds ?: store.load()?.also { creds = it } }
-        if (current == null) {
-            mutex.withLock {
-                val latest = creds ?: store.load()?.also { creds = it }
-                if (latest == null) registerFreshLocked(token)
-                else updateFreshTokenLocked(latest, token)
-            }
-            return
-        }
-        try {
-            api.updateToken(current, token)
-        } catch (e: Throwable) {
-            if (!api.isStaleInstallation(e)) throw e
-            mutex.withLock {
-                // The register-vs-existing decision is atomic. If another operation recovered
-                // while the first PUT was in flight, synchronize X on that fresh pair instead.
-                val latest = creds
-                if (latest != null && latest != current) updateFreshTokenLocked(latest, token)
-                else try { registerFreshLocked(token) }
-                catch (recoveryError: Throwable) {
-                    invalidateLocked("перереєстрація не вдалась: ${recoveryError.message}")
-                    throw recoveryError
-                }
-            }
-        }
-    }
-
-    private suspend fun updateFreshTokenLocked(fresh: DeviceStore.Credentials, token: String) {
-        try {
-            api.updateToken(fresh, token)
-        } catch (e: Throwable) {
-            if (api.isStaleInstallation(e)) {
-                invalidateIfLocked(fresh, "сервер відкинув щойно зареєстровану installation")
-            }
-            throw e
-        }
-    }
-
-    suspend fun <T> authenticatedCall(block: suspend (DeviceStore.Credentials) -> T): T {
-        val first = currentOrRegister() ?: error("installation недоступна")
-        try { return block(first) } catch (e: Throwable) {
-            if (!api.isStaleInstallation(e)) throw e
-        }
-        recoverFrom(first)
-        val fresh = creds ?: error("installation недоступна після recovery")
-        try { return block(fresh) } catch (e: Throwable) {
-            if (api.isStaleInstallation(e)) invalidateIf(fresh, "сервер відкинув щойно зареєстровану installation")
-            throw e
-        }
-    }
-
-    private suspend fun currentOrRegister(): DeviceStore.Credentials? {
-        creds?.let { return it }
-        return mutex.withLock {
-            creds ?: runCatching { registerFreshLocked(tokens.currentToken()); creds }.getOrNull()
-        }
-    }
-
-    private suspend fun recoverFrom(stale: DeviceStore.Credentials) = mutex.withLock {
-        if (creds != stale) return@withLock
-        try { registerFreshLocked(tokens.currentToken()) }
-        catch (e: Throwable) { invalidateLocked("recovery не вдалась: ${e.message}"); throw e }
-    }
-
-    private fun invalidateLocked(reason: String) { store.clear(); creds = null; _state.value = InstallationState.Unavailable(reason) }
-    private fun invalidateIfLocked(used: DeviceStore.Credentials, reason: String) {
-        if (creds == used) invalidateLocked(reason)
-    }
-    private suspend fun invalidateIf(used: DeviceStore.Credentials, reason: String) = mutex.withLock { if (creds == used) invalidateLocked(reason) }
-
-    private suspend fun registerFreshLocked(token: String) {
-        store.clear(); val fresh = api.registerDevice(token); store.save(fresh); creds = fresh
-        _state.value = InstallationState.Ready(fresh.deviceId)
-    }
+    // Firebase callbacks are signals. SDK readback wins over a delayed callback payload.
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun onNewFcmToken(token: String) = coordinator.providerSignal()
+    suspend fun retryBlocked() = coordinator.retryBlocked()
+    internal suspend fun syncOnce(): PendingTokenSyncOutcome = coordinator.syncOnce()
+    internal suspend fun syncPendingTokenOnce(): PendingTokenSyncOutcome = syncOnce()
+    internal suspend fun resumePendingTokenSync() = coordinator.resumePending()
+    suspend fun <T> authenticatedCall(block: suspend (DeviceStore.Credentials) -> T): T =
+        coordinator.authenticatedCall(block)
 }
 
 sealed interface InstallationState {
@@ -170,9 +56,10 @@ interface InstallationApi {
     suspend fun registerDevice(fcmToken: String): DeviceStore.Credentials
     suspend fun updateToken(creds: DeviceStore.Credentials, fcmToken: String)
     fun isStaleInstallation(exc: Throwable): Boolean
+    fun isTokenConflict(exc: Throwable): Boolean = exc is TokenConflictException
 }
 interface CredentialStore { fun load(): DeviceStore.Credentials?; fun save(creds: DeviceStore.Credentials); fun clear() }
-interface FcmTokenProvider { suspend fun currentToken(): String }
+interface FcmTokenProvider : RotatingTokenSource
 
 object ProtectedLoad {
     suspend fun observe(

@@ -11,9 +11,9 @@ State-changing requests (POST/PUT/DELETE, /ack, /admin) require BOTH headers:
 `X-Device-Id` and `X-Device-Secret`. Knowing the UUID alone gives nothing — this
 is exactly what closes AUTH-1 (audit): previously POST /devices returned an
 existing device_id for a known FCM token, and a token is not a secret (it lives
-on the client, in Google's logs, in crashes). Now POST /devices always creates a
-NEW installation and returns a new pair; knowing someone else's FCM token grants
-no access to their subscriptions.
+on the client, in Google's logs, in crashes). POST /devices creates a NEW
+installation only for an absent or unclaimed token. A claimed token returns a
+conflict, preserving its owner and granting no access to their subscriptions.
 
 Headers, not the URL: parameters settle in proxy logs and in history, headers
 do not.
@@ -23,10 +23,11 @@ import hashlib
 import hmac
 from datetime import UTC, datetime
 from secrets import token_urlsafe
+from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from psycopg import DataError, OperationalError
-from psycopg.errors import InvalidTextRepresentation
+from psycopg import AsyncConnection, DataError, OperationalError
+from psycopg.errors import InvalidTextRepresentation, UniqueViolation
 
 from . import cancels, telemetry
 from .alerts import THRESHOLDS
@@ -135,37 +136,49 @@ async def save_capabilities(conn, device_id, capabilities):
         )
 
 
+async def _lock_token_candidate(conn: AsyncConnection, token: str) -> None:
+    """Один lock кандидата до row lock; чинний API statement_timeout обмежує очікування."""
+    digest = hashlib.sha256(b"avelren-fcm-token-v1" + token.encode("utf-8")).digest()
+    key = int.from_bytes(digest[:8], "big", signed=True)
+    await conn.execute("SELECT pg_advisory_xact_lock(%s)", (key,))
+
+
+async def _token_owner(conn: AsyncConnection, token: str) -> str | None:
+    row = await (
+        await conn.execute("SELECT id FROM devices WHERE fcm_token = %s", (token,))
+    ).fetchone()
+    return str(row["id"]) if row else None
+
+
+def _token_conflict() -> HTTPException:
+    return HTTPException(status_code=409, detail={"code": "fcm_token_conflict"})
+
+
 @router.post("/devices", status_code=201)
 async def create_device(request: Request, body: DeviceIn) -> DeviceOut:
-    """Creating an installation.
-
-    Unlike the previous version, on an FCM-token match we do NOT return the id of
-    an already-existing device — that was exactly the AUTH-1 path. The token is
-    moved to the new installation (the old one is left orphaned and will be
-    cleaned up by retention), and the client gets a fresh `(id, secret)` pair.
-    """
+    """Нова installation; знання зайнятого токена не змінює попереднього власника."""
     rate_check(request, "write")
     secret = token_urlsafe(SECRET_BYTES)
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # UNIQUE(fcm_token) will not allow the token to stay on two rows.
-            # First we strip it from the old installation (if any), then insert
-            # the new one with this same token.
             if body.fcm_token:
-                await conn.execute(
-                    "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s",
-                    (body.fcm_token,),
-                )
+                await _lock_token_candidate(conn, body.fcm_token)
+                if await _token_owner(conn, body.fcm_token) is not None:
+                    raise _token_conflict()
             row = await (
                 await conn.execute(
                     """
                     INSERT INTO devices (fcm_token, platform, secret_hash)
                     VALUES (%s, %s, %s)
+                    ON CONFLICT (fcm_token) DO NOTHING
                     RETURNING id
                     """,
                     (body.fcm_token, body.platform, _hash_secret(secret)),
                 )
             ).fetchone()
+            # Остаточний захист від writer, який не бере advisory lock.
+            if row is None:
+                raise _token_conflict()
             await save_capabilities(conn, row["id"], body.notification_capabilities)
     # The secret is returned exactly once. Only the hash is in the DB —
     # recovery is impossible, only creating a new installation.
@@ -181,18 +194,33 @@ async def update_token(
 ) -> dict:
     rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
+    # PostgreSQL приймає різні записи UUID; порівнюємо канонічну identity.
+    device_id = str(UUID(device_id))
     async with get_pool().connection() as conn:
         async with conn.transaction():
-            # The same token may "migrate" from an orphaned installation:
-            # we strip it so as not to violate UNIQUE(fcm_token).
-            await conn.execute(
-                "UPDATE devices SET fcm_token = NULL WHERE fcm_token = %s AND id != %s",
-                (body.fcm_token, device_id),
-            )
-            await conn.execute(
-                "UPDATE devices SET fcm_token = %s, last_seen = now() WHERE id = %s",
-                (body.fcm_token, device_id),
-            )
+            await _lock_token_candidate(conn, body.fcm_token)
+            owner = await _token_owner(conn, body.fcm_token)
+            if owner is not None and owner != device_id:
+                raise _token_conflict()
+            try:
+                # Savepoint відновлює транзакцію до обробки race з зовнішнім writer.
+                async with conn.transaction():
+                    row = await (
+                        await conn.execute(
+                            "UPDATE devices SET fcm_token = %s, last_seen = now() WHERE id = %s "
+                            "RETURNING id",
+                            (body.fcm_token, device_id),
+                        )
+                    ).fetchone()
+            except UniqueViolation as exc:
+                if (
+                    exc.diag.table_name == "devices"
+                    and exc.diag.constraint_name == "devices_fcm_token_key"
+                ):
+                    raise _token_conflict() from None
+                raise
+            if row is None:
+                raise HTTPException(status_code=401, detail="Invalid device credentials")
             await save_capabilities(conn, device_id, body.notification_capabilities)
     return {"status": "ok"}
 

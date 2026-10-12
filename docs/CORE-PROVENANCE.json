@@ -158,7 +158,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/requirements.lock",
       "destination": "services/backend/requirements.lock",
-      "sha256": "95c3b247639b3e4e4113963c59a45291757c1a6486ff532e62e0c44ee6409989"
+      "sha256": "95c3b247639b3e4e4113963c59a45291757c1a6486ff532e62e0c44ee6409989",
+      "revision": {
+        "sha256": "309e49554d06540f6bfe26b1786f8e87b081dbab920595f6870e35d46807797f",
+        "notes": "docs/URLLIB3-SECURITY-UPDATE-2026-10-12.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
