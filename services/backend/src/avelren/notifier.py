@@ -74,14 +74,16 @@ async def _mark_sent(conn: AsyncConnection, kind: str, alert_id: int) -> None:
     )
 
 
-async def _disable_device(conn: AsyncConnection, device_id: str) -> None:
-    """Dead token: sending further is pointless.
-
-    Without this, thousands of dead tokens would accumulate, and we would hammer
-    FCM every five minutes for each uninstalled app.
-    """
-    await conn.execute("UPDATE devices SET fcm_token = NULL WHERE id = %s", (device_id,))
-    log.info("device %s disabled: token is dead", device_id)
+async def _disable_device(conn: AsyncConnection, device_id: str, sent_token: str) -> bool:
+    """Гасимо лише відправлений токен: під час FCM-запиту він міг оновитися."""
+    cursor = await conn.execute(
+        "UPDATE devices SET fcm_token = NULL WHERE id = %s AND fcm_token = %s",
+        (device_id, sent_token),
+    )
+    changed = cursor.rowcount > 0
+    if changed:
+        log.info("device %s disabled: token is dead", device_id)
+    return changed
 
 
 async def run_cycle(client: httpx.AsyncClient) -> int:
@@ -112,7 +114,7 @@ async def run_cycle(client: httpx.AsyncClient) -> int:
                 )
             except fcm.FcmError as exc:
                 if exc.dead_token:
-                    await _disable_device(conn, r["device_id"])
+                    await _disable_device(conn, r["device_id"], r["fcm_token"])
                 else:
                     # Temporary error: the alert stays pending, we will retry.
                     log.warning("alert %s not sent: %s", r["id"], exc)
@@ -161,8 +163,11 @@ async def _send_cancels(client: httpx.AsyncClient, conn: AsyncConnection) -> Non
             )
         except fcm.FcmError as exc:
             if exc.dead_token:
-                await _disable_device(conn, c["device_id"])
-                await cancels.mark_abandoned(conn, c["id"])
+                if await _disable_device(conn, c["device_id"], c["fcm_token"]):
+                    await cancels.mark_abandoned(conn, c["id"])
+                else:
+                    # Старий токен більше не поточний; повторюємо за чинною політикою віку.
+                    await cancels.record_attempt(conn, c["id"])
             else:
                 await cancels.record_attempt(conn, c["id"])
             continue
