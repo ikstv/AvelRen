@@ -10,6 +10,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FcmConflictApiTest {
+    @Test fun test_legacy_success_contract_keeps_credentials_and_authentication() = runTest {
+        var requests = 0
+        val http = Api.clientFor(MockEngine { request ->
+            requests++
+            if (requests == 1) {
+                assertEquals("POST", request.method.value)
+                assertTrue(request.url.encodedPath.endsWith("/devices"))
+                assertNull(request.headers["X-Device-Secret"])
+                respond("""{"device_id":"legacy-id","device_secret":"legacy-secret"}""",
+                    HttpStatusCode.Created, headersOf("Content-Type", "application/json"))
+            } else {
+                assertEquals("PUT", request.method.value)
+                assertTrue(request.url.encodedPath.endsWith("/devices/token"))
+                assertEquals("legacy-id", request.headers["X-Device-Id"])
+                assertEquals("legacy-secret", request.headers["X-Device-Secret"])
+                respond("""{"ok":true}""", HttpStatusCode.OK,
+                    headersOf("Content-Type", "application/json"))
+            }
+        })
+        try {
+            val credentials = Api.registerDeviceWith(http, "legacy-token")
+            assertEquals(DeviceStore.Credentials("legacy-id", "legacy-secret"), credentials)
+            Api.updateTokenWith(http, credentials, "replacement-token")
+            assertEquals(2, requests)
+        } finally { http.close() }
+    }
+
     private suspend fun failure(status: HttpStatusCode, body: String, put: Boolean): Throwable {
         val http = Api.clientFor(MockEngine {
             respond(body, status, headersOf("Content-Type", "application/json"))

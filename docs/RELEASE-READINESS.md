@@ -1,5 +1,23 @@
 # Що має дійти до телефона
 
+## Власність FCM-токена — локальне source приймання 12.10.2026
+
+[Контракт, перевірки та послідовність релізу](FCM-TOKEN-OWNERSHIP-2026-10-12.md)
+описують server typed409 та bounded durable Android recovery. Інтегрований
+кандидат від `f1cfde8`: backend unit 669 passed, full API 104 passed;
+default DB 190 passed (14 notifier), Android JVM 293/0/0, compile/lint успішні;
+фактичний urllib3 2.8.0. Whole-branch review, exact-head hosted CI/SBOM та
+злиття ще очікуються; API deployment, APK/SHA-256, телефон і Play — окремі gates.
+
+Цей запис уточнює нижчі датовані статуси: notifier PR #122 MERGED у main
+`ad9e92a6`, 7 PR checks успішні, main push run не спостерігався. urllib3
+update `162669e` незалежно reviewed та інтегрований у кандидата. Maintenance
+plan і CI-gate plan погоджені, але не реалізовані. Production CLI/DSN cutover
+залишаються закритими; PostgreSQL logging і свіжий rollback перевіряються
+перед окремим deployment GO. Старий APK може потребувати update для conflict
+recovery; доступ до оновлення не повинен залежати від push. Release 0.1.3
+не опублікований до phone/Play gates.
+
 ## Source acceptance DB executor — 12.10.2026
 
 [PR #121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121) злитий у main

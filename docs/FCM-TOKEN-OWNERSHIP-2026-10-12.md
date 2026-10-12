@@ -1,0 +1,79 @@
+# Власність FCM-токена — 12.10.2026
+
+## Контракт і межі
+
+Інтегрований source кандидат `codex/fcm-token-ownership-20261012` перевіряється
+від `f1cfde859a9d25a45962c6addf5f2af1e66029c1`. Серверні зміни:
+`b538d03`, додаткові ownership-регресії `a9a84ac`; Android durable storage
+`5f3c739`, coordinator `7816d09` / scheduling fix `d159fb2`, runtime wiring
+`43ea0a5`. Незалежні task reviews завершені; фінальний whole-branch review,
+exact-head hosted CI, свіжий candidate SBOM і злиття цієї гілки ще попереду.
+Гілка також містить погоджені planning docs та reviewed security update
+urllib3 `162669e` (оригінальний independently reviewed `215dea4`).
+
+POST вільного токена повертає 201 та нові credentials; зайнятого — 409
+`detail.code=fcm_token_conflict` без нової installation та зміни власника.
+PUT спочатку перевіряє credentials; власний/вільний токен приймає з 200,
+чужий відхиляє typed 409. UNIQUE(fcm_token) лишається остаточною гарантією БД.
+Збережені devices, capabilities, subscriptions, ETA/surge та Admin не переносяться
+за токеном. 401 означає іншу проблему: credentials більше не чинні.
+
+Android обробляє лише coded 409 як token conflict. Valid credentials при PUT409
+зберігають ту саму identity; після втрати secret нова registration не відкриває
+старі subscriptions або Admin. Один durable incident допускає лише одну
+завершену automatic rotation через чинні Firebase deleteToken()/getToken().
+Повторний conflict стає conflict_blocked; кнопка повтору зберігає бюджет.
+Canonical SDK token, generation/phase CAS, acknowledged encrypted preferences,
+enqueue-before-HTTP та worker без self-REPLACE захищають від stale callbacks,
+паралельного recovery, offline/restart і втраченої POST-відповіді. Push status
+видимий окремо від Ready. Corrupt/failed storage зупиняє небезпечне продовження.
+Це не гарантія distributed exactly-once або доставки Firebase.
+
+## Приймання source
+
+Команди й повні результати локального Task 5 збережені в ignored SDD report
+`.superpowers/sdd/2026-10-12-fcm-token-ownership/task-5-report.md`.
+Backend unit: 669 passed, 2 warnings; full API PostgreSQL: 104 passed,
+2 warnings; default DB — 190 passed (включно з 14 notifier regressions). Runtime Linux / Python 3.14.7, pytest 9.1.1, усі 35 lock pins
+звірені; urllib3 фактично 2.8.0. Read-only offline unit image:
+`sha256:877960721eebfe36ccd3f9b213da958026bb45a4f07fae1455430d46e50a106f`.
+API/default DB images будуються штатним hash-locked runner; їх фактичні pins
+перевіряються окремо. Реальні API-role/PG тести включають concurrent claims,
+повторні parallel PUT одного owner, lock timeout/auth race та успішний запит
+після conflict savepoint; populated ETA/surge graph збережений.
+
+Android final JVM — 293 tests, 0 failures, 0 errors; compile успішний. JVM перевіряє durable recreation усіх phases, lost response, budget,
+credential commits, cancellation та repository/worker wiring; Ktor transport
+перевіряє старий success contract POST201/PUT200 і новий typed409 одним кодом.
+Це synthetic MockEngine/JVM приймання, не APK проти live legacy сервера.
+Production Firebase adapter компілюється з unchanged BOM33.7.0 / messaging24.1.0.
+JDK17.0.19.10, SDK36, existing Gradle cache; lint: 0 errors, 40 warnings,
+6 hints. Новий FcmRecoveryStore.kt:50 має style warning UseKtx; explicit editor/commit
+збережений за acknowledged-write contract, автоматичний apply неприйнятний.
+SDK XML v3/v4 compatibility warning лишається; dependency deprecations
+та Timescale circular-FK pg_dump warning відомі. Dump success не доводить restore.
+Оригінальні provenance hashes й попередні revision notes збережені; Android
+manifest оновлює лише фактично змінені успадковані файли. Нові recovery файли
+мають власне походження у commits/spec/plan цієї зміни.
+
+## Послідовність до релізу
+
+1. Завершити whole-branch review, exact-head CI/SBOM і перевірене злиття.
+2. Перед окремим operational GO свіжо звірити schema/migration pin, активні
+   images, backups/restore readiness і прийнятий rollback. Окремо перевірити
+   PostgreSQL parameter/error logging: application redaction не доводить
+   відсутність secret/token у server logs.
+3. Розгорнути API першим за окремим дозволом, із підтвердженням фактичного
+   коду й поведінки. Не додавати insecure takeover fallback для старого APK.
+4. З чистої погодженої main підготувати APK, записати commit/version/SHA-256,
+   перевірити на телефоні reinstall/lost-secret, restored credentials, offline,
+   restart і push status. Старий APK може не відновити token conflict до update;
+   потрібен доступний канал оновлення, який не покладається на push.
+5. Окремо прийняти Play publication і delivery. Чинний 0.1.3 залишається
+   неопублікованим до телефонного/Play gates; готовність коду не закриває їх.
+
+Notifier PR #122 вже MERGED у main `ad9e92a6` після 7 успішних PR checks;
+main push run не спостерігався. Це окремий source факт, не deployment proof.
+Maintenance six-task plan і CI aggregate gate plan погоджені, але ще не
+реалізовані. CI-gate не додавався до Task 5. Production, live FCM/єЧерга,
+APK install та Play publication під час цього приймання не виконувалися.

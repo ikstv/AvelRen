@@ -54,3 +54,11 @@ HTTP підмінений; справжні HTTP-транспорти й під�
 Перевірений результат CI на 2026-09-22: 123 unit-тести успішні
 на Linux / Python 3.14 (коміт `0b2c30b`). Ці unit-тести не доводять
 сумісність реальної БД, придатність backup/restore або готовність до deploy.
+
+## FCM ownership — 12.10.2026
+
+[Контракт та приймання](../../docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md):
+POST чужого token та authenticated PUT чужого token повертають typed409
+без takeover. API-first rollout потребує окремого GO й PostgreSQL logging
+перевірки. Локальний integrated кандидат: full unit669/API104 passed,
+фактичний urllib3 2.8.0; hosted CI/SBOM/merge/deployment ще окремі gates.

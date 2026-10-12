@@ -36,3 +36,14 @@ Services plugin; Firebase-ключі, підпис і реальні мереж�
 APK на телефон дозволений лише з чистої погодженої main із записом SHA-256
 та перевіркою встановленого файла. У цьому PR main не змінюємо, Play-реліз
 не публікуємо. Секретні локальні файли й кеші не копіювалися.
+
+## FCM recovery — 12.10.2026
+
+[Контракт та приймання](../../docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md):
+єдиний durable coordinator зберігає identity на PUT409, допускає одну
+automatic rotation на incident і показує push status/обмежений повтор.
+Legacy POST201/PUT200 та new typed409 перевіряються через Ktor MockEngine;
+JVM/compile не доводять live FCM або телефонне приймання. Firebase BOM33.7.0
+незмінний. До фінальної команди вище можна додати `:app:lintDebug`.
+API розгортається першим за окремим GO; старому APK може знадобитися update
+через доступний без push канал. APK/phone/Play приймаються окремо.
