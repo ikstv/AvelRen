@@ -128,3 +128,18 @@ main push run не спостерігався. Це окремий source фак
 Maintenance six-task plan і CI aggregate gate plan погоджені, але ще не
 реалізовані. CI-gate не додавався до Task 5. Production, live FCM/єЧерга,
 APK install та Play publication під час цього приймання не виконувалися.
+
+## Уточнення provenance після hosted CI — 12.10.2026
+
+Android run `38265779833` для PR #123 відхилив provenance DeviceStore.kt.
+Звірка всіх 64 targets з exact Git blobs `6ff70be` знайшла рівно два
+розбіжні revision hashes: DeviceStore.kt та FcmTokenRetryTest.kt. Локальні
+bytes мали відповідно 168 та 1 CRLF; Git blobs — LF відповідно до
+`.gitattributes`. Після CRLF→LF bytes повністю збігаються; source behavior,
+тести та locks у Git не змінені. Revision SHA-256 виправлено на canonical
+Git bytes, помилкові worktree hashes та попередню історію збережено у `previous`.
+Алгоритм verifier лишається строгим і незмінним. Clean Git archive відтворив
+RED mismatch до repair; fresh archive нового commit має пройти всі provenance
+checks. Локальний попередній GREEN перевіряв worktree, тому сам по собі не
+довів сумісність із LF checkout hosted CI. Новий exact-head CI та source/SBOM
+приймання ще потрібні; deployment/APK/phone/Play цим repair не прийняті.
