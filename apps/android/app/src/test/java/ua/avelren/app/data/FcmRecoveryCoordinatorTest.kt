@@ -4,12 +4,15 @@ import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 import ua.avelren.app.data.DeviceStore.Credentials
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class FcmRecoveryCoordinatorTest {
     private class Conflict : RuntimeException()
     private class Stale : RuntimeException()
@@ -41,6 +44,7 @@ class FcmRecoveryCoordinatorTest {
         var delete: suspend () -> Unit = { token = "Y" }
         var fetch: suspend () -> String = { token }
         var enqueues = 0
+        var acknowledgedEnqueues = 0
         var enqueueFails = false
         var schedule: suspend () -> ScheduleResult = {
             if (enqueueFails) ScheduleResult.Failed(IOException()) else ScheduleResult.Enqueued
@@ -52,13 +56,13 @@ class FcmRecoveryCoordinatorTest {
         val coordinator get() = FcmRecoveryCoordinator(
             object : RecoveryApi {
                 override suspend fun register(token: String): Credentials {
-                    assertTrue("durable enqueue before HTTP", enqueues > 0)
+                    assertTrue("acknowledged enqueue before HTTP", acknowledgedEnqueues > 0)
                     assertEquals(RecoveryPhase.ATTACHING, records.value?.phase)
                     registrations++
                     return post(token)
                 }
                 override suspend fun update(creds: Credentials, token: String) {
-                    assertTrue("durable enqueue before HTTP", enqueues > 0)
+                    assertTrue("acknowledged enqueue before HTTP", acknowledgedEnqueues > 0)
                     updates += creds to token
                     put(creds, token)
                 }
@@ -83,7 +87,7 @@ class FcmRecoveryCoordinatorTest {
                 override suspend fun enqueue(): ScheduleResult {
                     assertNotNull(records.value)
                     enqueues++
-                    return schedule()
+                    return schedule().also { if (it is ScheduleResult.Enqueued) acknowledgedEnqueues++ }
                 }
             },
         )
@@ -338,6 +342,7 @@ class FcmRecoveryCoordinatorTest {
     @Test fun sdk_fetch_outage_after_delete_retries_only_fetch() = runTest {
         val f = Fixture(old, record(RecoveryPhase.ROTATED, 1, null))
         f.enqueues = 1 // persisted work is already scheduled before this worker entry.
+        f.acknowledgedEnqueues = 1
         f.fetch = { throw IllegalStateException("SDK failure") }
         val c = f.coordinator
         assertTrue(c.syncOnce() is PendingTokenSyncOutcome.RetryableFailure)
@@ -386,5 +391,51 @@ class FcmRecoveryCoordinatorTest {
         assertEquals(1, f.updates.size)
         assertEquals(old, f.creds)
         assertEquals(PushSyncState.StorageFailed, c.pushState.value)
+    }
+
+    @Test fun auth_recovery_after_failed_enqueue_waits_for_acknowledgement() =
+        authRecoveryWaitsForScheduling(cancelled = false)
+
+    @Test fun auth_recovery_after_cancelled_enqueue_waits_for_acknowledgement() =
+        authRecoveryWaitsForScheduling(cancelled = true)
+
+    private fun authRecoveryWaitsForScheduling(cancelled: Boolean) = runTest {
+        val f = Fixture(old)
+        f.schedule = {
+            if (cancelled) throw CancellationException()
+            ScheduleResult.Failed(IOException())
+        }
+        val c = f.coordinator
+        try { c.providerSignal(); assertFalse(cancelled) }
+        catch (_: CancellationException) { assertTrue(cancelled) }
+        assertEquals(RecoveryPhase.PENDING, f.records.value?.phase)
+        assertEquals(old, f.creds)
+        assertEquals(1, f.enqueues)
+        assertEquals(0, f.acknowledgedEnqueues)
+        val acknowledge = CompletableDeferred<Unit>()
+        f.schedule = { acknowledge.await(); ScheduleResult.Enqueued }
+        var calls = 0
+        val recovery = async {
+            runCatching {
+                c.authenticatedCall { creds ->
+                    calls++
+                    if (creds == old) throw Stale()
+                    creds.deviceId
+                }
+            }
+        }
+        runCurrent()
+        assertEquals("existing record does not prove scheduled work", 2, f.enqueues)
+        assertEquals(0, f.acknowledgedEnqueues)
+        assertEquals(0, f.registrations)
+        assertTrue(f.updates.isEmpty())
+        assertEquals(RecoveryPhase.PENDING, f.records.value?.phase)
+        acknowledge.complete(Unit)
+        assertEquals("new-device", recovery.await().getOrThrow())
+        assertEquals(1, f.acknowledgedEnqueues)
+        assertEquals(1, f.registrations)
+        assertEquals(2, calls)
+        assertEquals(fresh, f.creds)
+        assertNull(f.records.value)
     }
 }

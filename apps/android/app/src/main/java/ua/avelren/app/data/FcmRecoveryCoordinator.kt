@@ -80,18 +80,18 @@ class FcmRecoveryCoordinator(
         operation.withLock {
             try {
                 checkStorage()
-                val (needsRecovery, needsEnqueue) = gate.withLock {
-                    if (credentials() != first) false to false
+                val needsRecovery = gate.withLock {
+                    if (credentials() != first) false
                     else {
                         commitLocked(first, null)
-                        // A previously queued record already supplies enqueue-before-HTTP.
-                        val needsEnqueue = records.load() == null
-                        if (needsEnqueue) handoffLocked(canonicalToken())
-                        true to needsEnqueue
+                        if (records.load() == null) handoffLocked(canonicalToken())
+                        true
                     }
                 }
                 if (needsRecovery) {
-                    if (needsEnqueue && !enqueue()) error("recovery scheduling unavailable")
+                    // A durable record alone cannot prove a prior enqueue was acknowledged.
+                    // This external auth path schedules; syncOnce worker recovery never does.
+                    if (!enqueue()) error("recovery scheduling unavailable")
                     syncLocked()
                 }
             } catch (e: CancellationException) { throw e }
