@@ -1,0 +1,93 @@
+name: CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+      backend_core: ${{ steps.plan.outputs.backend_core }}
+      api: ${{ steps.plan.outputs.api }}
+      database: ${{ steps.plan.outputs.database }}
+      watchdog: ${{ steps.plan.outputs.watchdog }}
+      android: ${{ steps.plan.outputs.android }}
+      repository: ${{ steps.plan.outputs.repository }}
+      monitor_contracts: ${{ steps.plan.outputs.monitor_contracts }}
+      supply_chain: ${{ steps.plan.outputs.supply_chain }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Версія Python
+        run: python3 -c 'import sys; assert sys.version_info >= (3, 12), "Python >=3.12 required"'
+      - name: План перевірок
+        id: plan
+        run: python3 scripts/ci_scopes.py --manifest .github/ci-scopes.json --plan-file "$RUNNER_TEMP/ci-plan.json"
+      - name: План цього запуску
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ci-plan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-plan.json
+          retention-days: 30
+          if-no-files-found: error
+  backend_core:
+    needs: scope
+    if: needs.scope.outputs.backend_core == 'true'
+    uses: ./.github/workflows/backend-core.yml
+  api:
+    needs: scope
+    if: needs.scope.outputs.api == 'true'
+    uses: ./.github/workflows/api.yml
+  database:
+    needs: scope
+    if: needs.scope.outputs.database == 'true'
+    uses: ./.github/workflows/database.yml
+  watchdog:
+    needs: scope
+    if: needs.scope.outputs.watchdog == 'true'
+    uses: ./.github/workflows/watchdog.yml
+  android:
+    needs: scope
+    if: needs.scope.outputs.android == 'true'
+    uses: ./.github/workflows/android.yml
+  repository:
+    needs: scope
+    if: needs.scope.outputs.repository == 'true'
+    uses: ./.github/workflows/repository.yml
+  monitor_contracts:
+    needs: scope
+    if: needs.scope.outputs.monitor_contracts == 'true'
+    uses: ./.github/workflows/external-monitor-checks.yml
+  supply_chain:
+    needs: scope
+    if: needs.scope.outputs.supply_chain == 'true'
+    uses: ./.github/workflows/supply-chain.yml
+  gate:
+    name: CI gate
+    needs: [scope, backend_core, api, database, watchdog, android, repository, monitor_contracts, supply_chain]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Версія Python
+        run: python3 -c 'import sys; assert sys.version_info >= (3, 12), "Python >=3.12 required"'
+      - name: Результат усіх потрібних перевірок
+        env:
+          CI_PLAN_JSON: ${{ needs.scope.outputs.plan }}
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 scripts/verify_ci_gate.py

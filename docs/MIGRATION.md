@@ -6,6 +6,16 @@
 
 ## Поточний етап
 
+Уточнення 12.10.2026: [PR #123](https://github.com/ikstv/AvelRen-ORIGINAL/pull/123)
+злитий у `main` `4ee4b1bd911fec5b78ae908ae593a8d81ac3cfa8`; сім звичайних
+main workflows завершилися SUCCESS. Це перевірки попередньої схеми CI.
+Новий aggregate gate реалізований локально в `codex/ci-aggregate-gate-20261012`;
+його hosted PR/main приймання та enforcement ще попереду. Межі наведено
+[нижче](#єдиний-ci-gate--source-стан-12102026),
+у [залишках перенесення](MIGRATION-REMAINING.md) та
+[реєстрі готовності](RELEASE-READINESS.md). Production, телефон і Play
+цими source/CI етапами не приймаються.
+
 Актуальний зріз 11.10.2026: [сервер, PR та межі готовності](audits/MIGRATION-SERVER-2026-10-11.md).
 Основні служби працюють; [підготовлені PR #106/#107/#113–#116 злиті](audits/MIGRATION-INTEGRATION-2026-10-11.md).
 Залишаються production перехід прав БД, узгоджений restore зі spool, зовнішній моніторинг
@@ -77,14 +87,19 @@ docs/               Архітектура, розробка та рішення
 
 | Зміна | Очікувані перевірки |
 | :--- | :--- |
-| Лише документація | Посилання, формат і захист від випадкового додавання секретів |
+| Лише звичайна документація | Repository; для PR до main і push main також source та runtime-image SBOM, потім CI gate |
 | Android | Збірка, аналіз коду та відповідні тести застосунку |
 | Серверний код | Серверні тести й потрібні інтеграційні перевірки |
 | База даних | Міграції, права доступу та залежні серверні сценарії |
 | Експлуатаційні сценарії | Перевірки змінених сценаріїв і їхніх залежностей |
 | Спільні конфігурації або самі workflow | Усі набори, на які впливає зміна |
 
-Фільтри мають враховувати залежності, а обов'язкові статуси GitHub — коректно завершуватися навіть для пропущених наборів. Регулярний повний прогін допоможе виявляти помилки взаємодії компонентів. Скорочення очікування не означає вилучення потрібних тестів.
+Локально реалізований classifier враховує залежності через manifest, а gate
+перевіряє результати потрібних і пропущених наборів. Provenance JSON та
+`docs/ASSETS.md` мають власні залежності й не є звичайною документацією.
+Невідомий шлях, зміна CI або неповна історія/diff вимагають усіх восьми
+компонентів, також для PR до іншої гілки. Hosted приймання цієї схеми
+ще очікується; скорочення очікування не означає вилучення тестів.
 
 ## Що зберігаємо
 
@@ -97,7 +112,49 @@ docs/               Архітектура, розробка та рішення
 Гілки, теги та відкриті питання оцінюємо за змістом. Закриття, видалення й зміни робочого сервера виконуються окремо від оформлення нового репозиторію.
 
 
-## Захист основної гілки та обов’язковий CI
+## Єдиний CI-gate — source стан 12.10.2026
+
+[Погоджений дизайн](superpowers/specs/2026-10-12-ci-aggregate-gate-design.md)
+та [план](superpowers/plans/2026-10-12-ci-aggregate-gate.md) реалізовано в source
+Tasks 1–4; атомарна міграція `54528d50def02eed4c1bd5ad2598cca42900b5d6`
+має незалежний review PASS. Документація Task 5 та фінальний review гілки
+ще потребують приймання; завершення всього плану не заявляється.
+
+`.github/workflows/ci.yml` обробляє всі PR targets без path-фільтрів,
+включно з draft: `opened`, `synchronize`, `reopened`, `ready_for_review`,
+`edited`; push запускається лише для `main`. Редагування title/body повторно
+обчислює scope і виконує потрібні jobs, витрачає CI бюджет та не обходить
+попередню помилку. Repository потрібний завжди; обидва SBOM jobs потрібні
+для кожного PR до main і push main навіть при docs-only diff. Вісім
+компонентів викликаються локальними reusable workflows без дублювання
+автономних PR/push запусків. Чинні тести, pins і SBOM-контракт збережено.
+
+Фінальний `CI gate` має `needs` на scope та всі вісім calls, `always()` і
+timeout 2 хв. Scope, валідний план та кожний required call мають завершитися
+`success`; non-required допускає лише `success` або `skipped`. Failure,
+cancelled, required skip чи missing не є успіхом. `always()` не гарантує
+завершення після скасування всього run. Усі checkout прив'язані до
+`github.sha`, `persist-credentials: false`; CI має лише `contents: read`.
+Ручний [live-monitor](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md) лишається
+поза графом CI, його live приймання ще відкрите.
+
+Наступне приймання: один hosted all-components PR-run після публікації
+гілки, звірка одного run/attempt із base/head/tested SHA, gate, усіма calls
+і не простроченими plan/source/runtime-image SBOM artifacts. Після окремо
+дозволеного merge потрібен інший run на main-push; зелений PR його не
+замінює. Немає опублікованого доказу нового gate на PR або main.
+Бюджет лишається $3; blocked/pending/missing CI не приймається, витрати
+звіряються за доступними billed usage/storage, не за timeout чи wall time.
+
+Branch protection/rulesets лишаються недоступними за наявним тарифним
+блокером; source gate не встановлює enforcement. Після окремого рішення
+власника потрібні доступний тариф/модель, реальний reviewer та явна модель
+owner/admin bypass. Self-approval автора `ikstv` не є незалежним review.
+До заяви enforcement потрібні effective API readback і failing-PR test
+для фактичної merge identity `ikstv`. Billing, visibility, доступи,
+запрошення, GitHub App та production цим планом не змінюються.
+
+## Захист основної гілки та обов’язковий CI — історичний зріз 23.09.2026
 
 Перевірка GitHub від 23 вересня 2026 року показала, що приватний репозиторій не має активного захисту для `main` (`protected: false`). GitHub повертає вимогу плану вище Free для branch protection/rulesets приватного репозиторію; [документація GitHub](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) підтверджує доступність захищених гілок у приватних репозиторіях для Pro, Team та Enterprise.
 

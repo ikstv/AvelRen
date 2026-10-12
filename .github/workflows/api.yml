@@ -1,32 +1,6 @@
 name: API та адміністрування
 on:
-  pull_request:
-    paths:
-      - 'services/backend/**'
-      - 'db/**'
-      - 'ops/**'
-      - 'scripts/test_database.sh'
-      - 'scripts/verify_core_provenance.py'
-      - 'docs/CORE-PROVENANCE.json'
-      - 'docs/DB-PROVENANCE.json'
-      - 'docs/API-PROVENANCE.json'
-      - 'docs/WATCHDOG-PROVENANCE.json'
-      - '.gitattributes'
-      - '.github/workflows/api.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'services/backend/**'
-      - 'db/**'
-      - 'ops/**'
-      - 'scripts/test_database.sh'
-      - 'scripts/verify_core_provenance.py'
-      - 'docs/CORE-PROVENANCE.json'
-      - 'docs/DB-PROVENANCE.json'
-      - 'docs/API-PROVENANCE.json'
-      - 'docs/WATCHDOG-PROVENANCE.json'
-      - '.gitattributes'
-      - '.github/workflows/api.yml'
+  workflow_call: {}
 permissions:
   contents: read
 jobs:
@@ -36,6 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Незмінність вихідних файлів
         run: python scripts/verify_core_provenance.py

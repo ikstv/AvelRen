@@ -1,10 +1,6 @@
 name: Правила репозиторію
 on:
-  pull_request:
-    paths: ['.github/**', 'docs/**', 'scripts/**', 'AGENTS.md', 'CONTRIBUTING.md', 'README.md']
-  push:
-    branches: [main]
-    paths: ['.github/**', 'docs/**', 'scripts/**', 'AGENTS.md', 'CONTRIBUTING.md', 'README.md']
+  workflow_call: {}
 permissions:
   contents: read
 jobs:
@@ -14,15 +10,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
       - name: YAML-парсер
         # Окремий малий інструмент перевірки конфігурації, не залежність застосунку.
-        run: python3 -m pip install PyYAML==6.0.3
+        run: python3 -m pip install PyYAML==6.0.3 pytest==9.1.1
       - name: Поділ CI та походження
         run: |
           python3 scripts/verify_ci_scopes.py
           python3 scripts/verify_core_provenance.py
           python3 scripts/verify_android.py
+      - name: Контракт єдиного CI
+        run: python3 -m pytest scripts/tests/test_ci_scopes.py scripts/tests/test_ci_gate.py scripts/tests/test_ci_workflow_contract.py -q

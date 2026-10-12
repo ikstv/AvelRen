@@ -1,43 +1,8 @@
 name: Android
 on:
-  pull_request:
-    paths:
-      - 'apps/android/**'
-      - 'services/backend/src/avelren/api.py'
-      - 'services/backend/src/avelren/schemas.py'
-      - 'services/backend/src/avelren/subscriptions_api.py'
-      - 'services/backend/src/avelren/admin_access_api.py'
-      - 'services/backend/src/avelren/maintenance.py'
-      - 'services/backend/src/avelren/surge*.py'
-      - 'docs/ANDROID-PROVENANCE.json'
-      - 'docs/ASSETS.md'
-      - 'scripts/verify_android.py'
-      - 'scripts/verify_push_qa.py'
-      - 'scripts/verify_full_test.py'
-      - '.github/workflows/android.yml'
-      - '.gitattributes'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/android/**'
-      - 'services/backend/src/avelren/api.py'
-      - 'services/backend/src/avelren/schemas.py'
-      - 'services/backend/src/avelren/subscriptions_api.py'
-      - 'services/backend/src/avelren/admin_access_api.py'
-      - 'services/backend/src/avelren/maintenance.py'
-      - 'services/backend/src/avelren/surge*.py'
-      - 'docs/ANDROID-PROVENANCE.json'
-      - 'docs/ASSETS.md'
-      - 'scripts/verify_android.py'
-      - 'scripts/verify_push_qa.py'
-      - 'scripts/verify_full_test.py'
-      - '.github/workflows/android.yml'
-      - '.gitattributes'
+  workflow_call: {}
 permissions:
   contents: read
-concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -45,6 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Походження та ресурси
         run: python3 scripts/verify_android.py
