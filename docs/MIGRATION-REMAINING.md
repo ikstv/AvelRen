@@ -1,5 +1,18 @@
 # Залишки перенесення
 
+## Уточнення — 12.10.2026
+
+DB executor source етапу 1 прийнято [PR #121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121),
+main eed0cb0f5a337e88467943017bbca3a04d2593e2. Усі 8 exact-head PR checks та relevant
+main workflows успішні. Hosted DB: 176 passed; upgrade: 262 passed, 1 попередній skip.
+Це уточнює нижчий запис про source кандидата, review/CI та злиття; live adoption
+не виконаний, production CLI залишається закритим.
+
+Підготовлено [план maintenance adapter та відновлення служб](superpowers/plans/2026-10-12-postgres-production-maintenance.md)
+для перегляду власником. Його реалізація, isolated приймання та operational GO попереду.
+DSN cutover, recovery PostgreSQL/SQLite, live monitor, телефонне приймання
+і закриття старих репозиторіїв залишаються окремими роботами.
+
 ## Актуальний підсумок — 11.10.2026
 
 [Свіжа звірка сервера й підготовлених PR](audits/MIGRATION-SERVER-2026-10-11.md)

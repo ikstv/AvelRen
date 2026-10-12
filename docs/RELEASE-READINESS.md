@@ -1,5 +1,18 @@
 # Що має дійти до телефона
 
+## Source acceptance DB executor — 12.10.2026
+
+[PR #121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121) злитий у main
+eed0cb0f5a337e88467943017bbca3a04d2593e2 після 8/8 успішних перевірок
+head 418b747; relevant main workflows також успішні. Hosted основний DB набір
+176 passed, upgrade 262 passed з одним попереднім skip. Це уточнює нижчий
+запис про не підтверджене source review/CI/злиття, не є серверним прийманням.
+
+Наступний source етап: [план maintenance та відновлення служб](superpowers/plans/2026-10-12-postgres-production-maintenance.md),
+підготовлений для перегляду, ще не реалізований. Actual adapter, production
+операції та DSN cutover не прийняті; production CLI закритий. APK/телефон/Play
+цим етапом не змінюються.
+
 ## Уточнення стану — 11.10.2026
 
 [Датований audit сервера та PR](audits/MIGRATION-SERVER-2026-10-11.md)

@@ -7,6 +7,12 @@ adapter, DSN cutover і operational acceptance не виконані. Whole-bran
 review, exact-head CI та integration ведуться окремими gates у
 [плані](../plans/2026-10-11-postgres-production-executor.md).
 
+Уточнення 12.10: source етап 1 злитий PR #121, main eed0cb0, усі 8
+exact-head PR checks і relevant main workflows успішні. Попередній абзац
+описує стан до інтеграції. Етап 2 деталізує
+[план maintenance adapter](../plans/2026-10-12-postgres-production-maintenance.md)
+для перегляду власником; actual adapter, deployment та DSN cutover ще не виконані.
+
 ## Мета й погоджені межі
 
 Завершити перенос ownership/ACL механізму двох старих репозиторіїв до
