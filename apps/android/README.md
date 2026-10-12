@@ -47,3 +47,11 @@ JVM/compile не доводять live FCM або телефонне прийм�
 незмінний. До фінальної команди вище можна додати `:app:lintDebug`.
 API розгортається першим за окремим GO; старому APK може знадобитися update
 через доступний без push канал. APK/phone/Play приймаються окремо.
+
+Whole-branch fix source `5ab29ea4a49dfed1075cd2e935c5db1f7fe2233a`:
+301 JVM tests/0 failures/0 errors, compile/lint успішні; lint має
+40 warnings/6 hints. Foreground відновлює existing pending після failed enqueue;
+same canonical active callback не скасовує worker і не змінює generation.
+APPEND_OR_REPLACE додає successor для справді нового candidate; blocked startup
+перевіряє SDK token без скидання budget1. Terminal Rejected показує explicit retry,
+не запускає rotation для 400/403/422/unrelated409. CI, APK і live FCM — окремі gates.

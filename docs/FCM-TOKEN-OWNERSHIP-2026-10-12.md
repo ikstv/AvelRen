@@ -6,10 +6,16 @@
 від `f1cfde859a9d25a45962c6addf5f2af1e66029c1`. Серверні зміни:
 `b538d03`, додаткові ownership-регресії `a9a84ac`; Android durable storage
 `5f3c739`, coordinator `7816d09` / scheduling fix `d159fb2`, runtime wiring
-`43ea0a5`. Незалежні task reviews завершені; фінальний whole-branch review,
+`43ea0a5`. Незалежні task reviews завершені; scoped re-review після виправлень,
 exact-head hosted CI, свіжий candidate SBOM і злиття цієї гілки ще попереду.
 Гілка також містить погоджені planning docs та reviewed security update
 urllib3 `162669e` (оригінальний independently reviewed `215dea4`).
+
+Whole-branch review head `3d1358ae33ef7ff452469220937912ca15281a31`
+виявив R1–R3 і minor M1. Єдина Android fix wave — source commit
+`5ab29ea4a49dfed1075cd2e935c5db1f7fe2233a`; scoped re-review ще очікується.
+Наведені нижче попередні backend результати не перезапускалися, оскільки
+server source цієї хвилі не змінювався.
 
 POST вільного токена повертає 201 та нові credentials; зайнятого — 409
 `detail.code=fcm_token_conflict` без нової installation та зміни власника.
@@ -42,7 +48,7 @@ API/default DB images будуються штатним hash-locked runner; їх
 повторні parallel PUT одного owner, lock timeout/auth race та успішний запит
 після conflict savepoint; populated ETA/surge graph збережений.
 
-Android final JVM — 293 tests, 0 failures, 0 errors; compile успішний. JVM перевіряє durable recreation усіх phases, lost response, budget,
+Попередній Android head `3d1358a`: JVM — 293 tests, 0 failures, 0 errors; compile успішний. JVM перевіряє durable recreation усіх phases, lost response, budget,
 credential commits, cancellation та repository/worker wiring; Ktor transport
 перевіряє старий success contract POST201/PUT200 і новий typed409 одним кодом.
 Це synthetic MockEngine/JVM приймання, не APK проти live legacy сервера.
@@ -55,6 +61,51 @@ SDK XML v3/v4 compatibility warning лишається; dependency deprecations
 Оригінальні provenance hashes й попередні revision notes збережені; Android
 manifest оновлює лише фактично змінені успадковані файли. Нові recovery файли
 мають власне походження у commits/spec/plan цієї зміни.
+
+### Android після whole-branch findings — точний source head
+
+На `5ab29ea4a49dfed1075cd2e935c5db1f7fe2233a` виконано:
+`gradlew.bat -PavelrenUiPreview=true :app:testDebugUnitTest :app:compileDebugKotlin :app:lintDebug --no-daemon --max-workers=2`
+з `apps/android`, existing JDK17/SDK36/Gradle cache. Exit0, BUILD SUCCESSFUL
+за 2m; **301 JVM tests, 0 failures, 0 errors**; Kotlin compile і lint успішні.
+Lint report: **0 errors, 40 warnings, 6 hints**. Output не називається pristine;
+SDK XML/Locale та UseKtx baseline лишається disclosed. Синхронний
+acknowledged commit у FcmRecoveryStore не замінено на apply.
+
+Same canonical callback під час replacement POST тепер зберігає весь active
+record, credentials і Ready; coalescing використовує process-local active
+snapshot, не durable phase як доказ scheduling. Після failed/cancelled
+enqueue або restart потрібне свіже acknowledgement. Production scheduler
+передає `APPEND_OR_REPLACE` до enqueueUniqueWork: genuinely new token отримує
+successor без скасування active worker. Obsolete terminal HTTP response
+повертає Retry, щоб не завершити successor chain помилкою. Worker не enqueue
+самого себе; мережеві constraints і exponential backoff збережені.
+
+Реальний process foreground observer відновлює лише наявний pending incident;
+Failed enqueue не переходить до HTTP. Startup/resume читає canonical SDK token
+для conflict_blocked: новий Z синхронізується з тим самим incident/budget1,
+незмінний Y не викликає HTTP/delete/enqueue. Вісім нових JVM regressions
+перевіряють repository/observer/worker і production scheduler enqueue port,
+включно з replacement POST barrier, справді новим candidate, cancellation
+і scheduling acknowledgement. Android WorkManager SQLite/Firebase runtime
+цим JVM контрактним тестом не запускаються.
+
+Terminal 400/403/422/unrelated409 показує typed Rejected:
+«Не вдалося синхронізувати сповіщення. Спробуйте ще раз.» з кнопкою
+«Спробувати ще раз». У тому самому процесі unchanged callback/resume/worker
+інертні; manual retry зберігає incident/budget і не запускає rotation.
+Recovery format не розширювався: recreation може зробити одну нову terminal
+спробу. Повторні foreground entries для неактивного pending можуть додати
+дешевий redundant successor, який після clear завершиться NothingPending.
+
+Оновлено рівно чотири inherited Android provenance records; original SHA-256
+і весь previous revision/history збережено. `scripts/verify_android.py`
+підтвердив 64 records/assets. Повні RED/GREEN/final logs, точний source SHA,
+docs-only evidence head і перевірка однакових Android source/test/provenance
+bytes записані у ignored
+`.superpowers/sdd/2026-10-12-fcm-token-ownership/final-fix-report.md`.
+Це локальне source приймання; scoped re-review, exact-head hosted CI/SBOM,
+merge, deployment, APK/version/hash, телефон і Play лишаються окремими gates.
 
 ## Послідовність до релізу
 

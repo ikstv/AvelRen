@@ -2,9 +2,20 @@
 
 ## Власність FCM-токена — локальне source приймання 12.10.2026
 
+Після whole-branch findings R1–R3/M1 Android source виправлено комітом
+`5ab29ea4a49dfed1075cd2e935c5db1f7fe2233a`: точна full JVM suite
+**301/0/0**, compile/lint успішні; lint **0 errors/40 warnings/6 hints**.
+Same-token active callback coalesced, scheduler APPEND_OR_REPLACE,
+реальний foreground pending recovery і blocked startup SDK readback
+перевірені; terminal Rejected має explicit retry без rotation.
+[Точний контракт, RED/GREEN і межі](FCM-TOKEN-OWNERSHIP-2026-10-12.md).
+Scoped re-review та exact-head hosted CI/SBOM ще очікуються. M2 warning baseline
+збережено; acknowledged commit не замінювався apply. Server deployment,
+APK/version/SHA-256, телефон і Play не виконувалися й приймаються окремо.
+
 [Контракт, перевірки та послідовність релізу](FCM-TOKEN-OWNERSHIP-2026-10-12.md)
 описують server typed409 та bounded durable Android recovery. Інтегрований
-кандидат від `f1cfde8`: backend unit 669 passed, full API 104 passed;
+попередній кандидат від `f1cfde8` до `3d1358a`: backend unit 669 passed, full API 104 passed;
 default DB 190 passed (14 notifier), Android JVM 293/0/0, compile/lint успішні;
 фактичний urllib3 2.8.0. Whole-branch review, exact-head hosted CI/SBOM та
 злиття ще очікуються; API deployment, APK/SHA-256, телефон і Play — окремі gates.
