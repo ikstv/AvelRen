@@ -106,6 +106,22 @@ def test_known_reasons(reason):
     assert evaluator(plan, needs) == []
 
 
+@pytest.mark.parametrize("reason", [
+    "control_change", "unknown_path", "new_branch", "history_unavailable", "diff_unavailable",
+])
+@pytest.mark.parametrize("omitted", IDS)
+def test_fallback_reason_requires_every_component(reason, omitted):
+    event = "push" if reason == "new_branch" else "pull_request"
+    plan, needs = fixture(all_required=True, event=event)
+    plan["reason"] = reason
+    if reason == "new_branch":
+        plan["base_sha"] = None
+    plan["required"][omitted] = False
+    needs[omitted]["result"] = "skipped"
+    refresh_scope(plan, needs)
+    assert evaluator(plan, needs)
+
+
 def test_new_branch_nullable_base_only_on_push():
     plan, needs = fixture(all_required=True, event="push")
     plan.update(reason="new_branch", base_sha=None)
@@ -254,6 +270,27 @@ def test_cli_bad_env(key, value):
 def test_cli_stale_tested_sha():
     env = cli_env()
     env["GITHUB_SHA"] = "d" * 40
+    result = cli(env)
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("reason", [
+    "control_change", "unknown_path", "new_branch", "history_unavailable", "diff_unavailable",
+])
+def test_cli_rejects_partial_fallback(reason):
+    event = "push" if reason == "new_branch" else "pull_request"
+    plan, needs = fixture(all_required=True, event=event)
+    plan["reason"] = reason
+    if reason == "new_branch":
+        plan["base_sha"] = None
+    plan["required"]["api"] = False
+    needs["api"]["result"] = "skipped"
+    refresh_scope(plan, needs)
+    env = {
+        **os.environ, "CI_PLAN_JSON": json.dumps(plan),
+        "CI_NEEDS_JSON": json.dumps(needs), "GITHUB_SHA": SHA,
+    }
     result = cli(env)
     assert result.returncode == 1
     assert "Traceback" not in result.stderr

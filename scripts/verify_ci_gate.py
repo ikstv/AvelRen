@@ -54,6 +54,8 @@ def _plan_errors(plan: object) -> list[str]:
     elif any(type(value) is not bool for value in required.values()):
         errors.append("Required flags must be booleans")
     else:
+        if reason != "matched" and not all(required.values()):
+            errors.append("Fallback and control-change plans require all eight components")
         if not required["repository"]:
             errors.append("Repository is always required")
         if event == "push" and not required["supply_chain"]:
