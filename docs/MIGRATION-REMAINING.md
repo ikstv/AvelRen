@@ -1,5 +1,48 @@
 # Залишки перенесення
 
+## Єдиний CI-gate — актуальний source стан 12.10.2026
+
+[Дизайн](superpowers/specs/2026-10-12-ci-aggregate-gate-design.md) і
+[план](superpowers/plans/2026-10-12-ci-aggregate-gate.md) уточнюють нижчі
+датовані записи про ще не реалізований CI-gate. [PR #123](https://github.com/ikstv/AvelRen-ORIGINAL/pull/123)
+злитий у main `4ee4b1bd911fec5b78ae908ae593a8d81ac3cfa8`; сім звичайних
+main workflows мають SUCCESS за старою схемою CI. Ці результати не є
+прийманням нового aggregate gate.
+
+| Етап | Поточний доказ / що лишилося |
+| --- | --- |
+| Source Tasks 1–4 | Manifest, повний Git diff, строгий evaluator і атомарна міграція реалізовані; незалежні reviews PASS. Migration commit `54528d50def02eed4c1bd5ad2598cca42900b5d6`; інтеграція актуальної main — `4df904759a5405864c0d1d420c78f2e24bcdc224`. |
+| Локальні перевірки | Збережено 26 незалежних legacy cases; scripts suite 675 passed до останнього вузького import fix, після нього 35 focused passed і standalone verifier PASS. Actionlint, Ruff та provenance перевірки успішні в межах Tasks 1–4; final whole 676 run не заявляється. |
+| Документація й review | Три актуальні документи оновлено в Task 5; незалежний review Task 5 та whole-branch review ще очікуються. |
+| Новий hosted PR CI | Публікація одного CI PR та один all-components run ще попереду; потрібні gate success, усі вісім calls і artifacts одного run/attempt із base/head/tested SHA. |
+| Новий hosted main CI | Після окремо дозволеного merge потрібен власний main-push run на фактичному merge SHA; PR green або старі сім main workflows його не замінюють. |
+| Enforcement main | Не увімкнено; тарифний блокер branch protection/rulesets лишається. Окреме owner рішення щодо тарифу/моделі, reviewer та bypass, effective API readback і failing-PR test merge identity `ikstv`. |
+| Production / телефон / Play | Цією CI зміною не виконані й не прийняті. Maintenance/DSN cutover, live monitor, APK із version/SHA-256, телефонні сценарії та Play лишаються окремими роботами. |
+
+Dispatcher обробляє PR `opened/synchronize/reopened/ready_for_review/edited`
+без обмеження target/path/draft, push лише main. Repository потрібний на
+кожній події; docs-only PR до main також запускає обидва SBOM jobs.
+Edited title/body повторно запускає потрібні jobs і витрачає бюджет;
+shortcut для приховування failure немає. Control/unknown/history/diff
+fallback запускає всі вісім компонентів навіть для non-main PR.
+Gate вимагає scope та всі вісім calls у `needs`, має `always()`/2 хв;
+required проходить лише з success, non-required — success/skipped.
+Ручний live-monitor залишається поза CI та потребує свого приймання.
+
+Для hosted приймання потрібні `ci-plan-<tested_sha>-<run_id>-<run_attempt>`,
+`source-sbom-<tested_sha>` та `runtime-image-sbom-<tested_sha>`,
+`expired=false`, узгоджені plan/summary SHA і результати саме цього run.
+Failure/cancelled/required skip/missing, YAML error, conflict, fork approval,
+skip-ci, outage чи budget block не вважаються pass. PR YAML лишається
+недовіреним; privileged `pull_request_target`/`workflow_run` не додаються.
+Помилки до merge виправляються в PR; після merge — revert без force-push
+із явним записом про втрату aggregate gate, якщо він відкочений.
+
+Бюджет $3 не збільшується; звіряти доступні billed usage/storage, не timeout
+чи wall time. Billing, visibility, access, invitations, GitHub App та
+production не змінюються. Self-approval `ikstv` не є незалежним review;
+source gate та CI success самі по собі не забороняють merge у main.
+
 ## Власність FCM-токена — локальне source приймання 12.10.2026
 
 Після whole-branch findings R1–R3/M1 Android source виправлено комітом

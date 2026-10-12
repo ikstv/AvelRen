@@ -1,5 +1,46 @@
 # Що має дійти до телефона
 
+## Єдиний CI-gate — source кандидат 12.10.2026
+
+[Погоджений дизайн](superpowers/specs/2026-10-12-ci-aggregate-gate-design.md),
+[план](superpowers/plans/2026-10-12-ci-aggregate-gate.md) та
+[залишки приймання](MIGRATION-REMAINING.md) визначають окремі етапи.
+Цей запис уточнює нижчий статус «CI-gate plan не реалізований».
+FCM/security та датовані production/телефонні докази нижче збережені.
+
+| Етап | Стан |
+| --- | --- |
+| Source та локальне review | Tasks 1–4 реалізовані й незалежно reviewed PASS; atomic workflow commit `54528d50def02eed4c1bd5ad2598cca42900b5d6`, актуальна main інтегрована комітом `4df904759a5405864c0d1d420c78f2e24bcdc224`. Docs Task 5 та whole-branch review ще потребують приймання. |
+| Локальні перевірки CI-контракту | 26 незалежних legacy cases збережено; 675 scripts tests passed до final package-import fix, після fix 35 focused passed та standalone verifier PASS. Actionlint/Ruff/provenance PASS у звітах Tasks 1–4; final whole 676 run не виконувався. |
+| Попередній hosted CI | PR #123 злитий у main `4ee4b1bd911fec5b78ae908ae593a8d81ac3cfa8`; сім звичайних main workflows SUCCESS. Це стара схема без нового `CI gate`. |
+| Новий hosted PR CI | Ще не прийнято: після публікації CI PR потрібен один all-components run, точні base/head/tested SHA, gate, усі вісім calls і три artifacts одного run/attempt. |
+| Новий hosted main CI | Ще не прийнято: після окремо дозволеного merge перевірити main-push на фактичному merge SHA. PR green його не закриває. |
+| Enforcement main | Не увімкнено; protection/rulesets недоступні за тарифом. Потрібні окреме owner рішення про reviewer/bypass, effective API readback та failing-PR test для `ikstv`; self-approval автора не є незалежним review. |
+| Серверне розгортання | Не виконано в CI етапі; API/maintenance/DSN cutover та live-monitor потребують окремого приймання й конкретного operational GO. |
+| Android-збірка | Ця зміна CI не створює нового APK/AAB; чистий main, версія та SHA-256 лишаються вимогами релізу. |
+| Телефон | FCM ownership/recovery, доставка/голос/ACK та решта реєстру приймаються своїми конкретними сценаріями з commit/version/APK SHA-256/датою. CI не закриває їх. |
+| Google Play | Новий реліз цим CI етапом не опубліковано; окремі release/phone/Play gates залишаються відкритими. |
+
+PR включно з draft запускає dispatcher без path/target-фільтрів на
+`opened`, `synchronize`, `reopened`, `ready_for_review`, `edited`; push —
+лише main. Repository завжди потрібний; docs-only PR до main і main-push
+також виконують source та runtime-image SBOM. Edited title/body повторно
+виконує потрібні jobs із витратами бюджету та не обходить failure.
+Консервативний fallback вимагає всіх восьми calls навіть для non-main PR.
+Усі checkout використовують `github.sha`, credentials false та read-only
+permissions; чинні tests/pins/SBOM збережені, live-monitor ручний поза CI.
+
+`CI gate` має scope + вісім calls у `needs`, `always()` і timeout 2 хв;
+scope/план та required calls проходять лише з success, non-required —
+success/skipped. Cancellation/required skip/missing або відсутній run не
+є прийманням. Hosted доказ має містити не прострочені
+`ci-plan-<tested_sha>-<run_id>-<run_attempt>`, `source-sbom-<tested_sha>`,
+`runtime-image-sbom-<tested_sha>` та summary SHA саме одного run/attempt;
+PR head може відрізнятися від tested synthetic merge SHA.
+Бюджет лишається $3, витрати звіряються з доступними billed usage/storage;
+budget block/pending/missing не є success. Billing/visibility/access/App,
+production, телефон і Play цим планом не змінюються.
+
 ## Власність FCM-токена — локальне source приймання 12.10.2026
 
 Після whole-branch findings R1–R3/M1 Android source виправлено комітом
