@@ -7,10 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 
 import pytest
-from psycopg import AsyncConnection
+from psycopg import AsyncConnection, sql
 from psycopg.errors import CheckViolation, QueryCanceled, UniqueViolation
+from psycopg.pq import TransactionStatus
 
-from avelren import subscriptions_api
+from avelren import db, subscriptions_api
 
 TOKEN = "synthetic-private-fcm-token-ownership-0001"
 OTHER = "synthetic-private-fcm-token-ownership-0002"
@@ -77,6 +78,102 @@ def test_put_preserves_both_devices(conn, checkpoint, device, installation, appr
         response = api_client.get("/subscriptions", headers=current.headers())
         assert response.status_code == 200
         assert len(response.json()) == 1
+
+
+@pytest.mark.parametrize("method", ["post", "put"])
+def test_conflict_preserves_populated_eta_surge_graph(
+    conn, checkpoint, device, installation, approved, api_client, method
+):
+    other = installation()
+    claim(conn, device, TOKEN)
+    claim(conn, other, OTHER)
+    conn.execute("UPDATE devices SET notification_capabilities=ARRAY['surge_v1']")
+    prediction = conn.execute(
+        "INSERT INTO surge_predictions(checkpoint_id, issued_at, window_start, window_end, "
+        "model_version, score) VALUES(%s, now(), now()+interval '1 hour', "
+        "now()+interval '2 hours', 'synthetic-ownership', 0.8) RETURNING id",
+        (checkpoint,),
+    ).fetchone()["id"]
+    event = conn.execute(
+        "INSERT INTO surge_events(checkpoint_id, kind, started_at, updated_at, expires_at, "
+        "prediction_id) VALUES(%s, 'surge_forecast', now(), now(), now()+interval '2 hours', "
+        "%s) RETURNING id",
+        (checkpoint, prediction),
+    ).fetchone()["id"]
+    for current in (device, other):
+        target = conn.execute(
+            "INSERT INTO eta_targets(device_id, checkpoint_id, target_at) "
+            "VALUES(%s, %s, now()+interval '2 hours') RETURNING id",
+            (current.device_id, checkpoint),
+        ).fetchone()["id"]
+        for status in ("pending", "expired"):
+            alert = conn.execute(
+                "INSERT INTO eta_alerts(target_id, checkpoint_id, eta_at_trigger, "
+                "wait_seconds_at_trigger, status, send_count, last_sent_at, expired_at) "
+                "VALUES(%s, %s, now()+interval '2 hours', 7200, %s, 2, now(), "
+                "CASE WHEN %s='expired' THEN now() END) RETURNING id",
+                (target, checkpoint, status, status),
+            ).fetchone()["id"]
+            if status == "expired":
+                conn.execute(
+                    "INSERT INTO notification_cancels(kind, alert_id, device_id, "
+                    "attempt_count, last_attempt_at) VALUES('eta', %s, %s, 1, now())",
+                    (alert, current.device_id),
+                )
+        conn.execute(
+            "INSERT INTO surge_subscriptions(device_id, checkpoint_id) VALUES(%s, %s)",
+            (current.device_id, checkpoint),
+        )
+        alert = conn.execute(
+            "INSERT INTO surge_alerts(event_id, device_id, next_attempt_at) "
+            "VALUES(%s, %s, now()+interval '1 minute') RETURNING id",
+            (event, current.device_id),
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO surge_delivery_attempts(alert_id, ordinal, attempt_count, "
+            "last_attempt_at, accepted_at) VALUES(%s, 1, 1, now(), now())",
+            (alert,),
+        )
+
+    tables = (
+        "eta_targets",
+        "eta_alerts",
+        "surge_subscriptions",
+        "surge_predictions",
+        "surge_events",
+        "surge_alerts",
+        "surge_delivery_attempts",
+        "notification_cancels",
+    )
+
+    def graph_snapshot():
+        return {
+            table: conn.execute(
+                sql.SQL("SELECT * FROM {} ORDER BY id").format(sql.Identifier(table))
+            ).fetchall()
+            for table in tables
+        }
+
+    before = graph_snapshot()
+    assert {table: len(rows) for table, rows in before.items()} == {
+        "eta_targets": 2,
+        "eta_alerts": 4,
+        "surge_subscriptions": 2,
+        "surge_predictions": 1,
+        "surge_events": 1,
+        "surge_alerts": 2,
+        "surge_delivery_attempts": 2,
+        "notification_cancels": 2,
+    }
+    devices_before = snapshot(conn)
+    response = (
+        api_client.post("/devices", json={"fcm_token": TOKEN})
+        if method == "post"
+        else api_client.put("/devices/token", headers=other.headers(), json={"fcm_token": TOKEN})
+    )
+    assert_conflict(response)
+    assert snapshot(conn) == devices_before
+    assert graph_snapshot() == before
 
 
 @pytest.mark.parametrize("token", [None, TOKEN])
@@ -240,6 +337,90 @@ def test_two_puts_no_deadlock(conn, device, installation, api_client, monkeypatc
         assert next(r for r in after["devices"] if str(r["id"]) == loser.device_id) == next(
             r for r in before["devices"] if str(r["id"]) == loser.device_id
         )
+
+
+def test_concurrent_repeated_put_preserves_same_owner(conn, device, api_client, monkeypatch):
+    claim(conn, device, TOKEN)
+    conn.execute("UPDATE devices SET notification_capabilities=ARRAY['surge_v1']")
+    before = snapshot(conn)
+
+    def update():
+        return api_client.put(
+            "/devices/token",
+            headers=device.headers(),
+            json={
+                "fcm_token": TOKEN,
+                "notification_capabilities": ["surge_v1"],
+            },
+        )
+
+    responses = race(monkeypatch, [update, update])
+    assert [response.status_code for response in responses] == [200, 200]
+    assert [response.json() for response in responses] == [{"status": "ok"}] * 2
+    after = snapshot(conn)
+    assert len(after["devices"]) == 1
+    assert after["devices"][0]["fcm_token"] == TOKEN
+    assert after == before
+
+
+@pytest.fixture
+def single_connection_api(monkeypatch, request):
+    # Справжній API pool; одна connection робить перевірку reuse детермінованою.
+    monkeypatch.setattr(db, "POOL_MAX_SIZE", 1)
+    return request.getfixturevalue("api_client")
+
+
+def test_put_conflict_keeps_same_backend_usable(
+    conn, device, installation, single_connection_api, monkeypatch
+):
+    other = installation()
+    client = single_connection_api
+    execute = AsyncConnection.execute
+    update_pids = []
+
+    async def claim_before_first_write(self, query, params=None, *args, **kwargs):
+        if "UPDATE devices SET fcm_token = %s" in str(query):
+            update_pids.append(self.info.backend_pid)
+            if len(update_pids) == 1:
+                await asyncio.to_thread(claim, conn, other, TOKEN)
+        return await execute(self, query, params, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncConnection, "execute", claim_before_first_write)
+    before = snapshot(conn)
+    assert_conflict(
+        client.put("/devices/token", headers=device.headers(), json={"fcm_token": TOKEN})
+    )
+    for row in before["devices"]:
+        if str(row["id"]) == other.device_id:
+            row["fcm_token"] = TOKEN
+    assert snapshot(conn) == before
+
+    async def check_connection():
+        async with db.get_pool().connection() as connection:
+            assert connection.info.transaction_status == TransactionStatus.IDLE
+            return await (
+                await connection.execute("SELECT current_user AS role, pg_backend_pid() AS pid")
+            ).fetchone()
+
+    reused = client.portal.call(check_connection)
+    assert reused == {"role": "avelren_api", "pid": update_pids[0]}
+    response = client.put(
+        "/devices/token",
+        headers=device.headers(),
+        json={
+            "fcm_token": OTHER,
+            "notification_capabilities": ["surge_v1"],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert update_pids == [reused["pid"], reused["pid"]]
+    for row in before["devices"]:
+        if str(row["id"]) == device.device_id:
+            row["fcm_token"] = OTHER
+            row["notification_capabilities"] = ["surge_v1"]
+    assert snapshot(conn) == before
+    assert client.portal.call(check_connection) == reused
 
 
 @pytest.mark.parametrize("method", ["post", "put"])
