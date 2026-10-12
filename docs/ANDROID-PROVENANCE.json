@@ -57,10 +57,14 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/AvelRenApp.kt",
       "sha256": "958d72e5aa4d17f2c70d9188d58e01bf6fdc9f152a4cee94ac91d5142e4554bc",
       "revision": {
-        "sha256": "72d5ea50352eb1e290564983b95c57b0f1893bb645a1d5b9c50ba2e708a7faa5",
+        "sha256": "e937c3e9c59d20f28c68a89757408c4dd8ad7063065790a63bc746c23b40d9a9",
         "previous": {
-          "sha256": "0cf491aec16623deb863ac5c36fa41cf8d237db57bd17768511dfbdb78af6855",
-          "notes": "docs/ANDROID-SYSTEM-VOICE.md"
+          "sha256": "72d5ea50352eb1e290564983b95c57b0f1893bb645a1d5b9c50ba2e708a7faa5",
+          "previous": {
+            "sha256": "0cf491aec16623deb863ac5c36fa41cf8d237db57bd17768511dfbdb78af6855",
+            "notes": "docs/ANDROID-SYSTEM-VOICE.md"
+          },
+          "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
         },
         "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
       }
@@ -116,7 +120,11 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/FcmTokenRetry.kt",
       "sha256": "259add35341aa08c7b6be8b1fcd2141ceca6467d5b0d8c1bed43ca385ddd0fdb",
       "revision": {
-        "sha256": "36a6181c95566523f2402298a923272edbb2b4d2021c3abe1a995c5daa98bff8",
+        "sha256": "c5ec289f26be8776ea5d4f9f463f2e93501264404cdb1d0f4a59561aa865dbe6",
+        "previous": {
+          "sha256": "36a6181c95566523f2402298a923272edbb2b4d2021c3abe1a995c5daa98bff8",
+          "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
+        },
         "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
       }
     },
@@ -138,7 +146,11 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/InstallationRepository.kt",
       "sha256": "1780e47aeda65d0a252d1c342fc7ecf5238556a6f6c960ae9d515b95ca9e5779",
       "revision": {
-        "sha256": "8291c2d34efa63589a6977211e093c0088997c192713cdc5a7c69817120d6949",
+        "sha256": "b1050662df77b77877805c79063667d81cd85a7e1af4f7e4328dafae50a8c839",
+        "previous": {
+          "sha256": "8291c2d34efa63589a6977211e093c0088997c192713cdc5a7c69817120d6949",
+          "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
+        },
         "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
       }
     },
@@ -269,10 +281,14 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "a5311228e71fb5b0646da15f74d6b05f4e230f398003a4b6ae837bd936e9aaa7",
+        "sha256": "cb672f3223c1656655c216bbfa34999491132e1960b33b62af67e20d368b4eb4",
         "previous": {
-          "sha256": "d4f076e05ccaf22950f11f783092976c9e799cf520cf5733b396362c1adc67ef",
-          "notes": "docs/RELEASE-READINESS.md"
+          "sha256": "a5311228e71fb5b0646da15f74d6b05f4e230f398003a4b6ae837bd936e9aaa7",
+          "previous": {
+            "sha256": "d4f076e05ccaf22950f11f783092976c9e799cf520cf5733b396362c1adc67ef",
+            "notes": "docs/RELEASE-READINESS.md"
+          },
+          "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
         },
         "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
       }

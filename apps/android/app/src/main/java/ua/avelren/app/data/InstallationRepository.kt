@@ -41,10 +41,7 @@ class InstallationRepository(
     suspend fun retryBlocked() = coordinator.retryBlocked()
     internal suspend fun syncOnce(): PendingTokenSyncOutcome = coordinator.syncOnce()
     internal suspend fun syncPendingTokenOnce(): PendingTokenSyncOutcome = syncOnce()
-    internal suspend fun resumePendingTokenSync(): PendingTokenSyncOutcome {
-        initialize()
-        return syncOnce()
-    }
+    internal suspend fun resumePendingTokenSync() = coordinator.resumePending()
     suspend fun <T> authenticatedCall(block: suspend (DeviceStore.Credentials) -> T): T =
         coordinator.authenticatedCall(block)
 }

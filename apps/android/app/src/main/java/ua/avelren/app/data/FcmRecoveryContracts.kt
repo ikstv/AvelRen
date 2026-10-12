@@ -51,6 +51,7 @@ sealed interface PushSyncState {
     data object Pending : PushSyncState
     data object Synced : PushSyncState
     data object Retrying : PushSyncState
+    data object Rejected : PushSyncState
     data object ConflictBlocked : PushSyncState
     data object StorageFailed : PushSyncState
 }

@@ -2614,11 +2614,12 @@ private fun PushSyncStatus(state: PushSyncState?, onRetry: () -> Unit) {
         Text(
             when (state) {
                 PushSyncState.Pending, PushSyncState.Retrying -> "Синхронізуємо сповіщення…"
+                PushSyncState.Rejected -> "Не вдалося синхронізувати сповіщення. Спробуйте ще раз."
                 else -> "Сповіщення тимчасово недоступні. Спробуйте ще раз."
             },
             style = MaterialTheme.typography.bodySmall,
         )
-        if (state == PushSyncState.ConflictBlocked) {
+        if (state == PushSyncState.ConflictBlocked || state == PushSyncState.Rejected) {
             TextButton(onClick = onRetry) { Text("Спробувати ще раз") }
         }
     }

@@ -21,6 +21,7 @@ import ua.avelren.app.data.FcmTokenProvider
 import ua.avelren.app.data.DeviceRecoveryStore
 import ua.avelren.app.data.InstallationApi
 import ua.avelren.app.data.InstallationRepository
+import ua.avelren.app.data.InstallationForegroundRecovery
 import ua.avelren.app.data.WorkManagerFcmTokenRetryScheduler
 import ua.avelren.app.data.ProtectedLoad
 import ua.avelren.app.notify.NotificationReconciler
@@ -141,6 +142,9 @@ class AvelRenApp : Application() {
                 kotlinx.coroutines.withContext(Dispatchers.Main.immediate) { recoverVoices() }
             }
         }
+
+        // Resume durable push handoffs, including a prior unacknowledged enqueue.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(InstallationForegroundRecovery(installation, appScope))
 
         // Reconciliation on return to foreground (A-02, layer 2): if a
         // cancel-push was lost, reconcile the shown notifications against the

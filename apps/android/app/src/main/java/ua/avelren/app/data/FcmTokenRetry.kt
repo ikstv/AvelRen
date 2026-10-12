@@ -24,10 +24,11 @@ interface FcmTokenRetryScheduler {
     suspend fun enqueue(): ScheduleResult
 }
 
-class WorkManagerFcmTokenRetryScheduler(context: Context) : FcmTokenRetryScheduler {
-    private val workManager = WorkManager.getInstance(context.applicationContext)
-
-    override suspend fun enqueue(): ScheduleResult = try {
+class WorkManagerFcmTokenRetryScheduler internal constructor(
+    private val enqueueWork: suspend (String, ExistingWorkPolicy) -> Unit,
+) : FcmTokenRetryScheduler {
+    constructor(context: Context) : this({ name, policy ->
+        val workManager = WorkManager.getInstance(context.applicationContext)
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -35,11 +36,14 @@ class WorkManagerFcmTokenRetryScheduler(context: Context) : FcmTokenRetrySchedul
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        workManager.enqueueUniqueWork(
-            FcmTokenSyncWorker.UNIQUE_WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            request,
-        ).await()
+        workManager.enqueueUniqueWork(name, policy, request).await()
+        Unit
+    })
+
+    override suspend fun enqueue(): ScheduleResult = try {
+        // A genuinely newer candidate gets a successor even if the current worker
+        // finishes terminally. Failed/cancelled chains restart, running HTTP survives.
+        enqueueWork(FcmTokenSyncWorker.UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE)
         ScheduleResult.Enqueued
     } catch (e: CancellationException) {
         throw e

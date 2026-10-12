@@ -3,6 +3,8 @@ package ua.avelren.app.data
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,20 +30,29 @@ class FcmRecoveryCoordinator(
     val state: StateFlow<InstallationState> = installation.asStateFlow()
     val pushState: StateFlow<PushSyncState> = push.asStateFlow()
     private var storageFailed = false
+    // Process-local proof of active work, never inferred from a durable phase.
+    // gate owns this snapshot; only the serialized operation may advance it.
+    private var activeRecord: RecoveryRecord? = null
 
-    suspend fun initialize() {
+    suspend fun initialize() = recoverPending(includeMissing = true)
+
+    suspend fun resumePending() = recoverPending(includeMissing = false)
+
+    private suspend fun recoverPending(includeMissing: Boolean) {
         try {
-            gate.withLock {
+            val pending = gate.withLock {
                 checkStorage()
                 publishCredentials()
                 val existing = records.load()
-                if (existing?.phase == RecoveryPhase.CONFLICT_BLOCKED) {
-                    push.value = PushSyncState.ConflictBlocked
-                    return
+                when {
+                    existing == null -> if (includeMissing) handoffLocked(canonicalToken()) else false
+                    existing.phase == RecoveryPhase.CONFLICT_BLOCKED -> handoffLocked(canonicalToken())
+                    push.value == PushSyncState.Rejected -> false
+                    existing == activeRecord -> false
+                    else -> true // restart/failed enqueue still needs scheduling acknowledgement
                 }
-                if (existing == null) handoffLocked(canonicalToken())
             }
-            if (enqueue()) syncOnce()
+            if (pending && enqueue()) syncOnce()
         } catch (e: CancellationException) { throw e }
         catch (e: Throwable) { failure(e) }
     }
@@ -49,7 +60,7 @@ class FcmRecoveryCoordinator(
     /** Callback payloads are deliberately excluded: the SDK's current token is canonical. */
     suspend fun providerSignal() = signal(explicitRetry = false)
 
-    /** Only an explicit user action may retry an unchanged blocked candidate. */
+    /** Only an explicit user action may retry an unchanged blocked/rejected candidate. */
     suspend fun retryBlocked() = signal(explicitRetry = true)
 
     private suspend fun signal(explicitRetry: Boolean) {
@@ -108,13 +119,25 @@ class FcmRecoveryCoordinator(
         }
     }
 
-    private suspend fun syncLocked(): PendingTokenSyncOutcome {
+    private suspend fun syncLocked(): PendingTokenSyncOutcome = try {
+        syncActive()
+    } finally {
+        withContext(NonCancellable) { gate.withLock { activeRecord = null } }
+    }
+
+    private suspend fun syncActive(): PendingTokenSyncOutcome {
         while (true) {
-            var record = gate.withLock { checkStorage(); records.load() }
+            var record = gate.withLock {
+                checkStorage()
+                records.load().also { activeRecord = it }
+            }
                 ?: return PendingTokenSyncOutcome.NothingPending
             if (record.phase == RecoveryPhase.CONFLICT_BLOCKED) {
                 push.value = PushSyncState.ConflictBlocked
                 return PendingTokenSyncOutcome.TerminalFailure(IllegalStateException("push conflict blocked"))
+            }
+            if (push.value == PushSyncState.Rejected) {
+                return PendingTokenSyncOutcome.TerminalFailure(IllegalStateException("push sync rejected"))
             }
             if (record.phase == RecoveryPhase.ROTATION_REQUESTED) {
                 // A timeout may have deleted X already. Observe Y before any repeat delete.
@@ -192,7 +215,11 @@ class FcmRecoveryCoordinator(
                     val next = if (record.completedRotations == 1) record.next(phase = RecoveryPhase.CONFLICT_BLOCKED)
                     else record.next(phase = RecoveryPhase.ROTATION_REQUESTED, source = record.candidateToken)
                     if (transition(record, next) == null) return superseded()
-                } else return failure(e)
+                } else return gate.withLock {
+                    // An obsolete terminal response must not fail the successor chain
+                    // or overwrite the status of a genuinely newer candidate.
+                    if (records.load() != record) superseded() else failure(e)
+                }
             }
         }
     }
@@ -204,6 +231,7 @@ class FcmRecoveryCoordinator(
             push.value = PushSyncState.ConflictBlocked
             return false
         }
+        if (current?.candidateToken == token && push.value == PushSyncState.Rejected && !explicitRetry) return false
         val next = if (current == null) RecoveryRecord(
             1, 1, UUID.randomUUID().toString(), 1, RecoveryPhase.PENDING, token, null, 0,
         ) else if (current.phase == RecoveryPhase.ROTATION_REQUESTED) {
@@ -211,8 +239,13 @@ class FcmRecoveryCoordinator(
             else current.next(phase = RecoveryPhase.ROTATED, candidate = token, rotations = 1,
                 generation = increment(current.generation))
         } else if (current.phase == RecoveryPhase.ROTATED && token == current.rotationSourceToken) current
-        else current.next(phase = RecoveryPhase.PENDING, candidate = token, generation = increment(current.generation))
+        else if (current.candidateToken == token && current.phase != RecoveryPhase.CONFLICT_BLOCKED) current
+        else current.next(phase = RecoveryPhase.PENDING, candidate = token,
+            generation = if (current.candidateToken == token) current.generation else increment(current.generation))
         if (next != current && !records.compareAndSet(current, next)) throw RecoveryStorageException()
+        // Same canonical callback cannot invalidate an HTTP result or schedule a successor
+        // for its own active worker. An inactive durable record still needs enqueue.
+        if (next == current && next == activeRecord) return false
         push.value = PushSyncState.Pending
         return true
     }
@@ -225,6 +258,7 @@ class FcmRecoveryCoordinator(
             if (records.load() != expected) return null
             throw RecoveryStorageException()
         }
+        if (activeRecord == expected) activeRecord = replacement
         if (replacement == null) push.value = PushSyncState.Synced
         return replacement ?: expected
     }
@@ -281,7 +315,7 @@ class FcmRecoveryCoordinator(
         // Public status/errors carry categories, never SDK/HTTP diagnostic strings.
         return if (classified is PendingTokenSyncOutcome.RetryableFailure) retry()
         else {
-            push.value = PushSyncState.Retrying
+            push.value = PushSyncState.Rejected
             PendingTokenSyncOutcome.TerminalFailure(IllegalStateException("push sync rejected"))
         }
     }
