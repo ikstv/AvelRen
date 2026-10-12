@@ -1,12 +1,14 @@
 package ua.avelren.app.data
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -55,8 +57,9 @@ class InstallationRepositoryTest {
     }
 
     private class FakeTokens(
-        private var token: String? = "fcm-token",
+        var token: String? = "fcm-token",
     ) : FcmTokenProvider {
+        override suspend fun deleteCurrentToken() { token = "replacement-token" }
         var fail = false
         override suspend fun currentToken(): String {
             if (fail) throw RuntimeException("play services offline")
@@ -71,10 +74,8 @@ class InstallationRepositoryTest {
         scope: kotlinx.coroutines.CoroutineScope,
     ) = InstallationRepository(
         api, store, tokens, scope,
-        // no-op: android.util.Log is a platform stub that throws "not mocked" in
-        // plain JUnit. We inject it here instead of the global testOptions, so as
-        // not to hide potential problems in the module's other unit tests.
-        logUnavailable = { _, _ -> },
+        recoveryStore = TestRecoveryRecords(),
+        credentialCommitter = testCommitter(store),
     )
 
     // 1
@@ -190,10 +191,22 @@ class InstallationRepositoryTest {
         val r = repo(api, store, FakeTokens("tok-1"), backgroundScope)
         r.initialize()
 
+        val allEntered = CompletableDeferred<Unit>()
+        var entered = 0
         val calls = List(5) {
             async {
                 var tries = 0
-                r.authenticatedCall { _ -> tries++; if (tries == 1) throw Stale() else "ok-$it" }
+                r.authenticatedCall { credentials ->
+                    tries++
+                    if (tries == 1) {
+                        assertEquals("dev-old", credentials.deviceId)
+                        entered++
+                        if (entered == 5) allEntered.complete(Unit)
+                        allEntered.await()
+                        throw Stale()
+                    }
+                    "ok-$it"
+                }
             }
         }
         val results = calls.awaitAll()
@@ -207,8 +220,10 @@ class InstallationRepositoryTest {
     fun `onNewFcmToken updates existing installation`() = runTest {
         val api = FakeApi()
         val store = FakeStore(Credentials("dev-A", "sec-A"))
-        val r = repo(api, store, FakeTokens("tok-1"), backgroundScope)
+        val tokens = FakeTokens("tok-1")
+        val r = repo(api, store, tokens, backgroundScope)
         r.initialize()
+        tokens.token = "tok-new"
         api.updatedTokens.clear()
 
         r.onNewFcmToken("tok-new")
@@ -305,12 +320,9 @@ class InstallationRepositoryTest {
         assertNull(store.current)
     }
 
-    // 16 — audit 2026-08-15: the Unavailable reason had to carry the real FCM
-    // provider exception, not generic text. Previously .getOrNull() swallowed it
-    // silently, which is exactly why a temporary Log.e was needed to extract
-    // "Please set a valid API key" with a broken google-services.json.
+    // Provider diagnostics must not leak through public state.
     @Test
-    fun `initialize with no credentials surfaces the real token failure as reason`() = runTest {
+    fun `initialize with no credentials reports categorical provider failure`() = runTest {
         val api = FakeApi()
         val store = FakeStore(seed = null)
         val tokens = FakeTokens().apply { fail = true }
@@ -320,7 +332,7 @@ class InstallationRepositoryTest {
 
         val state = r.state.value
         assertTrue(state is InstallationState.Unavailable)
-        assertEquals("play services offline", (state as InstallationState.Unavailable).reason)
+        assertFalse((state as InstallationState.Unavailable).reason.contains("play services offline"))
     }
 
     // 12 (a seam for the UI without instrumented Compose)

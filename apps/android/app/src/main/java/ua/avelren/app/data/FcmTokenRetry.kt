@@ -15,19 +15,6 @@ import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ServerResponseException
 
-interface PendingFcmTokenStore {
-    fun load(): String?
-    fun save(token: String): Boolean
-    fun clearIfMatches(expectedToken: String): Boolean
-}
-
-class DevicePendingFcmTokenStore(private val context: Context) : PendingFcmTokenStore {
-    override fun load(): String? = DeviceStore.pendingFcmToken(context)
-    override fun save(token: String): Boolean = DeviceStore.savePendingFcmToken(context, token)
-    override fun clearIfMatches(expectedToken: String): Boolean =
-        DeviceStore.clearPendingFcmTokenIfMatches(context, expectedToken)
-}
-
 sealed interface ScheduleResult {
     data object Enqueued : ScheduleResult
     data class Failed(val cause: Throwable) : ScheduleResult
@@ -58,17 +45,6 @@ class WorkManagerFcmTokenRetryScheduler(context: Context) : FcmTokenRetrySchedul
         throw e
     } catch (e: Throwable) {
         ScheduleResult.Failed(e)
-    }
-}
-
-class InMemoryPendingFcmTokenStore : PendingFcmTokenStore {
-    private var token: String? = null
-    override fun load(): String? = token
-    override fun save(token: String): Boolean { this.token = token; return true }
-    override fun clearIfMatches(expectedToken: String): Boolean {
-        if (token != expectedToken) return false
-        token = null
-        return true
     }
 }
 
