@@ -2,6 +2,12 @@
 
 ## Уточнення — 12.10.2026
 
+[Звірка надісланого аудиту](audits/AUDIT-TRIAGE-2026-10-12.md) підтвердила
+два кодові сценарії FCM token і відсутність main protection. Виправлення,
+real API/PostgreSQL-регресії та aggregate CI gate ще не реалізовані.
+Rulesets API повертає тарифний403; privacy/billing не змінені.
+
+
 DB executor source етапу 1 прийнято [PR #121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121),
 main eed0cb0f5a337e88467943017bbca3a04d2593e2. Усі 8 exact-head PR checks та relevant
 main workflows успішні. Hosted DB: 176 passed; upgrade: 262 passed, 1 попередній skip.
@@ -90,8 +96,8 @@ source-sbom та image-sbom checks цього коміту успішні.
 | Блок | Конкретний результат для закриття |
 | --- | --- |
 | Supply-chain legacy #140 / issue #23 | Source та candidate image SBOM уже реалізовані й мають успішні checks; повторно переносити їх не потрібно. Залишилися рішення по Gradle artifact checksums, Dependabot, dependency/container vulnerability audits і CodeQL із ліцензійним блокером для приватного user-owned repo. Перед exact-image deployment потрібен окремий handoff immutable image/digest: SBOM CI candidate не засвідчує окремо перебудований production image. |
-| Production adoption прав БД, legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | [Звірка 01.10](POSTGRES-ADOPTION-GAP-2026-10-01.md) описує історичний gap. На 11.10 DB executor 001–016, binding/receipts, explicit inverse та isolated tests реалізовані як [source кандидат](../ops/POSTGRES-ADOPTION.md); review/CI/integration цього кандидата ще відкриті. `ops/postgres-bootstrap.sh` лишається fresh/disposable fixture. Публічний production CLI закритий до actual maintenance adapter із host/runtime provenance, stop/start/job pause/resume і failure-state acceptance. DSN cutover та operational приймання потребують окремих планів, явного GO й свіжої read-only звірки. |
-| Forecast legacy #111 / ORIGINAL [#70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) | Семантику missing/0/legacy_unknown описано в погодженій специфікації та чернетці плану [PR #71](https://github.com/ikstv/AvelRen-ORIGINAL/pull/71); ці файли ще не в main. Draft [PR #72](https://github.com/ikstv/AvelRen-ORIGINAL/pull/72) — кандидат серверних задач 1–3, 8/8 CI checks на `e68e731` та короткий незалежний backtest із `count_hours` без фільтра за wait. MAE кількості нижча за базиси на чотирьох КПП, але час піку гірший на КПП 1, 29 і 6; це не release gate. Залишаються Android DTO/UI, rollback/restore gate, довший holdout і приймання після окремого deployment GO. Старе held-out evaluation вже перенесено; повторювати його перенос не потрібно. |
+| Production adoption прав БД, legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | DB executor001–016, binding/receipts та explicit inverse прийняті [PR121](https://github.com/ikstv/AvelRen-ORIGINAL/pull/121), main eed0cb0, exact-head CI успішний. Повторна реалізація не потрібна. Production CLI закритий до actual maintenance adapter: [план для перегляду](superpowers/plans/2026-10-12-postgres-production-maintenance.md). Actual host/runtime provenance, stop/start/jobs, DSN cutover і operational acceptance ще попереду з окремими GO та свіжим audit. |
+| Forecast legacy #111 / ORIGINAL [#70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) | PR #72 злитий 02.10.2026, merge d134c0b; server missing/0/legacy_unknown і Android wait_estimate/DTO/UI уже у main. Повторний перенос не потрібний. Короткий історичний backtest не є release gate: залишилися довший holdout, recovery та окреме приймання на телефоні. Див. [звірку аудиту12.10](audits/AUDIT-TRIAGE-2026-10-12.md); не оголошувати missing справжнім нулем без урахування status. |
 | Сповіщення про реліз, R08 | Завершити серверний release_notice, перевірку доступності в Play та наскрізне приймання доставки. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
 | Ops і recovery | Аудит із AvelRen-ops PR #1 перенесено; сам старий PR лишився відкритим. Завершити звірку deployment/recovery runbooks, доступів/key escrow, матеріалів Play та унікальних серверних змін із новим кодом. Історичні документи потребують рішення про збереження або заміну. Наявність архіву не доводить відновлення. |
