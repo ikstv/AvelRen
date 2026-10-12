@@ -1,9 +1,6 @@
 name: SBOM вихідного коду
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_call: {}
 permissions:
   contents: read
 jobs:
@@ -13,6 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Тимчасово відкрити Python lock для cataloger Syft
         run: cp services/backend/requirements.lock services/backend/requirements.txt
@@ -46,6 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Зібрати candidate образ застосунку
         run: |

@@ -170,18 +170,96 @@ def test_invalid_manifest(manifest, tmp_path, mutation):
 
 
 def test_manifest_preserves_legacy_workflow_filters(manifest):
-    import yaml
-
-    for component in manifest["components"].values():
-        if component["workflow"] == "supply-chain.yml":
-            assert component["paths"] == []
-            continue
-        workflow = yaml.load(
-            (ROOT / ".github/workflows" / component["workflow"]).read_text(encoding="utf-8"),
-            Loader=yaml.BaseLoader,
-        )
-        assert component["paths"] == workflow["on"]["pull_request"]["paths"]
-        assert component["paths"] == workflow["on"]["push"]["paths"]
+    # Незалежний snapshot однакових PR/push filters до reusable migration.
+    expected = {
+        "backend_core": [
+            "services/backend/**",
+            "scripts/verify_core_provenance.py",
+            "docs/CORE-PROVENANCE.json",
+            "docs/DB-PROVENANCE.json",
+            "docs/API-PROVENANCE.json",
+            "docs/WATCHDOG-PROVENANCE.json",
+            "ops/telemetry-snapshot.sh",
+            "db/**",
+            ".gitattributes",
+            ".github/workflows/backend-core.yml",
+        ],
+        "api": [
+            "services/backend/**",
+            "db/**",
+            "ops/**",
+            "scripts/test_database.sh",
+            "scripts/verify_core_provenance.py",
+            "docs/CORE-PROVENANCE.json",
+            "docs/DB-PROVENANCE.json",
+            "docs/API-PROVENANCE.json",
+            "docs/WATCHDOG-PROVENANCE.json",
+            ".gitattributes",
+            ".github/workflows/api.yml",
+        ],
+        "database": [
+            "db/**",
+            "ops/**",
+            "services/backend/**",
+            "docker-compose.yml",
+            ".env.example",
+            ".gitignore",
+            "scripts/test_database.sh",
+            "scripts/verify_core_provenance.py",
+            "docs/CORE-PROVENANCE.json",
+            "docs/DB-PROVENANCE.json",
+            "docs/API-PROVENANCE.json",
+            "docs/WATCHDOG-PROVENANCE.json",
+            ".gitattributes",
+            ".github/workflows/database.yml",
+        ],
+        "watchdog": [
+            "services/backend/**",
+            "db/**",
+            "ops/**",
+            "scripts/test_database.sh",
+            "scripts/verify_core_provenance.py",
+            "docs/CORE-PROVENANCE.json",
+            "docs/DB-PROVENANCE.json",
+            "docs/API-PROVENANCE.json",
+            "docs/WATCHDOG-PROVENANCE.json",
+            ".gitattributes",
+            ".github/workflows/watchdog.yml",
+        ],
+        "android": [
+            "apps/android/**",
+            "services/backend/src/avelren/api.py",
+            "services/backend/src/avelren/schemas.py",
+            "services/backend/src/avelren/subscriptions_api.py",
+            "services/backend/src/avelren/admin_access_api.py",
+            "services/backend/src/avelren/maintenance.py",
+            "services/backend/src/avelren/surge*.py",
+            "docs/ANDROID-PROVENANCE.json",
+            "docs/ASSETS.md",
+            "scripts/verify_android.py",
+            "scripts/verify_push_qa.py",
+            "scripts/verify_full_test.py",
+            ".github/workflows/android.yml",
+            ".gitattributes",
+        ],
+        "repository": [
+            ".github/**",
+            "docs/**",
+            "scripts/**",
+            "AGENTS.md",
+            "CONTRIBUTING.md",
+            "README.md",
+        ],
+        "monitor_contracts": [
+            "scripts/classify_alert_channel.py",
+            "scripts/tests/**",
+            ".github/workflows/external-health-monitor.yml",
+            ".github/workflows/external-monitor-checks.yml",
+        ],
+        "supply_chain": [
+        ],
+    }
+    assert {key: item["paths"] for key, item in manifest["components"].items()} == expected
 
 
 @pytest.mark.parametrize("event", [[], {}, None, 1])
