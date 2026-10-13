@@ -87,5 +87,15 @@ MSYS_NO_PATHCONV=1 bash "$ROOT/ops/restore-verify.sh" restore_test \
 echo native_schema_api_verification_ok
 compose run --rm --no-deps -T -e AVELREN_PAIRED_REHEARSAL=1 \
     -e DATABASE_URL=postgresql://avelren_collector:ci-only@db:5432/restore_test \
-    test python ops/paired-restore-acceptance.py replay --work /evidence/pair
+    test python ops/paired-restore-acceptance.py replay --work /evidence/pair \
+    >"$WORK/replay.stdout" 2>"$WORK/replay.stderr" || fail native_replay_failed 1
+# Native replay can catch a derived-phase failure and still succeed. Both output
+# streams stay private; a separate stdlib reader emits only validated integer evidence.
+RECEIPT_PYTHON=python3
+if command -v cygpath >/dev/null 2>&1; then RECEIPT_PYTHON=python; fi
+"$RECEIPT_PYTHON" "$ROOT/ops/paired-restore-acceptance.py" receipt \
+    --source "$(native_path "$WORK/replay.stdout")" \
+    --manifest "$(native_path "$WORK/pair/pair.json")" \
+    >"$WORK/replay.safe.json" 2>"$WORK/receipt.stderr" || fail native_replay_receipt_invalid 1
+cat "$WORK/replay.safe.json"
 echo paired_restore_rehearsal_ok

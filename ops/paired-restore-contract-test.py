@@ -140,7 +140,158 @@ class ReaderContracts(unittest.TestCase):
         self.reject("avelren-20261012-090000.pair.json")
 
 
+class ReceiptContracts(unittest.TestCase):
+    def setUp(self):
+        self.fixture = ReaderContracts()
+        self.fixture.setUp()
+        self.fixture.pair()
+        self.fixture.manifest["spool"].update(
+            state_counts={"acked": 2, "pending": 3, "started": 1},
+            payload_count=5,
+            cycle_range={
+                "first_seq": 1,
+                "last_seq": 6,
+                "first_at": "2026-10-13T08:00:00+00:00",
+                "last_at": "2026-10-13T08:05:00+00:00",
+            },
+        )
+        self.receipt = {
+            "acked_cycles": 2,
+            "acked_observations": 2,
+            "pending_after": 0,
+            "primary_counts": {"observations": 5, "runs": 6},
+            "recovered_started": 1,
+            "replayed_sequences": [3, 4, 5, 6],
+            "verified_cycles": 6,
+            "verified_observations": 5,
+        }
+
+    def tearDown(self):
+        self.fixture.tearDown()
+
+    def test_only_typed_count_evidence_is_returned(self):
+        self.assertEqual(
+            reader().validate_receipt(json.dumps(self.receipt), self.fixture.manifest), self.receipt
+        )
+
+    def test_untrusted_receipt_values_and_duplicate_keys_are_rejected(self):
+        for name, value in [
+            ("pending_after", 1),
+            ("acked_cycles", True),
+            ("verified_cycles", 7),
+            ("acked_observations", -1),
+            ("verified_observations", "rejected-replay-secret"),
+            ("recovered_started", 0),
+            ("replayed_sequences", [3, 4, 4, 6]),
+            ("replayed_sequences", [6, 5, 4, 3]),
+            ("replayed_sequences", [3, 4, 5, 7]),
+            ("replayed_sequences", [3, 4, 5]),
+            ("primary_counts", {"runs": 5, "observations": 5}),
+            ("primary_counts", {"runs": 6, "observations": 4}),
+            ("payload", "rejected-replay-secret"),
+        ]:
+            with self.subTest(name=name, value=value):
+                candidate = {**self.receipt, name: value}
+                with self.assertRaises(ManifestError):
+                    reader().validate_receipt(json.dumps(candidate), self.fixture.manifest)
+        text = json.dumps(self.receipt)
+        for invalid in [
+            "rejected-replay-secret\n" + text,
+            text.replace('"acked_cycles": 2', '"acked_cycles": 2,"acked_cycles": 2'),
+            text.replace('"runs": 6', '"runs": 6,"runs": 6'),
+        ]:
+            with self.assertRaises(ManifestError):
+                reader().validate_receipt(invalid, self.fixture.manifest)
+
+
 class RehearsalContracts(unittest.TestCase):
+    def test_final_replay_contains_raw_diagnostics_and_validates_only_receipt(self):
+        receipt = {
+            "acked_cycles": 2,
+            "acked_observations": 2,
+            "pending_after": 0,
+            "primary_counts": {"observations": 5, "runs": 6},
+            "recovered_started": 1,
+            "replayed_sequences": [3, 4, 5, 6],
+            "verified_cycles": 6,
+            "verified_observations": 5,
+        }
+        bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
+        fixture = ReaderContracts()
+        fixture.setUp()
+        try:
+            fixture.pair()
+            fixture.manifest["spool"].update(
+                state_counts={"acked": 2, "pending": 3, "started": 1},
+                payload_count=5,
+                cycle_range={
+                    "first_seq": 1,
+                    "last_seq": 6,
+                    "first_at": "2026-10-13T08:00:00+00:00",
+                    "last_at": "2026-10-13T08:05:00+00:00",
+                },
+            )
+            fixture.save()
+            root = fixture.directory
+            executable = root / "docker"
+            executable.write_text(
+                "#!/usr/bin/env bash\n"
+                "if command -v cygpath >/dev/null; then "
+                'EVIDENCE=$(cygpath -u "$AVELREN_PAIR_WORK"); else '
+                "EVIDENCE=$AVELREN_PAIR_WORK; fi\n"
+                'case "$*" in\n'
+                '*"paired-restore-acceptance.py prepare"*) '
+                'mkdir -p "$EVIDENCE/pair"; '
+                'cp "$PAIRED_TEST_MANIFEST" "$EVIDENCE/pair/pair.json"; '
+                'printf "SELECT 1;\\n" | gzip -c '
+                '>"$EVIDENCE/pair/avelren-20261013-090000.sql.gz" ;;\n'
+                '*"paired-restore-acceptance.py replay"*) '
+                "echo rejected-replay-secret >&2; "
+                'case "$PAIRED_TEST_REPLAY" in '
+                "failure) echo rejected-replay-secret; exit 53 ;; "
+                "invalid) echo rejected-replay-secret ;; esac; "
+                'printf "%s\\n" "$PAIRED_TEST_RECEIPT" ;;\n'
+                "esac\nexit 0\n"
+            )
+            executable.chmod(0o700)
+            for outcome, want, category in [
+                ("success", 0, "paired_restore_rehearsal_ok"),
+                ("failure", 1, "native_replay_failed"),
+                ("invalid", 1, "native_replay_receipt_invalid"),
+            ]:
+                env = {
+                    **os.environ,
+                    "PATH": root.as_posix() + os.pathsep + os.environ["PATH"],
+                    "TMPDIR": root.as_posix(),
+                    "PAIRED_TEST_REPLAY": outcome,
+                    "PAIRED_TEST_MANIFEST": (root / NAME).as_posix(),
+                    "PAIRED_TEST_RECEIPT": json.dumps(receipt),
+                }
+                result = subprocess.run(
+                    [
+                        bash,
+                        (ROOT / "ops/paired-restore-rehearsal.sh").as_posix(),
+                        "--directory",
+                        root.as_posix(),
+                        "--manifest",
+                        NAME,
+                    ],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                self.assertNotIn("rejected-replay-secret", result.stdout + result.stderr)
+                self.assertEqual(result.returncode, want, result.stdout + result.stderr)
+                self.assertIn(category, result.stdout + result.stderr)
+                if want == 0:
+                    evidence = [line for line in result.stdout.splitlines() if line.startswith("{")]
+                    self.assertEqual(len(evidence), 1)
+                    self.assertEqual(json.loads(evidence[0]), receipt)
+                self.assertEqual(list(root.glob("avelren-paired-restore.*")), [])
+        finally:
+            fixture.tearDown()
+
     def test_native_failure_does_not_expose_raw_database_error(self):
         bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
         with tempfile.TemporaryDirectory() as temporary:

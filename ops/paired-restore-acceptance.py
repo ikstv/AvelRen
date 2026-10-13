@@ -12,7 +12,79 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from paired_backup_manifest import ManifestError, load_manifest, verify_local_pair  # noqa: E402
+from paired_backup_manifest import (  # noqa: E402
+    ManifestError,
+    load_manifest,
+    validate_manifest,
+    verify_local_pair,
+)
+
+
+def _receipt_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ManifestError("replay_receipt_invalid")
+        result[key] = value
+    return result
+
+
+def validate_receipt(text: str | bytes, manifest: dict) -> dict:
+    """Emit only exact integer/count evidence from an otherwise untrusted stdout file."""
+    manifest = validate_manifest(manifest)
+    try:
+        if len(text) > 1_048_576:
+            raise ValueError
+        value = json.loads(text, object_pairs_hook=_receipt_object)
+        fields = {
+            "acked_cycles",
+            "acked_observations",
+            "recovered_started",
+            "replayed_sequences",
+            "verified_cycles",
+            "verified_observations",
+            "primary_counts",
+            "pending_after",
+        }
+        if type(value) is not dict or set(value) != fields:
+            raise ValueError
+        for field in fields - {"primary_counts", "replayed_sequences"}:
+            if type(value[field]) is not int or not 0 <= value[field] <= 2**63 - 1:
+                raise ValueError
+        primary = value["primary_counts"]
+        if type(primary) is not dict or set(primary) != {"runs", "observations"}:
+            raise ValueError
+        if any(type(count) is not int or not 0 <= count <= 2**63 - 1 for count in primary.values()):
+            raise ValueError
+        counts = manifest["spool"]["state_counts"]
+        sequences = value["replayed_sequences"]
+        if (
+            type(sequences) is not list
+            or len(sequences) != counts["pending"] + counts["started"]
+            or any(type(seq) is not int or not 1 <= seq <= 2**63 - 1 for seq in sequences)
+            or any(left >= right for left, right in zip(sequences, sequences[1:], strict=False))
+        ):
+            raise ValueError
+        cycle_range = manifest["spool"]["cycle_range"]
+        if sequences and not (
+            cycle_range["first_seq"] <= sequences[0] <= sequences[-1] <= cycle_range["last_seq"]
+        ):
+            raise ValueError
+        if (
+            value["acked_cycles"] != counts["acked"]
+            or value["recovered_started"] != counts["started"]
+            or value["verified_cycles"] != sum(counts.values())
+            or value["pending_after"] != 0
+            or value["acked_observations"] > value["verified_observations"]
+            or (counts["acked"] == 0 and value["acked_observations"] != 0)
+            or (manifest["spool"]["payload_count"] == 0 and value["verified_observations"] != 0)
+            or primary["runs"] < value["verified_cycles"]
+            or primary["observations"] < value["verified_observations"]
+        ):
+            raise ValueError
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ManifestError("replay_receipt_invalid") from exc
+    return value
 
 
 def read_pair(directory: Path, basename: str, work: Path) -> dict:
@@ -130,11 +202,19 @@ def main():
     prepare.add_argument("--work", type=Path, required=True)
     replay = commands.add_parser("replay")
     replay.add_argument("--work", type=Path, required=True)
+    receipt = commands.add_parser("receipt")
+    receipt.add_argument("--source", type=Path, required=True)
+    receipt.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
     try:
         if args.command == "prepare":
             read_pair(args.directory, args.manifest, args.work)
             print("pair_preflight_ok")
+        elif args.command == "receipt":
+            if args.source.stat().st_size > 1_048_576:
+                raise ManifestError("replay_receipt_invalid")
+            manifest = load_manifest(args.manifest.read_bytes())
+            print(json.dumps(validate_receipt(args.source.read_bytes(), manifest), sort_keys=True))
         else:
             from avelren.collector_spool import SpoolStore
             from avelren.paired_backup_spool import inspect_spool
