@@ -50,6 +50,9 @@ class Runtime:
         if self.fault == "preflight":
             raise ValueError("secret raw diagnostic")
 
+    def verify_client(self):
+        pass  # Synthetic Docker boundary; real client trust has dedicated cases.
+
     def identity(self):
         value = dict(IDENTITY)
         if self.changed:
@@ -146,7 +149,7 @@ class Publisher:
         if self.fault == "writer_after_upload":
             self.runtime.fault = "drain_error"
         if self.fault == "slow_upload":
-            time.sleep(0.12)
+            time.sleep(max(0, self.deadline - time.monotonic()) + 0.03)
         self.before_manifest()
         self.runtime.events.extend(["manifest", "readback", "retention"])
         if self.fault == "writer_after_publish":
@@ -256,6 +259,206 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertNotIn("on", self.events)
         self.assertIsNone(state.read_state(self.state))
 
+    def test_takeover_during_off_ack_is_preserved(self):
+        original = Runtime.capture_only
+        replacement = []
+
+        def takeover(runtime, mode, authority):
+            result = original(runtime, mode, authority)
+            if mode == "off":
+                value = state.read_state(self.state)
+                value["generation"] = "87654321-4321-4321-4321-cba987654321"
+                state.write_state(self.state, value)
+                replacement.append((self.state / state.STATE_NAME).read_bytes())
+            return result
+
+        with patch.object(Runtime, "capture_only", takeover):
+            with self.assertRaisesRegex(ValueError, "ownership_unproven"):
+                self.execute()
+        self.assertEqual((self.state / state.STATE_NAME).read_bytes(), replacement[0])
+        self.assertNotIn("upload4", self.events)
+        self.assertEqual(self.events.count("off"), 1)
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual(self.stamp.read_text(), "old stamp")
+
+    def test_takeover_before_cleanup_is_never_overwritten(self):
+        replacement = []
+
+        def takeover(runtime, *args):
+            value = state.read_state(self.state)
+            value["generation"] = "87654321-4321-4321-4321-cba987654321"
+            state.write_state(self.state, value)
+            replacement.append((self.state / state.STATE_NAME).read_bytes())
+            raise ValueError("copy_failed")
+
+        with patch.object(Runtime, "sql_snapshot", takeover), self.assertRaises(ValueError):
+            self.execute()
+        self.assertEqual((self.state / state.STATE_NAME).read_bytes(), replacement[0])
+        self.assertNotIn("off", self.events)
+        self.assertNotIn("upload4", self.events)
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual(self.stamp.read_text(), "old stamp")
+
+    def test_takeover_after_resume_network_failure_is_preserved(self):
+        replacement = []
+
+        def takeover(publisher, *args):
+            value = state.read_state(self.state)
+            value["generation"] = "87654321-4321-4321-4321-cba987654321"
+            state.write_state(self.state, value)
+            replacement.append((self.state / state.STATE_NAME).read_bytes())
+            raise ValueError("network_failed")
+
+        with patch.object(Publisher, "publish", takeover), self.assertRaises(ValueError):
+            self.execute()
+        self.assertEqual((self.state / state.STATE_NAME).read_bytes(), replacement[0])
+        self.assertEqual(self.events.count("off"), 1)
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual(self.stamp.read_text(), "old stamp")
+
+    def slow_python(self, operation):
+        wrapper = self.root / "slow-python"
+        marker = self.root / "worker-entered"
+        wrapper.write_text(
+            "#!/bin/bash\n"
+            f'if [ "$3" = "{operation}" ]; then touch "{marker}"; sleep 2; fi\n'
+            f'exec "{sys.executable}" "$@"\n'
+        )
+        wrapper.chmod(0o700)
+        return wrapper
+
+    def test_slow_local_digest_obeys_remaining_network_budget(self):
+        wrapper = self.slow_python("digest")
+        with (
+            patch.object(self.module, "NETWORK_SECONDS", 0.25),
+            patch.object(sys, "executable", str(wrapper)),
+        ):
+            started = time.monotonic()
+            with self.assertRaisesRegex(ValueError, "command_timeout"):
+                self.execute()
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(state.read_state(self.state)["phase"], "resumed")
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual(self.stamp.read_text(), "old stamp")
+        self.assertNotIn("upload4", self.events)
+
+    def test_slow_local_gzip_validation_obeys_same_budget(self):
+        wrapper = self.slow_python("verify")
+        with (
+            patch.object(self.module, "NETWORK_SECONDS", 1.5),
+            patch.object(sys, "executable", str(wrapper)),
+        ):
+            started = time.monotonic()
+            with self.assertRaisesRegex(ValueError, "command_timeout"):
+                self.execute()
+        self.assertLess(time.monotonic() - started, 2.2)
+        self.assertTrue((self.root / "worker-entered").exists())
+        self.assertEqual(state.read_state(self.state)["phase"], "resumed")
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual(self.stamp.read_text(), "old stamp")
+        self.assertNotIn("upload4", self.events)
+
+    def test_runtime_commands_drop_ambient_interpolation_and_docker_context(self):
+        runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
+        observed = []
+
+        def runner(argv, *, deadline, env=None, stdout_path=None):
+            observed.append(env)
+            stdout_path.write_text("verified")
+            return 0
+
+        with (
+            patch.dict(
+                os.environ,
+                DB_IMAGE="unapproved-image",
+                DOCKER_HOST="tcp://unapproved:2375",
+                DOCKER_CONTEXT="unapproved",
+                DOCKER_CONFIG="/unapproved",
+                AVELREN_BACKUP_PASSWORD="secret-test-value",
+                PGPASSWORD="ambient-secret",
+            ),
+            patch.object(state, "run_bounded", runner),
+        ):
+            runtime.output(["docker", "compose", "config"], env=dict(os.environ))
+            runtime.output(["docker", "inspect", "synthetic"])
+        for env in observed:
+            self.assertIsNotNone(env)
+            self.assertNotIn("DB_IMAGE", env)
+            self.assertNotIn("DOCKER_CONTEXT", env)
+            self.assertNotIn("AVELREN_BACKUP_PASSWORD", env)
+            self.assertNotIn("PGPASSWORD", env)
+            self.assertEqual(env["DOCKER_HOST"], "unix:///var/run/docker.sock")
+            self.assertEqual(env["DOCKER_CONFIG"], "/etc/avelren/docker-client")
+
+    def test_only_sql_create_receives_backup_password(self):
+        runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
+        runtime.generation = "12345678-1234-1234-1234-123456789abc"
+        runtime.identity = lambda: dict(IDENTITY)
+        calls = []
+
+        def output(argv, env=None):
+            calls.append((argv, env))
+            if argv[1] == "create":
+                return "f" * 64
+            return json.dumps([dict(State=dict(Running=False, ExitCode=0))])
+
+        runtime.output = output
+        with (
+            patch.dict(
+                os.environ, AVELREN_BACKUP_PASSWORD="secret-test-value", DB_IMAGE="unapproved"
+            ),
+            patch.object(state, "run_bounded", return_value=0),
+        ):
+            runtime.job(
+                "check",
+                IDENTITY["image_id"],
+                ["--network", "none"],
+                ["python", "-c", "print('synthetic')"],
+                self.work / "check",
+            )
+            runtime.job(
+                "sql",
+                IDENTITY["image_id"],
+                ["--network", "network", "-e", "PGPASSWORD"],
+                ["pg_dump", "--no-owner", "-U", "avelren_backup"],
+                self.work / "sql",
+            )
+        create = [(argv, env) for argv, env in calls if argv[1] == "create"]
+        self.assertNotIn("PGPASSWORD", create[0][1] or {})
+        self.assertNotIn("AVELREN_BACKUP_PASSWORD", create[0][1] or {})
+        self.assertNotIn("DB_IMAGE", create[1][1])
+        self.assertEqual(create[1][1]["PGPASSWORD"], "secret-test-value")
+
+    def test_docker_client_config_requires_empty_context_and_approved_plugin(self):
+        client = self.root / "docker-client"
+        client.mkdir(mode=0o700)
+        plugins = client / "cli-plugins"
+        plugins.mkdir(mode=0o700)
+        plugin = plugins / "docker-compose"
+        plugin.write_bytes(b"synthetic approved executable")
+        plugin.chmod(0o700)
+        config = client / "config.json"
+        config.write_text("{}")
+        config.chmod(0o600)
+        runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
+        runtime.output = lambda *args, **kwargs: json.dumps(dict(version="v5.5.1"))
+        sha = hashlib.sha256(plugin.read_bytes()).hexdigest()
+        with (
+            patch.object(self.module, "DOCKER_CLIENT_DIR", client, create=True),
+            patch.dict(os.environ, AVELREN_BACKUP_COMPOSE_SHA256=sha),
+        ):
+            runtime.verify_client()
+            config.write_text('{"currentContext":"unapproved"}')
+            with self.assertRaisesRegex(ValueError, "docker_client_config_invalid"):
+                runtime.verify_client()
+            config.write_text("{}")
+            with patch.dict(os.environ, AVELREN_BACKUP_COMPOSE_SHA256="f" * 64):
+                with self.assertRaisesRegex(ValueError, "compose_plugin_hash_mismatch"):
+                    runtime.verify_client()
+            runtime.output = lambda *args, **kwargs: json.dumps(dict(version="v0.0.0"))
+            with self.assertRaisesRegex(ValueError, "compose_plugin_version_mismatch"):
+                runtime.verify_client()
+
     def test_private_sql_helper_output_is_never_reopened_unsafely(self):
         runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
         raw = self.work / "raw"
@@ -270,6 +473,7 @@ class CoordinatorContracts(unittest.TestCase):
 
     def test_native_preflight_status_has_no_invented_ready_field(self):
         runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
+        runtime.verify_client = lambda: None
         helper = "sha256:" + "d" * 64
         imported_hash = "e" * 64
         runtime.identity = lambda: dict(IDENTITY)
@@ -409,6 +613,7 @@ class CoordinatorContracts(unittest.TestCase):
 
     def test_preflight_requires_verified_check_job_cancellation(self):
         runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
+        runtime.verify_client = lambda: None
         helper = "sha256:" + "d" * 64
         runtime.identity = lambda: dict(IDENTITY)
         runtime.cancel_children = lambda children: False
@@ -523,6 +728,7 @@ class CoordinatorContracts(unittest.TestCase):
 
     def test_helper_image_baked_database_secret_is_denied(self):
         runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
+        runtime.verify_client = lambda: None
         helper = "sha256:" + "d" * 64
         runtime.identity = lambda: dict(IDENTITY)
         runtime.job = lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("helper_started"))
@@ -636,7 +842,7 @@ class CoordinatorContracts(unittest.TestCase):
                 self.assertNotIn("manifest", self.events)
 
     def test_upload_and_drain_share_one_budget(self):
-        with patch.object(self.module, "NETWORK_SECONDS", 0.1):
+        with patch.object(self.module, "NETWORK_SECONDS", 3):
             with self.assertRaisesRegex(ValueError, "drain_timeout"):
                 self.execute(remote_fault="slow_upload")
         self.assertEqual(state.read_state(self.state)["phase"], "resumed")
@@ -695,9 +901,31 @@ else: sys.exit(11)
             AVELREN_BACKUP_PASSWORD="secret-test-value",
         )
         self.environment.start()
+        self.command_path = patch.object(
+            self.module, "COMMAND_PATH", str(self.bin) + ":" + self.module.COMMAND_PATH
+        )
+        self.command_path.start()
+        original_runner = state.run_bounded
+
+        def fake_remote_boundary(argv, *, deadline, env=None, stdout_path=None):
+            if argv[0] == "rclone":
+                self.assertNotIn("AVELREN_BACKUP_PASSWORD", env)
+                self.assertNotIn("PGPASSWORD", env)
+                env = dict(
+                    env,
+                    FAKE_REMOTE=str(self.remote),
+                    FAKE_LOG=str(self.log),
+                    FAKE_FAULT=os.environ.get("FAKE_FAULT", ""),
+                )
+            return original_runner(argv, deadline=deadline, env=env, stdout_path=stdout_path)
+
+        self.runner_boundary = patch.object(state, "run_bounded", fake_remote_boundary)
+        self.runner_boundary.start()
         self.publisher = self.module.Publisher("crypt:paired", self.root / "config", self.root)
 
     def tearDown(self):
+        self.runner_boundary.stop()
+        self.command_path.stop()
         self.environment.stop()
         self.temp.cleanup()
 
@@ -789,6 +1017,25 @@ else: sys.exit(11)
             with self.assertRaisesRegex(ValueError, "command_timeout"):
                 self.publisher.publish(value, self.directory)
             self.assertLess(time.monotonic() - started, 2)
+
+    def test_slow_publisher_hash_obeys_remaining_deadline(self):
+        value = self.make_pair("20261013-010000")
+        artifact = value["artifacts"]["sql"]
+        local = self.directory / artifact["name"]
+        target = self.remote / "paired" / "daily" / local.name
+        target.parent.mkdir(parents=True)
+        target.write_bytes(local.read_bytes())
+        wrapper = self.root / "slow-python"
+        wrapper.write_text(f'#!/bin/bash\nsleep 2\nexec "{sys.executable}" "$@"\n')
+        wrapper.chmod(0o700)
+        self.publisher.deadline = time.monotonic() + 0.8
+        with patch.object(sys, "executable", str(wrapper)):
+            started = time.monotonic()
+            with self.assertRaisesRegex(ValueError, "command_timeout"):
+                self.publisher.verify_file(local, "crypt:paired/daily/" + local.name)
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(list(self.root.glob(".local-*")), [])
+        self.assertEqual(list(self.root.glob(".remote-*")), [])
 
 
 if __name__ == "__main__":

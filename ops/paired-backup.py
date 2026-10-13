@@ -12,6 +12,7 @@ import re
 import shutil
 import signal
 import stat
+import sys
 import tempfile
 import time
 import uuid
@@ -23,6 +24,26 @@ import paired_backup_state as state
 
 NETWORK_SECONDS = 900
 DRAIN_POLL_SECONDS = 1
+COMMAND_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+DOCKER_CLIENT_DIR = Path("/etc/avelren/docker-client")
+
+
+def command_environment(*, docker=False, collector=None, password=False):
+    env = dict(PATH=COMMAND_PATH, HOME="/root", LANG="C.UTF-8", LC_ALL="C.UTF-8")
+    if docker:
+        env.update(DOCKER_HOST="unix:///var/run/docker.sock", DOCKER_CONFIG=str(DOCKER_CLIENT_DIR))
+    if collector is not None:
+        for key, field in {
+            "COLLECTOR_IMAGE_ID": "image_id",
+            "COLLECTOR_ENV_FILE": "env_file",
+            "COLLECTOR_CONTAINER_NAME": "container_name",
+            "COLLECTOR_NETWORK": "network",
+            "COLLECTOR_VOLUME": "volume",
+        }.items():
+            env[key] = collector[field]
+    if password:
+        env["PGPASSWORD"] = os.environ["AVELREN_BACKUP_PASSWORD"]
+    return env
 
 
 class BackupError(ValueError):
@@ -36,6 +57,22 @@ def utc():
 def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def bounded_local(operation, path, *, deadline, output_directory=None):
+    output = (output_directory or path.parent) / (".local-" + uuid.uuid4().hex)
+    try:
+        code = state.run_bounded(
+            [sys.executable, str(Path(__file__).resolve()), "_local", operation, str(path)],
+            deadline=deadline,
+            stdout_path=output,
+            env=command_environment(),
+        )
+        if code:
+            raise ValueError("local_validation_failed")
+        return output.read_text().strip()
+    finally:
+        output.unlink(missing_ok=True)
 
 
 def private_directory(path):
@@ -90,6 +127,7 @@ class Coordinator:
 
     def await_drain(self, stage):
         while True:
+            self.assert_owned()
             if time.monotonic() >= self.network_deadline:
                 raise BackupError("drain_timeout")
             if self.runtime.identity() != self.value["identity"]:
@@ -117,13 +155,20 @@ class Coordinator:
                 return
             time.sleep(min(DRAIN_POLL_SECONDS, max(0, self.network_deadline - time.monotonic())))
 
+    def assert_owned(self):
+        state.validate_authority(self.authority, self.state_dir)
+        if state.read_state(self.state_dir) != self.value:
+            raise ValueError("ownership_unproven")
+
     def phase(self, name, reason=None):
-        self.value.update(phase=name, updated_at=time.time())
+        self.assert_owned()
+        value = dict(self.value, phase=name, updated_at=time.time())
         if reason:
-            self.value["failure_reason"] = reason
+            value["failure_reason"] = reason
         else:
-            self.value.pop("failure_reason", None)
-        state.write_state(self.state_dir, self.value)
+            value.pop("failure_reason", None)
+        state.write_state(self.state_dir, value)
+        self.value = value
 
     def resume(self, authority):
         state.validate_authority(authority, self.state_dir)
@@ -145,6 +190,7 @@ class Coordinator:
             raise ValueError("off_unacknowledged")
         if self.runtime.identity() != self.value["identity"]:
             raise ValueError("identity_changed")
+        self.assert_owned()
         self.phase("resumed")
 
     def run(self):
@@ -153,12 +199,15 @@ class Coordinator:
         safe_destination(self.stamp, self.work_dir)
         state.require_process_supervision()
         with state.backup_lock(self.state_dir) as authority:
+            self.authority = authority
             old = state.read_state(self.state_dir)
             if old is not None and old["phase"] not in state.TERMINAL:
+                self.runtime.verify_client()
                 self.runtime.generation = old["generation"]
                 recovered = state.recover_owned_run(self.state_dir, runtime=self.runtime)
                 if recovered["phase"] not in state.TERMINAL:
                     raise ValueError("backup_recovery_required")
+                old = recovered
             generation = str(uuid.uuid4())
             self.runtime.generation = generation
             self.runtime.deadline = time.monotonic() + 180
@@ -182,6 +231,9 @@ class Coordinator:
                     initial_capture_only=False,
                     children=[],
                 )
+                state.validate_authority(authority, self.state_dir)
+                if state.read_state(self.state_dir) != old:
+                    raise ValueError("ownership_unproven")
                 state.write_state(self.state_dir, self.value)
                 self.receipt.unlink(missing_ok=True)
                 started = time.monotonic()
@@ -218,7 +270,9 @@ class Coordinator:
                 artifacts = {}
                 for key, path in [("sql", sql), ("spool", spool)]:
                     artifacts[key] = dict(
-                        name=path.name, sha256=digest(path), bytes=path.stat().st_size
+                        name=path.name,
+                        sha256=bounded_local("digest", path, deadline=self.network_deadline),
+                        bytes=path.stat().st_size,
                     )
                     private_file(
                         Path(str(path) + ".sha256"),
@@ -241,15 +295,17 @@ class Coordinator:
                     summary,
                     True,
                 )
-                pair.verify_local_pair(manifest, directory)
                 completion = directory / f"avelren-{backup_id}.pair.json"
                 private_file(completion, json.dumps(manifest, sort_keys=True).encode())
+                bounded_local("verify", completion, deadline=self.network_deadline)
                 paths = self.publisher.publish(manifest, directory)
                 self.await_drain("published")
                 receipt = dict(
                     status="paired_backup_verified",
                     backup_id=backup_id,
-                    manifest_sha256=digest(completion),
+                    manifest_sha256=bounded_local(
+                        "digest", completion, deadline=self.network_deadline
+                    ),
                     remote_paths=paths,
                     writer_resumed=True,
                     pause_seconds=round(pause_seconds, 3),
@@ -259,7 +315,9 @@ class Coordinator:
                 )
                 self.phase("published")
                 shutil.rmtree(directory)
+                self.assert_owned()
                 atomic_evidence(self.receipt, json.dumps(receipt, sort_keys=True).encode())
+                self.assert_owned()
                 atomic_evidence(self.stamp, (utc() + "\n").encode())
                 return receipt
             except BaseException as exc:
@@ -332,6 +390,7 @@ class Publisher:
             ],
             deadline=self.deadline,
             stdout_path=output,
+            env=command_environment(),
         )
         if code:
             raise ValueError("remote_operation_failed")
@@ -356,9 +415,9 @@ class Publisher:
         downloaded = self.work / (".remote-" + uuid.uuid4().hex)
         try:
             self.command(["cat", remote_path], downloaded)
-            if downloaded.stat().st_size != path.stat().st_size or digest(downloaded) != digest(
-                path
-            ):
+            if downloaded.stat().st_size != path.stat().st_size or bounded_local(
+                "digest", downloaded, deadline=self.deadline
+            ) != bounded_local("digest", path, deadline=self.deadline):
                 raise ValueError("remote_hash_mismatch")
         finally:
             downloaded.unlink(missing_ok=True)
@@ -372,7 +431,10 @@ class Publisher:
             path = self.work / (".remote-" + uuid.uuid4().hex)
             try:
                 self.command(["cat", prefix + artifact["name"]], path)
-                if path.stat().st_size != artifact["bytes"] or digest(path) != artifact["sha256"]:
+                if (
+                    path.stat().st_size != artifact["bytes"]
+                    or bounded_local("digest", path, deadline=self.deadline) != artifact["sha256"]
+                ):
                     raise ValueError("remote_pair_corrupt")
             finally:
                 path.unlink(missing_ok=True)
@@ -453,8 +515,15 @@ class Runtime:
 
     def output(self, argv, *, env=None):
         path = self.work / (".command-" + uuid.uuid4().hex)
+        collector = self.manifest if self.manifest.get("compose_file") in argv else None
+        password = "PGPASSWORD" in argv and "pg_dump" in argv and "create" in argv
         try:
-            code = state.run_bounded(argv, deadline=self.deadline, env=env, stdout_path=path)
+            code = state.run_bounded(
+                argv,
+                deadline=self.deadline,
+                stdout_path=path,
+                env=command_environment(docker=True, collector=collector, password=password),
+            )
             if code:
                 raise ValueError("command_failed")
             return path.read_text()
@@ -506,12 +575,15 @@ class Runtime:
             argv.extend(["--label", key + "=" + value])
         identifier = self.output(
             [*argv, *options, "--entrypoint", command[0], image, *command[1:]],
-            env=dict(os.environ, PGPASSWORD=os.environ.get("AVELREN_BACKUP_PASSWORD", "")),
+            env=command_environment(docker=True, password=kind == "sql"),
         ).strip()
         if not re.fullmatch(r"[0-9a-f]{64}", identifier):
             raise ValueError("invalid_helper_identity")
         code = state.run_bounded(
-            ["docker", "start", "-a", identifier], deadline=self.deadline, stdout_path=output
+            ["docker", "start", "-a", identifier],
+            deadline=self.deadline,
+            stdout_path=output,
+            env=command_environment(docker=True),
         )
         if code:
             raise ValueError("helper_failed")
@@ -553,10 +625,40 @@ class Runtime:
                 return False
         return True
 
+    def verify_client(self):
+        self.controller.runtime.private_path(DOCKER_CLIENT_DIR, directory=True)
+        config = DOCKER_CLIENT_DIR / "config.json"
+        if config.exists() or config.is_symlink():
+            self.controller.runtime.private_path(config)
+            if json.loads(config.read_text()) not in ({}, {"currentContext": "default"}):
+                raise ValueError("docker_client_config_invalid")
+        plugin = DOCKER_CLIENT_DIR / "cli-plugins" / "docker-compose"
+        self.controller.runtime.private_path(plugin.parent, directory=True)
+        info = plugin.lstat()
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != 0
+            or info.st_mode & 0o022
+            or not info.st_mode & 0o111
+        ):
+            raise ValueError("untrusted_compose_plugin")
+        expected = os.environ.get("AVELREN_BACKUP_COMPOSE_SHA256", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError("compose_plugin_hash_required")
+        if (
+            bounded_local("digest", plugin, deadline=self.deadline, output_directory=self.work)
+            != expected
+        ):
+            raise ValueError("compose_plugin_hash_mismatch")
+        version = json.loads(self.output(["docker", "compose", "version", "--format", "json"]))
+        if version != {"version": "v5.5.1"}:
+            raise ValueError("compose_plugin_version_mismatch")
+
     def preflight(self):
-        self.identity()
         if shutil.disk_usage(self.work).free < 2_147_483_648:
             raise ValueError("work_space_insufficient")
+        self.verify_client()
+        self.identity()
         if os.environ.get(
             "AVELREN_BACKUP_DB_USER", "avelren_backup"
         ) != "avelren_backup" or not os.environ.get("AVELREN_BACKUP_PASSWORD"):
@@ -642,7 +744,7 @@ class Runtime:
         ]
         for path in files:
             command.extend(["-f", path])
-        env = {k: v for k, v in os.environ.items() if not k.startswith("COMPOSE_")}
+        env = command_environment(docker=True)
         effective = json.loads(self.output([*command, "config", "--format", "json"], env=env))
         ids = self.output([*command, "ps", "-q", "db"], env=env).split()
         if len(ids) != 1:
@@ -757,6 +859,9 @@ class Runtime:
 def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
+    local = commands.add_parser("_local", help=argparse.SUPPRESS)
+    local.add_argument("operation", choices=["digest", "verify"])
+    local.add_argument("path", type=Path)
     for command in ("run", "recover"):
         child = commands.add_parser(command)
         child.add_argument(
@@ -774,6 +879,22 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     try:
+        if args.command == "_local":
+            private_directory(args.path.parent)
+            info = args.path.lstat()
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != 0
+                or info.st_nlink != 1
+                or info.st_mode & 0o022
+            ):
+                raise ValueError("unsafe_local_validation_source")
+            if args.operation == "digest":
+                print(digest(args.path))
+            else:
+                pair.verify_local_pair(pair.load_manifest(args.path.read_bytes()), args.path.parent)
+                print("verified")
+            return 0
         state.require_process_supervision()
         controller = load_controller()
         manifest = controller.runtime.load_manifest(args.manifest)
@@ -786,6 +907,8 @@ def main():
                 current = state.read_state(state_dir)
                 if current:
                     runtime.generation = current["generation"]
+                    if current["phase"] not in state.TERMINAL:
+                        runtime.verify_client()
                 result = state.recover_owned_run(state_dir, runtime=runtime)
                 if (
                     result.get("phase") not in state.TERMINAL
