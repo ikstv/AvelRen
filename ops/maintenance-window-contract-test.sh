@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+source "$ROOT/ops/paired-backup-test-fixture.lib.sh"
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK" "$GUARD_WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/state"
 printf 'boot-before-restart\n' >"$WORK/boot_id"
 printf '0\n' >"$WORK/date-calls"
@@ -118,6 +119,30 @@ grep -q '"owner":"first-reboot"' "$WORK/state/maintenance.json" || {
   echo "rejected overlapping reboot changed another operation's marker" >&2
   exit 1
 }
+rm -f "$WORK/state/maintenance.json"
+
+# The real nested publisher validates inherited authority instead of attempting
+# the same flock a second time. A valid inactive lease still reaches reboot.
+cat >"$WORK/bin/real-publisher" <<'SH'
+#!/usr/bin/env bash
+exec bash "$ACTUAL_PUBLISHER" "$@"
+SH
+cat >"$WORK/bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+printf 'reboot\n' >"$REBOOT_LOG"
+SH
+chmod +x "$WORK/bin/real-publisher" "$WORK/bin/systemctl"
+printf '0\n' >"$WORK/date-calls"
+PATH="$WORK/bin:$PATH" \
+  AVELREN_MAINTENANCE_DIR="$WORK/state" \
+  AVELREN_MAINTENANCE_PUBLISHER="$WORK/bin/real-publisher" \
+  ACTUAL_PUBLISHER="$ROOT/ops/maintenance-window.sh" \
+  AVELREN_BOOT_ID_FILE="$WORK/boot_id" \
+  AVELREN_STATUS_URL="https://status.test/api/status" \
+  DATE_CALL_LOG="$WORK/date-calls" SLEEP_LOG="$WORK/sleep.log" \
+  REBOOT_LOG="$WORK/reboot.log" \
+  bash "$ROOT/ops/maintenance-reboot.sh"
+test "$(cat "$WORK/reboot.log")" = reboot
 rm -f "$WORK/state/maintenance.json"
 
 printf '0\n' >"$WORK/date-calls"

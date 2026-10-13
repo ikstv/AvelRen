@@ -1,0 +1,17 @@
+[Unit]
+Description=AvelRen owned paired backup recovery
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/avelren/backup.env
+ExecStart=/usr/local/sbin/avelren-paired-backup recover
+TimeoutStartSec=180
+TimeoutStopSec=180
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only

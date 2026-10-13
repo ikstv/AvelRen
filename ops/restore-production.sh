@@ -284,6 +284,9 @@ avelren_restore_usage() {
 }
 
 avelren_restore_production_main() {
+    python3 "$SCRIPT_DIR/paired_backup_state.py" \
+      --manifest "${AVELREN_RUNTIME_MANIFEST:-/etc/avelren/collector-runtime.json}" \
+      --fd "${AVELREN_OPERATOR_GUARD_FD:--1}" --owner "${AVELREN_OPERATOR_GUARD_OWNER:-null}" validate-inherited || return 75
     local artifact= sidecar= evidence=
     while (($#)); do
         case "$1" in
@@ -355,5 +358,10 @@ avelren_restore_production_main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    if [[ ! -v AVELREN_OPERATOR_GUARD_FD ]]; then
+        exec python3 "$SCRIPT_DIR/paired_backup_state.py" \
+          --manifest "${AVELREN_RUNTIME_MANIFEST:-/etc/avelren/collector-runtime.json}" \
+          operator -- bash "${BASH_SOURCE[0]}" "$@"
+    fi
     avelren_restore_production_main "$@"
 fi

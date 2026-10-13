@@ -29,6 +29,17 @@ LEGACY_CASES = [
     ("ops/compose.collector-runtime.yml", {"api", "database", "watchdog"}),
     ("ops/collector-runtime-integration-test.sh", {"api", "database", "watchdog"}),
     ("ops/Dockerfile.collector-runtime-test-controller", {"api", "database", "watchdog"}),
+    ("ops/paired-backup.py", {"api", "database", "watchdog"}),
+    ("ops/paired_backup_state.py", {"api", "database", "watchdog"}),
+    ("ops/paired_backup_manifest.py", {"api", "database", "watchdog"}),
+    ("ops/paired-backup-daemon-test.py", {"api", "database", "watchdog"}),
+    ("ops/paired-backup-daemon-contract-test.py", {"api", "database", "watchdog"}),
+    ("ops/paired-backup-integration-test.sh", {"api", "database", "watchdog"}),
+    ("ops/compose.paired-backup-test.yml", {"api", "database", "watchdog"}),
+    ("ops/paired-restore-acceptance.py", {"api", "database", "watchdog"}),
+    ("services/backend/src/avelren/paired_backup_spool.py", BACKEND),
+    ("services/backend/src/avelren/paired_backup_restore.py", BACKEND),
+    ("services/backend/tests/unit/test_paired_backup_spool.py", BACKEND),
 ]
 
 

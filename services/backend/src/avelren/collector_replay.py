@@ -82,7 +82,9 @@ async def _derived_processed(conn: AsyncConnection, at: datetime) -> bool:
     return row is not None and row["derived_processed_at"] is not None
 
 
-async def replay_once(store: SpoolStore, pool: AsyncConnectionPool, now: datetime) -> bool:
+async def replay_once(
+    store: SpoolStore, pool: AsyncConnectionPool, now: datetime, *, prune_acked: bool = True
+) -> bool:
     """Replay the oldest cycle, returning False only if paused or empty."""
     replay_started = time.monotonic()
     if store.capture_only():
@@ -128,7 +130,8 @@ async def replay_once(store: SpoolStore, pool: AsyncConnectionPool, now: datetim
                 async with pool.connection() as conn:
                     await record_derived(conn, cycle.at, error=describe_exception(exc)[:500])
     store.ack(cycle.seq)
-    store.prune_acked(now)
+    if prune_acked:
+        store.prune_acked(now)
     store.record_replay_error(None)
     return True
 

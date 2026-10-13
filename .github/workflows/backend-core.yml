@@ -27,3 +27,6 @@ jobs:
         run: python -m ruff check services/backend/src services/backend/tests scripts/*.py
       - name: Ізольовані тести
         run: python -m pytest -c services/backend/pytest.ini services/backend/tests/unit -q
+      - name: Формат paired backup та spool helper
+        # Backend unit discovery above includes test_paired_backup_spool.py.
+        run: python ops/paired-backup-manifest-contract-test.py

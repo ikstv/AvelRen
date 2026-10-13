@@ -8,8 +8,11 @@ import signal
 import stat
 import tempfile
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
+
+import paired_backup_state as backup
 
 _spec = importlib.util.spec_from_file_location(
     "collector_runtime", Path(__file__).with_name("collector-runtime-preflight.py")
@@ -22,9 +25,7 @@ _spec.loader.exec_module(runtime)
 def operator_lock(directory: Path):
     import fcntl
 
-    fd = os.open(
-        directory / "control.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
-    )
+    fd = os.open(directory / "control.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         info = os.fstat(fd)
         if (
@@ -69,7 +70,43 @@ def record_stop(manifest: dict, target: dict):
             os.unlink(temporary)
 
 
-def execute(manifest: dict, action: str, arguments: list[str]) -> dict:
+def mutation_run(manifest: dict, argv: list[str], *, env=None) -> str:
+    output = Path(manifest["state_dir"]) / (".control-output-" + uuid.uuid4().hex)
+    try:
+        code = backup.run_bounded(argv, deadline=time.monotonic() + 90, env=env, stdout_path=output)
+        if code:
+            raise ValueError("command_failed")
+        return output.read_text()
+    finally:
+        output.unlink(missing_ok=True)
+
+
+def execute(
+    manifest: dict, action: str, arguments: list[str], *, authority=None, capture_mutation=None
+) -> dict:
+    mutating = action in ("start", "stop", "restart") or (
+        action == "capture-only" and arguments != ["status"]
+    )
+    if not mutating:
+        if capture_mutation is not None:
+            raise ValueError("invalid_capture_mutation")
+        return _execute(manifest, action, arguments)
+    directory = Path(manifest["state_dir"])
+    if authority is None:
+        if capture_mutation is not None:
+            raise ValueError("invalid_capture_mutation")
+        with backup.operator_guard(directory) as owned:
+            return execute(manifest, action, arguments, authority=owned)
+    backup.validate_authority(authority, directory)
+    if capture_mutation is not None and (
+        action != "capture-only" or not callable(capture_mutation)
+    ):
+        raise ValueError("invalid_capture_mutation")
+    with operator_lock(directory):
+        return _execute(manifest, action, arguments, capture_mutation=capture_mutation)
+
+
+def _execute(manifest: dict, action: str, arguments: list[str], *, capture_mutation=None) -> dict:
     manifest, target = runtime.preflight(manifest, require_managed=True)
     command, env = runtime.compose_command(manifest)
     if action == "status":
@@ -77,9 +114,7 @@ def execute(manifest: dict, action: str, arguments: list[str]) -> dict:
     if action == "logs":
         # Application logs only; no inspect/config/environment output.
         print(
-            runtime.run(
-                [*command, "logs", "--no-color", "--tail", "100", "collector"], env=env
-            ),
+            runtime.run([*command, "logs", "--no-color", "--tail", "100", "collector"], env=env),
             end="",
         )
         return {"status": "logs_complete"}
@@ -102,18 +137,16 @@ def execute(manifest: dict, action: str, arguments: list[str]) -> dict:
             + ")), default=str)); s.close()"
         )
         return json.loads(
-            runtime.run(
-                ["docker", "exec", manifest["container_name"], "python", "-c", code]
-            )
+            runtime.run(["docker", "exec", manifest["container_name"], "python", "-c", code])
         )
     if action == "capture-only":
-        if (
-            arguments not in (["on"], ["off"], ["status"])
-            or not target["State"]["Running"]
-        ):
+        if arguments not in (["on"], ["off"], ["status"]) or not target["State"]["Running"]:
             raise ValueError("invalid_capture_mode_or_stopped")
+        runner = (
+            runtime.run if arguments[0] == "status" else lambda argv: mutation_run(manifest, argv)
+        )
         value = json.loads(
-            runtime.run(
+            capture_mutation(arguments[0]) if capture_mutation is not None else runner(
                 [
                     "docker",
                     "exec",
@@ -128,10 +161,7 @@ def execute(manifest: dict, action: str, arguments: list[str]) -> dict:
         )
         if arguments[0] != "status":
             requested = arguments[0] == "on"
-            if (
-                value.get("capture_only") is not requested
-                or value.get("mode_ack") is not requested
-            ):
+            if value.get("capture_only") is not requested or value.get("mode_ack") is not requested:
                 raise ValueError("capture_mode_not_acknowledged")
         return value
     if action not in ("start", "stop", "restart") or arguments:
@@ -139,7 +169,7 @@ def execute(manifest: dict, action: str, arguments: list[str]) -> dict:
     if action == "start" and target["State"]["Running"]:
         return {"status": "already_running"}
     if action in ("stop", "restart"):
-        runtime.run([*command, "stop", "--timeout", "30", "collector"], env=env)
+        mutation_run(manifest, [*command, "stop", "--timeout", "30", "collector"], env=env)
         _, target = runtime.preflight(manifest, require_managed=True)
         if target["State"]["Running"]:
             raise ValueError("stop_not_confirmed")
@@ -151,7 +181,7 @@ def execute(manifest: dict, action: str, arguments: list[str]) -> dict:
     _, stopped = runtime.preflight(manifest, require_managed=True)
     if stopped["State"]["Running"] or stopped["Id"] != target["Id"]:
         raise ValueError("target_changed_during_wait")
-    runtime.run([*command, "start", "collector"], env=env)
+    mutation_run(manifest, [*command, "start", "collector"], env=env)
     _, started = runtime.preflight(manifest, require_managed=True)
     if not started["State"]["Running"] or started["Id"] != target["Id"]:
         raise ValueError("start_not_confirmed")
@@ -180,11 +210,7 @@ def main():
         if os.name != "posix" or (not args.test_mode and os.geteuid() != 0):
             raise ValueError("root_linux_required")
         manifest = runtime.load_manifest(args.manifest, test_mode=args.test_mode)
-        if args.command in ("start", "stop", "restart", "capture-only"):
-            with operator_lock(Path(manifest["state_dir"])):
-                result = execute(manifest, args.command, args.arguments)
-        else:
-            result = execute(manifest, args.command, args.arguments)
+        result = execute(manifest, args.command, args.arguments)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (ValueError, OSError, KeyError, TypeError, ImportError):

@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+source "$ROOT/ops/paired-backup-test-fixture.lib.sh"
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK" "$GUARD_WORK"' EXIT
 printf 'original artifact\n' >"$WORK/dump.sql.gz"
 printf 'sidecar\n' >"$WORK/dump.sql.gz.sha256"
 printf '{}\n' >"$WORK/evidence.json"
@@ -14,7 +15,7 @@ run_case() {
     set +e
     env TRACE="$WORK/$name.trace" FAIL_STAGE="$fail_stage" MUTATION="$mutation" \
       SECRET_SENTINEL='restore-contract-secret' \
-      bash -c '
+      python3 "$ROOT/ops/paired_backup_state.py" --manifest "$AVELREN_RUNTIME_MANIFEST" operator -- bash -c '
         set -euo pipefail
         source "$1"
         step() {
