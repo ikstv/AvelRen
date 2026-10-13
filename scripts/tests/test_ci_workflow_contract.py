@@ -31,6 +31,16 @@ def load(name, root=ROOT):
     )
 
 
+def test_paired_backup_root_contract_callers_and_guard_wiring():
+    steps = load("database.yml")["jobs"]["database"]["steps"]
+    commands = "\n".join(step.get("run", "") for step in steps).splitlines()
+    assert "sudo bash ops/collector-runtime-control-contract-test.sh" in commands
+    assert "sudo python3 ops/collector-runtime-control-contract-test.py" not in commands
+    assert "sudo bash ops/maintenance-window-contract-test.sh" in commands
+    assert "bash -n ops/paired-backup-guard-contract-test.sh" in commands
+    assert "sudo bash ops/paired-backup-guard-contract-test.sh" in commands
+
+
 def test_events():
     assert load("ci.yml").get("on") == {
         "pull_request": {

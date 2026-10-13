@@ -132,6 +132,84 @@ happy-path operations. Hosted exact-head gate лишається окремим.
 
 ## Конкретний пакет перед GO
 
+### Уточнення final fix F1–F4, 13.10.2026
+
+Наступний source-кандидат від base `8b2b38d105f5e891148dcf0364a201d7a9b01bf5`
+виправляє lifetime control mutation та ownership recovery. Paired ON/OFF
+виконує installed native `collector_control` у immutable helper image:
+`avelren-paired-<generation>-control-on` та `-control-off`, network none,
+UID10001, лише exact spool volume. Collector не recreates; native ACK,
+CLI defaults, роль, DSN та cadence незмінні. Internal callable доступний
+тільки з typed lease authority, native runtime preflight та operator lock;
+public CLI/env authority bypass немає. Fixed Docker environment і shared
+remaining deadline збережено. Імпорт control helper не має сигнатури producer
+для чинного strict inventory guard; сам guard не послаблено.
+
+Після read-only identity/off ACK checks coordinator атомарно записує
+`prepared` **до** першого Docker create, включно з check. Production Runtime
+перевіряє durable generation/runtime/authority перед create і перед start;
+recovery адресно stop/inspect/remove/absence перевіряє п'ять job kinds:
+check, sql, spool, control-on, control-off. Unproven termination не дозволяє
+off/resumed/success. Початковий чужий capture-only відхиляється до generation
+write/job creation. Це production protocol, а не лише observer journal.
+
+Standalone recovery доводить exact expected record перед кожним write,
+після cancel і off ACK. Заміна generation або інших полів означає categorical
+nonzero ownership loss; replacement bytes, phase/reason/time не переписуються.
+CI root-only existing contracts запускаються через sudo, усунуто лише дубль
+control suite та додано syntax/run guard harness. Hosted non-root caller і
+actual Ubuntu systemd verification лишаються required exact-head gates.
+
+Actual baseline SIGKILL перед set-mode відтворив late ON **після** terminal
+recovery/release. Focused actual daemon contracts пройшли17 tests,157.560s:
+ON/OFF death після create до start та перед mutation, timeout/remaining budget,
+no-state/old-terminal check death created/running, foreign mode/generation/runtime
+preservation. Pure coordinator36 tests і CI privilege/guard wiring PASS.
+Native rehearsal і остаточні exact source hashes/evidence описані нижче;
+private повний запис — `final-fix-report.md` у тому самому SDD directory.
+
+Попередня concurrent rehearsal відхилена strict single-producer guard;
+own cleanup PASS. Serial rehearsal completed backup/off ACK/drain, але strict
+HTTP-handler trace interval59.999789516s відхилив її. Обидва first failures
+та cleanup receipts збережені. Timestamp усередині synthetic transport має
+dispatch latency після штатного `RequestPacer.wait`; fixture тепер лише
+awaits **original** wait і записує його actual `self.last_start` перед send.
+Strict≥60s та completed/ACKed-after-backup перевіряються на native request
+attempts із one-to-one request trace; transport timestamps/intervals збережені
+окремо. Clock/sleep/production pacing і deadlines не змінені, tolerance немає.
+Observer додає лише append/read після штатного wait; це synthetic acceptance
+boundary, а не production timing/RPO/RTO. Jitter predicate RED→GREEN2 PASS.
+
+Наведені вище історичні source hashes не є pins цього уточнення; після merge
+отримати нові package hashes. Immutable helper має також installed
+`avelren.collector_control` (origin/hash proof), без backend source changes.
+
+Final serial native GREEN: `avelren-runtime-test-pair-11788-9542`, base8b2b38d
+із final-fix WIP, `source_kind=working_tree_fixture`. Actual native attempt
+intervals **60.007477482 / 60.001416136s**; downstream transport intervals
+**60.010783215 / 59.998247277s** записані окремо. Completion2142.900992896 →
+new completed/ACKed native request2148.736782367; pause40.383s. SQL-job SIGKILL:
+owned jobs absent2066.804507428 → off ACK2075.227818891. API/persistent ID/
+native restart/drain/single producer, crypt readback та restore/replay PASS:
+ACKed1 + pending sequence2 → exact2 cycles/2 observations, pending0.
+Manifest SHA `fa3bd260de61b1dd1cb880f7509daeb5976352a40cadb094139dedd7e6ad52db`.
+Cleanup PASS/errors[]/first_failure=null; Task4 inputs збережені.
+
+Installed helper image
+`sha256:a360e2024963357c598f2d17a9bef2723fc3fcda67f692ae1ac539c7f53116ac`;
+collector fixture `sha256:e292d81062953a301f82ecb8cdcc295bba9cc2d72b34ba76922f67965c383669`.
+Helper UID10001, imported site-packages paired module SHA8d183918…464b,
+native collector_control origin `/usr/local/lib/python3.14/site-packages/avelren/collector_control.py`,
+SHA `650235032a897abe06ceaa55b0fcf6c45569873900f8a0a38e6a2500a4a98b4f`.
+Тимчасові images прибрані; source/installed fixture proof не є production pins.
+Final state26 tests PASS; FIFO startup має окремий bounded ready handshake,
+сам FIFO read зберігає deadline0.5s. Strengthened actual timeout1 PASS21.275s:
+shared remaining2s/<4s call, running exact owned helper/marker до cancel,
+absence перед release і no late ON. Timeout gate стоїть перед native imports/
+SpoolStore initialization; SIGKILL probes окремо gate-ять exact set-mode hook.
+Раніший слабкий timeout тест не доводив досягнення remote mutation boundary;
+його source звіт уточнено, deadline не розширено.
+
 Після merge отримати actual merged SHA, source hashes і approved immutable
 helper image ID: не підставляти WIP rehearsal IDs у production пакет.
 Зберегти поточні host/unit/env files та їхні hashes/UID/GID/modes поза checkout.

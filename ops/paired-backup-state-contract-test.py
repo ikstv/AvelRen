@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -170,13 +171,25 @@ class StateContract(unittest.TestCase):
         code = (
             "import sys; from pathlib import Path; "
             f"sys.path.insert(0,{str(PATH.parent)!r}); import paired_backup_state as s; "
-            f"s.read_state(Path({str(self.directory)!r}))"
+            "print('ready',flush=True);sys.stdin.read(1);\n"
+            f"try: s.read_state(Path({str(self.directory)!r}))\n"
+            "except (ValueError,OSError): sys.exit(1)\n"
         )
+        process = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
-            result = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=0.5)
-        except subprocess.TimeoutExpired:
-            self.fail("unsafe FIFO state blocks recovery indefinitely")
-        self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(select.select([process.stdout], [], [], 5)[0],
+                            "FIFO probe module startup did not complete within 5s")
+            self.assertEqual(process.stdout.readline(), b"ready\n")
+            try:
+                process.communicate(input=b"x", timeout=0.5)
+            except subprocess.TimeoutExpired:
+                self.fail("unsafe FIFO read operation blocks beyond 0.5s")
+            self.assertNotEqual(process.returncode, 0)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=1)
 
     def test_terminal_network_failure_does_not_block_operators(self):
         value = record("resumed")
@@ -270,10 +283,41 @@ class StateContract(unittest.TestCase):
             return True
 
         runtime.cancel_children = cancel
-        result, runtime = self.recover(record(), runtime)
-        self.assertEqual(result["phase"], "recovery_required")
+        with self.assertRaisesRegex(ValueError, "ownership_unproven"):
+            self.recover(record(), runtime)
         self.assertNotIn("off", runtime.events)
-        self.assertEqual(state.read_state(self.directory)["generation"], other["generation"])
+        self.assertEqual(state.read_state(self.directory), other)
+
+    def test_recovery_replacement_bytes_preserved_at_cancel_off_and_error(self):
+        for boundary in ("cancel", "off", "error", "same_generation"):
+            with self.subTest(boundary=boundary):
+                runtime = Runtime()
+                other = record("paused")
+                other.update(generation="33333333-3333-4333-8333-333333333333",
+                             failure_reason="copy_failed", updated_at=42.0)
+                if boundary == "same_generation":
+                    other["generation"] = record()["generation"]
+                replacement = json.dumps(other, indent=2).encode()
+
+                def replace(replacement=replacement):
+                    (self.directory / state.STATE_NAME).write_bytes(replacement)
+
+                if boundary == "off":
+                    def off(mode, authority):
+                        replace()
+                        return {"capture_only": False, "mode_ack": False}
+                    runtime.capture_only = off
+                else:
+                    def cancel(children, boundary=boundary):
+                        replace()
+                        if boundary == "error":
+                            raise OSError("private failure")
+                        return True
+                    runtime.cancel_children = cancel
+                with self.assertRaisesRegex(ValueError, "ownership_unproven"):
+                    self.recover(record(), runtime)
+                self.assertEqual((self.directory / state.STATE_NAME).read_bytes(), replacement)
+                self.assertNotIn("off", runtime.events)
 
     def test_output_rejects_hardlink_and_wrong_owner(self):
         target = self.directory / "output"

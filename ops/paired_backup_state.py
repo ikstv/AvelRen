@@ -593,15 +593,23 @@ def recover_owned_run(state_dir: Path, *, runtime: object) -> dict:
     if value["phase"] in TERMINAL:
         return value
 
-    def unresolved(reason):
+    def assert_owned():
+        validate_authority(authority, state_dir)
+        if read_state(state_dir) != value:
+            raise ValueError("ownership_unproven")
+
+    def save(**changes):
         nonlocal value
-        latest = read_state(state_dir)
-        if latest is not None and latest["generation"] != value["generation"]:
-            value = latest
-        value.update(phase="recovery_required", failure_reason=reason, updated_at=time.time())
-        write_state(state_dir, value)
+        assert_owned()
+        replacement = dict(value, **changes, updated_at=time.time())
+        write_state(state_dir, replacement)
+        value = replacement
         return value
 
+    def unresolved(reason):
+        return save(phase="recovery_required", failure_reason=reason)
+
+    assert_owned()
     if (
         not _owner_dead(value["owner"])
         or value["initial_capture_only"]
@@ -611,27 +619,33 @@ def recover_owned_run(state_dir: Path, *, runtime: object) -> dict:
     try:
         if runtime.identity() != value["identity"]:
             return unresolved("identity_changed")
+        assert_owned()
         if runtime.cancel_children(value["children"]) is not True:
             return unresolved("children_unresolved")
         # Re-read generation and identity after cleanup; no takeover by boolean.
-        latest = read_state(state_dir)
-        if latest != value or runtime.identity() != value["identity"]:
-            return unresolved("ownership_unproven")
+        assert_owned()
+        if runtime.identity() != value["identity"]:
+            return unresolved("identity_changed")
         mode = runtime.capture_status()
+        assert_owned()
         if value["phase"] == "prepared":
             if mode.get("capture_only") is not False or mode.get("mode_ack") is not False:
                 return unresolved("ownership_unproven")
         elif mode.get("capture_only") is True:
-            value.update(phase="off_intent", updated_at=time.time())
-            write_state(state_dir, value)
+            save(phase="off_intent")
             mode = runtime.capture_only("off", authority)
+        assert_owned()
         if mode.get("capture_only") is not False or mode.get("mode_ack") is not False:
             return unresolved("off_unacknowledged")
         if runtime.identity() != value["identity"]:
             return unresolved("identity_changed")
-        value.update(phase="resumed", updated_at=time.time(), children=[])
-        value.pop("failure_reason", None)
-        write_state(state_dir, value)
+        save(phase="resumed", children=[])
+        if "failure_reason" in value:
+            assert_owned()
+            replacement = dict(value)
+            replacement.pop("failure_reason")
+            write_state(state_dir, replacement)
+            value = replacement
         return value
     except (ValueError, OSError, KeyError, TypeError):
         return unresolved("recovery_failed")

@@ -213,12 +213,14 @@ class Coordinator:
             self.runtime.deadline = time.monotonic() + 180
             directory = Path(tempfile.mkdtemp(prefix=".paired-", dir=self.work_dir))
             try:
-                self.runtime.preflight()
-                self.publisher.preflight()
+                # Only read-only checks precede the durable generation. Even
+                # docker create (before start) must be recoverable by this record.
+                self.runtime.verify_client()
                 identity = self.runtime.identity()
                 mode = self.runtime.capture_status()
                 if mode.get("capture_only") is not False or mode.get("mode_ack") is not False:
                     raise ValueError("existing_or_uncertain_capture_mode")
+                self.publisher.preflight()
                 now = time.time()
                 self.value = dict(
                     format_version=1,
@@ -235,6 +237,10 @@ class Coordinator:
                 if state.read_state(self.state_dir) != old:
                     raise ValueError("ownership_unproven")
                 state.write_state(self.state_dir, self.value)
+                self.runtime.preflight()
+                self.assert_owned()
+                if self.runtime.identity() != identity:
+                    raise ValueError("identity_changed")
                 self.receipt.unlink(missing_ok=True)
                 started = time.monotonic()
                 pause_deadline = started + 900
@@ -564,13 +570,57 @@ class Runtime:
         self.deadline = min(original, time.monotonic() + 35)
         try:
             return self.controller.execute(
-                self.manifest, "capture-only", [mode], authority=authority
+                self.manifest, "capture-only", [mode], authority=authority,
+                capture_mutation=self.control_job,
             )
         finally:
             self.deadline = original
 
     def job_name(self, kind):
         return "avelren-paired-" + self.generation + "-" + kind
+
+    def owned_job_record(self):
+        directory = Path(self.manifest["state_dir"])
+        state.validate_authority(state._authority(directory), directory)
+        value = state.read_state(directory)
+        if (value is None or value["generation"] != self.generation
+                or value["identity"] != self.identity() or value["phase"] in state.TERMINAL):
+            raise ValueError("ownership_unproven")
+        return value
+
+    def control_job(self, mode):
+        value = self.owned_job_record()
+        if value["initial_capture_only"] or value["phase"] != mode + "_intent":
+            raise ValueError("ownership_unproven")
+        self.verify_helper_image()
+        if self.owned_job_record() != value:
+            raise ValueError("ownership_unproven")
+        # Immutable installed helper uses the unchanged native SpoolStore mode
+        # mutation and writer ACK. No collector exec outlives local cancellation.
+        code = (
+            "import hashlib; import avelren.paired_backup_spool as m; "
+            "assert hashlib.sha256(open(m.__file__,'rb').read()).hexdigest()=="
+            f"{self.helper_hash!r}; "
+            "from avelren import collector_control as c; "
+            f"raise SystemExit(c.main(['capture-only',{mode!r}]))"
+        )
+        output = self.work / (".mode-" + uuid.uuid4().hex)
+        try:
+            self.job(
+                "control-" + mode, self.helper,
+                ["--network", "none", "--user", "10001:10001", "--mount",
+                 "type=volume,src=" + self.manifest["volume"]
+                 + ",dst=/var/lib/avelren/collector-spool"],
+                ["python", "-c", code], output,
+            )
+            result = output.read_text()
+            if self.cancel_jobs(["control-" + mode]) is not True:
+                raise ValueError("children_unresolved")
+            if self.owned_job_record() != value:
+                raise ValueError("ownership_unproven")
+            return result
+        finally:
+            output.unlink(missing_ok=True)
 
     def labels(self):
         identity = hashlib.sha256(json.dumps(self.identity(), sort_keys=True).encode()).hexdigest()
@@ -580,17 +630,22 @@ class Runtime:
         }
 
     def job(self, kind, image, options, command, output):
+        owned = self.owned_job_record()
         name = self.job_name(kind)
         labels = self.labels()
         argv = ["docker", "create", "--name", name, "--restart", "no"]
         for key, value in labels.items():
             argv.extend(["--label", key + "=" + value])
+        if self.owned_job_record() != owned:
+            raise ValueError("ownership_unproven")
         identifier = self.output(
             [*argv, *options, "--entrypoint", command[0], image, *command[1:]],
             env=command_environment(docker=True, password=kind == "sql"),
         ).strip()
         if not re.fullmatch(r"[0-9a-f]{64}", identifier):
             raise ValueError("invalid_helper_identity")
+        if self.owned_job_record() != owned:
+            raise ValueError("ownership_unproven")
         code = state.run_bounded(
             ["docker", "start", "-a", identifier],
             deadline=self.deadline,
@@ -612,8 +667,11 @@ class Runtime:
                     return False
             except FileNotFoundError:
                 pass
+        return self.cancel_jobs(["check", "sql", "spool", "control-on", "control-off"])
+
+    def cancel_jobs(self, kinds):
         expected = self.labels()
-        for kind in ["check", "sql", "spool"]:
+        for kind in kinds:
             name = self.job_name(kind)
             ids = self.output(["docker", "ps", "-aq", "--filter", "name=^/" + name + "$"]).split()
             if not ids:
@@ -666,15 +724,7 @@ class Runtime:
         if version != {"version": "v5.5.1"}:
             raise ValueError("compose_plugin_version_mismatch")
 
-    def preflight(self):
-        if shutil.disk_usage(self.work).free < 2_147_483_648:
-            raise ValueError("work_space_insufficient")
-        self.verify_client()
-        self.identity()
-        if os.environ.get(
-            "AVELREN_BACKUP_DB_USER", "avelren_backup"
-        ) != "avelren_backup" or not os.environ.get("AVELREN_BACKUP_PASSWORD"):
-            raise ValueError("backup_role_or_password_required")
+    def verify_helper_image(self):
         self.helper = os.environ.get("AVELREN_BACKUP_HELPER_IMAGE", "")
         self.helper_source = os.environ.get("AVELREN_BACKUP_HELPER_SOURCE_COMMIT", "")
         self.helper_hash = os.environ.get("AVELREN_BACKUP_HELPER_SHA256", "")
@@ -695,6 +745,17 @@ class Runtime:
             key, _, value = variable.partition("=")
             if value and re.search(r"DATABASE|(^|_)DB_|^PG|DSN|PASSWORD|SECRET|TOKEN", key):
                 raise ValueError("helper_credentials_forbidden")
+
+    def preflight(self):
+        if shutil.disk_usage(self.work).free < 2_147_483_648:
+            raise ValueError("work_space_insufficient")
+        self.verify_client()
+        self.identity()
+        if os.environ.get(
+            "AVELREN_BACKUP_DB_USER", "avelren_backup"
+        ) != "avelren_backup" or not os.environ.get("AVELREN_BACKUP_PASSWORD"):
+            raise ValueError("backup_role_or_password_required")
+        self.verify_helper_image()
         code = (
             "import hashlib; import avelren.paired_backup_spool as m; "
             "print(hashlib.sha256(open(m.__file__, 'rb').read()).hexdigest())"

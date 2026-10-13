@@ -216,6 +216,40 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertEqual(state.read_state(self.state)["phase"], "published")
         self.assertEqual(list(self.work.iterdir()), [])
 
+    def test_preflight_is_already_durably_owned(self):
+        original = Runtime.preflight
+
+        def preflight(runtime):
+            value = state.read_state(self.state)
+            self.assertIsNotNone(value, "first creating preflight lacks durable ownership")
+            self.assertEqual(value["generation"], runtime.generation)
+            self.assertEqual(value["identity"], runtime.identity())
+            self.assertEqual(value["phase"], "prepared")
+            self.assertFalse(value["initial_capture_only"])
+            return original(runtime)
+
+        with patch.object(Runtime, "preflight", preflight):
+            self.execute()
+
+    def test_control_helper_is_not_classified_as_an_extra_producer(self):
+        runtime = self.module.Runtime(dict(state_dir=str(self.state), volume="spool"), self.work)
+        runtime.generation = "12345678-1234-1234-1234-123456789abc"
+        runtime.owned_job_record = lambda: dict(phase="on_intent", initial_capture_only=False)
+        runtime.helper, runtime.helper_hash = IDENTITY["image_id"], "a" * 64
+        runtime.verify_helper_image = lambda: None
+        runtime.cancel_jobs = lambda kinds: True
+        commands = []
+
+        def job(kind, image, options, command, output):
+            commands.append(command)
+            output.write_text('{"capture_only":true,"mode_ack":true}')
+
+        runtime.job = job
+        runtime.control_job("on")
+        container = dict(Name="/" + runtime.job_name("control-on"),
+                         Config=dict(Cmd=commands[0][1:], Entrypoint=commands[0][:1]))
+        self.assertFalse(runtime.controller.runtime.is_collector(container))
+
     def test_failures_owned_cleanup_and_no_success(self):
         for fault in [
             "on",
@@ -394,6 +428,7 @@ class CoordinatorContracts(unittest.TestCase):
         runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
         runtime.generation = "12345678-1234-1234-1234-123456789abc"
         runtime.identity = lambda: dict(IDENTITY)
+        runtime.owned_job_record = lambda: {}  # This test isolates credential delivery only.
         calls = []
 
         def output(argv, env=None):
@@ -585,6 +620,7 @@ class CoordinatorContracts(unittest.TestCase):
         runtime = self.module.Runtime(dict(state_dir=str(self.state)), self.work)
         runtime.generation = "12345678-1234-1234-1234-123456789abc"
         runtime.identity = lambda: dict(IDENTITY)
+        runtime.owned_job_record = lambda: {}  # Creation ownership has separate daemon probes.
         calls = []
 
         def output(argv, env=None):

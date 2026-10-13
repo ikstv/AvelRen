@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -36,10 +37,24 @@ def completed_cycle_after(value, completion):
     calls, status = value["calls"], value["status"]
     return bool(
         calls
-        and calls[-1]["monotonic"] > completion
+        and calls[-1]["native_attempt_monotonic"] > completion
         and status["pending_count"] == 0
         and status["acked_count"] >= len(calls)
     )
+
+
+def native_request_intervals(calls):
+    starts = [call["native_attempt_monotonic"] for call in calls]
+    if any(
+        type(start) not in (int, float) or not math.isfinite(start)
+        or call["monotonic"] < start
+        for start, call in zip(starts, calls, strict=True)
+    ):
+        raise ValueError("invalid_native_request_trace")
+    intervals = [b - a for a, b in zip(starts, starts[1:], strict=False)]
+    if any(interval < 60 for interval in intervals):
+        raise ValueError("native_request_interval")
+    return intervals
 
 
 def registered_create(tracked, name, create):
@@ -394,7 +409,7 @@ def cleanup_fixture(fixture, prefix, ledger, *, coordinator_pid=None, first_fail
         if failures:
             raise ValueError("cleanup_job_removals_unproven:" + ",".join(failures))
 
-    for kind in ("check", "sql", "spool"):
+    for kind in ("check", "sql", "spool", "control-on", "control-off"):
         cleanup.add("job-" + kind, lambda kind=kind: remove_job(kind))
     for name in reversed(containers):
         labels = (
@@ -658,8 +673,11 @@ def run(args):
                     "python",
                     "-c",
                     "import json,os,hashlib;import avelren.paired_backup_spool as m;"
+                    "from avelren import collector_control as c;"
                     "print(json.dumps(dict(uid=os.geteuid(),origin=m.__file__,"
-                    "sha256=hashlib.sha256(open(m.__file__,'rb').read()).hexdigest())))",
+                    "sha256=hashlib.sha256(open(m.__file__,'rb').read()).hexdigest(),"
+                    "control_origin=c.__file__,"
+                    "control_sha256=hashlib.sha256(open(c.__file__,'rb').read()).hexdigest())))",
                 ]
             )
         )
@@ -672,10 +690,32 @@ def run(args):
             proof["sha256"]
             == hashlib.sha256((build / "avelren/paired_backup_spool.py").read_bytes()).hexdigest()
         )
+        assert proof["control_origin"] == (
+            "/usr/local/lib/python3.14/site-packages/avelren/collector_control.py"
+        )
+        assert proof["control_sha256"] == hashlib.sha256(
+            (build / "avelren/collector_control.py").read_bytes()
+        ).hexdigest()
         evidence.update(helper_image_id=helper, installed_helper=proof)
         transport = old.SYNTHETIC.replace(
+            "    original=httpx.AsyncClient",
+            "    from avelren.echerha import RequestPacer\n"
+            "    attempts=[]\n"
+            "    original_wait=RequestPacer.wait\n"
+            "    async def observed_wait(self):\n"
+            "        await original_wait(self)\n"
+            "        attempts.append(self.last_start)\n"
+            "    RequestPacer.wait=observed_wait\n"
+            "    original=httpx.AsyncClient",
+        ).replace(
+            "        trace=Path(",
+            "        assert len(attempts)==1\n"
+            "        native_attempt=attempts.pop(0)\n"
+            "        trace=Path(",
+        ).replace(
             "{'at':time.time()}",
             "{'at':time.time(),'monotonic':time.monotonic(),"
+            "'native_attempt_monotonic':native_attempt,"
             "'device':request.headers['X-Device-Id']}",
         )
         (build / "sitecustomize.py").write_text(transport)
@@ -961,7 +1001,7 @@ def run(args):
             # Observation after the actual native snapshot, before Coordinator
             # removes its job. No operation/result/authority is replaced.
             def job(self, kind, image, options, command, output):
-                # Native preflight check can exist before durable backup state.
+                # Independent fixture cleanup also retains exact owned jobs.
                 register_job_owner(fixture, args.prefix, self.generation, self.identity())
                 try:
                     return super().job(kind, image, options, command, output)
@@ -990,7 +1030,7 @@ def run(args):
 
             def capture_only(self, mode, authority):
                 if mode == "off":
-                    for kind in ("check", "sql", "spool"):
+                    for kind in ("check", "sql", "spool", "control-on", "control-off"):
                         assert not self.output(
                             [
                                 "docker",
@@ -1209,23 +1249,26 @@ def run(args):
         wait(lambda: completed_cycle_after(status(), completion), 90)
         after_call = status()["calls"][-1]
         after = after_call["at"]
-        assert after_call["monotonic"] > completion
+        assert after_call["native_attempt_monotonic"] > completion
         smoke()
         assert first < during < after
         calls = status()["calls"]
-        intervals = [
+        transport_intervals = [
             b["monotonic"] - a["monotonic"] for a, b in zip(calls, calls[1:], strict=False)
         ]
-        assert all(interval >= 60 for interval in intervals), intervals
+        intervals = native_request_intervals(calls)
         assert all(call["device"] == DEVICE for call in calls)
         evidence.update(
             cycles_before_during_after=len(calls),
             start_intervals_seconds=intervals,
+            start_measurement="original RequestPacer.wait self.last_start before client.send",
+            request_attempts=calls,
+            transport_intervals_seconds=transport_intervals,
             api_smoke_before_during_after=True,
             writer_receipt=result,
             producer_boundary_events=dict(before=first, during=during, after=after),
             backup_completion_monotonic=completion,
-            after_start_monotonic=after_call["monotonic"],
+            after_start_monotonic=after_call["native_attempt_monotonic"],
         )
         evidence["native_helper_bind_proof"] = json.loads(
             (fixture / "helper-bind-proof.json").read_text()
@@ -1242,10 +1285,7 @@ def run(args):
         inspection = json.loads(command(["docker", "inspect", manifest["container_name"]]))[0]
         assert "ECHERHA_DEVICE_ID=" + DEVICE in inspection["Config"]["Env"]
         final_calls = status()["calls"]
-        assert all(
-            b["monotonic"] - a["monotonic"] >= 60
-            for a, b in zip(final_calls, final_calls[1:], strict=False)
-        )
+        evidence["restart_start_intervals_seconds"] = native_request_intervals(final_calls)
         assert all(call["device"] == DEVICE for call in final_calls)
         owned.identity()  # Scans full inventory and rejects a second producer.
         evidence["restart_persistent_id_drain_single_producer"] = True

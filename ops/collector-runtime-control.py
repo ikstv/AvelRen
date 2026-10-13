@@ -81,22 +81,32 @@ def mutation_run(manifest: dict, argv: list[str], *, env=None) -> str:
         output.unlink(missing_ok=True)
 
 
-def execute(manifest: dict, action: str, arguments: list[str], *, authority=None) -> dict:
+def execute(
+    manifest: dict, action: str, arguments: list[str], *, authority=None, capture_mutation=None
+) -> dict:
     mutating = action in ("start", "stop", "restart") or (
         action == "capture-only" and arguments != ["status"]
     )
     if not mutating:
+        if capture_mutation is not None:
+            raise ValueError("invalid_capture_mutation")
         return _execute(manifest, action, arguments)
     directory = Path(manifest["state_dir"])
     if authority is None:
+        if capture_mutation is not None:
+            raise ValueError("invalid_capture_mutation")
         with backup.operator_guard(directory) as owned:
             return execute(manifest, action, arguments, authority=owned)
     backup.validate_authority(authority, directory)
+    if capture_mutation is not None and (
+        action != "capture-only" or not callable(capture_mutation)
+    ):
+        raise ValueError("invalid_capture_mutation")
     with operator_lock(directory):
-        return _execute(manifest, action, arguments)
+        return _execute(manifest, action, arguments, capture_mutation=capture_mutation)
 
 
-def _execute(manifest: dict, action: str, arguments: list[str]) -> dict:
+def _execute(manifest: dict, action: str, arguments: list[str], *, capture_mutation=None) -> dict:
     manifest, target = runtime.preflight(manifest, require_managed=True)
     command, env = runtime.compose_command(manifest)
     if action == "status":
@@ -136,7 +146,7 @@ def _execute(manifest: dict, action: str, arguments: list[str]) -> dict:
             runtime.run if arguments[0] == "status" else lambda argv: mutation_run(manifest, argv)
         )
         value = json.loads(
-            runner(
+            capture_mutation(arguments[0]) if capture_mutation is not None else runner(
                 [
                     "docker",
                     "exec",
