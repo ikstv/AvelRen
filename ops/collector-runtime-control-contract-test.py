@@ -56,9 +56,7 @@ class ControlContract(unittest.TestCase):
             if "start" in args:
                 self.target["State"]["Running"] = True
             if "avelren.collector_control" in args:
-                return json.dumps(
-                    {"capture_only": mode == "on", "mode_ack": mode == "on"}
-                )
+                return json.dumps({"capture_only": mode == "on", "mode_ack": mode == "on"})
             return ""
 
         def delay(seconds):
@@ -69,11 +67,12 @@ class ControlContract(unittest.TestCase):
         with (
             patch.object(obj.runtime, "preflight", side_effect=preflight),
             patch.object(obj.runtime, "run", side_effect=run),
+            patch.object(
+                obj, "mutation_run", side_effect=lambda manifest, args, **kw: run(args, **kw)
+            ),
             patch.object(obj, "wait_interval", side_effect=delay),
         ):
-            return obj.execute(
-                self.manifest, action, [mode] if action == "capture-only" else []
-            )
+            return obj.execute(self.manifest, action, [mode] if action == "capture-only" else [])
 
     def test_second_poller(self):
         with self.assertRaises(ValueError):
@@ -135,10 +134,8 @@ class ControlContract(unittest.TestCase):
     def test_capture_timeout(self):
         obj = module()
         with (
-            patch.object(
-                obj.runtime, "preflight", return_value=(self.manifest, self.target)
-            ),
-            patch.object(obj.runtime, "run", side_effect=ValueError("command_failed")),
+            patch.object(obj.runtime, "preflight", return_value=(self.manifest, self.target)),
+            patch.object(obj, "mutation_run", side_effect=ValueError("command_failed")),
             self.assertRaises(ValueError),
         ):
             obj.execute(self.manifest, "capture-only", ["on"])
@@ -156,17 +153,86 @@ class ControlContract(unittest.TestCase):
     def test_capture_wrong_ack(self):
         obj = module()
         with (
+            patch.object(obj.runtime, "preflight", return_value=(self.manifest, self.target)),
             patch.object(
-                obj.runtime, "preflight", return_value=(self.manifest, self.target)
-            ),
-            patch.object(
-                obj.runtime,
-                "run",
+                obj,
+                "mutation_run",
                 return_value='{"capture_only":true,"mode_ack":false}',
             ),
             self.assertRaisesRegex(ValueError, "capture_mode_not_acknowledged"),
         ):
             obj.execute(self.manifest, "capture-only", ["on"])
+
+    @unittest.skipUnless(os.name == "posix", "Linux shared lease")
+    def test_backup_lease_blocks_every_mutation_before_preflight(self):
+        import fcntl
+
+        obj = module()
+        lock = Path(self.temp.name) / "operator-backup.lock"
+        fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for action, args in (
+                ("start", []),
+                ("stop", []),
+                ("restart", []),
+                ("capture-only", ["on"]),
+                ("capture-only", ["off"]),
+            ):
+                with self.subTest(action=action, args=args):
+                    with patch.object(obj.runtime, "preflight") as preflight:
+                        with self.assertRaises(ValueError):
+                            obj.execute(self.manifest, action, args)
+                        preflight.assert_not_called()
+        finally:
+            os.close(fd)
+
+    @unittest.skipUnless(os.name == "posix", "Linux shared lease")
+    def test_readonly_capture_status_passes_active_lease(self):
+        import fcntl
+
+        obj = module()
+        fd = os.open(Path(self.temp.name) / "operator-backup.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with (
+                patch.object(obj.runtime, "preflight", return_value=(self.manifest, self.target)),
+                patch.object(
+                    obj.runtime, "run", return_value='{"capture_only":true,"mode_ack":true}'
+                ),
+            ):
+                self.assertTrue(obj.execute(self.manifest, "capture-only", ["status"])["mode_ack"])
+        finally:
+            os.close(fd)
+
+    @unittest.skipUnless(os.name == "posix", "Linux shared lease")
+    def test_unresolved_state_blocks_before_preflight(self):
+        obj = module()
+        path = Path(self.temp.name) / "paired-backup-state.json"
+        path.write_text('{"format_version":1,"phase":"on_intent"}')
+        path.chmod(0o600)
+        with patch.object(obj.runtime, "preflight") as preflight:
+            with self.assertRaises(ValueError):
+                obj.execute(self.manifest, "capture-only", ["off"])
+            preflight.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "Linux shared lease")
+    def test_internal_authority_avoids_recursive_lock_and_keeps_lease(self):
+        obj = module()
+
+        def mutation(manifest, argv):
+            with self.assertRaisesRegex(ValueError, "backup_busy"):
+                with obj.backup.backup_lock(Path(self.temp.name)):
+                    self.fail("guard released before mutation")
+            return '{"capture_only":true,"mode_ack":true}'
+
+        with obj.backup.backup_lock(Path(self.temp.name)) as authority:
+            with (
+                patch.object(obj.runtime, "preflight", return_value=(self.manifest, self.target)),
+                patch.object(obj, "mutation_run", side_effect=mutation),
+            ):
+                result = obj.execute(self.manifest, "capture-only", ["on"], authority=authority)
+                self.assertTrue(result["mode_ack"])
 
 
 if __name__ == "__main__":

@@ -3,6 +3,17 @@
 # This script does not restart anything itself.
 set -euo pipefail
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ -v AVELREN_OPERATOR_GUARD_FD ]]; then
+  python3 "$SCRIPT_DIR/paired_backup_state.py" \
+    --manifest "${AVELREN_RUNTIME_MANIFEST:-/etc/avelren/collector-runtime.json}" \
+    --fd "$AVELREN_OPERATOR_GUARD_FD" --owner "${AVELREN_OPERATOR_GUARD_OWNER:-null}" validate-inherited || exit 75
+else
+  exec python3 "$SCRIPT_DIR/paired_backup_state.py" \
+    --manifest "${AVELREN_RUNTIME_MANIFEST:-/etc/avelren/collector-runtime.json}" \
+    operator -- bash "${BASH_SOURCE[0]}" "$@"
+fi
+
 OUT_DIR="${AVELREN_MAINTENANCE_DIR:-/var/lib/avelren-telemetry}"
 OUT="$OUT_DIR/maintenance.json"
 STATUS_URL="${AVELREN_STATUS_URL:-https://api.bordersignal.pp.ua/api/status}"
