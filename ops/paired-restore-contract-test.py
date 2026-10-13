@@ -299,6 +299,9 @@ class RehearsalContracts(unittest.TestCase):
                 "failure) echo rejected-replay-secret; exit 53 ;; "
                 "invalid) echo rejected-replay-secret ;; esac; "
                 'printf "%s\\n" "$PAIRED_TEST_RECEIPT" ;;\n'
+                # The real psql consumes the gzip pipeline and SQL heredocs.
+                # Returning before reading can spuriously SIGPIPE gzip under load.
+                '*" psql "*) cat >/dev/null ;;\n'
                 "esac\nexit 0\n"
             )
             executable.chmod(0o700)
@@ -375,6 +378,52 @@ class RehearsalContracts(unittest.TestCase):
             self.assertNotIn("rejected-payload-secret", result.stdout + result.stderr)
             self.assertIn("native_role_bootstrap_failed", result.stderr)
             self.assertEqual(list(root.glob("avelren-paired-restore.*")), [])
+
+    def test_failed_down_retains_private_journal_and_original_failure(self):
+        bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "docker"
+            executable.write_text(
+                "#!/usr/bin/env bash\n"
+                'case "$*" in *" up -d --wait db") exit 47 ;;\n'
+                ' *" down --volumes --remove-orphans") exit 48 ;; esac\n'
+                "exit 0\n"
+            )
+            executable.chmod(0o700)
+            result = subprocess.run(
+                [
+                    bash,
+                    (ROOT / "ops/paired-restore-rehearsal.sh").as_posix(),
+                    "--directory",
+                    root.as_posix(),
+                    "--manifest",
+                    NAME,
+                ],
+                env={
+                    **os.environ,
+                    "PATH": root.as_posix() + os.pathsep + os.environ["PATH"],
+                    "TMPDIR": root.as_posix(),
+                },
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 47, result.stdout + result.stderr)
+            self.assertIn("rehearsal_cleanup_unproven", result.stderr)
+            directories = list(root.glob("avelren-paired-restore.*"))
+            self.assertEqual(len(directories), 1)
+            journal = directories[0] / "project.json"
+            value = json.loads(journal.read_text())
+            self.assertEqual(Path(value["working_dir"]), directories[0])
+            self.assertEqual(Path(value["env_file"]), directories[0] / "compose.env")
+            self.assertEqual(
+                Path(value["compose_file"]), ROOT / "ops/compose.paired-restore-test.yml"
+            )
+            self.assertRegex(value["project"], r"^avelren-paired-restore-[0-9]+-[0-9]+-[0-9]+$")
+            if os.name != "nt":
+                self.assertEqual(journal.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(directories[0].stat().st_mode & 0o777, 0o700)
 
     def test_failed_start_cleans_only_generated_project_and_private_work(self):
         bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")

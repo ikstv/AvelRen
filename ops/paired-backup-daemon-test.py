@@ -8,8 +8,10 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -18,15 +20,131 @@ RCLONE = "rclone/rclone@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb8
 DEVICE = "11111111-1111-4111-8111-111111111111"
 SPOOL = "/var/lib/avelren/collector-spool"
 PLUGIN_HASH = "db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576"
+FAILURE_LOG = Path("/evidence/paired-backup-failure.log")
+OWNER_WRITER = None
 
 
-def command(argv, *, env=None, seconds=180):
-    result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=seconds)
-    if result.returncode:
+def install_cancellation():
+    def cancelled(signum, frame):
+        raise KeyboardInterrupt("fixture_cancelled")
+
+    for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(signum, cancelled)
+
+
+def completed_cycle_after(value, completion):
+    calls, status = value["calls"], value["status"]
+    return bool(
+        calls
+        and calls[-1]["monotonic"] > completion
+        and status["pending_count"] == 0
+        and status["acked_count"] >= len(calls)
+    )
+
+
+def registered_create(tracked, name, create):
+    tracked.append(name)
+    return create()
+
+
+class Cleanup:
+    """Bounded best effort: attempt every registered operation, preserve failures."""
+
+    def __init__(self, *, seconds=150):
+        self.deadline = time.monotonic() + seconds
+        self.operations = []
+
+    def add(self, name, operation):
+        self.operations.append((name, operation))
+
+    def run(self, argv, *, env=None):
+        # Cleanup Docker clients get a short bounded reap period; the main
+        # nested rehearsal command gets the longer graceful child cleanup.
+        return command(
+            argv,
+            env=env,
+            seconds=max(0.1, min(15, self.deadline - time.monotonic())),
+            termination_seconds=0.2,
+            reap_seconds=0.5,
+        )
+
+    def remove(self, kind, name, labels=None):
+        ids = self.run(
+            [
+                "docker",
+                kind,
+                "ls",
+                "--format",
+                "{{.Names}}" if kind == "container" else "{{.Name}}",
+                *(["-a"] if kind == "container" else []),
+            ]
+        )
+        if name not in ids.splitlines():
+            return
+        item = json.loads(self.run(["docker", kind, "inspect", name]))[0]
+        actual = (
+            item.get("Config", {}).get("Labels", {})
+            if kind == "container"
+            else item.get("Labels", {})
+        )
+        if labels and any((actual or {}).get(key) != value for key, value in labels.items()):
+            raise ValueError("cleanup_ownership_unproven")
+        options = ["-fv"] if kind == "container" else []
+        self.run(["docker", kind, "rm", *options, name])
+
+    def finish(self):
+        for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            signal.signal(signum, signal.SIG_IGN)
+        errors = []
+        for name, operation in self.operations:
+            try:
+                operation()
+            except BaseException as error:
+                errors.append(name + ":" + type(error).__name__)
+        return errors
+
+
+def command(argv, *, env=None, seconds=180, termination_seconds=45, reap_seconds=5):
+    if OWNER_WRITER is not None:
+        OWNER_WRITER()
+    process = subprocess.Popen(
+        argv,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=seconds)
+    except BaseException:
+        handlers = {
+            s: signal.signal(s, signal.SIG_IGN)
+            for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+        }
+        try:
+            # poll=None proves this exact unreaped child is still alive. Never
+            # signal a stored numeric group after its leader has been reaped.
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.communicate(timeout=termination_seconds)
+                except subprocess.TimeoutExpired:
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    process.communicate(timeout=reap_seconds)
+        except BaseException:
+            pass  # Keep the original timeout/cancellation and durable ledger.
+        finally:
+            for signum, handler in handlers.items():
+                signal.signal(signum, handler)
+        raise
+    if process.returncode:
         # Synthetic fixture only; keep raw diagnostics in private evidence.
-        Path("/evidence/paired-backup-failure.log").write_text(result.stdout + result.stderr)
+        if not FAILURE_LOG.exists():
+            FAILURE_LOG.write_text(stdout + stderr)
         raise AssertionError("fixture_command_failed:" + argv[0])
-    return result.stdout
+    return stdout
 
 
 def wait(predicate, seconds=40):
@@ -45,10 +163,379 @@ def load(path, name):
     return module
 
 
-def run(args):
+def validate_ledger(value, prefix):
+    if not re.fullmatch(r"avelren-runtime-test-pair-[0-9]+-[0-9]+", prefix):
+        raise ValueError("invalid_fixture_prefix")
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {
+            "format_version",
+            "fixture",
+            "containers",
+            "images",
+            "created_volume",
+            "created_network",
+            "sql_started",
+        }
+        or type(value["format_version"]) is not int
+        or value["format_version"] != 1
+        or value["fixture"] != prefix
+    ):
+        raise ValueError("invalid_fixture_ledger")
+    for flag in ("created_volume", "created_network", "sql_started"):
+        if type(value[flag]) is not bool:
+            raise ValueError("invalid_fixture_ledger")
+    for key, suffixes in (
+        ("containers", ("collector", "api", "rclone", "sql-lock")),
+        ("images", ("offline-base", "helper", "collector-image")),
+    ):
+        if (
+            not isinstance(value[key], list)
+            or len(value[key]) > len(suffixes)
+            or any(
+                name not in {prefix + "-" + suffix for suffix in suffixes} for name in value[key]
+            )
+        ):
+            raise ValueError("invalid_fixture_ledger")
+        if len(set(value[key])) != len(value[key]):
+            raise ValueError("invalid_fixture_ledger")
+
+
+def write_ledger(fixture, value):
+    validate_ledger(value, value["fixture"])
+    write_private_json(fixture / "owned.json", value)
+
+
+def write_private_json(path, value):
+    fd, temporary = tempfile.mkstemp(prefix=".fixture-journal-", dir=path.parent)
+    with os.fdopen(fd, "w") as stream:
+        stream.write(json.dumps(value))
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+    fd = os.open(path.parent, os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def read_private_json(path):
+    info = path.lstat()
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_uid != 0
+        or info.st_mode & 0o077
+        or info.st_nlink != 1
+        or info.st_size > 65536
+    ):
+        raise ValueError("untrusted_fixture_journal")
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate_fixture_journal_key")
+            result[key] = value
+        return result
+
+    return json.loads(path.read_text(), object_pairs_hook=unique)
+
+
+def validate_job_owners(value, prefix):
+    if not isinstance(value, list) or len(value) > 2:
+        raise ValueError("invalid_job_owners")
+    generations = set()
+    for owner in value:
+        if (
+            not isinstance(owner, dict)
+            or set(owner) != {"generation", "identity"}
+            or not isinstance(owner["generation"], str)
+            or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", owner["generation"])
+            or owner["generation"] in generations
+        ):
+            raise ValueError("invalid_job_owners")
+        generations.add(owner["generation"])
+        identity = owner["identity"]
+        if (
+            not isinstance(identity, dict)
+            or set(identity)
+            != {
+                "container_id",
+                "image_id",
+                "source_commit",
+                "restart_count",
+                "started_at",
+                "volume",
+                "network",
+            }
+            or identity["volume"] != prefix + "-spool"
+            or identity["network"] != prefix + "-network"
+            or type(identity["restart_count"]) is not int
+            or identity["restart_count"] < 0
+            or not isinstance(identity["started_at"], str)
+            or len(identity["started_at"]) > 64
+        ):
+            raise ValueError("invalid_job_identity")
+        for key, pattern in (
+            ("container_id", r"[0-9a-f]{64}"),
+            ("image_id", r"sha256:[0-9a-f]{64}"),
+            ("source_commit", r"[0-9a-f]{40}"),
+        ):
+            if not isinstance(identity[key], str) or not re.fullmatch(pattern, identity[key]):
+                raise ValueError("invalid_job_identity")
+
+
+def register_job_owner(fixture, prefix, generation, identity):
+    path = fixture / "job-owners.json"
+    owners = read_private_json(path) if path.exists() else []
+    owner = dict(generation=generation, identity=identity)
+    if owner not in owners:
+        owners.append(owner)
+    validate_job_owners(owners, prefix)
+    write_private_json(path, owners)
+
+
+def cleanup_only(args):
     os.umask(0o077)
+    fixture, prefix = args.fixture.resolve(), args.prefix
+    assert fixture.name == "_data" and fixture.parent.name == prefix + "-controller-data"
+    assert not args.fixture.is_symlink()
+    value = read_private_json(fixture / "owned.json")
+    validate_ledger(value, prefix)
+    info = (fixture / "owned.json").lstat()
+    assert info.st_uid == 0 and info.st_mode & 0o077 == 0 and info.st_nlink == 1
+    volume = json.loads(command(["docker", "volume", "inspect", prefix + "-controller-data"]))[0]
+    assert volume["Labels"].get("org.avelren.test.fixture") == prefix
+    client = Path("/etc/avelren/docker-client/cli-plugins")
+    client.mkdir(parents=True, mode=0o700)
+    shutil.copy("/usr/local/libexec/docker/cli-plugins/docker-compose", client / "docker-compose")
+    (client / "docker-compose").chmod(0o755)
+    assert hashlib.sha256((client / "docker-compose").read_bytes()).hexdigest() == PLUGIN_HASH
+    os.environ["DOCKER_CONFIG"] = str(client.parent)
+    original = (
+        json.loads((fixture / "cleanup.json").read_text())
+        if (fixture / "cleanup.json").exists()
+        else None
+    )
+    result = cleanup_fixture(fixture, prefix, value, first_failure="outer_recovery")
+    result["original_receipt"] = original
+    (fixture / "cleanup.json").write_text(json.dumps(result))
+    Path("/evidence/paired-backup-cleanup-" + prefix + ".json").write_text(json.dumps(result))
+    print(json.dumps(result))
+    return 1 if result["errors"] else 0
+
+
+def cleanup_fixture(fixture, prefix, ledger, *, coordinator_pid=None, first_failure=None):
+    validate_ledger(ledger, prefix)
+    sys.path.insert(0, str(fixture / "source/ops"))
+
+    containers, images = ledger["containers"], ledger["images"]
+    created_volume, created_network, sql_started = (
+        ledger[k] for k in ("created_volume", "created_network", "sql_started")
+    )
+    volume, network, sql_project = prefix + "-spool", prefix + "-network", prefix + "-sql"
+    stack = fixture / "stack"
+    compose = [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(stack),
+        "--env-file",
+        str(stack / ".env"),
+        "-p",
+        sql_project,
+        "-f",
+        str(stack / "docker-compose.yml"),
+    ]
+    environment = dict(os.environ)
+    cleanup = Cleanup()
+
+    def stop_coordinator():
+        if coordinator_pid:
+            try:
+                finished, _ = os.waitpid(coordinator_pid, os.WNOHANG)
+            except ChildProcessError:
+                return
+            if finished:
+                return
+            # A live unreaped own child cannot have its numeric PID reused.
+            os.kill(coordinator_pid, signal.SIGKILL)
+            deadline = time.monotonic() + 10
+            while not os.waitpid(coordinator_pid, os.WNOHANG)[0]:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("coordinator_reap_timeout")
+                time.sleep(0.1)
+
+    cleanup.add("coordinator", stop_coordinator)
+
+    def remove_job(kind):
+        path = fixture / "job-owners.json"
+        owners = read_private_json(path) if path.exists() else []
+        validate_job_owners(owners, prefix)
+        failures = []
+        for current in owners:
+            name = "avelren-paired-" + current["generation"] + "-" + kind
+            runtime_hash = hashlib.sha256(
+                json.dumps(current["identity"], sort_keys=True).encode()
+            ).hexdigest()
+            try:
+                cleanup.remove(
+                    "container",
+                    name,
+                    {
+                        "org.avelren.backup.generation": current["generation"],
+                        "org.avelren.backup.runtime": runtime_hash,
+                    },
+                )
+            except BaseException as error:
+                failures.append(type(error).__name__)
+        if failures:
+            raise ValueError("cleanup_job_removals_unproven:" + ",".join(failures))
+
+    for kind in ("check", "sql", "spool"):
+        cleanup.add("job-" + kind, lambda kind=kind: remove_job(kind))
+    for name in reversed(containers):
+        labels = (
+            {"com.docker.compose.project": prefix}
+            if name.endswith("-collector")
+            else {"org.avelren.test.fixture": prefix}
+        )
+        cleanup.add(
+            name, lambda name=name, labels=labels: cleanup.remove("container", name, labels)
+        )
+    for directory in fixture.glob("avelren-paired-restore.*"):
+        cleanup.add(
+            "nested-" + directory.name,
+            lambda directory=directory: cleanup_nested_restore(fixture, directory, cleanup),
+        )
+    if sql_started:
+        cleanup.add(
+            "sql-compose",
+            lambda: cleanup.run(
+                [*compose, "down", "--volumes", "--remove-orphans"], env=environment
+            ),
+        )
+        sql_labels = {"com.docker.compose.project": sql_project}
+        cleanup.add(
+            "sql-container-fallback",
+            lambda: cleanup.remove("container", sql_project + "-db-1", sql_labels),
+        )
+        cleanup.add(
+            "sql-volume-fallback",
+            lambda: cleanup.remove("volume", sql_project + "_db_data", sql_labels),
+        )
+    for kind, name, created in (
+        ("volume", volume, created_volume),
+        ("network", network, created_network),
+    ):
+        if created:
+            cleanup.add(
+                name,
+                lambda kind=kind, name=name: cleanup.remove(
+                    kind, name, {"org.avelren.test.fixture": prefix}
+                ),
+            )
+
+    def remove_image(tag):
+        tags = cleanup.run(["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}"])
+        if tag + ":latest" in tags.splitlines():
+            cleanup.run(["docker", "image", "rm", tag])
+
+    for tag in reversed(images):
+        cleanup.add(tag, lambda tag=tag: remove_image(tag))
+    errors = cleanup.finish()
+    cleanup_receipt = dict(
+        format_version=1,
+        fixture=prefix,
+        status="FAIL" if errors else "PASS",
+        errors=errors,
+        first_failure=first_failure,
+    )
+    (fixture / "cleanup.json").write_text(json.dumps(cleanup_receipt))
+    Path("/evidence/paired-backup-cleanup-" + prefix + ".json").write_text(
+        json.dumps(cleanup_receipt)
+    )
+    return cleanup_receipt
+
+
+def cleanup_nested_restore(fixture, directory, cleanup):
+    value = read_private_json(directory / "project.json")
+    if (
+        set(value)
+        != {"format_version", "project", "compose_file", "working_dir", "env_file", "app_image"}
+        or type(value["format_version"]) is not int
+        or value["format_version"] != 1
+        or directory.is_symlink()
+        or directory.parent != fixture
+        or not re.fullmatch(r"avelren-paired-restore\.[A-Za-z0-9]{8}", directory.name)
+        or value["working_dir"] != str(directory)
+        or value["env_file"] != str(directory / "compose.env")
+        or value["compose_file"] != str(fixture / "source/ops/compose.paired-restore-test.yml")
+        or not re.fullmatch(r"avelren-paired-restore-[0-9]+-[0-9]+-[0-9]+", value["project"])
+        or not (
+            re.fullmatch(r"sha256:[0-9a-f]{64}", value["app_image"]) or value["app_image"] == APP
+        )
+    ):
+        raise ValueError("invalid_nested_restore_journal")
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+        raise ValueError("untrusted_nested_restore_owner")
+    ids = cleanup.run(
+        ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=" + value["project"]]
+    ).split()
+    app_id = json.loads(cleanup.run(["docker", "image", "inspect", value["app_image"]]))[0]["Id"]
+    db_id = json.loads(
+        cleanup.run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9",
+            ]
+        )
+    )[0]["Id"]
+    for identifier in ids:
+        item = json.loads(cleanup.run(["docker", "inspect", identifier]))[0]
+        labels = item["Config"].get("Labels") or {}
+        service = labels.get("com.docker.compose.service")
+        if (
+            service not in {"db", "test"}
+            or labels.get("com.docker.compose.project.config_files") != value["compose_file"]
+            or labels.get("com.docker.compose.project.working_dir") != value["working_dir"]
+            or item["Image"] != (db_id if service == "db" else app_id)
+        ):
+            raise ValueError("nested_restore_ownership_unproven")
+    nested = Cleanup(seconds=max(0.1, cleanup.deadline - time.monotonic()))
+    for identifier in ids:
+        nested.add(
+            identifier,
+            lambda identifier=identifier: nested.run(["docker", "rm", "-fv", identifier]),
+        )
+    for kind, name in (
+        ("volume", value["project"] + "_db_data"),
+        ("network", value["project"] + "_isolated"),
+    ):
+        nested.add(
+            name,
+            lambda kind=kind, name=name: nested.remove(
+                kind, name, {"com.docker.compose.project": value["project"]}
+            ),
+        )
+    errors = nested.finish()
+    if errors:
+        raise ValueError("nested_restore_cleanup_failed")
+    shutil.rmtree(directory)  # Validated private own direct child, never caller-selected.
+
+
+def run(args):
+    global FAILURE_LOG, OWNER_WRITER
+    os.umask(0o077)
+    install_cancellation()
     assert re.fullmatch(r"[0-9a-f]{40}", args.source_commit)
     assert re.fullmatch(r"avelren-runtime-test-pair-[0-9]+-[0-9]+", args.prefix)
+    FAILURE_LOG = Path("/evidence/paired-backup-failure-" + args.prefix + ".log")
     fixture = args.fixture.resolve()
     assert fixture.name == "_data" and fixture.parent.name == args.prefix + "-controller-data"
     fixture.chmod(0o700)
@@ -91,7 +578,25 @@ def run(args):
         source_commit=args.source_commit, source_kind="working_tree_fixture", project=args.prefix
     )
     coordinator_pid = None
+    first_failure = None
     created_volume = created_network = sql_started = False
+
+    def ownership():
+        return dict(
+            format_version=1,
+            fixture=args.prefix,
+            containers=list(containers),
+            images=list(images),
+            created_volume=created_volume,
+            created_network=created_network,
+            sql_started=sql_started,
+        )
+
+    def persist_ownership():
+        write_ledger(fixture, ownership())
+
+    OWNER_WRITER = persist_ownership
+    OWNER_WRITER()
     try:
         assert not command(
             ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=" + sql_project]
@@ -110,6 +615,7 @@ def run(args):
         build = fixture / "build"
         build.mkdir()
         base_tag = args.prefix + "-offline-base"
+        images.append(base_tag)
         if args.local_base:
             command(["docker", "tag", APP, base_tag])
         else:
@@ -125,7 +631,6 @@ def run(args):
                 ],
                 seconds=600,
             )
-        images.append(base_tag)
         shutil.copytree(root / "services/backend/src/avelren", build / "avelren")
         shutil.copytree(root / "db", build / "db")
         shutil.copy(root / "ops/collector-spool-daemon-test.py", build / "seed.py")
@@ -138,8 +643,8 @@ def run(args):
             f"ENV AVELREN_GIT_SHA={args.source_commit}\nUSER 10001:10001\n"
         )
         helper_tag = args.prefix + "-helper"
-        command(["docker", "build", "--network", "none", "-t", helper_tag, str(build)], seconds=600)
         images.append(helper_tag)
+        command(["docker", "build", "--network", "none", "-t", helper_tag, str(build)], seconds=600)
         helper = json.loads(command(["docker", "image", "inspect", helper_tag]))[0]["Id"]
         proof = json.loads(
             command(
@@ -180,6 +685,7 @@ def run(args):
             "ENV PYTHONPATH=/synthetic AVELREN_RUNTIME_TEST_SYNTHETIC=1\n"
         )
         collector_tag = args.prefix + "-collector-image"
+        images.append(collector_tag)
         command(
             [
                 "docker",
@@ -193,11 +699,23 @@ def run(args):
                 str(build),
             ]
         )
-        images.append(collector_tag)
         image = json.loads(command(["docker", "image", "inspect", collector_tag]))[0]["Id"]
         evidence["collector_image_id"] = image
-        rclone_container = command(["docker", "create", "--network", "none", RCLONE]).strip()
+        rclone_container = args.prefix + "-rclone"
         containers.append(rclone_container)
+        command(
+            [
+                "docker",
+                "create",
+                "--name",
+                rclone_container,
+                "--label",
+                "org.avelren.test.fixture=" + args.prefix,
+                "--network",
+                "none",
+                RCLONE,
+            ]
+        )
         command(
             ["docker", "cp", rclone_container + ":/usr/local/bin/rclone", "/usr/local/bin/rclone"]
         )
@@ -221,10 +739,29 @@ def run(args):
             AVELREN_BACKUP_HELPER_SHA256=proof["sha256"],
             AVELREN_BACKUP_COMPOSE_FILES=str(compose_file),
         )
-        command(["docker", "network", "create", "--internal", network])
         created_network = True
-        command(["docker", "volume", "create", volume])
+        command(
+            [
+                "docker",
+                "network",
+                "create",
+                "--label",
+                "org.avelren.test.fixture=" + args.prefix,
+                "--internal",
+                network,
+            ]
+        )
         created_volume = True
+        command(
+            [
+                "docker",
+                "volume",
+                "create",
+                "--label",
+                "org.avelren.test.fixture=" + args.prefix,
+                volume,
+            ]
+        )
         sql_started = True
         command([*compose, "up", "-d", "--pull", "never", "db"], env=environment)
         db = command([*compose, "ps", "-q", "db"], env=environment).strip()
@@ -365,12 +902,16 @@ def run(args):
             "-f",
             manifest["compose_file"],
         ]
-        command(
-            [*collector_compose, "up", "-d", "--no-build", "--pull", "never", "collector"],
-            env=collector_env,
+        registered_create(
+            containers,
+            manifest["container_name"],
+            lambda: command(
+                [*collector_compose, "up", "-d", "--no-build", "--pull", "never", "collector"],
+                env=collector_env,
+            ),
         )
-        containers.append(manifest["container_name"])
         api = args.prefix + "-api"
+        containers.append(api)
         command(
             [
                 "docker",
@@ -378,6 +919,8 @@ def run(args):
                 "-d",
                 "--name",
                 api,
+                "--label",
+                "org.avelren.test.fixture=" + args.prefix,
                 "--network",
                 network,
                 "-e",
@@ -391,7 +934,6 @@ def run(args):
                 "8080",
             ]
         )
-        containers.append(api)
 
         def smoke():
             command(
@@ -419,6 +961,8 @@ def run(args):
             # Observation after the actual native snapshot, before Coordinator
             # removes its job. No operation/result/authority is replaced.
             def job(self, kind, image, options, command, output):
+                # Native preflight check can exist before durable backup state.
+                register_job_owner(fixture, args.prefix, self.generation, self.identity())
                 try:
                     return super().job(kind, image, options, command, output)
                 except BaseException:
@@ -524,6 +1068,7 @@ def run(args):
 
         def lock_sql():
             name = args.prefix + "-sql-lock"
+            containers.append(name)
             command(
                 [
                     "docker",
@@ -531,6 +1076,8 @@ def run(args):
                     "-d",
                     "--name",
                     name,
+                    "--label",
+                    "org.avelren.test.fixture=" + args.prefix,
                     "--network",
                     network,
                     "-e",
@@ -551,7 +1098,6 @@ def run(args):
                     "SELECT pg_sleep(300);",
                 ]
             )
-            containers.append(name)
             wait(
                 lambda: (
                     "1"
@@ -648,6 +1194,7 @@ def run(args):
         _, exit_status = os.waitpid(coordinator_pid, 0)
         coordinator_pid = None
         assert os.waitstatus_to_exitcode(exit_status) == 0
+        completion = time.monotonic()
         result = json.loads(receipt.read_text())
         assert result["writer_resumed"] and result["state_counts"]["pending"] >= 1
         assert [s["stage"] for s in result["writer_status"]] == [
@@ -659,8 +1206,10 @@ def run(args):
             s["pending_count"] == 0 and s["capture_only"] is False and s["mode_ack"] is False
             for s in result["writer_status"]
         )
-        wait(lambda: len(status()["calls"]) >= 3 and status()["status"]["pending_count"] == 0, 90)
-        after = status()["calls"][-1]["at"]
+        wait(lambda: completed_cycle_after(status(), completion), 90)
+        after_call = status()["calls"][-1]
+        after = after_call["at"]
+        assert after_call["monotonic"] > completion
         smoke()
         assert first < during < after
         calls = status()["calls"]
@@ -675,6 +1224,8 @@ def run(args):
             api_smoke_before_during_after=True,
             writer_receipt=result,
             producer_boundary_events=dict(before=first, during=during, after=after),
+            backup_completion_monotonic=completion,
+            after_start_monotonic=after_call["monotonic"],
         )
         evidence["native_helper_bind_proof"] = json.loads(
             (fixture / "helper-bind-proof.json").read_text()
@@ -765,73 +1316,33 @@ def run(args):
         ]
         evidence["native_lifecycle_events"] = events
         evidence["status"] = "PASS"
-    except BaseException:
+    except BaseException as failure:
+        first_failure = type(failure).__name__
+        for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            signal.signal(signum, signal.SIG_IGN)
         if "manifest" in locals():
-            logs = subprocess.run(
-                ["docker", "logs", manifest["container_name"]],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            Path("/evidence/paired-backup-daemon.log").write_text(logs.stdout + logs.stderr)
-            Path("/evidence/paired-backup-status.json").write_text(json.dumps(status()))
-            diagnostic = command(
-                [
-                    "docker",
-                    "exec",
-                    manifest["container_name"],
-                    "python",
-                    "-c",
-                    "import json,os,sys;print(json.dumps(dict(paths=sys.path,"
-                    "synthetic=os.environ.get('AVELREN_RUNTIME_TEST_SYNTHETIC'))))",
-                ]
-            )
-            Path("/evidence/paired-backup-transport.json").write_text(diagnostic)
+            try:
+                logs = subprocess.run(
+                    ["docker", "logs", manifest["container_name"]],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                Path("/evidence/paired-backup-daemon.log").write_text(logs.stdout + logs.stderr)
+                Path("/evidence/paired-backup-status.json").write_text(json.dumps(status()))
+            except BaseException:
+                pass  # Diagnostics never replace the original failure/cancellation.
         raise
     finally:
-        if coordinator_pid:
-            os.kill(coordinator_pid, signal.SIGKILL)
-            os.waitpid(coordinator_pid, 0)
-        # Only our exact own generation jobs, exact own fixture containers/projects.
-        current = state.read_state(fixture / "state") if (fixture / "state").exists() else None
-        if current:
-            for kind in ("check", "sql", "spool"):
-                name = "avelren-paired-" + current["generation"] + "-" + kind
-                ids = command(["docker", "ps", "-aq", "--filter", "name=^/" + name + "$"]).split()
-                for identifier in ids:
-                    info = json.loads(command(["docker", "inspect", identifier]))[0]
-                    assert (
-                        info["Config"]["Labels"].get("org.avelren.backup.generation")
-                        == current["generation"]
-                    )
-                    command(["docker", "rm", "-f", identifier])
-        for name in reversed(containers):
-            command(["docker", "rm", "-fv", name])
-        if sql_started:
-            command([*compose, "down", "--volumes", "--remove-orphans"], env=environment)
-        for kind, name, created in (
-            ("volume", volume, created_volume),
-            ("network", network, created_network),
-        ):
-            if created:
-                command(["docker", kind, "rm", name])
-        for tag in reversed(images):
-            command(["docker", "image", "rm", tag])
-        remaining = command(["docker", "ps", "-a", "--format", "{{.Names}}"])
-        assert all(
-            name == args.prefix + "-controller" or not name.startswith(args.prefix)
-            for name in remaining.splitlines()
+        receipt_cleanup = cleanup_fixture(
+            fixture,
+            args.prefix,
+            ownership(),
+            coordinator_pid=coordinator_pid,
+            first_failure=first_failure,
         )
-        assert not command(
-            [
-                "docker",
-                "volume",
-                "ls",
-                "-q",
-                "--filter",
-                "label=com.docker.compose.project=" + sql_project,
-            ]
-        ).strip()
+        if receipt_cleanup["errors"] and first_failure is None:
+            raise AssertionError("fixture_cleanup_failed")
     evidence["fixture_resources_cleanup"] = "PASS"
     Path("/evidence/paired-backup-evidence.json").write_text(json.dumps(evidence, indent=2))
     print(json.dumps(evidence), flush=True)
@@ -843,4 +1354,8 @@ if __name__ == "__main__":
     parser.add_argument("--fixture", required=True, type=Path)
     parser.add_argument("--prefix", required=True)
     parser.add_argument("--local-base", action="store_true")
-    run(parser.parse_args())
+    parser.add_argument("--cleanup-only", action="store_true")
+    arguments = parser.parse_args()
+    if arguments.cleanup_only:
+        sys.exit(cleanup_only(arguments))
+    run(arguments)

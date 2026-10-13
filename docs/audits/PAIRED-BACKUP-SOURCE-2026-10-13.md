@@ -101,6 +101,35 @@ Local GREEN: provenance/core/Android, backend Ruff, scoped host Ruff,
 і Bash syntax/diff checks. Hosted exact-head CI та actual Ubuntu
 `systemd-analyze verify` ще не виконані в цьому local stage.
 
+Review fix-round 1 уточнює acceptance: TERM/HUP/INT входять у bounded cleanup;
+усі removals виконуються best effort з aggregate errors, partial creation
+реєструється **до** Docker/Compose call у private durable `owned.json`.
+Outer shell чекає background Docker interruptibly, дає owner завершити cleanup,
+потім за потреби запускає окремий bounded cleanup reader із exact fixture
+prefix/labels/generation/runtime checks. Початкова помилка/receipt зберігається;
+непідтверджений cleanup залишає private volume/ledger для розбору, не PASS.
+
+Повторний actual local GREEN на base `9b1e99d` + fix WIP:
+`avelren-runtime-test-pair-15752-25204`, intervals **60.024991173 / 60.001225144s**,
+completion monotonic **816.748304372**, новий **completed/ACKed** producer start
+**848.959997069** (після boundary на32.211692697s). Старі три captured requests
+під час довгого backup більше не задовольняють «після»: потрібні timestamp
+після completion, pending0 та ACKed count не менший за trace count свіжого
+spool. Actual SIGKILL/crypt/native restore2 cycles/2 observations/pending0 PASS;
+cleanup receipt PASS/errors[]/first_failure=null, own resources прибрано.
+Focused cleanup/signal/partial-start/slow-backup regressions входять у existing
+database workflow; незмінні довгі suites повторно не запускалися.
+Перед native job startup observer атомарно записує private `job-owners.json`
+із full runtime identity/generation та exact own spool/network; це покриває
+preflight job до появи durable backup state. Interrupted Task4 rehearsal має
+private `project.json` до startup; failed down зберігає WORK, а fixture fallback
+перевіряє exact project/config/path/image/owner перед cleanup. Cancellation
+чекає TERM cleanup власного live/unreaped child і лише тоді застосовує bounded
+kill; збережений numeric PGID після reap не є authority. Narrow actual probes
+перевірили foreign preservation, malformed journal aggregation і продовження
+removals після першої помилки; ці observer/cleanup зміни не змінюють native
+happy-path operations. Hosted exact-head gate лишається окремим.
+
 ## Конкретний пакет перед GO
 
 Після merge отримати actual merged SHA, source hashes і approved immutable

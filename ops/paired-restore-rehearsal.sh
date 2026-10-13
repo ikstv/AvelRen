@@ -52,7 +52,12 @@ cleanup() {
     local status=$?
     trap - EXIT HUP INT TERM
     if [ "$COMPOSE_STARTED" = 1 ]; then
-        compose down --volumes --remove-orphans >/dev/null || status=1
+        if ! compose down --volumes --remove-orphans >/dev/null; then
+            echo rehearsal_cleanup_unproven >&2
+            # Keep the exact private project journal and original diagnostics.
+            [ "$status" != 0 ] || status=1
+            exit "$status"
+        fi
     fi
     # WORK is the resolved, generated private directory, never a caller argument.
     case "$WORK" in "${TMPDIR:-/tmp}"/avelren-paired-restore.*) rm -rf -- "$WORK" ;; *) status=1 ;; esac
@@ -62,6 +67,19 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+RECEIPT_PYTHON=python3
+if command -v cygpath >/dev/null 2>&1; then RECEIPT_PYTHON=python; fi
+# Private journal precedes any potentially partial Compose startup. It lets
+# the owning fixture recover siblings if this shell is interrupted or down fails.
+"$RECEIPT_PYTHON" -c 'import json,os,sys,tempfile;from pathlib import Path
+p=Path(sys.argv[1]);fd,tmp=tempfile.mkstemp(prefix=".project-",dir=p.parent)
+with os.fdopen(fd,"w") as f:
+ json.dump(dict(format_version=1,project=sys.argv[2],compose_file=sys.argv[3],working_dir=sys.argv[4],env_file=sys.argv[5],app_image=sys.argv[6]),f);f.flush();os.fsync(f.fileno())
+os.replace(tmp,p)
+if os.name=="posix":
+ d=os.open(p.parent,os.O_RDONLY);os.fsync(d);os.close(d)' \
+  "$(native_path "$WORK/project.json")" "$PROJECT" "$COMPOSE_FILE" "$COMPOSE_DIR" "$COMPOSE_ENV" "$APP_IMAGE"
 
 # All pair/hash/gzip/schema checks finish before a database is even created.
 MSYS_NO_PATHCONV=1 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
@@ -99,8 +117,6 @@ compose run --rm --no-deps -T -e AVELREN_PAIRED_REHEARSAL=1 \
     >"$WORK/replay.stdout" 2>"$WORK/replay.stderr" || fail native_replay_failed 1
 # Native replay can catch a derived-phase failure and still succeed. Both output
 # streams stay private; a separate stdlib reader emits only validated integer evidence.
-RECEIPT_PYTHON=python3
-if command -v cygpath >/dev/null 2>&1; then RECEIPT_PYTHON=python; fi
 "$RECEIPT_PYTHON" "$ROOT/ops/paired-restore-acceptance.py" receipt \
     --source "$(native_path "$WORK/replay.stdout")" \
     --manifest "$(native_path "$WORK/pair/pair.json")" \

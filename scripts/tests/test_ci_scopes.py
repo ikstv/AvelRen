@@ -33,6 +33,7 @@ LEGACY_CASES = [
     ("ops/paired_backup_state.py", {"api", "database", "watchdog"}),
     ("ops/paired_backup_manifest.py", {"api", "database", "watchdog"}),
     ("ops/paired-backup-daemon-test.py", {"api", "database", "watchdog"}),
+    ("ops/paired-backup-daemon-contract-test.py", {"api", "database", "watchdog"}),
     ("ops/paired-backup-integration-test.sh", {"api", "database", "watchdog"}),
     ("ops/compose.paired-backup-test.yml", {"api", "database", "watchdog"}),
     ("ops/paired-restore-acceptance.py", {"api", "database", "watchdog"}),
