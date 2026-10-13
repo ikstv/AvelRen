@@ -140,6 +140,54 @@ class ReaderContracts(unittest.TestCase):
         self.reject("avelren-20261012-090000.pair.json")
 
 
+class ImageContracts(unittest.TestCase):
+    def test_disposable_image_selection_is_immutable_and_inspected(self):
+        bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "docker"
+            executable.write_text(
+                '#!/usr/bin/env bash\ncase "$*" in "image inspect"*) '
+                '[ "$IMAGE_CASE" != missing ] || exit 1; '
+                'printf "%s linux amd64\\n" "$3" ;; *) exit 47 ;; esac\n'
+            )
+            executable.chmod(0o700)
+            for image, case, expected in [
+                ("", "valid", "rehearsal_image_invalid"),
+                ("app:latest", "valid", "rehearsal_image_invalid"),
+                ("sha256:" + "a" * 64, "missing", "rehearsal_image_unavailable"),
+                ("sha256:" + "a" * 64, "valid", None),
+            ]:
+                env = dict(
+                    os.environ,
+                    PATH=root.as_posix() + os.pathsep + os.environ["PATH"],
+                    TMPDIR=root.as_posix(),
+                    IMAGE_CASE=case,
+                )
+                result = subprocess.run(
+                    [
+                        bash,
+                        str(ROOT / "ops/paired-restore-rehearsal.sh"),
+                        "--directory",
+                        root.as_posix(),
+                        "--manifest",
+                        NAME,
+                        "--app-image",
+                        image,
+                    ],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if expected:
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn(expected, result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 47, result.stderr)
+                self.assertEqual(list(root.glob("avelren-paired-restore.*")), [])
+
+
 class ReceiptContracts(unittest.TestCase):
     def setUp(self):
         self.fixture = ReaderContracts()

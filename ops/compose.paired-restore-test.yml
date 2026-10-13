@@ -18,7 +18,7 @@ services:
       retries: 40
     networks: [isolated]
   test:
-    image: avelren-app@sha256:9d32a0d54ff9711b54a082f39074e21ba456775b078caf01a293b95109674735
+    image: ${AVELREN_PAIR_APP_IMAGE:-avelren-app@sha256:9d32a0d54ff9711b54a082f39074e21ba456775b078caf01a293b95109674735}
     user: '${AVELREN_PAIR_UID:?owned user required}:${AVELREN_PAIR_GID:?owned group required}'
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']

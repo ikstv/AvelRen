@@ -32,6 +32,11 @@ jobs:
           sudo install -D -o root -g root -m 0644 ops/avelren-telemetry.timer /etc/systemd/system/avelren-telemetry.timer
           sudo install -D -o root -g root -m 0755 ops/telemetry-snapshot.sh /opt/avelren/ops/telemetry-snapshot.sh
           sudo systemd-analyze verify /etc/systemd/system/avelren-telemetry.service /etc/systemd/system/avelren-telemetry.timer
+          sudo install -D -o root -g root -m 0755 ops/backup.sh /usr/local/sbin/avelren-backup
+          sudo install -D -o root -g root -m 0755 ops/paired-backup.py /usr/local/sbin/avelren-paired-backup
+          sudo install -D -o root -g root -m 0644 ops/avelren-backup.service /etc/systemd/system/avelren-backup.service
+          sudo install -D -o root -g root -m 0644 ops/avelren-backup-recovery.service /etc/systemd/system/avelren-backup-recovery.service
+          sudo systemd-analyze verify /etc/systemd/system/avelren-backup.service /etc/systemd/system/avelren-backup-recovery.service
       - name: Контракт backup із фіктивними Docker і rclone
         # Production backup and its receipt directory are root-owned. The
         # ownership-denial fixture also needs CAP_CHOWN to create a foreign
@@ -95,6 +100,19 @@ jobs:
           python3 ops/collector-runtime-daemon-contract-test.py
       - name: Ізольоване Compose-перемикання collector та відкат
         run: bash ops/collector-runtime-integration-test.sh
+      - name: Контракти paired backup, recovery та native restore
+        run: |
+          bash -n ops/paired-backup-integration-test.sh
+          bash -n ops/paired-restore-rehearsal.sh
+          python3 ops/paired-backup-manifest-contract-test.py
+          python3 ops/paired-backup-unit-contract-test.py
+          python3 ops/paired-backup-disposable-contract-test.py
+          sudo python3 ops/paired-backup-state-contract-test.py
+          sudo python3 ops/paired-backup-contract-test.py
+          sudo python3 ops/collector-runtime-control-contract-test.py
+          python3 ops/paired-restore-contract-test.py
+      - name: Справжній daemon, owned SIGKILL recovery, crypt та paired restore
+        run: bash ops/paired-backup-integration-test.sh
       - name: Маршрутизація Caddy в ізольованій мережі
         run: |
           bash -n ops/caddy-integration-test.sh

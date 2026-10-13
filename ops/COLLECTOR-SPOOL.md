@@ -111,3 +111,13 @@ SHA-256 архіву, свіжу перевірену копію БД і ком�
 спочатку потрібен сумісний replay/recovery; повернення старого collector
 саме по собі не переносить SQLite-чергу. Том і старий контейнер не видаляти
 до приймання. Для кожного production-запису потрібен окремий явний дозвіл.
+
+## Paired backup: уточнення 13.10.2026
+
+[Source аудит та повний пакет](../docs/audits/PAIRED-BACKUP-SOURCE-2026-10-13.md)
+описує native Online Backup під writer ACK, isolated restore exact retained
+ACKed SQL acceptance і FIFO pending replay. Main SQLite без WAL не копіювати.
+Capture-only не зупиняє producer; backup не prune pending/ACK history для
+узгодження неправильної пари. Writer off ACK/drain потрібні до completion
+manifest/stamp. Installed production та реальна off-host pair/RPO/RTO ще
+потребують окремого приймання.

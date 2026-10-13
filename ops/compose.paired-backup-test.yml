@@ -1,0 +1,20 @@
+# Disposable SQL context, separate from the validated collector-only project.
+services:
+  db:
+    image: timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9
+    command: [postgres, -c, timescaledb.telemetry_level=off]
+    environment:
+      POSTGRES_USER: avelren_admin
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      runtime:
+        aliases: [paired-db]
+networks:
+  runtime:
+    external: true
+    name: ${PAIRED_TEST_NETWORK:?owned internal network required}
+volumes:
+  db_data:

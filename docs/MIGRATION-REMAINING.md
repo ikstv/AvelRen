@@ -304,3 +304,12 @@ live API/collector/backup перевірено.
 [Доказ](audits/RESTORE-REAL-BACKUP-2026-10-02.md#встановлений-runtime--приймання-о-1129-за-києвом).
 Критерії issue #41 виконано. Production adoption та full restore зі spool
 не виконані й не закриваються цим прийманням.
+
+## Уточнення 13.10: paired source-кандидат
+
+[Paired backup source аудит](audits/PAIRED-BACKUP-SOURCE-2026-10-13.md):
+native helper/coordinator/recovery/crypt/restore та disposable daemon rehearsal
+підготовлено окремою гілкою. Local source checks, exact-head hosted CI/review,
+merge, конкретний пакет/production GO і real off-host pair restore приймаються
+окремо. Default `sql-only`; intended paired встановлення не виконано. Real
+paired RPO/RTO, DB-role transition, зовнішній monitor, APK/phone/Play не закриті.

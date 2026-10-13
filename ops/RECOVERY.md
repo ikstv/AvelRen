@@ -1,5 +1,14 @@
 # Резервування та відновлення
 
+Актуальний paired source-етап13.10: [пакет, prerequisite guards, first run,
+відкат і межі приймання](../docs/audits/PAIRED-BACKUP-SOURCE-2026-10-13.md).
+Default лишається `sql-only`; intended paired installation потребує всього
+пакета та окремого GO. Native rehearsal: `bash ops/paired-restore-rehearsal.sh
+--directory /private/download --manifest avelren-<UTC>.pair.json`; тільки
+disposable target, жодного production volume/DSN. Legacy SQL restore не
+видавати за paired restore. Не запускати legacy maintenance/adoption/restore
+паралельно active backup lease.
+
 > Історичний опис перенесення з вересня 2026 року. Актуальний стан і межі
 > recovery — у [звірці 11.10.2026](../docs/audits/MIGRATION-SERVER-2026-10-11.md)
 > та [контракті spool runtime](COLLECTOR-RUNTIME.md).

@@ -505,6 +505,7 @@ def load_controller():
 class Runtime:
     def __init__(self, manifest, work, stack=None):
         self.manifest, self.work, self.stack = manifest, work, stack
+        self._sql_project = "avelren"
         self.controller = load_controller()
         self.deadline = time.monotonic() + 180
         self.generation = None
@@ -512,6 +513,17 @@ class Runtime:
         # Every nested subprocess consumes the coordinator's remaining budget.
         self.controller.runtime.run = self.output
         self.controller.mutation_run = lambda manifest, argv, env=None: self.output(argv, env=env)
+
+    @classmethod
+    def for_disposable(cls, manifest_path: Path, work: Path, stack: Path, *, sql_project: str):
+        """Internal rehearsal seam; CLI always uses production validation/defaults."""
+        controller = load_controller()
+        manifest = controller.runtime.load_manifest(manifest_path, test_mode=True)
+        if sql_project != manifest["project"] + "-sql":
+            raise ValueError("disposable_sql_project_mismatch")
+        instance = cls(manifest, work, stack)
+        instance._sql_project = sql_project
+        return instance
 
     def output(self, argv, *, env=None):
         path = self.work / (".command-" + uuid.uuid4().hex)
@@ -740,7 +752,7 @@ class Runtime:
             "--env-file",
             str(self.stack / ".env"),
             "-p",
-            "avelren",
+            self._sql_project,
         ]
         for path in files:
             command.extend(["-f", path])
@@ -757,7 +769,7 @@ class Runtime:
         network = db["NetworkSettings"]["Networks"].get(self.manifest["network"])
         if (
             not db["State"]["Running"]
-            or labels.get("com.docker.compose.project") != "avelren"
+            or labels.get("com.docker.compose.project") != self._sql_project
             or labels.get("com.docker.compose.service") != "db"
             or labels.get("com.docker.compose.project.config_files") != ",".join(files)
             or labels.get("com.docker.compose.project.working_dir") != str(self.stack)

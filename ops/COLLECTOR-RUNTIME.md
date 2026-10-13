@@ -1,5 +1,11 @@
 # Окремий runtime collector
 
+Paired source-етап13.10: [точний пакет і bounded trust-normalization proposal](../docs/audits/PAIRED-BACKUP-SOURCE-2026-10-13.md).
+Production defaults/identity guards не змінені. Disposable factory звіряє
+test manifest і own SQL project; він не є operator env bypass. Shared lease
+блокує несумісні mutations; SIGKILL recovery має довести owned named Docker
+job termination до off ACK. Не вимикати чуже capture-only за одним boolean.
+
 Source-кандидат: встановлення на production потребує окремого GO.
 Походження: [PR #74](https://github.com/ikstv/AvelRen-ORIGINAL/pull/74),
 [#75](https://github.com/ikstv/AvelRen-ORIGINAL/pull/75),

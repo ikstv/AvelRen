@@ -791,6 +791,18 @@ class CoordinatorContracts(unittest.TestCase):
         with patch.dict(os.environ, AVELREN_BACKUP_COMPOSE_FILES=":".join(map(str, files))):
             with self.assertRaisesRegex(ValueError, "sql_database_identity_mismatch"):
                 runtime.prepare_sql()
+            labels = db["Config"]["Labels"]
+            labels["com.docker.compose.project.config_files"] = ",".join(map(str, files))
+            runtime.prepare_sql()
+            self.assertEqual(runtime._sql_project, "avelren")
+            runtime._sql_project = "avelren-runtime-test-labels-sql"
+            with self.assertRaisesRegex(ValueError, "sql_database_identity_mismatch"):
+                runtime.prepare_sql()
+            labels["com.docker.compose.project"] = runtime._sql_project
+            runtime.prepare_sql()
+            labels["com.docker.compose.project"] = "avelren-runtime-test-foreign-sql"
+            with self.assertRaisesRegex(ValueError, "sql_database_identity_mismatch"):
+                runtime.prepare_sql()
 
     def test_progress_drains_before_manifest_and_success(self):
         with patch.object(self.module, "DRAIN_POLL_SECONDS", 0.01, create=True):

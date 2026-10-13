@@ -1108,3 +1108,13 @@ R12 PIN після перевстановлення, плашка, достав�
 Наступне: review/CI installed-model fix, чистий main image та окремий GO
 на application-only пакет. Повторний DB upgrade не потрібен. Точність99%
 не підтверджено. Cold rollback зберігається, після writers не застосовується.
+
+## Уточнення 13.10: узгоджений backup PostgreSQL + SQLite
+
+[Source-кандидат і package prerequisites](audits/PAIRED-BACKUP-SOURCE-2026-10-13.md)
+мають native helper, owned recovery, crypt manifest-last publication і paired
+restore. Окремі acceptance gates: local source evidence → exact-head hosted
+CI/review → merge → конкретний пакет/production GO → нова real off-host pair,
+download/decrypt/hash/SQL+SQLite restore/drain та виміряні RPO/RTO. Source
+daemon fixture не є installed production або real-pair proof; deployment,
+Android build/phone/Play лишаються окремими етапами. Default sql-only збережено.

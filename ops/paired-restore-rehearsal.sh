@@ -11,26 +11,34 @@ for variable in $(compgen -v); do
             [ -z "${!variable:-}" ] || fail rehearsal_configuration_refused ;;
     esac
 done
-DIRECTORY= MANIFEST=
+DIRECTORY= MANIFEST= APP_IMAGE= APP_IMAGE_SELECTED=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --directory) [ "$#" -ge 2 ] || fail rehearsal_arguments_invalid; DIRECTORY=$2; shift 2 ;;
         --manifest) [ "$#" -ge 2 ] || fail rehearsal_arguments_invalid; MANIFEST=$2; shift 2 ;;
+        --app-image) [ "$#" -ge 2 ] || fail rehearsal_arguments_invalid; APP_IMAGE=$2; APP_IMAGE_SELECTED=1; shift 2 ;;
         *) fail rehearsal_arguments_invalid ;;
     esac
 done
 [ -d "$DIRECTORY" ] || fail pair_incomplete
 [[ "$MANIFEST" =~ ^avelren-[0-9]{8}-[0-9]{6}\.pair\.json$ ]] || fail manifest_name_invalid
+if [ "$APP_IMAGE_SELECTED" = 1 ]; then
+    [[ "$APP_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || fail rehearsal_image_invalid
+    image_identity=$(docker image inspect "$APP_IMAGE" --format '{{.Id}} {{.Os}} {{.Architecture}}' 2>/dev/null) || fail rehearsal_image_unavailable
+    [ "$image_identity" = "$APP_IMAGE linux amd64" ] || fail rehearsal_image_identity_mismatch
+else
+    APP_IMAGE=avelren-app@sha256:9d32a0d54ff9711b54a082f39074e21ba456775b078caf01a293b95109674735
+fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DIRECTORY=$(cd "$DIRECTORY" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/avelren-paired-restore.XXXXXXXX")
 PROJECT="avelren-paired-restore-${RANDOM}-${RANDOM}-$$"
 readonly ROOT DIRECTORY WORK PROJECT MANIFEST
 COMPOSE_STARTED=0
-APP_IMAGE=avelren-app@sha256:9d32a0d54ff9711b54a082f39074e21ba456775b078caf01a293b95109674735
 native_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s\n' "$1"; fi; }
 export AVELREN_PAIR_ROOT=$(native_path "$ROOT") AVELREN_PAIR_WORK=$(native_path "$WORK")
 export AVELREN_PAIR_UID=$(id -u) AVELREN_PAIR_GID=$(id -g)
+export AVELREN_PAIR_APP_IMAGE=$APP_IMAGE
 COMPOSE_FILE=$(native_path "$ROOT/ops/compose.paired-restore-test.yml")
 COMPOSE_ENV=$(native_path "$WORK/compose.env")
 COMPOSE_DIR=$(native_path "$WORK")
