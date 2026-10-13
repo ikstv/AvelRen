@@ -372,6 +372,36 @@ class StateContract(unittest.TestCase):
         finally:
             os.close(master)
 
+    def test_operator_cleanup_grace_is_bounded_for_signal_ignoring_descendants(self):
+        marker = self.directory / "signal-ignoring"
+        code = (
+            "import os,signal,time; "
+            "[signal.signal(s,signal.SIG_IGN) "
+            "for s in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP)]; "
+            "p=os.fork();\nif p==0: os.setsid()\n"
+            f"f=open({str(marker)!r},'a');\n"
+            "while True: f.write('x'); f.flush(); time.sleep(.01)"
+        )
+        started = time.monotonic()
+        with state.backup_lock(self.directory):
+            try:
+                with self.assertRaisesRegex(ValueError, "command_timeout"):
+                    state._run_bounded(
+                        [sys.executable, "-c", code],
+                        deadline=started + 0.2,
+                        inherit_output=True,
+                        cleanup_grace_seconds=0.15,
+                    )
+            except TypeError:
+                self.fail("private operator supervisor lacks injected cleanup grace")
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.34, "grace was skipped")
+        self.assertLess(elapsed, 1.5, "signal-ignoring child exceeded bounded grace")
+        before = marker.stat().st_size
+        time.sleep(0.1)
+        self.assertEqual(marker.stat().st_size, before)
+        state.assert_no_backup(self.directory)
+
     def test_bounded_timeout_reaps_real_grandchild(self):
         marker = self.directory / "mutations"
         code = (

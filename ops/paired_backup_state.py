@@ -36,6 +36,7 @@ PHASES = {
     "recovery_required",
 }
 TERMINAL = {"resumed", "published"}
+OPERATOR_CLEANUP_GRACE_SECONDS = 120.0
 _authorities = {}
 
 
@@ -356,22 +357,37 @@ def _is_descendant(pid):
     return True
 
 
+def _signal_descendant(pid, sig):
+    fd = None
+    try:
+        fd = os.pidfd_open(pid)
+        if _is_descendant(pid):
+            signal.pidfd_send_signal(fd, sig)
+    except ProcessLookupError:
+        pass
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _graceful_operator_cancel(process, sig, grace_seconds):
+    # Signal only the snapshot that was running when cancellation began. The
+    # shell's EXIT cleanup may start new stop/verification children; do not
+    # interrupt them again during this bounded grace period.
+    for pid in _descendants(os.getpid()):
+        _signal_descendant(pid, sig)
+    until = time.monotonic() + grace_seconds
+    while process.poll() is None and time.monotonic() < until:
+        time.sleep(min(0.01, max(0, until - time.monotonic())))
+
+
 def _terminate_and_reap():
     # A subreaper adopts escaped/double-forked grandchildren. Keep the lease until
     # every descendant is reaped, including children that call setsid().
     while True:
         descendants = _descendants(os.getpid())
         for pid in descendants:
-            fd = None
-            try:
-                fd = os.pidfd_open(pid)
-                if _is_descendant(pid):
-                    signal.pidfd_send_signal(fd, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            finally:
-                if fd is not None:
-                    os.close(fd)
+            _signal_descendant(pid, signal.SIGKILL)
         while True:
             try:
                 child, _ = os.waitpid(-1, os.WNOHANG)
@@ -382,11 +398,21 @@ def _terminate_and_reap():
         time.sleep(0.01)
 
 
-def _supervise(argv, deadline, env, stdout_fd, alive_fd, result_fd, inherited_fds, inherit_output):
+def _supervise(
+    argv,
+    deadline,
+    env,
+    stdout_fd,
+    alive_fd,
+    result_fd,
+    inherited_fds,
+    inherit_output,
+    cleanup_grace_seconds,
+):
     process = None
-    cancelled = [False]
+    cancelled = [None]
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, lambda *_: cancelled.__setitem__(0, True))
+        signal.signal(sig, lambda signum, *_: cancelled.__setitem__(0, signum))
     try:
         if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
             raise ValueError("supervisor_unavailable")
@@ -408,8 +434,16 @@ def _supervise(argv, deadline, env, stdout_fd, alive_fd, result_fd, inherited_fd
                 pass_fds=inherited_fds,
             )
             result = {"returncode": None, "reason": None}
+            cancellation_signal = signal.SIGTERM
             while True:
-                if cancelled[0] or select.select([alive_fd], [], [], 0)[0]:
+                if cancelled[0]:
+                    cancellation_signal = cancelled[0]
+                    result["reason"] = "command_cancelled"
+                    break
+                if select.select([alive_fd], [], [], 0)[0]:
+                    data = os.read(alive_fd, 1)
+                    # EOF after parent SIGKILL receives best-effort TERM cleanup.
+                    cancellation_signal = data[0] if data else signal.SIGTERM
                     result["reason"] = "command_cancelled"
                     break
                 if time.monotonic() >= deadline:
@@ -420,6 +454,8 @@ def _supervise(argv, deadline, env, stdout_fd, alive_fd, result_fd, inherited_fd
                     result["returncode"] = code
                     break
                 time.sleep(0.01)
+            if inherit_output and result["reason"]:
+                _graceful_operator_cancel(process, cancellation_signal, cleanup_grace_seconds)
             _terminate_and_reap()
         finally:
             if stdout_fd is not None:
@@ -442,11 +478,21 @@ def run_bounded(
     return _run_bounded(argv, deadline=deadline, env=env, stdout_path=stdout_path)
 
 
-def _run_bounded(argv, *, deadline, env=None, stdout_path=None, inherit_output=False):
+def _run_bounded(
+    argv,
+    *,
+    deadline,
+    env=None,
+    stdout_path=None,
+    inherit_output=False,
+    cleanup_grace_seconds=OPERATOR_CLEANUP_GRACE_SECONDS,
+):
     if sys.platform != "linux" or not argv or not math.isfinite(deadline):
         raise ValueError("invalid_bounded_command")
     if deadline <= time.monotonic():
         raise ValueError("command_timeout")
+    if not math.isfinite(cleanup_grace_seconds) or cleanup_grace_seconds < 0:
+        raise ValueError("invalid_cleanup_grace")
     require_process_supervision()
     stdout_fd = None
     if stdout_path is not None:
@@ -464,9 +510,11 @@ def _run_bounded(argv, *, deadline, env=None, stdout_path=None, inherit_output=F
     result_read, result_write = os.pipe()
     saved = {}
     pid = None
+    cancellation_signal = [signal.SIGTERM]
     try:
 
-        def interrupted(*_):
+        def interrupted(signum, *_):
+            cancellation_signal[0] = signum
             raise KeyboardInterrupt
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
@@ -477,7 +525,15 @@ def _run_bounded(argv, *, deadline, env=None, stdout_path=None, inherit_output=F
             os.close(alive_write)
             os.close(result_read)
             _supervise(
-                argv, deadline, env, stdout_fd, alive_read, result_write, inherited, inherit_output
+                argv,
+                deadline,
+                env,
+                stdout_fd,
+                alive_read,
+                result_write,
+                inherited,
+                inherit_output,
+                cleanup_grace_seconds,
             )
         if stdout_fd is not None:
             os.close(stdout_fd)
@@ -503,6 +559,11 @@ def _run_bounded(argv, *, deadline, env=None, stdout_path=None, inherit_output=F
         # waiting: returning early would release authority before cleanup.
         for sig in saved:
             signal.signal(sig, signal.SIG_IGN)
+        if pid is not None:
+            try:
+                os.write(alive_write, bytes([cancellation_signal[0]]))
+            except BrokenPipeError:
+                pass
         os.close(alive_write)
         if pid is not None:
             os.waitpid(pid, 0)

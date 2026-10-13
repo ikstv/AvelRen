@@ -21,6 +21,8 @@ import fcntl
 import os
 import subprocess
 import sys
+import signal
+import time
 from pathlib import Path
 root, work = map(Path, sys.argv[1:])
 state = work / "runtime-state"
@@ -53,4 +55,96 @@ for mode in ("active", "unresolved", "missing_manifest", "forged_authority"):
         assert not (work / "maintenance").exists(), (mode, command, "publication directory mutated")
 os.close(fd)
 print("paired backup operator guard: PASS")
+
+# Run the actual restore EXIT trap and stop/verify functions. Only Docker/Compose
+# boundaries are replaced with private local service-state files.
+body = r'''
+set -euo pipefail
+source "$1/ops/restore-production.sh"
+FIXTURE=$2
+services=(caddy api collector notifier watchdog)
+avelren_compose() {
+    local service=${@: -1}
+    case "$1" in
+        stop)
+            if [ "$service" = caddy ]; then
+                touch "$FIXTURE/cleanup-started"
+                while [ ! -e "$FIXTURE/release-cleanup" ]; do sleep .01; done
+            fi
+            printf 'exited\n' >"$FIXTURE/$service"
+            ;;
+        ps)
+            [ "$*" = "ps --all --quiet $service" ] || return 43
+            for index in "${!services[@]}"; do
+                if [ "${services[$index]}" = "$service" ]; then
+                    printf '%064x\n' "$((index+1))"
+                fi
+            done
+            ;;
+        *) return 44 ;;
+    esac
+}
+docker() {
+    [ "$1" = inspect ] && [ "$2" = --format ] && [ "$3" = '{{.State.Status}}' ] || return 45
+    local id=${4: -1}
+    cat "$FIXTURE/${services[$((id-1))]}"
+}
+AVELREN_RESTORE_PHASE=restored
+AVELREN_RESTORE_MAINTENANCE_STARTED=true
+trap avelren_restore_exit_trap EXIT
+trap 'printf "HUP\n" >"$FIXTURE/received-signal"; exit 129' HUP
+trap 'printf "INT\n" >"$FIXTURE/received-signal"; exit 130' INT
+trap 'printf "TERM\n" >"$FIXTURE/received-signal"; exit 143' TERM
+touch "$FIXTURE/ready"
+sleep 60
+'''
+for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGKILL):
+    fixture = work / ("restore-signal-" + str(sig))
+    fixture.mkdir(mode=0o700)
+    for service in ("caddy", "api", "collector", "notifier", "watchdog"):
+        (fixture / service).write_text("running\n")
+    command = [sys.executable, str(root / "ops/paired_backup_state.py"),
+               "--manifest", os.environ["AVELREN_RUNTIME_MANIFEST"], "operator", "--",
+               "bash", "-c", body, "bash", str(root), str(fixture)]
+    wrapper = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        until = time.monotonic() + 3
+        while not (fixture / "ready").exists() and time.monotonic() < until:
+            time.sleep(.01)
+        assert (fixture / "ready").exists(), (sig, "restore fixture did not start")
+        wrapper.send_signal(sig)
+        until = time.monotonic() + 3
+        while not (fixture / "cleanup-started").exists() and time.monotonic() < until:
+            time.sleep(.01)
+        assert (fixture / "cleanup-started").exists(), (sig, "actual restore EXIT cleanup bypassed")
+        probe = os.open(state / "operator-backup.lock", os.O_RDWR)
+        try:
+            try:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                raise AssertionError((sig, "lease released during restore cleanup"))
+        finally:
+            os.close(probe)
+        expected_signal = {signal.SIGTERM: "TERM\n", signal.SIGHUP: "HUP\n",
+                           signal.SIGINT: "INT\n", signal.SIGKILL: "TERM\n"}[sig]
+        assert (fixture / "received-signal").read_text() == expected_signal
+        (fixture / "release-cleanup").touch()
+        stdout, stderr = wrapper.communicate(timeout=4)
+        assert wrapper.returncode != 0, (sig, "cancelled restore reported success")
+        for service in ("caddy", "api", "collector", "notifier", "watchdog"):
+            assert (fixture / service).read_text() == "exited\n", (sig, service, "not stopped")
+        assert b"failure_state=stopped-verified" in stderr, (sig, stderr)
+        probe = os.open(state / "operator-backup.lock", os.O_RDWR)
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(probe)
+    finally:
+        (fixture / "release-cleanup").touch()
+        if wrapper.poll() is None:
+            wrapper.kill()
+            wrapper.communicate(timeout=4)
+print("guarded actual restore EXIT cleanup: TERM/HUP/INT/KILL PASS")
 PY
