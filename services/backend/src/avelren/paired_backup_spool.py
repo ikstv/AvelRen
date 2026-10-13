@@ -10,12 +10,42 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .collector_spool import SCHEMA_VERSION, SpoolStore, SpoolUnavailable
+from psycopg import AsyncConnection
+
+from .collector_replay import verify_committed_cycle
+from .collector_spool import SCHEMA_VERSION, CapturedCycle, SpoolStore, SpoolUnavailable
 from .models import Country, WorkloadItem
 
 
 class SpoolBackupError(ValueError):
     """Categorical failure safe to print without database inputs or paths."""
+
+
+def decode_cycle(row) -> CapturedCycle:
+    """Decode a retained result with the same strict backup payload boundary."""
+    seq, at, version, payload, digest = row
+    _payload(version, payload, digest)
+    data = json.loads(payload, object_pairs_hook=_unique_object)
+    return CapturedCycle(
+        seq=seq, at=_utc(at), http_status=data["http_status"],
+        duration_ms=data["duration_ms"], body_sha256=data["body_sha256"], error=data["error"],
+        countries=tuple(Country.model_validate(country) for country in data["countries"]),
+        items=tuple(WorkloadItem.model_validate(item) for item in data["items"]),
+    )
+
+
+async def verify_acked_primary(store: SpoolStore, conn: AsyncConnection) -> dict:
+    """Read every ACKed result and compare exact primary values without SQLite writes."""
+    cycles = observations = 0
+    for row in store.conn.execute(
+        "SELECT seq,at,payload_version,payload,payload_sha256 FROM cycles "
+        "WHERE state='acked' ORDER BY seq"
+    ):
+        cycle = decode_cycle(row)
+        await verify_committed_cycle(conn, cycle)
+        cycles += 1
+        observations += len(cycle.items)
+    return {"acked_cycles": cycles, "acked_observations": observations}
 
 
 def _unique_object(pairs):

@@ -1,0 +1,36 @@
+# Лише власний одноразовий rehearsal; жодних production mounts або ports.
+services:
+  db:
+    image: timescale/timescaledb:2.30.1-pg16@sha256:f495f2bc25ca7596ca8e1606c6241ca250ccc56a0c082b9f2ec0d290e0126cd9
+    command: [postgres, -c, timescaledb.telemetry_level=off]
+    environment:
+      POSTGRES_USER: avelren_admin
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: postgres
+      AVELREN_COMPOSE_ENV_GUARD: isolated
+    volumes:
+      - '${AVELREN_PAIR_ROOT:?owned source root required}:/workspace:ro'
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U avelren_admin -d postgres']
+      interval: 2s
+      timeout: 5s
+      retries: 40
+    networks: [isolated]
+  test:
+    image: avelren-app@sha256:9d32a0d54ff9711b54a082f39074e21ba456775b078caf01a293b95109674735
+    user: '${AVELREN_PAIR_UID:?owned user required}:${AVELREN_PAIR_GID:?owned group required}'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    environment:
+      PYTHONPATH: /workspace/services/backend/src
+    volumes:
+      - '${AVELREN_PAIR_ROOT:?owned source root required}:/workspace:ro'
+      - '${AVELREN_PAIR_WORK:?owned work required}:/evidence'
+    working_dir: /workspace
+    networks: [isolated]
+networks:
+  isolated:
+    internal: true
+volumes:
+  db_data:
