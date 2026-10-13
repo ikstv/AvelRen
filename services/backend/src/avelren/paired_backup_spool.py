@@ -74,6 +74,51 @@ def _payload(version, payload, digest):
         WorkloadItem.model_validate(item)
 
 
+def _sql_tokens(sql):
+    # Normalize layout/keyword case, preserving case and spaces in SQL literals.
+    return tuple(
+        token if token.startswith("'") else token.lower()
+        for token in re.findall(r"'(?:''|[^'])*'|\S", sql)
+    )
+
+
+def _validate_schema(connection):
+    expected = {
+        "cycles": """CREATE TABLE cycles (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            at TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('started','pending','acked')),
+            payload_version INTEGER, payload BLOB, payload_sha256 TEXT, acked_at TEXT
+        )""",
+        "meta": "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    }
+    tables = dict(
+        connection.execute(
+            "SELECT name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND type='table'"
+        )
+    )
+    if (
+        set(tables) != set(expected)
+        or connection.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND type!='table'"
+        ).fetchone()[0]
+    ):
+        raise SpoolBackupError("spool_schema_invalid")
+    for name, sql in expected.items():
+        # Version 1 is the exact native DDL, including types, PK, nullability,
+        # AUTOINCREMENT and the state CHECK; column names alone are insufficient.
+        if _sql_tokens(tables[name]) != _sql_tokens(sql):
+            raise SpoolBackupError("spool_schema_invalid")
+    sequences = connection.execute("SELECT name,seq FROM sqlite_sequence").fetchall()
+    if len(sequences) > 1 or any(
+        name != "cycles" or type(seq) is not int or seq < 0 for name, seq in sequences
+    ):
+        raise SpoolBackupError("spool_sequence_invalid")
+    maximum = connection.execute("SELECT max(seq) FROM cycles").fetchone()[0]
+    if maximum is not None and (not sequences or sequences[0][1] < maximum):
+        raise SpoolBackupError("spool_sequence_invalid")
+
+
 def inspect_spool(path: Path) -> dict:
     """Validate a static copy without constructor writes, WAL replay or recovery."""
     path = Path(path)
@@ -84,34 +129,16 @@ def inspect_spool(path: Path) -> dict:
         wal = Path(f"{path}-wal")
         if wal.exists() and wal.stat().st_size:
             raise SpoolBackupError("spool_not_static")
-        connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro&immutable=1")
+        connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True)
         if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
             raise SpoolBackupError("spool_integrity_invalid")
         if connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchall() != [
             (str(SCHEMA_VERSION),),
         ]:
             raise SpoolBackupError("spool_schema_invalid")
-        if set(
-            connection.execute("SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
-        ) != {("table", "cycles"), ("table", "meta")}:
-            raise SpoolBackupError("spool_schema_invalid")
         if connection.execute("PRAGMA auto_vacuum").fetchone()[0] != 2:
             raise SpoolBackupError("spool_schema_invalid")
-        expected = {
-            "cycles": [
-                "seq",
-                "at",
-                "state",
-                "payload_version",
-                "payload",
-                "payload_sha256",
-                "acked_at",
-            ],
-            "meta": ["key", "value"],
-        }
-        for table, columns in expected.items():
-            if [row[1] for row in connection.execute(f"PRAGMA table_info({table})")] != columns:
-                raise SpoolBackupError("spool_schema_invalid")
+        _validate_schema(connection)
         counts = {"started": 0, "pending": 0, "acked": 0}
         payload_count = 0
         first = last = None
@@ -123,6 +150,8 @@ def inspect_spool(path: Path) -> dict:
             cycle_at = _utc(at)
             if type(seq) is not int or seq <= 0 or state not in counts:
                 raise SpoolBackupError("cycle_invalid")
+            if last is not None and seq <= last[0]:
+                raise SpoolBackupError("cycle_sequence_invalid")
             if previous_at is not None and cycle_at < previous_at:
                 raise SpoolBackupError("cycle_range_invalid")
             previous_at = cycle_at

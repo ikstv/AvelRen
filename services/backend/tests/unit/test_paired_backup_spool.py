@@ -235,3 +235,116 @@ def test_snapshot_cleanup_failure_remains_categorical(tmp_path, monkeypatch):
         with pytest.raises(SpoolBackupError) as failure:
             snapshot_spool(source, destination)
     assert "secret" not in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "duplicate_ids",
+        "seq_type",
+        "no_autoincrement",
+        "nullable_at",
+        "nullable_state",
+        "no_state_check",
+        "no_meta_key",
+        "nullable_meta_value",
+        "sequence_rewind",
+        "sequence_duplicate",
+    ],
+)
+def test_inspect_rejects_malformed_schema_or_sequence(tmp_path, damage):
+    path = tmp_path / "malformed.sqlite3"
+    cycles_sql = """CREATE TABLE cycles (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        at TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('started','pending','acked')),
+        payload_version INTEGER, payload BLOB, payload_sha256 TEXT, acked_at TEXT
+    )"""
+    meta_sql = "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    if damage == "duplicate_ids":
+        cycles_sql = cycles_sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER")
+    elif damage == "seq_type":
+        cycles_sql = cycles_sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "TEXT PRIMARY KEY")
+    elif damage == "no_autoincrement":
+        cycles_sql = cycles_sql.replace(" AUTOINCREMENT", "")
+    elif damage in {"nullable_at", "nullable_state"}:
+        field = damage.removeprefix("nullable_")
+        cycles_sql = cycles_sql.replace(f"{field} TEXT NOT NULL", f"{field} TEXT")
+    elif damage == "no_state_check":
+        cycles_sql = cycles_sql.replace(" CHECK (state IN ('started','pending','acked'))", "")
+    elif damage == "no_meta_key":
+        meta_sql = meta_sql.replace(" PRIMARY KEY", "")
+    elif damage == "nullable_meta_value":
+        meta_sql = meta_sql.replace(" NOT NULL", "")
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("PRAGMA auto_vacuum=INCREMENTAL")
+        connection.execute(cycles_sql)
+        connection.execute(meta_sql)
+        connection.execute("INSERT INTO meta VALUES ('schema_version','1')")
+        connection.execute(
+            "INSERT INTO cycles(seq,at,state) VALUES (1,?,'started')", (AT.isoformat(),)
+        )
+        if damage == "duplicate_ids":
+            connection.execute(
+                "INSERT INTO cycles(seq,at,state) VALUES (1,?,'started')", (AT.isoformat(),)
+            )
+        elif damage == "sequence_rewind":
+            connection.execute("UPDATE sqlite_sequence SET seq=0 WHERE name='cycles'")
+        elif damage == "sequence_duplicate":
+            connection.execute("INSERT INTO sqlite_sequence VALUES ('cycles',1)")
+        connection.commit()
+    finally:
+        connection.close()
+    before = path.read_bytes()
+    with pytest.raises(SpoolBackupError):
+        inspect_spool(path)
+    assert path.read_bytes() == before
+
+
+def test_inspect_explicit_uri_is_readonly_and_does_not_write(tmp_path, monkeypatch):
+    path = tmp_path / "copy.sqlite3"
+    populate(path).close()
+    before = path.read_bytes()
+    native_connect = sqlite3.connect
+    seen = []
+
+    def checked_connect(database, *args, **kwargs):
+        assert kwargs.get("uri") is True
+        assert database.endswith("?mode=ro&immutable=1")
+        connection = native_connect(database, *args, **kwargs)
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            connection.execute("CREATE TABLE unauthorized (value TEXT)")
+        seen.append(database)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", checked_connect)
+    assert inspect_spool(path)["payload_count"] == 1
+    assert len(seen) == 1
+    assert path.read_bytes() == before
+    assert [candidate.name for candidate in tmp_path.iterdir()] == ["copy.sqlite3"]
+
+
+def test_inspect_preserves_autoincrement_after_deleted_cycle(tmp_path):
+    path = tmp_path / "copy.sqlite3"
+    store = SpoolStore(path)
+    assert store.begin(AT) == 1
+    assert store.begin(AT + timedelta(minutes=1)) == 2
+    store.conn.execute("DELETE FROM cycles WHERE seq=2")
+    store.close()
+    before = path.read_bytes()
+    assert inspect_spool(path)["cycle_range"]["last_seq"] == 1
+    assert path.read_bytes() == before
+    reopened = SpoolStore(path)
+    try:
+        assert reopened.begin(AT + timedelta(minutes=2)) == 3
+    finally:
+        reopened.close()
+
+
+def test_inspect_empty_native_spool(tmp_path):
+    path = tmp_path / "empty.sqlite3"
+    SpoolStore(path).close()
+    summary = inspect_spool(path)
+    assert summary["state_counts"] == {"started": 0, "pending": 0, "acked": 0}
+    assert all(value is None for value in summary["cycle_range"].values())
