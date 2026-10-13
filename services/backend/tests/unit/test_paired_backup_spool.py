@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -15,6 +16,17 @@ from avelren.echerha import FetchResult
 from avelren.paired_backup_spool import SpoolBackupError, inspect_spool, snapshot_spool
 
 AT = datetime(2026, 10, 13, 1, tzinfo=UTC)
+
+
+@pytest.fixture
+def cli_environment():
+    environment = os.environ.copy()
+    source_path = str(Path(__file__).resolve().parents[2] / "src")
+    existing = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [source_path, existing] if existing else [source_path]
+    )
+    return environment
 
 
 def populate(path, count=1):
@@ -136,7 +148,7 @@ def test_inspect_missing_or_live_wal_rejected_without_creation(tmp_path):
         store.close()
 
 
-def test_cli_json_and_categorical_failure(tmp_path):
+def test_cli_json_and_categorical_failure(tmp_path, cli_environment):
     path = tmp_path / "copy.sqlite3"
     populate(path).close()
     result = subprocess.run(
@@ -150,6 +162,7 @@ def test_cli_json_and_categorical_failure(tmp_path):
         ],
         capture_output=True,
         text=True,
+        env=cli_environment,
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["payload_count"] == 1
@@ -164,12 +177,13 @@ def test_cli_json_and_categorical_failure(tmp_path):
         ],
         capture_output=True,
         text=True,
+        env=cli_environment,
     )
     assert failure.returncode != 0 and failure.stdout == ""
     assert "secret" not in failure.stderr and str(tmp_path) not in failure.stderr
 
 
-def test_cli_online_snapshot(tmp_path):
+def test_cli_online_snapshot(tmp_path, cli_environment):
     source = tmp_path / "live" / "cycles.sqlite3"
     destination = tmp_path / "output" / "spool.sqlite3"
     store = populate(source, 5)
@@ -187,6 +201,7 @@ def test_cli_online_snapshot(tmp_path):
             ],
             capture_output=True,
             text=True,
+            env=cli_environment,
         )
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout)["state_counts"]["pending"] == 5
