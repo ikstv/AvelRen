@@ -407,4 +407,21 @@ unset SCRIPT_UNDER_TEST
     echo "counterfactual: the pre-fix script still stamped — wrong failure was reproduced" >&2; exit 1; }
 [ ! -e "$WORK/pre-fix/receipt.json" ]
 
+# Paired dispatch fails closed before SQL or rclone when its runtime manifest
+# is missing. The default SQL-only cases above retain every existing assertion.
+if run_case paired-missing AVELREN_BACKUP_MODE=paired \
+    AVELREN_PAIRED_BACKUP_SCRIPT="$ROOT/ops/paired-backup.py" \
+    AVELREN_RUNTIME_MANIFEST="$WORK/missing-runtime.json"; then
+    echo 'paired mode silently accepted a missing runtime manifest' >&2; exit 1
+fi
+[ ! -e "$WORK/paired-missing/stamp" ]
+[ ! -e "$WORK/paired-missing/receipt.json" ]
+[ ! -s "$WORK/paired-missing/calls.log" ]
+if run_case unsupported-mode AVELREN_BACKUP_MODE=invalid; then
+    echo 'unknown backup mode silently accepted' >&2; exit 1
+fi
+[ ! -e "$WORK/unsupported-mode/stamp" ]
+[ ! -e "$WORK/unsupported-mode/receipt.json" ]
+[ ! -s "$WORK/unsupported-mode/calls.log" ]
+
 echo "backup contract tests: $CASES passed"

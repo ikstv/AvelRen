@@ -17,6 +17,19 @@ BACKUP_DB_USER=${AVELREN_BACKUP_DB_USER:-avelren_backup}
 BACKUP_DB_PASSWORD=${AVELREN_BACKUP_PASSWORD:-}
 RECEIPT=${AVELREN_BACKUP_RECEIPT:-}
 
+case "${AVELREN_BACKUP_MODE:-sql-only}" in
+    sql-only) ;;
+    paired)
+        paired_script=${AVELREN_PAIRED_BACKUP_SCRIPT:-/usr/local/sbin/avelren-paired-backup}
+        exec python3 "$paired_script" run \
+            --manifest "${AVELREN_RUNTIME_MANIFEST:-/etc/avelren/collector-runtime.json}" \
+            --work-dir "$WORK_DIR" --stack-dir "$STACK_DIR" --remote "$REMOTE" \
+            --rclone-config "$RCLONE_CONFIG" \
+            --receipt "${RECEIPT:-/run/avelren-paired-backup-receipt.json}"
+        ;;
+    *) echo 'ERROR: unsupported backup mode' >&2; exit 1 ;;
+esac
+
 log() { echo "$(date -u +%FT%TZ) $*"; }
 fail() { log "ERROR: $*" >&2; exit 1; }
 

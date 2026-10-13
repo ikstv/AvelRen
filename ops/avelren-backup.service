@@ -2,6 +2,7 @@
 Description=AvelRen backup to Google Drive
 After=docker.service
 Requires=docker.service
+OnFailure=avelren-backup-recovery.service
 
 [Service]
 # The script (deploy/backup.sh) fail-closes if AVELREN_BACKUP_PASSWORD is empty;
@@ -11,6 +12,10 @@ Requires=docker.service
 EnvironmentFile=/etc/avelren/backup.env
 Type=oneshot
 ExecStart=/usr/local/sbin/avelren-backup
+ExecStopPost=/usr/local/sbin/avelren-paired-backup recover
+TimeoutStartSec=1800
+TimeoutStopSec=180
+KillMode=control-group
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
