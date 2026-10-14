@@ -3,6 +3,7 @@
 import gzip
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -12,6 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1080,6 +1082,68 @@ else: sys.exit(11)
         self.environment.stop()
         self.temp.cleanup()
 
+    def test_remote_failures_have_safe_operation_and_category(self):
+        for operation in ("config", "copyto", "size", "cat", "lsf", "deletefile", "secret-op"):
+            safe = operation if operation != "secret-op" else "unknown"
+            for result, category in (
+                (7, "exit_7"), (-9, "exit_-9"), (255, "exit_255"),
+                (True, "runner_failed"), (False, "runner_failed"), (0.0, "runner_failed"),
+                (None, "runner_failed"),
+                ("secret-return", "runner_failed"), (256, "runner_failed"),
+                (-256, "runner_failed"),
+            ):
+                with self.subTest(operation=operation, result=result), patch.object(
+                    state, "run_bounded", return_value=result
+                ):
+                    with self.assertRaises(self.module.BackupError) as caught:
+                        self.publisher.command([operation, "secret-argument"])
+                    self.assertEqual(str(caught.exception), f"remote_{safe}_{category}")
+        for error, category in (
+            (ValueError("command_timeout"), "command_timeout"),
+            (ValueError("command_cancelled"), "command_cancelled"),
+            (ValueError("command_unavailable"), "command_unavailable"),
+            (ValueError("process_supervision_unavailable"), "process_supervision_unavailable"),
+            (ValueError("secret-error"), "runner_failed"),
+            (OSError("secret-path"), "runner_os_error"),
+        ):
+            with self.subTest(category=category), patch.object(
+                state, "run_bounded", side_effect=error
+            ):
+                with self.assertRaises(self.module.BackupError) as caught:
+                    self.publisher.command(["copyto", "secret-argument"])
+                self.assertEqual(str(caught.exception), f"remote_copyto_{category}")
+                self.assertTrue(caught.exception.__suppress_context__)
+        with patch.object(state, "run_bounded", return_value=0):
+            self.assertIsNone(self.publisher.command(["copyto", "secret-argument"]))
+        with patch.object(state, "run_bounded", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.publisher.command(["copyto", "secret-argument"])
+
+    def test_remote_failure_public_json_contains_only_safe_reason(self):
+        stdout = io.StringIO()
+        argv = ["paired-backup", "run", "--work-dir", str(self.root),
+                "--stack-dir", str(self.root), "--rclone-config", "secret-config",
+                "--receipt", str(self.root / "receipt"), "--remote", "crypt:paired"]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(self.module, "load_controller") as controller,
+            patch.object(self.module, "Runtime"),
+            patch.object(self.module, "Coordinator") as coordinator,
+            patch.object(state, "run_bounded", side_effect=ValueError("secret-token")),
+            redirect_stdout(stdout),
+        ):
+            controller.return_value.runtime.load_manifest.return_value = dict(
+                state_dir=str(self.root)
+            )
+            coordinator.return_value.run.side_effect = lambda: self.publisher.command(
+                ["copyto", "secret-source", "secret-remote"]
+            )
+            self.assertEqual(self.module.main(), 1)
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            dict(status="failed", reason="remote_copyto_runner_failed"),
+        )
+
     def make_pair(self, backup_id):
         runtime = Runtime([])
         sql = runtime.sql_snapshot(self.directory, backup_id, "unused")
@@ -1141,7 +1205,7 @@ else: sys.exit(11)
             (tier / path.name).write_bytes(path.read_bytes())
         with patch.dict(os.environ, FAKE_FAULT="retention"):
             self.publisher.deadline = time.monotonic() + 30
-            with self.assertRaisesRegex(ValueError, "remote_operation_failed"):
+            with self.assertRaisesRegex(self.module.BackupError, "remote_deletefile_exit_10"):
                 self.publisher.publish(value, self.directory)
         self.assertTrue(legacy.exists())
         self.assertTrue((tier / "avelren-20261013-010000.pair.json").exists())
