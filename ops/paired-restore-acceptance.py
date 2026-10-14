@@ -130,22 +130,80 @@ def read_pair(directory: Path, basename: str, work: Path) -> dict:
     return manifest
 
 
-async def recover_pair(store, dsn: str) -> dict:
+def legacy_runtime(manifest: dict | None) -> bool:
+    """Only this audited pre-status image/source pair has legacy ACK semantics."""
+    if manifest is None:
+        return False
+    runtime = validate_manifest(manifest)["runtime"]
+    return (
+        runtime["source_commit"] == "a4a16b64147fcf28c6245f2032a61279ca7c74ec"
+        and runtime["image_id"]
+        == "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3"
+    )
+
+
+async def verify_legacy_cycle(conn, cycle) -> None:
+    """Read-only exact legacy contract; never used by the production collector.
+
+    Migration 015 gives this old writer's new INSERTs legacy_unknown. Historical
+    NULL is deliberately NOT interchangeable: the accepted retained ACKs were
+    captured after that migration. Other primary values remain exact.
+    """
+    from avelren.collector_replay import ReplayConflict
+
+    run = await (await conn.execute(
+        "SELECT http_status,duration_ms,body_sha256,rows_written,error "
+        "FROM collector_runs WHERE time=%s", (cycle.at,),
+    )).fetchone()
+    if run is None or tuple(run[name] for name in (
+        "http_status", "duration_ms", "body_sha256", "rows_written", "error"
+    )) != (cycle.http_status, cycle.duration_ms, cycle.body_sha256, len(cycle.items), cycle.error):
+        raise ReplayConflict("legacy collector_runs mismatch")
+    rows = await (await conn.execute(
+        "SELECT checkpoint_id,wait_time_seconds,wait_time_status,vehicles_in_queue,is_paused "
+        "FROM observations WHERE time=%s ORDER BY checkpoint_id", (cycle.at,),
+    )).fetchall()
+    actual = [tuple(row[name] for name in (
+        "checkpoint_id", "wait_time_seconds", "wait_time_status", "vehicles_in_queue", "is_paused"
+    )) for row in rows]
+    expected = sorted(
+        (item.id, item.wait_time if item.wait_time is not None else 0,
+         "legacy_unknown", item.vehicles_in_queue, item.is_paused)
+        for item in cycle.items
+    )
+    if actual != expected:
+        raise ReplayConflict("legacy observations mismatch")
+
+
+async def recover_pair(store, dsn: str, *, manifest: dict | None = None) -> dict:
     """ACK verification precedes any restored SQLite mutation and FIFO replay."""
     from avelren.collector_replay import replay_once, verify_committed_cycle
     from avelren.paired_backup_spool import decode_cycle, verify_acked_primary
     from psycopg.rows import dict_row
     from psycopg_pool import AsyncConnectionPool
 
+    legacy = legacy_runtime(manifest)
+    acked_before = store.conn.execute(
+        "SELECT * FROM cycles WHERE state='acked' ORDER BY seq"
+    ).fetchall()
+    legacy_sequences = {row[0] for row in acked_before} if legacy else set()
     async with AsyncConnectionPool(dsn, open=False, kwargs={"row_factory": dict_row}) as pool:
         async with pool.connection() as conn:
-            evidence = await verify_acked_primary(store, conn)
+            if legacy:
+                observations = 0
+                for row in store.conn.execute(
+                    "SELECT seq,at,payload_version,payload,payload_sha256 FROM cycles "
+                    "WHERE state='acked' ORDER BY seq"
+                ):
+                    cycle = decode_cycle(row)
+                    await verify_legacy_cycle(conn, cycle)
+                    observations += len(cycle.items)
+                evidence = {"acked_cycles": len(acked_before), "acked_observations": observations}
+            else:
+                evidence = await verify_acked_primary(store, conn)
         started = store.conn.execute(
             "SELECT count(*) FROM cycles WHERE state='started'"
         ).fetchone()[0]
-        acked_before = store.conn.execute(
-            "SELECT * FROM cycles WHERE state='acked' ORDER BY seq"
-        ).fetchall()
         store.recover_started()
         expected = [
             decode_cycle(row)
@@ -161,7 +219,10 @@ async def recover_pair(store, dsn: str) -> dict:
             replayed.append(cycle.seq)
         async with pool.connection() as conn:
             for cycle in expected:
-                await verify_committed_cycle(conn, cycle)
+                if cycle.seq in legacy_sequences:
+                    await verify_legacy_cycle(conn, cycle)
+                else:
+                    await verify_committed_cycle(conn, cycle)
             counts = await (
                 await conn.execute(
                     "SELECT (SELECT count(*) FROM collector_runs) AS runs, "
@@ -205,11 +266,16 @@ def main():
     receipt = commands.add_parser("receipt")
     receipt.add_argument("--source", type=Path, required=True)
     receipt.add_argument("--manifest", type=Path, required=True)
+    profile = commands.add_parser("profile")
+    profile.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
     try:
         if args.command == "prepare":
             read_pair(args.directory, args.manifest, args.work)
             print("pair_preflight_ok")
+        elif args.command == "profile":
+            manifest = load_manifest(args.manifest.read_bytes())
+            print("legacy_pre_status" if legacy_runtime(manifest) else "modern_strict")
         elif args.command == "receipt":
             if args.source.stat().st_size > 1_048_576:
                 raise ManifestError("replay_receipt_invalid")
@@ -227,7 +293,8 @@ def main():
                 raise ManifestError("spool_summary_invalid")
             store = SpoolStore(args.work / "restored.sqlite3")
             try:
-                print(json.dumps(asyncio.run(recover_pair(store, dsn)), sort_keys=True))
+                print(json.dumps(asyncio.run(recover_pair(store, dsn, manifest=manifest)),
+                                 sort_keys=True))
             finally:
                 store.close()
     except Exception:

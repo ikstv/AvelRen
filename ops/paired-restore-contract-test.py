@@ -85,6 +85,20 @@ class ReaderContracts(unittest.TestCase):
     def save(self):
         (self.directory / NAME).write_text(json.dumps(self.manifest))
 
+    def test_legacy_profile_requires_both_exact_identities_and_valid_manifest(self):
+        self.pair()
+        module = reader()
+        self.assertFalse(module.legacy_runtime(self.manifest))
+        self.manifest["runtime"]["source_commit"] = "a4a16b64147fcf28c6245f2032a61279ca7c74ec"
+        self.assertFalse(module.legacy_runtime(self.manifest))
+        self.manifest["runtime"]["image_id"] = (
+            "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3"
+        )
+        self.assertTrue(module.legacy_runtime(self.manifest))
+        self.manifest["writer_resumed"] = False
+        with self.assertRaises(ManifestError):
+            module.legacy_runtime(self.manifest)
+
     def reject(self, name=NAME):
         before = {p.name: p.read_bytes() for p in self.directory.iterdir() if p.is_file()}
         with self.assertRaises(ManifestError):

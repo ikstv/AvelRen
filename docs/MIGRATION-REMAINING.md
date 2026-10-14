@@ -2,6 +2,8 @@
 
 ## Актуальний підсумок — 14.10.2026
 
+- Після PR #130 публікація й readback пари `20261014-102249` пройшли. [Кандидат обмеженої legacy restore-сумісності](audits/PAIRED-LEGACY-RESTORE-2026-10-14.md) адресує власника Timescale job та точний старий статус збережених ACK. Повторне локальне приймання фактичної пари й незалежний review ще відкриті; сервер відновлено з попереднім timer. Це уточнює попередні спроби нижче, а не закриває production backup/DR.
+
 - FCM ownership source злитий у [PR #123](https://github.com/ikstv/AvelRen-ORIGINAL/pull/123), main `4ee4b1bd911fec5b78ae908ae593a8d81ac3cfa8`.
 - Aggregate CI-gate злитий у [PR #124](https://github.com/ikstv/AvelRen-ORIGINAL/pull/124), main `574b25cbf622c008a9e7d11a4d280af91963f71b`. [Main run 38287247895](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38287247895) завершив усі 11 jobs успішно, включно з Android, обома SBOM і `CI gate`. [Main run 38526654840](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38526654840) для `7c88b5162f875dc6a0a4ce7f460e1d6f121ac3ca` також SUCCESS.
 - API/notifier розгорнуті 12.10 з main `574b25c`; результати та межі наведено в [аудиті розгортання](audits/API-NOTIFIER-DEPLOYMENT-2026-10-12.md). Це датований доказ, а не гарантія поточного health без нової перевірки.

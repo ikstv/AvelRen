@@ -97,6 +97,21 @@ compose exec -T -e AVELREN_TEST_DB=1 -e AVELREN_DB_NAME=avelren_pair_roles_test 
     -e AVELREN_NOTIFIER_PASSWORD=ci-only -e AVELREN_WATCHDOG_PASSWORD=ci-only \
     -e AVELREN_API_PASSWORD=ci-only db bash /workspace/ops/postgres-bootstrap.sh fresh \
     >"$WORK/native-bootstrap.log" 2>&1 || fail native_role_bootstrap_failed 1
+# The verified pair selects this one compatibility profile. Never create this
+# placeholder through the general restore engine or in a caller-selected DB.
+profile=$("$RECEIPT_PYTHON" "$ROOT/ops/paired-restore-acceptance.py" profile \
+    --manifest "$(native_path "$WORK/pair/pair.json")") || fail pair_profile_invalid 1
+case "$profile" in
+    legacy_pre_status)
+        compose exec -T -e PGPASSWORD=ci-only \
+            -e PGOPTIONS='-c avelren.paired_rehearsal=1' db \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U avelren_admin -d postgres \
+            -f /workspace/ops/paired-restore-legacy-role.sql \
+            >"$WORK/legacy-role.log" 2>&1 || fail legacy_role_placeholder_failed 1
+        ;;
+    modern_strict) ;;
+    *) fail pair_profile_invalid 1 ;;
+esac
 export AVELREN_STACK_DIR=$ROOT AVELREN_COMPOSE_FILE=$COMPOSE_FILE
 export AVELREN_COMPOSE_PROJECT=$PROJECT AVELREN_COMPOSE_PROJECT_DIR=$COMPOSE_DIR
 export AVELREN_COMPOSE_ENV_FILE=$COMPOSE_ENV AVELREN_COMPOSE_ENV_GUARD=isolated
