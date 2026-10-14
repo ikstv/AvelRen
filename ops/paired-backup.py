@@ -392,12 +392,14 @@ class Publisher:
                     *arguments,
                     "--config",
                     str(self.config),
+                    # Preserve the working legacy retry policy; the shared
+                    # supervisor deadline still bounds total time, not this IO idle limit.
                     "--retries",
-                    "1",
+                    "3",
                     "--low-level-retries",
-                    "1",
+                    "10",
                     "--timeout",
-                    "30s",
+                    "5m",
                 ],
                 deadline=self.deadline,
                 stdout_path=output,
