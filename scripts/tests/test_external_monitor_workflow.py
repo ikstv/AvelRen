@@ -15,8 +15,10 @@ WORKFLOW = yaml.load(
 )
 
 
-def test_live_monitor_is_manual_only_and_serialized() -> None:
-    assert set(WORKFLOW['on']) == {'workflow_dispatch'}
+def test_live_monitor_preserves_legacy_schedule_and_is_serialized() -> None:
+    assert set(WORKFLOW['on']) == {'schedule', 'workflow_dispatch'}
+    assert WORKFLOW['on']['schedule'] == [{'cron': '*/10 * * * *'}]
+    assert WORKFLOW['on']['workflow_dispatch'] == {}
     assert WORKFLOW['concurrency']['cancel-in-progress'] == 'false'
     assert WORKFLOW['permissions'] == {'contents': 'read', 'issues': 'write'}
 
