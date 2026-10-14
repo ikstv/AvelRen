@@ -342,3 +342,155 @@ def test_reader_rejects_mismatched_static_spool_summary(database, tmp_path):
         acceptance_module().read_pair(directory, name, tmp_path / "owned")
     assert before == {p.name: p.read_bytes() for p in directory.iterdir()}
     assert not (tmp_path / "owned").exists()
+
+
+def legacy_manifest(path, tmp_path):
+    directory = tmp_path / "legacy-pair"
+    name = package_pair(path, directory, runtime={
+        "source_commit": "a4a16b64147fcf28c6245f2032a61279ca7c74ec",
+        "image_id": "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3",
+        "container_id": "c" * 64,
+        "restart_count": 0,
+        "started_at": (AT - timedelta(days=1)).isoformat(),
+    })
+    return json.loads((directory / name).read_bytes())
+
+
+def legacy_fixture(path, database):
+    asyncio.run(mixed_fixture(path, database("collector")))
+    # Reproduce old INSERT after migration 015: its omitted status gets the default.
+    with psycopg.connect(database("admin")) as conn:
+        conn.execute("UPDATE observations SET wait_time_status=DEFAULT")
+
+
+def test_exact_legacy_pair_preserves_acks_and_replays_pending_modern(database, tmp_path):
+    path = tmp_path / "spool.sqlite3"
+    legacy_fixture(path, database)
+    manifest = legacy_manifest(path, tmp_path)
+    store = SpoolStore(path)
+    before = store.conn.execute("SELECT * FROM cycles WHERE state='acked'").fetchall()
+    evidence = asyncio.run(acceptance_module().recover_pair(
+        store, database("collector"), manifest=manifest,
+    ))
+    assert evidence["acked_cycles"] == 2
+    assert evidence["replayed_sequences"] == [3, 4, 5, 6]
+    assert store.conn.execute("SELECT * FROM cycles WHERE seq<=2").fetchall() == before
+    with psycopg.connect(database("collector")) as conn:
+        assert conn.execute(
+            "SELECT wait_time_status FROM observations ORDER BY time"
+        ).fetchall() == [("legacy_unknown",), ("legacy_unknown",),
+                         ("reported",), ("reported",), ("reported",)]
+    store.close()
+
+
+@pytest.mark.parametrize("damage", [
+    "source_commit", "image_id", "status_null", "status_reported", "status_missing",
+    "wait_time_seconds", "vehicles_in_queue", "is_paused", "duration_ms", "http_status",
+    "body_sha256", "rows_written", "error", "missing_run",
+    "missing_observation", "extra_observation",
+])
+def test_legacy_exception_rejects_unknown_runtime_and_corruption(database, tmp_path, damage):
+    path = tmp_path / "spool.sqlite3"
+    legacy_fixture(path, database)
+    manifest = legacy_manifest(path, tmp_path)
+    if damage in {"source_commit", "image_id"}:
+        manifest["runtime"][damage] = (
+            "d" * 40 if damage == "source_commit" else "sha256:" + "d" * 64
+        )
+    else:
+        with psycopg.connect(database("admin")) as conn:
+            if damage == "missing_run":
+                conn.execute("DELETE FROM collector_runs WHERE time=%s", (AT,))
+            elif damage == "missing_observation":
+                conn.execute("DELETE FROM observations WHERE time=%s", (AT,))
+            elif damage == "extra_observation":
+                conn.execute(
+                    "INSERT INTO checkpoints(id,title,for_vehicle_type) VALUES(8,'Extra',1)"
+                )
+                conn.execute("INSERT INTO observations(time,checkpoint_id,wait_time_seconds,"
+                             "vehicles_in_queue,is_paused) VALUES(%s,8,0,0,false)", (AT,))
+            else:
+                field = "wait_time_status" if damage.startswith("status_") else damage
+                value = {"status_null": None, "status_reported": "reported",
+                         "status_missing": "missing", "wait_time_seconds": 999,
+                         "vehicles_in_queue": 99, "is_paused": True, "duration_ms": 999,
+                         "http_status": 500, "body_sha256": "f" * 64, "rows_written": 0,
+                         "error": "corrupted"}[damage]
+                table = "collector_runs" if damage in {
+                    "duration_ms", "http_status", "body_sha256", "rows_written", "error"
+                } else "observations"
+                conn.execute(psycopg.sql.SQL("UPDATE {} SET {}=%s WHERE time=%s").format(
+                    psycopg.sql.Identifier(table), psycopg.sql.Identifier(field)), (value, AT))
+    store = SpoolStore(path)
+    before = store.conn.execute("SELECT * FROM cycles").fetchall()
+    with pytest.raises(ReplayConflict):
+        asyncio.run(acceptance_module().recover_pair(
+            store, database("collector"), manifest=manifest,
+        ))
+    assert store.conn.execute("SELECT * FROM cycles").fetchall() == before
+    assert store.capture_only()
+    store.close()
+
+
+def test_unknown_runtime_keeps_modern_strict_recovery(database, tmp_path):
+    path = tmp_path / "spool.sqlite3"
+    asyncio.run(mixed_fixture(path, database("collector")))
+    manifest = legacy_manifest(path, tmp_path)
+    manifest["runtime"]["source_commit"] = "d" * 40
+    store = SpoolStore(path)
+    try:
+        evidence = asyncio.run(acceptance_module().recover_pair(
+            store, database("collector"), manifest=manifest,
+        ))
+        assert evidence["verified_cycles"] == 6
+    finally:
+        store.close()
+
+
+def test_legacy_committed_pending_is_not_granted_ack_exception(database, tmp_path):
+    path = tmp_path / "spool.sqlite3"
+    legacy_fixture(path, database)
+    manifest = legacy_manifest(path, tmp_path)
+    store = SpoolStore(path)
+    store.conn.execute("UPDATE cycles SET state='pending',acked_at=NULL WHERE seq=2")
+    payload = store.conn.execute("SELECT payload,payload_sha256 FROM cycles WHERE seq=2").fetchone()
+    with pytest.raises(ReplayConflict):
+        asyncio.run(acceptance_module().recover_pair(
+            store, database("collector"), manifest=manifest,
+        ))
+    assert store.next_pending().seq == 2
+    assert store.conn.execute(
+        "SELECT payload,payload_sha256 FROM cycles WHERE seq=2"
+    ).fetchone() == payload
+    store.close()
+
+
+@pytest.mark.parametrize("unsafe", [False, True])
+def test_legacy_role_placeholder_is_restricted_or_refuses_existing_role(database, unsafe):
+    script = (ROOT / "ops/paired-restore-legacy-role.sql").read_text()
+    with psycopg.connect(database("admin"), autocommit=True) as conn:
+        try:
+            with pytest.raises(psycopg.errors.RaiseException):
+                conn.execute(script)
+            assert conn.execute("SELECT 1 FROM pg_roles WHERE rolname='avelren'").fetchone() is None
+            conn.execute("SET avelren.paired_rehearsal='1'")
+            if unsafe:
+                conn.execute("CREATE ROLE avelren LOGIN")
+                with pytest.raises(psycopg.errors.RaiseException):
+                    conn.execute(script)
+                assert conn.execute(
+                    "SELECT rolcanlogin FROM pg_roles WHERE rolname='avelren'"
+                ).fetchone() == (True,)
+            else:
+                conn.execute(script)
+                conn.execute(script)
+                assert conn.execute(
+                    "SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolreplication,"
+                    "rolbypassrls FROM pg_roles WHERE rolname='avelren'"
+                ).fetchone() == (False, False, False, False, False, False)
+                assert conn.execute(
+                    "SELECT count(*) FROM pg_auth_members WHERE member='avelren'::regrole "
+                    "OR roleid='avelren'::regrole"
+                ).fetchone() == (0,)
+        finally:
+            conn.execute("DROP ROLE IF EXISTS avelren")
