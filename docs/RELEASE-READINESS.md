@@ -11,13 +11,21 @@ Certificate SHA-256: `b3c2c5c3479e31615876a631b88b08ce91b3c90835639f4884c41874d9
 Під час збірки ADB не виявив пристроїв. Пізніша read-only перевірка
 підтвердила один авторизований телефон: `ua.avelren.app`, 0.1.3/code6,
 installer `com.android.vending`, POST_NOTIFICATIONS granted=true, DND zen_mode=0.
-Certificate/hash встановленого APK ще не прийняті; оновлення не виконано. Перед встановленням потрібна
-звірка фактичних package/cert/version; upload certificate може відрізнятися
+Read-only apksigner перевірка 14.10 о 19:23:32 за Києвом підтвердила підпис установленого APK; оновлення не виконано. Перед встановленням потрібна
+звірка фактичних package/cert/version; тут upload certificate відрізняється
 від Play App Signing certificate. Не видаляти встановлений застосунок
 і не обходити signature mismatch. Версію 0.1.3/code6 не слід автоматично
 вважати наступною публічною версією. AAB, Play і GitHub Release не створені;
 FCM/голос/ACK та інші телефонні сценарії залишаються неприйнятими.
 Власник відклав публікацію 1.0.4 до завершення перенесення.
+
+
+Встановлений Play APK SHA-256: `df060e7813f6bda3829aa301e75a06ee50c3777b04cba378c107371400bb005d`.
+Його certificate SHA-256: `2739e755fd1f302adcfa318ef9fc27b243e6d1b6c8e978248844fd46f32e1ff4`;
+він не збігається з upload certificate локального кандидата вище. Оновлення
+зі збереженням даних має пройти через належний Play signing шлях; локальний
+кандидат не доводить сумісності прямого встановлення. Тимчасову копію APK
+видалено; застосунок і його дані не змінювали. Це не приймання доставки FCM/голосу/ACK.
 
 [Ручний зовнішній monitor](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
 пройшов один healthy live запуск; notification failure/recovery і заміна

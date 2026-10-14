@@ -12,8 +12,8 @@ Collector/watchdog DSN прийняті 14.10: [production доказ](audits/PO
 3. [Підписаний APK-кандидат 0.1.3/code6](RELEASE-READINESS.md) з main `a8fc73c`
    зібраний. Пізніша ADB-звірка виявила один авторизований телефон:
    `ua.avelren.app`, 0.1.3/code6, installer `com.android.vending`.
-   POST_NOTIFICATIONS granted=true, DND zen_mode=0. Certificate ще не прочитаний;
-   update, FCM/голос/ACK і сумісність підпису
+   POST_NOTIFICATIONS granted=true, DND zen_mode=0. Підпис встановленого APK перевірений 19:23:32 за Києвом;
+   Play certificate відрізняється від локального upload certificate; update і FCM/голос/ACK
    не прийняті. Власник відклав публікацію 1.0.4 до завершення перенесення;
    read-only перевірка Play не є публікацією.
 4. Фінальна звірка решти backlog і збереження історії старих репозиторіїв
