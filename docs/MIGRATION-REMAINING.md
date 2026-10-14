@@ -2,18 +2,22 @@
 
 ## Актуальний підсумок — 14.10.2026
 
-На цьому етапі залишки групуються в чотири блоки:
+Collector/watchdog DSN прийняті 14.10: [production доказ](audits/POSTGRES-DSN-CUTOVER-2026-10-14.md). Залишки та межі:
 
-1. Конкретна процедура collector/watchdog DSN cutover, відкат і окремий GO;
-   повний privilege gate та 15 focused exact-image тестів уже прийняті.
+1. DSN collector/watchdog переключені на власні ролі й перевірені; retirement
+   legacy ролі та власників Timescale jobs цим не виконано.
 2. Зовнішній monitor: [ручний live запуск](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
    38575430544 успішний, але failure/recovery повідомлення й заміна schedule
    ще не прийняті; старий monitor активний.
 3. [Підписаний APK-кандидат 0.1.3/code6](RELEASE-READINESS.md) з main `a8fc73c`
-   зібраний; телефона через ADB немає. Фактичне встановлення, FCM/голос/ACK,
-   сумісність підпису/версії та Play ще відкриті; це не фінальний реліз.
+   зібраний. Пізніша ADB-звірка виявила один авторизований телефон:
+   `ua.avelren.app`, 0.1.3/code6, installer `com.android.vending`.
+   POST_NOTIFICATIONS granted=true, DND zen_mode=0. Certificate ще не прочитаний;
+   update, FCM/голос/ACK і сумісність підпису
+   не прийняті. Власник відклав публікацію 1.0.4 до завершення перенесення;
+   read-only перевірка Play не є публікацією.
 4. Фінальна звірка решти backlog і збереження історії старих репозиторіїв
-   до їх видалення; архів Play assets уже перенесений окремо.
+   до їх видалення; архів п'яти Play PNG уже збережений з provenance у merged PR #133 (0d9b7b6).
 
 - Реальна off-host пара `20261014-102249` пройшла штатне ізольоване відновлення за 84,863 с на source PR #131 `a793151`: усі 1440 ACK перевірені, єдиний pending відтворено, після replay `pending=0`; локальні резервні файли та власні Docker-ресурси прибрані. [Доказ і межі приймання](audits/PAIRED-LEGACY-RESTORE-2026-10-14.md). Незалежний review APPROVED; hosted CI 38558951014 пройшов усі обов'язкові jobs, PR #131 злитий у main `3e6df1ba059a680805c9b427f66198e944abe878` із точно протестованим деревом. Окремий main-push CI цим записом не приймається. Повторне встановлення r5 незміненого backup PR #130 прийняте: 13 файлів/SQL/helper перевірені, штатний timer enabled/active (наступний запуск за readback — 15.10 о 06:22:18 за Києвом), нової паузи або capture не було. Сім контейнерів незмінні, capture-only вимкнений, pending=0; Перевірка стабільності 14.10 о 15:12:09 за Києвом підтвердила API health ok, вік спостереження 15 с. Це не доказ production DR/background jobs або переходу прав/DSN.
 
@@ -22,8 +26,8 @@
 - API/notifier розгорнуті 12.10 з main `574b25c`; результати та межі наведено в [аудиті розгортання](audits/API-NOTIFIER-DEPLOYMENT-2026-10-12.md). Це датований доказ, а не гарантія поточного health без нової перевірки.
 - Діагностика публікації резервної пари з [PR #128](https://github.com/ikstv/AvelRen-ORIGINAL/pull/128) злита в main `ab74e078e6a3b602ade0fd33c6ba612d37ca7341`. [CI 38529944746](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38529944746) пройшов усі обов'язкові перевірки, включно з native paired restore. Це source/CI приймання. Пакет r3 зупинено **до встановлення**: повторна перевірка Google Drive повернула `403 rateLimitExceeded`. Нової паузи записувача й нового backup не було; попередній timer після відкату перевірений справним. Неповну приватну передачу пакета відхилено перевіркою хешу; source на сервер не встановлено.
 - Попередній статус до успішної фактичної репетиції вище: спільна резервна копія PostgreSQL і SQLite та її ізольоване відновлення ще не були прийняті. Оперативний стан і результати спроб — у [датованому аудиті](audits/PAIRED-BACKUP-PRODUCTION-2026-10-14.md).
-- Наступний етап БД — конкретна процедура collector/watchdog DSN cutover із rollback і окремим GO: [свіжий аудит](audits/POSTGRES-CUTOVER-READINESS-2026-10-14.md) підтвердив повний privilege gate PASS та 15 focused exact-image PASS. Повторне ownership/ACL без нової потреби не обґрунтоване; production DSN ще не переключені, legacy Timescale jobs окремі. Також відкриті live monitor, Android APK і push/голос/ACK на телефоні, Play та фінальна звірка старих репозиторіїв; їх зберігаємо до приймання заміни.
-- Власник погодив коротке вікно технічних робіт до 15 хвилин із відкатом. Старий розширений maintenance-план не є обов'язковою наступною реалізацією: частковий код збережено без приймання. Перехід БД потребує конкретної підготовки й дозволу на свою операцію.
+- Collector/watchdog DSN переключені після окремого GO: [production аудит](audits/POSTGRES-DSN-CUTOVER-2026-10-14.md). Обидва вікна в межах 15 хвилин; сім контейнерів running без restart, природні collector цикли та API пройшли перевірку. Legacy Timescale jobs і retirement ролі залишаються окремими. Scheduled monitor, телефонні сценарії та фінальна звірка старих репозиторіїв ще не завершені.
+- Власник погодив коротке вікно технічних робіт до 15 хвилин із відкатом. Старий розширений maintenance-план не є обов'язковою наступною реалізацією: частковий код збережено без приймання. Погоджений DSN перехід прийнято окремим аудитом вище; це не дозвіл на інші операції БД.
 - Read-only GitHub перевірка 14.10: репозиторій PUBLIC; classic protection main повертає `404 Branch not protected`, effective branch rules — `[]`. Блокування merge не ввімкнене. Старий тарифний 403 описує приватний стан на дату аудиту й не є поточним доказом недоступності. Налаштування доступу, бюджету та захисту цією документацією не змінюються.
 
 Нижчі записи зберігають перебіг робіт на свої дати. Цей підсумок уточнює старі твердження про незлитий FCM, лише локальний CI-gate й відсутнє application deployment; він не підтверджує приймання телефона чи повного production DR.
@@ -279,7 +283,7 @@ source-sbom та image-sbom checks цього коміту успішні.
 | Блок | Конкретний результат для закриття |
 | --- | --- |
 | Supply-chain legacy #140 / issue #23 | Source та candidate image SBOM уже реалізовані й мають успішні checks; повторно переносити їх не потрібно. Залишилися рішення по Gradle artifact checksums, Dependabot, dependency/container vulnerability audits і CodeQL із ліцензійним блокером для приватного user-owned repo. Перед exact-image deployment потрібен окремий handoff immutable image/digest: SBOM CI candidate не засвідчує окремо перебудований production image. |
-| Collector/watchdog DSN та legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | [Аудит 14.10](audits/POSTGRES-CUTOVER-READINESS-2026-10-14.md): повний privilege gate PASS, journal001–016 точний; чинне application ownership і dedicated credentials перевірені, 15 focused exact-image тестів PASS. Повторне ownership/ACL та поновлення старого розширеного maintenance-плану не є наступним обов'язковим кроком. Потрібні конкретна перевірена процедура DSN cutover по одній службі, private rollback, exact Compose/runtime preflight і окремий GO. Новий container ID сам не вимагає manifest rebind. Фактичне перемикання й runtime readback ще не виконані; legacy role/Timescale jobs не змінюємо побічно. |
+| Collector/watchdog DSN та legacy [AvelRen#15](https://github.com/ikstv/AvelRen/issues/15) | DSN обох служб прийняті 14.10: [production доказ](audits/POSTGRES-DSN-CUTOVER-2026-10-14.md); образи збережені, runtime перевірений. | Retirement legacy ролі та Timescale jobs не виконано; не повторювати ownership/ACL без нової потреби. |
 | Forecast legacy #111 / ORIGINAL [#70](https://github.com/ikstv/AvelRen-ORIGINAL/issues/70) | PR #72 злитий 02.10.2026, merge d134c0b; server missing/0/legacy_unknown і Android wait_estimate/DTO/UI уже у main. Повторний перенос не потрібний. Короткий історичний backtest не є release gate: залишилися довший holdout, recovery та окреме приймання на телефоні. Див. [звірку аудиту12.10](audits/AUDIT-TRIAGE-2026-10-12.md); не оголошувати missing справжнім нулем без урахування status. |
 | Сповіщення про реліз, R08 | [Старий payload helper і три тести перенесено без змін](RELEASE-NOTICE-TRANSFER.md). Sender та Play availability gate не були готовою частиною джерела; їх реалізація й наскрізне приймання залишаються окремою вимогою. |
 | Старі issues #19/#23/#25/#26 | По пунктах звірити FCM ownership/delete-installation, supply-chain вимоги, privacy та release/recovery runbooks; реалізувати або явно відкласти прийняті залишки. |
