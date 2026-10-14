@@ -1,5 +1,51 @@
 # Обмежена сумісність відновлення старого collector — 14.10.2026
 
+## Фактична off-host пара відновлена — 14.10.2026
+
+Штатна ізольована репетиція пари `20261014-102249` завершилася успішно
+за **84,863 с** на точному source `a7931512ec6223ccf47050b3830841fb03d47d56`
+([PR #131](https://github.com/ikstv/AvelRen-ORIGINAL/pull/131)). Хеші п'яти
+отриманих зі сховища файлів збіглися з receipt і не змінилися під час тесту.
+Виконувані source-файли також звірені за хешами. Це виміряний час локальної
+репетиції, а не обіцяний RTO відновлення всього production сервера.
+
+- Відновлення PostgreSQL/Timescale, схеми та API пройшло; у відновленій БД
+  після replay перевірено 3 689 914 observations і 98 714 collector runs.
+- Усі 1440 збережених ACK та відповідні 54 720 observations перевірені.
+- Єдиний pending цикл (sequence 17880) відтворено; після replay перевірено
+  1441 цикл і 54 758 observations, `pending=0`. Це підмножина, пов'язана
+  зі збереженою SQLite-чергою, а не загальна кількість рядків БД.
+- Власні Docker-ресурси репетиції прибрані; п'ять локальних резервних файлів
+  видалені після перевірки. Зашифрована off-host пара збережена.
+
+Безпечний receipt має SHA-256
+`359a7b4e967476ce4c4ed7a913acfdb2aa2c3293c95adbeb8aecc98ed9817eda`.
+Незалежний source review — APPROVED. [Hosted CI 38558951014](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38558951014)
+завершився SUCCESS для всіх обов'язкових jobs, включно з `CI gate`:
+основний DB-набір — 229 passed; upgrade — 341 passed, 1 skipped, 2 warnings.
+PR #131 злитий 14.10.2026 о 15:26:22 за Києвом у
+`3e6df1ba059a680805c9b427f66198e944abe878`. Дерево фактичного main збігається
+з протестованим PR-деревом `8e45cf9f0b34185b2bce281b38a0bfb1d423c215`.
+Це не заява про завершення окремого нового main-push CI.
+
+Повторне встановлення r5 незмінених production backup-байтів PR #130
+`fa8688fff4dda1ffbcacea57fccf403021fc1b0a` прийнято окремим readback:
+13 файлів, SQL preflight і helper перевірені. Штатний timer enabled/active;
+на момент перевірки наступний запуск — 15.10.2026 о 06:22:18 за Києвом.
+Негайний backup не запускався: r5 не створював нового capture і не додавав
+паузи записувача. Попередню пару та receipt збережено, rollback-пакет залишено.
+Сім контейнерів незмінні, RestartCount=0, capture-only вимкнений, pending=0.
+Під час перевірки 14.10 API health — `ok`; timestamp останнього спостереження
+14:53:53 за Києвом, його вік під час перевірки — 14 с. Пізніша перевірка
+стабільності 14.10 о 15:12:09 за Києвом також підтвердила health `ok`:
+останнє спостереження 15:11:53, API повідомив вік 15 с.
+Це датоване приймання встановлення, а не гарантія наступного timer run.
+
+Пара створена раніше з паузою 51,065 с. Підтверджений isolated restore
+не доводить виконання Timescale background jobs від імені legacy NOLOGIN
+placeholder, повне production DR або перехід прав/DSN. Live monitor,
+телефонні сценарії та Play залишаються окремими етапами.
+
 Цей запис уточнює [попередні спроби](PAIRED-BACKUP-PRODUCTION-2026-10-14.md).
 [PR #130](https://github.com/ikstv/AvelRen-ORIGINAL/pull/130) злитий у
 `fa8688fff4dda1ffbcacea57fccf403021fc1b0a`;
@@ -47,7 +93,7 @@ NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION, NOBYPASSRLS і перев�
 її права не виправляємо. Загальний restore engine і production-ролі
 не змінюються.
 
-## Статус
+## Статус кандидата до фактичної репетиції
 
 Локально пройшли 702 unit-тести, 39 native PostgreSQL/Timescale сценаріїв
 paired recovery, 16 restore-контрактів, Ruff та синтаксична перевірка shell.
