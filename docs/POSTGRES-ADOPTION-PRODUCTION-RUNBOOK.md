@@ -1,5 +1,14 @@
 # Production adoption PostgreSQL 001–016 — процедура переходу
 
+> Уточнення 14.10.2026: [свіжий read-only аудит](audits/POSTGRES-CUTOVER-READINESS-2026-10-14.md)
+> підтвердив повний privilege gate PASS і чинне application ownership.
+> Не застосовувати ownership/ACL повторно на підставі старого припущення.
+> Credentials обох dedicated ролей перевірені; watchdog column grants
+> дозволяють точний admin SELECT. Runtime acceptance і collector manifest
+> identity transition ще попереду; legacy Timescale jobs лишаються окремою
+> темою. Перевірка не дозволяє production-запис. Нижчий статус 11.10
+> збережено як історію підготовки, а не поточний доказ стану каталогу.
+
 Дата: 11.10.2026. Статус: DB executor реалізований і перевірений як source
 кандидат етапу 1; публічний production CLI закритий. Реальний maintenance
 adapter і operational acceptance попереду. Документ не є дозволом на операцію.
