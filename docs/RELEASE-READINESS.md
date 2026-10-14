@@ -1135,6 +1135,15 @@ R12 PIN після перевстановлення, плашка, достав�
 
 ## Уточнення 13.10: узгоджений backup PostgreSQL + SQLite
 
+Уточнення 14.10: source-виправлення повертає перевірену стару політику rclone:
+`--retries 3 --low-level-retries 10 --timeout 5m`. П'ять хвилин — ліміт
+бездіяльності I/O, а не новий бюджет кожного виклику: спільний post-resume
+deadline 900 секунд і пауза записувача 720+180 секунд незмінні. Журнал старого
+backup підтвердив успіх 14.10 о03:23:29 UTC; окремий read-only checksum зі
+старими параметрами пройшов за37,723с. Це не доводить, що лише retry-політика
+спричинила попередній збій: доступність Drive-квоти між спробами змінювалася.
+Source/контракти не замінюють CI, встановлення, нову off-host пару та restore.
+
 [Source-кандидат і package prerequisites](audits/PAIRED-BACKUP-SOURCE-2026-10-13.md)
 мають native helper, owned recovery, crypt manifest-last publication і paired
 restore. Окремі acceptance gates: local source evidence → exact-head hosted

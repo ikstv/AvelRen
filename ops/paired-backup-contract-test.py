@@ -1119,6 +1119,21 @@ else: sys.exit(11)
             with self.assertRaises(KeyboardInterrupt):
                 self.publisher.command(["copyto", "secret-argument"])
 
+    def test_verified_legacy_retry_policy_keeps_one_shared_deadline(self):
+        deadline = time.monotonic() + 7
+        self.publisher.deadline = deadline
+        with patch.object(state, "run_bounded", return_value=0) as runner:
+            self.publisher.command(["copyto", "local", "crypt:paired/file"])
+            self.publisher.command(["cat", "crypt:paired/file"])
+        self.assertEqual(runner.call_count, 2)
+        for call in runner.call_args_list:
+            argv = call.args[0]
+            self.assertEqual(argv[argv.index("--retries") + 1], "3")
+            self.assertEqual(argv[argv.index("--low-level-retries") + 1], "10")
+            self.assertEqual(argv[argv.index("--timeout") + 1], "5m")
+            self.assertEqual(call.kwargs["deadline"], deadline)
+        self.assertEqual(self.publisher.deadline, deadline)
+
     def test_remote_failure_public_json_contains_only_safe_reason(self):
         stdout = io.StringIO()
         argv = ["paired-backup", "run", "--work-dir", str(self.root),
