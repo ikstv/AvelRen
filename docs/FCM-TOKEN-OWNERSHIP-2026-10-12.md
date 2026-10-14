@@ -1,5 +1,9 @@
 # Власність FCM-токена — 12.10.2026
 
+## Уточнення статусу — 14.10.2026
+
+Source злитий у [PR #123](https://github.com/ikstv/AvelRen-ORIGINAL/pull/123), main 4ee4b1bd911fec5b78ae908ae593a8d81ac3cfa8. Подальший main CI 38287247895 успішний для всіх 11 jobs, включно з Android. Серверна частина увійшла до [розгортання API/notifier 12.10](audits/API-NOTIFIER-DEPLOYMENT-2026-10-12.md). Новий APK/version/SHA-256, конфлікт і відновлення на телефоні, доставка push та Play цим не прийняті. Нижчі очікування source review/CI/merge збережені як перебіг підготовки, а не поточні блокери.
+
 ## Контракт і межі
 
 Інтегрований source кандидат `codex/fcm-token-ownership-20261012` перевіряється
