@@ -7,16 +7,18 @@
 # host doesn't. Alerting is a GitHub issue (dead-man's-switch: opened once
 # per outage, auto-closed on recovery), deliberately avoiding any channel
 # that routes back through the AvelRen stack.
-name: Зовнішній моніторинг (ручний запуск)
+name: Зовнішній моніторинг
 
 on:
+  schedule:
+    - cron: '*/10 * * * *'
   workflow_dispatch: {}
 
 permissions:
   contents: read
   issues: write
 
-# Ручні прогони не повинні одночасно відкривати дублікати issues.
+# Ручні й регулярні прогони не повинні одночасно відкривати дублікати issues.
 concurrency:
   group: external-health-monitor
   cancel-in-progress: false
@@ -98,7 +100,7 @@ jobs:
             - age_seconds: \`${{ steps.probe.outputs.age }}\`
             - first detected: $(date -u +%FT%TZ)
 
-            This issue closes automatically when the next successful manual probe succeeds. If it does not, /health is still down or unreachable — check the host directly."
+            This issue closes automatically when the next successful probe succeeds. If it does not, /health is still down or unreachable — check the host directly."
 
       # Recovery: close the one issue this outage opened, with a timestamp
       # so the outage duration is visible in the issue history.
@@ -184,7 +186,7 @@ jobs:
             - probes: \`${{ steps.gate.outputs.probes }}\`
             - first detected: $(date -u +%FT%TZ)
 
-            The watchdog physically cannot deliver this alarm itself — the channel it would use is the one that is empty. This gate catches \"empty\", NOT \"dead\" (an admin whose token is present but expired passes green — that is an ack concern, #19). Closes automatically when the next manual probe reports \`ok\`."
+            The watchdog physically cannot deliver this alarm itself — the channel it would use is the one that is empty. This gate catches \"empty\", NOT \"dead\" (an admin whose token is present but expired passes green — that is an ack concern, #19). Closes automatically when the next probe reports \`ok\`."
 
       - name: Ensure undelivered-alerts label exists
         env:
@@ -231,7 +233,7 @@ jobs:
 
             - first detected: $(date -u +%FT%TZ)
 
-            The alert row exists and no error was logged — that is what this failure looks like from the server, and why nothing caught it before #174. Likely causes: the subscription points at a device with no FCM token, the notifier is not running, or FCM rejected the token. Closes automatically when the next manual probe reports \`ok\`."
+            The alert row exists and no error was logged — that is what this failure looks like from the server, and why nothing caught it before #174. Likely causes: the subscription points at a device with no FCM token, the notifier is not running, or FCM rejected the token. Closes automatically when the next probe reports \`ok\`."
 
       - name: Close resolved undelivered-alerts issue
         if: steps.undelivered.outputs.value == 'ok' && steps.undelivered_existing.outputs.number != ''
