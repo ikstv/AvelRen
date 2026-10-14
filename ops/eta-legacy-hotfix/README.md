@@ -17,14 +17,16 @@ SHA-256 `b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740`,
 Збережено стару поточну window-перевірку, обробку zero wait, `_fire`, dedup
 та `expire_passed`. Додана лише перевірка безпосереднього попереднього
 спостереження після створення підписки, якщо поточний ETA вже вище вікна.
-Missing/невідомий legacy zero/paused zero переривають історію; додатний paused
+Missing, zero із paused або непорожньою чергою переривають історію; zero з порожньою активною чергою і додатний paused
 залишається придатним. Старі дані та ACK не переписуються, backfill не виконується.
 
 Локальна перевірка: `python -B ops/eta-legacy-hotfix/test_legacy_eta.py`.
-TDD: exact old artifact дав три очікувані failures, після backport 12 tests PASS.
+TDD: exact old artifact дав три очікувані failures, після backport 12 tests PASS; уточнення точного legacy zero/NULL контракту дало RED 2, потім 14 tests PASS.
 Це швидкий тест алгоритму з синтетичним SQL fixture, не proof actual PostgreSQL.
 Обов'язкові наступні gates: installed-image restricted-role SQL tests,
 повна рівність інших module hashes і runtime config, strict нова source/image
 пара у restore allowlist, standard restore legacy ACK старого і нового образів,
 відкат на exact base, CI та незалежний review. Ні phone delivery, ні звук/OK
 цими source тестами не підтверджено. Canonical mixed-ACK upgrade лишається окремим.
+
+Локальний base tag у Dockerfile допустимий лише після inspect exact e7 ID до й після build; tag не є доказом pin. Перед build оператор сам створює цей приватний tag для перевіреного імпортованого образу, без pull.

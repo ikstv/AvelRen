@@ -63,7 +63,7 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
             previous = await (
                 await conn.execute(
                     """
-                    SELECT time, wait_time_seconds, wait_time_status, is_paused
+                    SELECT time, wait_time_seconds, wait_time_status, is_paused, vehicles_in_queue
                     FROM observations
                     WHERE checkpoint_id = %s AND time < %s AND time >= %s
                     ORDER BY time DESC LIMIT 1
@@ -76,14 +76,14 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
             previous_wait = previous["wait_time_seconds"]
             previous_status = previous["wait_time_status"]
             # Keep the numeric legacy writer unchanged. For crossing history,
-            # missing/ambiguous zero interrupts continuity; positive paused
-            # measurements remain usable, exactly as in the approved contract.
+            # missing interrupts continuity; legacy zero uses the same queue/paused
+            # filter as the unchanged current-window path. Positive paused is valid.
             if (
                 previous_wait is None
                 or previous_wait < 0
-                or previous_status not in ("reported", "legacy_unknown")
+                or previous_status not in (None, "reported", "legacy_unknown")
                 or (previous_wait == 0 and (
-                    previous_status == "legacy_unknown" or previous["is_paused"]
+                    previous["is_paused"] or previous["vehicles_in_queue"] > 0
                 ))
             ):
                 continue

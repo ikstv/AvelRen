@@ -37,9 +37,9 @@ class Connection:
         raise AssertionError('unexpected SQL')
 
 class LegacyETA(unittest.TestCase):
-    def exercise(self, *, previous=10800,status='legacy_unknown',current=18000,paused=False,previous_paused=False,created=-61,offset=-60,vehicles=0,expected=1):
+    def exercise(self, *, previous=10800,status='legacy_unknown',current=18000,paused=False,previous_paused=False,previous_vehicles=0,created=-61,offset=-60,vehicles=0,expected=1):
         at=datetime(2026,10,14,12,tzinfo=timezone.utc)
-        history=[] if previous is None else [dict(checkpoint_id=17,time=at+timedelta(seconds=offset),wait_time_seconds=previous,wait_time_status=status,is_paused=previous_paused,vehicles_in_queue=0)]
+        history=[] if previous is None else [dict(checkpoint_id=17,time=at+timedelta(seconds=offset),wait_time_seconds=previous,wait_time_status=status,is_paused=previous_paused,vehicles_in_queue=previous_vehicles)]
         conn=Connection(at,history,created)
         item=SimpleNamespace(id=17,wait_time=current,is_paused=paused,vehicles_in_queue=vehicles)
         module=load()
@@ -50,7 +50,9 @@ class LegacyETA(unittest.TestCase):
         for current in [13500,14400,15300]:
             with self.subTest(current=current):self.exercise(previous=None,current=current)
     def test_legacy_positive_paused(self): self.exercise(previous_paused=True,paused=True)
-    def test_legacy_zero_barrier(self): self.exercise(previous=0,expected=0)
+    def test_legacy_zero_empty_queue_valid(self): self.exercise(previous=0)
+    def test_legacy_zero_queued_barrier(self): self.exercise(previous=0,previous_vehicles=1,expected=0)
+    def test_historical_null_positive_valid(self): self.exercise(status=None)
     def test_missing_barrier(self): self.exercise(previous=0,status='missing',expected=0)
     def test_paused_zero_barrier(self): self.exercise(previous=0,status='reported',previous_paused=True,expected=0)
     def test_previous_before_subscription(self): self.exercise(created=-30,expected=0)
