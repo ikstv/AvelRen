@@ -4,8 +4,9 @@
 > підтвердив повний privilege gate PASS і чинне application ownership.
 > Не застосовувати ownership/ACL повторно на підставі старого припущення.
 > Credentials обох dedicated ролей перевірені; watchdog column grants
-> дозволяють точний admin SELECT. Runtime acceptance і collector manifest
-> identity transition ще попереду; legacy Timescale jobs лишаються окремою
+> дозволяють точний admin SELECT. Часткове exact-image приймання пройшло;
+> recreate/rollback ще потребують перевірки. Runtime manifest не містить
+> container ID, автоматичний rebind не є передумовою. Legacy Timescale jobs лишаються окремою
 > темою. Перевірка не дозволяє production-запис. Нижчий статус 11.10
 > збережено як історію підготовки, а не поточний доказ стану каталогу.
 

@@ -53,19 +53,23 @@ Watchdog не має підтвердженого permission blocker для admi
 на `fcm_token`. Ці grants підтверджені; точний admin SELECT з умовою,
 що не повертає рядків, пройшов під `avelren_watchdog` без читання токенів.
 Відсутність table-level SELECT не означає відсутність column privileges.
-Live daily/recovery → notify → admin_tokens SQL збігається з ORIGINAL;
+Live daily → notify → admin_tokens SQL збігається з ORIGINAL;
 UPDATE та реальну FCM-відправку під час аудиту не виконували.
-Наступна перевірка — isolated daily/recovery/dead-token сценарії з mocked FCM
+Наступна перевірка — isolated daily/incident-resolution/dead-token сценарії з mocked FCM
 і точними column grants, без нового grant або production source fix.
 
 Для collector потрібне isolated приймання точного чинного image з dedicated
 role: повний цикл, alerts і replay, без додаткових запитів до upstream.
 Успішні auth та базові права SQL ще не доводять всю runtime-сумісність.
 Зміна DSN в environment вимагає recreate конкретного контейнера;
-restart не оновлює його environment. Collector runtime і paired-backup
-manifests прив'язані до container ID: перехід має узгоджено перевипустити
-та перевірити bindings, зберігши spool volume/network. Identity guard
-не обходити; timer відновлювати лише після приймання нової identity.
+restart не оновлює його environment. Runtime manifest містить дев'ять полів і не містить container ID;
+[preflight](../../ops/collector-runtime-preflight.py) перевіряє фактичний
+контейнер за чинним контрактом. [Paired coordinator](../../ops/paired-backup.py)
+прив'язує поточну identity до окремого покоління backup: попередній terminal
+state допускається, перед новим поколінням перевіряється поточний контейнер.
+Тому обов'язковий rebind manifest лише через новий ID не обґрунтований.
+Потрібні точний recreate-контракт, збереження spool volume/network та перевірка
+preflight/identity перед відновленням timer; identity guard не обходити.
 Watchdog використовує п'ять ordered Compose файлів, включно з його
 activation override; загальний чотирифайловий stack не є еквівалентним.
 
@@ -82,3 +86,55 @@ planner не запускався; no-op plan digest не заявляється
 cutover; старий розширений maintenance-план не поновлюється автоматично.
 [Runbook](../POSTGRES-ADOPTION-PRODUCTION-RUNBOOK.md) зберігає вимоги
 preflight, резервної копії, перевірки результату й відкату.
+
+## Доповнення: часткове приймання точних runtime images — 14.10.2026
+
+Уточнення раніше опублікованого висновку цього аудиту: припущення про
+обов'язковий manifest rebind через container ID та окремий recovery-push
+шлях як передумову переходу відкликані після звірки встановленого контракту
+і live `run_cycle`. Вище наведено виправлені вимоги; початковий висновок
+збережений у Git-історії PR #134 і не є чинною передумовою.
+
+Після окремого дозволу отримано два immutable Docker images; production
+дані для цих тестів не використовувалися. Перевірені image IDs:
+
+- Collector: `sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3`.
+- Watchdog: `sha256:77e55b1dc74dac65a665ab1e0fd00269a62b821bd337fcf957b600b006e257af`.
+
+Перший успішний прогін дав **14 PASS**: 9 watchdog reporting; 4 collector
+FIFO/idempotency/conflict; 1 synthetic producer із п'ятьма циклами під час
+недоступності БД та наступним replay під обмеженою роллю. Це exact-image
+перевірка: кожен pytest-процес підтвердив шлях установленого package й SHA
+завантажених модулів. Поточний source не підміняв runtime; додано лише
+offline test tooling. Використано synthetic DB, dedicated roles і точні
+column grants, internal network, mocked FCM та заборону зовнішнього HTTP.
+
+Перша спроба зупинилася до збору тестів через відсутній компонент pytest
+tooling; це не runtime failure. Після виправлення лише tooling повторна
+спроба пройшла. Harness/driver не змінювалися під час прийнятого прогону.
+Власні сім контейнерів, tools volume і network видалені; два імпортовані
+images прибрані без force/prune, архів після load видалений. Збережено
+лише metadata та докази; production runtime не змінювався.
+
+Додаткова звірка [watchdog run_cycle](../../services/backend/src/avelren/watchdog.py)
+підтвердила: чинний цикл виконує incident resolution і daily reporting,
+але не викликає dormant `_deliver_recoveries`. Incident resolution уже
+охоплений дев'ятьма прийнятими watchdog тестами. Новий recovery push не
+є передумовою DSN cutover і не додається як побічна функція.
+
+Наступний точковий прогін того самого exact collector image завершився
+**1 PASS за 1,99 с**: три synthetic цикли, створення fresh alert,
+обмежені collector/notifier roles і mocked delivery. Installed-package
+provenance підтверджений. Notifier module походив із collector image:
+це не приймання іншого production notifier image. Архів, чотири власні
+контейнери, tools volume, network та імпортований image цього прогону
+також видалені. Попередні 14 тестів не повторювалися; разом **15 PASS**.
+
+Fresh-derived SQL шлях закритий цим focused case. Далі потрібна конкретна
+перевірена процедура DSN cutover з private rollback/env/Compose, recreate
+лише цільової служби та runtime/identity acceptance після зміни.
+**Production DSN cutover не виконано**; ці тести не доводять фактичний
+production recreate/restart. Автоматичне переписування runtime manifest
+лише через новий container ID не потрібне за перевіреним контрактом вище,
+але незавершене покоління backup блокує recreate. Успішні 15 тестів не
+замінюють окремий production GO й не закривають долю legacy Timescale jobs.
