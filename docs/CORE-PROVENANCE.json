@@ -192,6 +192,22 @@
       "source": "app/tests/test_fcm.py",
       "destination": "services/backend/tests/unit/test_fcm.py",
       "sha256": "21b895b9bbb5efab691a99b02d0d4c09d19dd233c0f5aa26d474b41eb6ea3672"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/src/avelren/release_notice.py",
+      "destination": "services/backend/src/avelren/release_notice.py",
+      "git_blob": "c603187fdbb1f122bd789f5bf5cbeabd1182d2ff",
+      "sha256": "8e0a6ae2f08d102941b70ad00d064cfde406f32fcffc2a09d02c00aefe0d071a"
+    },
+    {
+      "repository": "ikstv/AvelRen",
+      "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
+      "source": "app/unit_tests/test_release_notice.py",
+      "destination": "services/backend/tests/unit/test_release_notice.py",
+      "git_blob": "386cb77232db7d5228e8882c74c4ff8c3c08223d",
+      "sha256": "3007fc1764bf875b978c3951a2c15acfca2a5862fcb555490a8a4ddf1339c235"
     }
   ]
 }
