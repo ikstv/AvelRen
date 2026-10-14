@@ -5,7 +5,9 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -839,6 +841,107 @@ class CoordinatorContracts(unittest.TestCase):
             labels["com.docker.compose.project"] = "avelren-runtime-test-foreign-sql"
             with self.assertRaisesRegex(ValueError, "sql_database_identity_mismatch"):
                 runtime.prepare_sql()
+            labels["com.docker.compose.project"] = runtime._sql_project
+            for key, wrong in (
+                ("com.docker.compose.service", "migrator"),
+                ("com.docker.compose.project.config_files", ",".join(map(str, reversed(files)))),
+                ("com.docker.compose.project.working_dir", "/other"),
+            ):
+                with self.subTest(label=key), patch.dict(labels, {key: wrong}):
+                    with self.assertRaisesRegex(ValueError, "sql_database_identity_mismatch"):
+                        runtime.prepare_sql()
+            for target, changes in (
+                (db["State"], dict(Running=False)),
+                (db, dict(Image="sha256:" + "e" * 64)),
+                (db["NetworkSettings"], dict(Networks={})),
+            ):
+                with patch.dict(target, changes):
+                    with self.assertRaisesRegex(ValueError, "sql_database_identity_mismatch"):
+                        runtime.prepare_sql()
+
+    def test_sql_context_ignores_unrelated_required_compose_environment(self):
+        if not shutil.which("docker"):
+            self.skipTest("native Docker Compose required")
+        stack = self.root / "sql-stack"
+        stack.mkdir(mode=0o700)
+        compose = stack / "docker-compose.yml"
+        image = "timescale/timescaledb:2.30.1-pg16@sha256:" + "a" * 64
+        compose.write_text(
+            f"services:\n  db:\n    image: {image}\n"
+            "  migrator:\n    image: unused-fixture\n    environment:\n"
+            "      DATABASE_URL: ${AVELREN_RELEASE_MIGRATOR_DSN:?required}\n"
+        )
+        compose.chmod(0o600)
+        (stack / ".env").write_text("")
+        (stack / ".env").chmod(0o600)
+        runtime = self.module.Runtime(dict(network="network"), self.work, stack)
+        db = dict(
+            Id="f" * 64,
+            Image="sha256:" + "d" * 64,
+            State=dict(Running=True),
+            Config=dict(
+                Labels={
+                    "com.docker.compose.project": "avelren",
+                    "com.docker.compose.service": "db",
+                    "com.docker.compose.project.config_files": str(compose),
+                    "com.docker.compose.project.working_dir": str(stack),
+                }
+            ),
+            NetworkSettings=dict(Networks=dict(network=dict(IPAddress="172.20.0.3"))),
+        )
+        ids = db["Id"]
+
+        def output(argv, **kwargs):
+            if argv[:2] == ["docker", "compose"]:
+                return subprocess.check_output(argv, text=True, timeout=30, **kwargs)
+            if argv[:2] == ["docker", "ps"]:
+                self.assertEqual(
+                    argv[2:],
+                    [
+                        "--quiet",
+                        "--no-trunc",
+                        "--filter",
+                        "label=com.docker.compose.project=avelren",
+                        "--filter",
+                        "label=com.docker.compose.service=db",
+                    ],
+                )
+                self.assertNotIn("AVELREN_RELEASE_MIGRATOR_DSN", kwargs["env"])
+                return ids
+            if argv == ["docker", "image", "inspect", image]:
+                return json.dumps([dict(Id="sha256:" + "d" * 64)])
+            if argv == ["docker", "inspect", "f" * 64]:
+                return json.dumps([db])
+            self.fail(f"unexpected command: {argv}")
+
+        runtime.output = output
+        with patch.dict(os.environ, AVELREN_BACKUP_COMPOSE_FILES=str(compose)):
+            runtime.prepare_sql()
+            self.assertEqual(runtime.db_id, "f" * 64)
+            self.assertEqual(runtime.db_address, "172.20.0.3")
+            for candidates in ("", "f" * 64 + "\n" + "e" * 64):
+                ids = candidates
+                with self.assertRaisesRegex(ValueError, "sql_database_identity_required"):
+                    runtime.prepare_sql()
+            ids = "f" * 64
+            for unresolved in ("${DB_IMAGE}", "$DB_IMAGE", "$$DB_IMAGE"):
+                with self.subTest(unresolved=unresolved):
+                    compose.write_text(json.dumps(dict(services=dict(db=dict(image=unresolved)))))
+                    with self.assertRaisesRegex(ValueError, "sql_database_image_required"):
+                        runtime.prepare_sql()
+            for invalid in ({}, dict(image=""), dict(image=None), dict(image=12)):
+                with self.subTest(image=invalid):
+                    # Keep invalid image shapes at the parser boundary: native Compose
+                    # rejects some shapes before returning JSON.
+                    native_output = runtime.output
+                    runtime.output = lambda argv, value=invalid, native=native_output, **kw: (
+                        json.dumps(dict(services=dict(db=value)))
+                        if "config" in argv
+                        else native(argv, **kw)
+                    )
+                    with self.assertRaisesRegex(ValueError, "sql_database_image_required"):
+                        runtime.prepare_sql()
+                    runtime.output = native_output
 
     def test_progress_drains_before_manifest_and_success(self):
         with patch.object(self.module, "DRAIN_POLL_SECONDS", 0.01, create=True):
