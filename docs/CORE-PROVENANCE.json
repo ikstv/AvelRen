@@ -43,8 +43,8 @@
       "destination": "services/backend/src/avelren/eta.py",
       "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
       "revision": {
-        "sha256": "03fe7fb62e9741bb72d3d24fe2885cc7c3189bd4fc136b2b3523aad1bf822483",
-        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+        "sha256": "ecf7a9b8cd012be223cdad3c6f11f7817ceee95f82e89850714ae0819b9e7ef3",
+        "notes": "docs/ETA-FORWARD-CROSSING.md"
       }
     },
     {
