@@ -381,25 +381,44 @@ class Publisher:
         self.before_manifest = lambda: None
 
     def command(self, arguments, output=None):
-        code = state.run_bounded(
-            [
-                "rclone",
-                *arguments,
-                "--config",
-                str(self.config),
-                "--retries",
-                "1",
-                "--low-level-retries",
-                "1",
-                "--timeout",
-                "30s",
-            ],
-            deadline=self.deadline,
-            stdout_path=output,
-            env=command_environment(),
-        )
+        operation = arguments[0] if arguments else "unknown"
+        if operation not in ("config", "copyto", "size", "cat", "lsf", "deletefile"):
+            operation = "unknown"
+        reason = "remote_" + operation + "_"
+        try:
+            code = state.run_bounded(
+                [
+                    "rclone",
+                    *arguments,
+                    "--config",
+                    str(self.config),
+                    "--retries",
+                    "1",
+                    "--low-level-retries",
+                    "1",
+                    "--timeout",
+                    "30s",
+                ],
+                deadline=self.deadline,
+                stdout_path=output,
+                env=command_environment(),
+            )
+        except ValueError as error:
+            category = str(error)
+            if category not in {
+                "command_timeout",
+                "command_cancelled",
+                "command_unavailable",
+                "process_supervision_unavailable",
+            }:
+                category = "runner_failed"
+            raise BackupError(reason + category) from None
+        except OSError:
+            raise BackupError(reason + "runner_os_error") from None
+        if type(code) is not int or not -255 <= code <= 255:
+            raise BackupError(reason + "runner_failed") from None
         if code:
-            raise ValueError("remote_operation_failed")
+            raise BackupError(reason + "exit_" + str(code)) from None
 
     def read(self, arguments):
         path = self.work / (".remote-" + uuid.uuid4().hex)
