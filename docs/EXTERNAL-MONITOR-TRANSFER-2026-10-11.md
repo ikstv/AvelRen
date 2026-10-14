@@ -1,5 +1,18 @@
 # Зовнішній моніторинг — перенос 11.10.2026
 
+## Ручне live приймання — 14.10.2026
+
+Один погоджений запуск [38575430544](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38575430544)
+на main `a8fc73cec2826d1ad1c62077306f1c5c2eb7baa3` завершився SUCCESS:
+обидва jobs `check` і `alert-channel` успішні. Відкритих monitor issues
+до й після не було; всі кроки open/comment/close пропущені. Повідомлень
+або нових issues цей запуск не створив.
+
+Це приймання одного здорового ручного запуску. Failure/recovery notification
+сценарії не перевірені цим результатом. Розклад не змінено, старий monitor
+лишається активним; його заміна та рішення щодо schedule ще відкриті.
+Нижчий запис про відсутність live запуску описує source-етап 11.10.
+
 [PR #118](https://github.com/ikstv/AvelRen-ORIGINAL/pull/118) злитий у main
 merge-комітом `1fdcbf28c209f961cbc501c7f5d531c89d6082e8`.
 Head `f94243c498f5610b194d2850f2fb6a68bbf69160` має 4/4 успішні CI checks,

@@ -1,5 +1,25 @@
 # Що має дійти до телефона
 
+## Підписаний production APK-кандидат — 14.10.2026
+
+З чистої main `a8fc73cec2826d1ad1c62077306f1c5c2eb7baa3` зібрано
+`ua.avelren.app`, versionName **0.1.3**, versionCode **6**.
+APK SHA-256: `fa933d435f2c36641c91cd4369c3187d3dd707c080c443e7a1163db077078803`.
+Certificate SHA-256: `b3c2c5c3479e31615876a631b88b08ce91b3c90835639f4884c41874d90018ce`.
+`assembleRelease` і перевірка apksigner пройшли; це кандидат, не фінальний реліз.
+
+ADB не виявив пристроїв: встановлення й запуск на телефоні не виконані,
+installed package/certificate/hash невідомі. Перед встановленням потрібна
+звірка фактичних package/cert/version; upload certificate може відрізнятися
+від Play App Signing certificate. Не видаляти встановлений застосунок
+і не обходити signature mismatch. Версію 0.1.3/code6 не слід автоматично
+вважати наступною публічною версією. AAB, Play і GitHub Release не створені;
+FCM/голос/ACK та інші телефонні сценарії залишаються неприйнятими.
+
+[Ручний зовнішній monitor](EXTERNAL-MONITOR-TRANSFER-2026-10-11.md)
+пройшов один healthy live запуск; notification failure/recovery і заміна
+старого розкладу цим не прийняті.
+
 ## Актуальний підсумок — 14.10.2026
 
 - Старі п'ять Play PNG перенесено без зміни байтів у [архів для перевірки](assets/legacy-play/README.md): source-кандидат, Git blob SHA/SHA-256 та візуальний огляд перевірені. Hosted CI/merge цим записом не прийняті; APK/AAB і телефонне приймання не виконувалися. Права та актуальність рекламних тверджень потребують перевірки; матеріали в Play не завантажувалися.
