@@ -99,6 +99,23 @@ class ReaderContracts(unittest.TestCase):
         with self.assertRaises(ManifestError):
             module.legacy_runtime(self.manifest)
 
+    def test_eta_backport_legacy_identity_is_an_exact_pair(self):
+        self.pair()
+        module = reader()
+        new_source = "dedf49fcc0b13ddf85bfacaf3cdb1ef71d3db64d"
+        new_image = "sha256:64b375cc6a7192ca5f9051bf2217c246d667d993c426ed4a1f3a92957c7375db"
+        old_source = "a4a16b64147fcf28c6245f2032a61279ca7c74ec"
+        old_image = "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3"
+        for source, image, accepted in [
+            (new_source, new_image, True), (old_source, old_image, True),
+            (new_source, old_image, False), (old_source, new_image, False),
+            ("0" + new_source[1:], new_image, False),
+            (new_source, "sha256:0" + new_image[8:], False),
+        ]:
+            with self.subTest(source=source, image=image):
+                self.manifest["runtime"].update(source_commit=source, image_id=image)
+                self.assertEqual(module.legacy_runtime(self.manifest), accepted)
+
     def reject(self, name=NAME):
         before = {p.name: p.read_bytes() for p in self.directory.iterdir() if p.is_file()}
         with self.assertRaises(ManifestError):

@@ -1202,3 +1202,11 @@ CI/review → merge → конкретний пакет/production GO → нов
 download/decrypt/hash/SQL+SQLite restore/drain та виміряні RPO/RTO. Source
 daemon fixture не є installed production або real-pair proof; deployment,
 Android build/phone/Play лишаються окремими етапами. Default sql-only збережено.
+
+## Мінімальний legacy ETA hotfix — 14.10.2026
+
+Підготовлений окремий ETA-only runtime зі старим writer, щоб виправити
+пропущений прямий перетин без непогодженої зміни формату ACK.
+[Походження, exact image, локальні DB/restore/rollback докази та межі](audits/ETA-LEGACY-HOTFIX-2026-10-14.md).
+Код і локальні перевірки готові; CI цього backport, deployment, phone acceptance
+та публікація 1.0.4/Play ще не підтверджені.
