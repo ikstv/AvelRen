@@ -24,7 +24,7 @@ def entry_eta(observed_at: datetime, wait_time_seconds: int) -> datetime:
 
 
 async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem]) -> int:
-    """Create alerts for targets whose window the current entry time falls into."""
+    """Alert inside the target window or on a forward crossing of the target."""
     if not items:
         return 0
 
@@ -43,7 +43,7 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
     rows = await (
         await conn.execute(
             """
-            SELECT t.id, t.checkpoint_id, t.target_at, t.tolerance_seconds
+            SELECT t.id, t.checkpoint_id, t.target_at, t.tolerance_seconds, t.created_at
             FROM eta_targets t
             WHERE t.is_active AND t.checkpoint_id = ANY(%s)
             """,
@@ -56,7 +56,30 @@ async def evaluate(conn: AsyncConnection, at: datetime, items: list[WorkloadItem
         eta, wait = eta_by_checkpoint[target["checkpoint_id"]]
         drift = abs((eta - target["target_at"]).total_seconds())
         if drift > target["tolerance_seconds"]:
-            continue
+            if eta < target["target_at"]:
+                continue
+            # Replay has already stored the current observation. Use only its
+            # immediate predecessor after subscription, never an older valid
+            # value across a missing estimate or the current row itself.
+            previous = await (
+                await conn.execute(
+                    """
+                    SELECT time, wait_time_seconds, wait_time_status, is_paused
+                    FROM observations
+                    WHERE checkpoint_id = %s AND time < %s AND time >= %s
+                    ORDER BY time DESC LIMIT 1
+                    """,
+                    (target["checkpoint_id"], at, target["created_at"]),
+                )
+            ).fetchone()
+            if previous is None:
+                continue
+            previous_eta = measured_wait(
+                previous["time"], previous["wait_time_seconds"],
+                previous["wait_time_status"], previous["is_paused"],
+            )["entry_eta"]
+            if previous_eta is None or previous_eta >= target["target_at"]:
+                continue
 
         created += await _fire(conn, target["id"], target["checkpoint_id"], eta, wait)
 
