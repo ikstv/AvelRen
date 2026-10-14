@@ -1,5 +1,18 @@
 # Що має дійти до телефона
 
+## Актуальний підсумок — 14.10.2026
+
+- FCM ownership source злитий у [PR #123](https://github.com/ikstv/AvelRen-ORIGINAL/pull/123), main `4ee4b1bd911fec5b78ae908ae593a8d81ac3cfa8`.
+- Aggregate CI-gate злитий у [PR #124](https://github.com/ikstv/AvelRen-ORIGINAL/pull/124), main `574b25cbf622c008a9e7d11a4d280af91963f71b`. [Main run 38287247895](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38287247895) завершив усі 11 jobs успішно, включно з Android, обома SBOM і `CI gate`. [Main run 38526654840](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38526654840) для `7c88b5162f875dc6a0a4ce7f460e1d6f121ac3ca` також SUCCESS.
+- API/notifier розгорнуті 12.10 з main `574b25c`; результати та межі наведено в [аудиті розгортання](audits/API-NOTIFIER-DEPLOYMENT-2026-10-12.md). Це датований доказ, а не гарантія поточного health без нової перевірки.
+- Діагностика публікації резервної пари з [PR #128](https://github.com/ikstv/AvelRen-ORIGINAL/pull/128) злита в main `ab74e078e6a3b602ade0fd33c6ba612d37ca7341`. [CI 38529944746](https://github.com/ikstv/AvelRen-ORIGINAL/actions/runs/38529944746) пройшов усі обов'язкові перевірки, включно з native paired restore. Це source/CI приймання; повторне серверне встановлення пакета r3 цим записом ще не підтверджене.
+- Спільна резервна копія PostgreSQL і SQLite та її ізольоване відновлення **ще не прийняті**. Оперативний стан і результати спроб — у [датованому аудиті](audits/PAIRED-BACKUP-PRODUCTION-2026-10-14.md).
+- Відкриті: перехід прав/DSN БД, live приймання зовнішнього монітора, Android APK і push/голос/ACK на телефоні, Play та фінальна звірка старих репозиторіїв. Старі репозиторії зберігаємо до приймання заміни.
+- Власник погодив коротке вікно технічних робіт до 15 хвилин із відкатом. Старий розширений maintenance-план не є обов'язковою наступною реалізацією: частковий код збережено без приймання. Перехід БД потребує конкретної підготовки й дозволу на свою операцію.
+- Read-only GitHub перевірка 14.10: репозиторій PUBLIC; classic protection main повертає `404 Branch not protected`, effective branch rules — `[]`. Блокування merge не ввімкнене. Старий тарифний 403 описує приватний стан на дату аудиту й не є поточним доказом недоступності. Налаштування доступу, бюджету та захисту цією документацією не змінюються.
+
+Нижчі записи зберігають перебіг робіт на свої дати. Цей підсумок уточнює старі твердження про незлитий FCM, лише локальний CI-gate й відсутнє application deployment; він не підвищує статус телефона чи резервних копій.
+
 ## Спільна копія БД і черги — 14.10.2026
 
 Source PR #126 і виправлення Compose preflight PR #127 злиті; обов'язкові CI
