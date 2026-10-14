@@ -818,15 +818,31 @@ class Runtime:
         for path in files:
             command.extend(["-f", path])
         env = command_environment(docker=True)
-        effective = json.loads(self.output([*command, "config", "--format", "json"], env=env))
-        ids = self.output([*command, "ps", "-q", "db"], env=env).split()
+        # Backup needs only the literal DB image, not unrelated service secrets.
+        effective = json.loads(
+            self.output([*command, "config", "--no-interpolate", "--format", "json"], env=env)
+        )
+        db_image = effective.get("services", {}).get("db", {}).get("image")
+        if not isinstance(db_image, str) or not db_image.strip() or "$" in db_image:
+            raise ValueError("sql_database_image_required")
+        ids = self.output(
+            [
+                "docker",
+                "ps",
+                "--quiet",
+                "--no-trunc",
+                "--filter",
+                "label=com.docker.compose.project=" + self._sql_project,
+                "--filter",
+                "label=com.docker.compose.service=db",
+            ],
+            env=env,
+        ).split()
         if len(ids) != 1:
             raise ValueError("sql_database_identity_required")
         db = json.loads(self.output(["docker", "inspect", ids[0]]))[0]
         labels = db.get("Config", {}).get("Labels") or {}
-        image = json.loads(
-            self.output(["docker", "image", "inspect", effective["services"]["db"]["image"]])
-        )[0]
+        image = json.loads(self.output(["docker", "image", "inspect", db_image]))[0]
         network = db["NetworkSettings"]["Networks"].get(self.manifest["network"])
         if (
             not db["State"]["Running"]
