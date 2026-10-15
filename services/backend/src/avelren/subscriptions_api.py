@@ -334,7 +334,7 @@ async def acknowledge_alert(
     x_device_id: str | None = Header(None),
     x_device_secret: str | None = Header(None),
 ) -> dict:
-    """The "OK" button. After it, repeats stop forever."""
+    """The "OK" button dismisses the current delivery until the next resend."""
     rate_check(request, "write")
     device_id = await _device(x_device_id, x_device_secret)
     async with get_pool().connection() as conn:
@@ -342,7 +342,7 @@ async def acknowledge_alert(
             await conn.execute(
                 """
                 UPDATE alerts a
-                SET status = 'acknowledged', acknowledged_at = now()
+                SET acknowledged_at = COALESCE(a.acknowledged_at, now())
                 FROM subscriptions s
                 WHERE a.id = %s AND a.subscription_id = s.id
                   AND s.device_id = %s AND a.status = 'pending'
@@ -495,7 +495,7 @@ async def acknowledge_eta_alert(
             await conn.execute(
                 """
                 UPDATE eta_alerts a
-                SET status = 'acknowledged', acknowledged_at = now()
+                SET acknowledged_at = COALESCE(a.acknowledged_at, now())
                 FROM eta_targets t
                 WHERE a.id = %s AND a.target_id = t.id
                   AND t.device_id = %s AND a.status = 'pending'
@@ -504,15 +504,6 @@ async def acknowledge_eta_alert(
                 (alert_id, device_id),
             )
         ).fetchone()
-        if row:
-            # The target has served its purpose. Without this, the next cycle in
-            # the same window would create a NEW alert (audit R-05) — and the
-            # owner's requirement is direct: after OK the notification is no
-            # longer needed.
-            await conn.execute(
-                "UPDATE eta_targets SET is_active = false WHERE id = %s",
-                (row["target_id"],),
-            )
     return {"status": "acknowledged" if row else "already_closed"}
 
 

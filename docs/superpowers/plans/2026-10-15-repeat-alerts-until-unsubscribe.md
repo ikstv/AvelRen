@@ -34,7 +34,7 @@
 **Files:**
 - Modify: `services/backend/src/avelren/subscriptions_api.py:330-356,484-510`
 - Modify: `services/backend/src/avelren/cancels.py:95-139`
-- Create: `services/backend/tests/database/test_repeat_alert_ack.py`
+- Create: `services/backend/tests/database/api/test_repeat_alert_ack.py`
 
 **Interfaces:**
 - Consumes: existing authenticated `POST /alerts/{alert_id}/ack`, `POST /eta-alerts/{alert_id}/ack` and `GET /active-alerts` routes.
@@ -46,7 +46,7 @@ Create fixtures that insert one owned threshold alert and one owned ETA alert. A
 
 - [ ] **Step 2: Run the focused database test to verify it fails**
 
-Run: `bash scripts/test_database.sh`
+Run: `bash scripts/test_database.sh api`
 
 Expected: FAIL because both endpoints currently set `status='acknowledged'` and active alerts include all pending rows.
 
@@ -56,21 +56,21 @@ In both ACK handlers, update only `acknowledged_at=COALESCE(acknowledged_at,now(
 
 - [ ] **Step 4: Run the focused database test to verify it passes**
 
-Run: `bash scripts/test_database.sh`
+Run: `bash scripts/test_database.sh api`
 
 Expected: PASS with pending rows hidden from foreground reconciliation immediately after ACK.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add services/backend/src/avelren/subscriptions_api.py services/backend/src/avelren/cancels.py services/backend/tests/database/test_repeat_alert_ack.py
+git add services/backend/src/avelren/subscriptions_api.py services/backend/src/avelren/cancels.py services/backend/tests/database/api/test_repeat_alert_ack.py
 git commit -m "feat: зберігати alert pending після OK"
 ```
 
 ### Task 2: Re-enable a dismissed alert only after a successful resend
 
 **Files:**
-- Modify: `services/backend/tests/database/test_repeat_alert_ack.py`
+- Create: `services/backend/tests/database/test_repeat_alert_notifier.py`
 - Verify: `services/backend/src/avelren/notifier.py:38-134`
 
 **Interfaces:**
@@ -79,7 +79,7 @@ git commit -m "feat: зберігати alert pending після OK"
 
 - [ ] **Step 1: Write failing notifier/reconciliation tests**
 
-In the database test, freeze or age `last_sent_at` past the configured gap after ACK. Stub `fcm.send` once successfully and assert the same ID is sent, `send_count` increments, and `/active-alerts` returns it again. Add a temporary FCM error case and assert it remains hidden with unchanged send metadata.
+In a database notifier test, freeze or age `last_sent_at` past the configured gap after ACK. Stub `fcm.send` once successfully and assert the same ID is sent and `send_count` increments. Keep the API reconciliation assertion in the API test: its request fixtures are scoped to that directory. Add a temporary FCM error case and assert it remains hidden with unchanged send metadata.
 
 - [ ] **Step 2: Run the focused test to verify it fails**
 
@@ -100,7 +100,7 @@ Expected: PASS; a failed send does not reactivate an alert and the deletion race
 - [ ] **Step 5: Commit**
 
 ```bash
-git add services/backend/tests/database/test_repeat_alert_ack.py services/backend/src/avelren/notifier.py
+git add services/backend/tests/database/test_repeat_alert_notifier.py services/backend/src/avelren/notifier.py
 git commit -m "test: перевірити повтор після OK"
 ```
 
@@ -112,7 +112,7 @@ git commit -m "test: перевірити повтор після OK"
 - Modify: `services/backend/src/avelren/eta.py:114-139`
 - Modify: `services/backend/src/avelren/cancels.py:1-14`
 - Modify: `services/backend/tests/unit/test_collector_replay.py:31-55`
-- Modify: `services/backend/tests/database/test_repeat_alert_ack.py`
+- Modify: `services/backend/tests/database/test_repeat_alert_notifier.py`
 
 **Interfaces:**
 - Consumes: Task 1 pending alert lifecycle and existing DELETE endpoints.
@@ -120,7 +120,7 @@ git commit -m "test: перевірити повтор після OK"
 
 - [ ] **Step 1: Write failing collector and database lifecycle tests**
 
-Update the unit mock harness to assert no expiration function is invoked during a fresh replay. In the database test, create pending threshold and ETA alerts, model a below-threshold queue and passed target time, then assert both remain pending. Add manual DELETE assertions for notification-cancel rows and absent alerts. Add an already `acknowledged`/`expired` fixture assertion that collector does not revive it.
+Update the unit mock harness to assert no expiration function is invoked during a fresh replay. In the database lifecycle test, create pending threshold and ETA alerts, model a below-threshold queue and passed target time, then assert both remain pending. Add manual DELETE assertions for notification-cancel rows and absent alerts. Add an already `acknowledged`/`expired` fixture assertion that collector does not revive it.
 
 - [ ] **Step 2: Run focused tests to verify they fail**
 
@@ -147,7 +147,7 @@ Expected: all checks PASS, including unchanged surge lifecycle tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add services/backend/src/avelren/collector_replay.py services/backend/src/avelren/alerts.py services/backend/src/avelren/eta.py services/backend/src/avelren/cancels.py services/backend/tests/unit/test_collector_replay.py services/backend/tests/database/test_repeat_alert_ack.py
+git add services/backend/src/avelren/collector_replay.py services/backend/src/avelren/alerts.py services/backend/src/avelren/eta.py services/backend/src/avelren/cancels.py services/backend/tests/unit/test_collector_replay.py services/backend/tests/database/test_repeat_alert_notifier.py
 git commit -m "feat: повторювати alert до ручної відписки"
 ```
 
