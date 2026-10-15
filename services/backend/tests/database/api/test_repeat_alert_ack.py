@@ -69,3 +69,28 @@ def test_ack_keeps_alert_pending_but_hides_it_until_resend(
     assert conn.execute(
         f"SELECT acknowledged_at FROM {table} WHERE id=%s", (alert_id,)
     ).fetchone()["acknowledged_at"] == acknowledged_at
+
+
+@pytest.mark.parametrize(
+    ("kind", "endpoint", "table", "create"),
+    [
+        ("threshold", "/subscriptions/{owner_id}", "alerts", _threshold_alert),
+        ("eta", "/eta-targets/{owner_id}", "eta_alerts", _eta_alert),
+    ],
+)
+def test_manual_delete_is_the_terminal_alert_transition(
+    api_client, conn, checkpoint, device, kind, endpoint, table, create
+):
+    alert_id, owner_id = create(conn, device, checkpoint)
+    if owner_id is None:
+        owner_id = conn.execute(
+            "SELECT subscription_id FROM alerts WHERE id=%s", (alert_id,)
+        ).fetchone()["subscription_id"]
+
+    deleted = api_client.delete(endpoint.format(owner_id=owner_id), headers=device.headers())
+    assert deleted.status_code == 204
+    assert conn.execute(f"SELECT 1 FROM {table} WHERE id=%s", (alert_id,)).fetchone() is None
+    assert conn.execute(
+        "SELECT kind, alert_id, device_id FROM notification_cancels WHERE kind=%s AND alert_id=%s",
+        (kind, alert_id),
+    ).fetchone() == {"kind": kind, "alert_id": alert_id, "device_id": device.device_id}

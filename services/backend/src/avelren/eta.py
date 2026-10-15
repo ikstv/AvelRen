@@ -109,38 +109,3 @@ async def _fire(
 
     log.info("target %s reached: entry %s, alert %s", target_id, eta.isoformat(), row["id"])
     return 1
-
-
-async def expire_passed(conn: AsyncConnection) -> int:
-    """Close targets whose moment has already passed, together with their alerts.
-
-    Notifying "register to enter yesterday" is worse than staying silent.
-    """
-    cur = await conn.execute(
-        """
-        WITH stale AS (
-            UPDATE eta_targets
-            SET is_active = false
-            WHERE is_active AND target_at < now()
-            RETURNING id
-        ),
-        expired AS (
-            UPDATE eta_alerts a
-            SET status = 'expired', expired_at = now()
-            WHERE a.status = 'pending' AND a.target_id IN (SELECT id FROM stale)
-            RETURNING a.id, a.target_id
-        ),
-        enqueued AS (
-            INSERT INTO notification_cancels (kind, alert_id, device_id)
-            SELECT 'eta', e.id, t.device_id
-            FROM expired e
-            JOIN eta_targets t ON t.id = e.target_id
-            ON CONFLICT (kind, alert_id) DO NOTHING
-        )
-        SELECT id FROM expired
-        """
-    )
-    rows = await cur.fetchall()
-    if rows:
-        log.info("ETA alerts closed due to passed time: %s", len(rows))
-    return len(rows)
