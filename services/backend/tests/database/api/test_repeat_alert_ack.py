@@ -90,7 +90,10 @@ def test_manual_delete_is_the_terminal_alert_transition(
     deleted = api_client.delete(endpoint.format(owner_id=owner_id), headers=device.headers())
     assert deleted.status_code == 204
     assert conn.execute(f"SELECT 1 FROM {table} WHERE id=%s", (alert_id,)).fetchone() is None
-    assert conn.execute(
+    cancel = conn.execute(
         "SELECT kind, alert_id, device_id FROM notification_cancels WHERE kind=%s AND alert_id=%s",
         (kind, alert_id),
-    ).fetchone() == {"kind": kind, "alert_id": alert_id, "device_id": device.device_id}
+    ).fetchone()
+    assert cancel["kind"] == kind
+    assert cancel["alert_id"] == alert_id
+    assert str(cancel["device_id"]) == device.device_id
