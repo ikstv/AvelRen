@@ -342,7 +342,11 @@ async def acknowledge_alert(
             await conn.execute(
                 """
                 UPDATE alerts a
-                SET acknowledged_at = COALESCE(a.acknowledged_at, now())
+                SET acknowledged_at = CASE
+                    WHEN a.acknowledged_at IS NULL OR a.last_sent_at > a.acknowledged_at
+                    THEN GREATEST(now(), a.last_sent_at)
+                    ELSE a.acknowledged_at
+                END
                 FROM subscriptions s
                 WHERE a.id = %s AND a.subscription_id = s.id
                   AND s.device_id = %s AND a.status = 'pending'
@@ -495,7 +499,11 @@ async def acknowledge_eta_alert(
             await conn.execute(
                 """
                 UPDATE eta_alerts a
-                SET acknowledged_at = COALESCE(a.acknowledged_at, now())
+                SET acknowledged_at = CASE
+                    WHEN a.acknowledged_at IS NULL OR a.last_sent_at > a.acknowledged_at
+                    THEN GREATEST(now(), a.last_sent_at)
+                    ELSE a.acknowledged_at
+                END
                 FROM eta_targets t
                 WHERE a.id = %s AND a.target_id = t.id
                   AND t.device_id = %s AND a.status = 'pending'

@@ -25,11 +25,15 @@
       "destination": "services/backend/src/avelren/notifier.py",
       "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
       "revision": {
-        "sha256": "adcc83291ae0d86fbc99a351f703c6712eaa23d627fbf5befaef3fe427311ce7",
-        "notes": "docs/ALERT-REPEAT-CONTRACT-2026-10-15.md",
+        "sha256": "4e1d9d60fe51ecbd5294c3662784118e9501a995e5a9becb4359406d516faf5d",
+        "notes": "docs/ALERT-ACK-RESEND-2026-10-15.md",
         "previous": {
-          "sha256": "7aa11f01ebb4134d8bd29256b571c9473197e20c9a1791a439df9ded440f6026",
-          "notes": "docs/NOTIFIER-TOKEN-RACE-2026-10-12.md"
+          "sha256": "adcc83291ae0d86fbc99a351f703c6712eaa23d627fbf5befaef3fe427311ce7",
+          "notes": "docs/ALERT-REPEAT-CONTRACT-2026-10-15.md",
+          "previous": {
+            "sha256": "7aa11f01ebb4134d8bd29256b571c9473197e20c9a1791a439df9ded440f6026",
+            "notes": "docs/NOTIFIER-TOKEN-RACE-2026-10-12.md"
+          }
         }
       }
     },

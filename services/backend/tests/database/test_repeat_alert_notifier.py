@@ -101,6 +101,35 @@ def test_successful_resend_reactivates_same_acknowledged_alert(database, monkeyp
 
 
 @pytest.mark.parametrize("kind", ["threshold", "eta"])
+def test_ack_during_send_does_not_hide_later_successful_resend(database, monkeypatch, kind):
+    device_id, alert_id = _seed_acknowledged_alert(database, kind)
+    table = "alerts" if kind == "threshold" else "eta_alerts"
+
+    async def delivered(_client, _token, _payload, **_kwargs):
+        # The notifier transaction has already started. Commit an independent
+        # ACK before FCM accepts the next delivery, without sleeps or wall-clock
+        # mocking: this deterministically orders transaction start < ACK < send.
+        async with await psycopg.AsyncConnection.connect(database("api")) as conn:
+            await conn.execute(
+                f"UPDATE {table} SET acknowledged_at = clock_timestamp() WHERE id=%s",
+                (alert_id,),
+            )
+
+    monkeypatch.setattr(fcm, "send", delivered)
+
+    async def run():
+        async with _sender_pool(database, monkeypatch):
+            assert await notifier.run_cycle(object()) == 1
+
+    asyncio.run(run())
+
+    state = _alert_state(database, kind, alert_id)
+    assert state["send_count"] == 2
+    assert state["last_sent_at"] > state["acknowledged_at"]
+    assert asyncio.run(_active_ids(database, device_id, kind)) == [alert_id]
+
+
+@pytest.mark.parametrize("kind", ["threshold", "eta"])
 def test_failed_resend_keeps_acknowledged_alert_hidden(database, monkeypatch, kind):
     device_id, alert_id = _seed_acknowledged_alert(database, kind)
 

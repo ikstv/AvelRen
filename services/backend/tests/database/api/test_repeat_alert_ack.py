@@ -75,6 +75,45 @@ def test_ack_keeps_alert_pending_but_hides_it_until_resend(
 @pytest.mark.parametrize(
     ("kind", "endpoint", "table", "create"),
     [
+        ("threshold", "/alerts/{alert_id}/ack", "alerts", _threshold_alert),
+        ("eta", "/eta-alerts/{alert_id}/ack", "eta_alerts", _eta_alert),
+    ],
+)
+def test_ack_dismisses_each_successful_resend(
+    api_client, conn, checkpoint, device, kind, endpoint, table, create
+):
+    alert_id, _ = create(conn, device, checkpoint)
+    url = endpoint.format(alert_id=alert_id)
+    headers = device.headers()
+    assert api_client.post(url, headers=headers).status_code == 200
+
+    for _ in range(2):
+        conn.execute(
+            f"UPDATE {table} SET last_sent_at=clock_timestamp(), "
+            "send_count=send_count+1 WHERE id=%s",
+            (alert_id,),
+        )
+        assert alert_id in api_client.get("/active-alerts", headers=headers).json()[kind]
+
+        assert api_client.post(url, headers=headers).status_code == 200
+        row = conn.execute(
+            f"SELECT status, acknowledged_at, last_sent_at FROM {table} WHERE id=%s",
+            (alert_id,),
+        ).fetchone()
+        assert row["status"] == "pending"
+        assert row["acknowledged_at"] >= row["last_sent_at"]
+        assert alert_id not in api_client.get("/active-alerts", headers=headers).json()[kind]
+
+        # A duplicate acknowledgement of this delivery remains idempotent.
+        assert api_client.post(url, headers=headers).status_code == 200
+        assert conn.execute(
+            f"SELECT acknowledged_at FROM {table} WHERE id=%s", (alert_id,)
+        ).fetchone()["acknowledged_at"] == row["acknowledged_at"]
+
+
+@pytest.mark.parametrize(
+    ("kind", "endpoint", "table", "create"),
+    [
         ("threshold", "/subscriptions/{owner_id}", "alerts", _threshold_alert),
         ("eta", "/eta-targets/{owner_id}", "eta_alerts", _eta_alert),
     ],

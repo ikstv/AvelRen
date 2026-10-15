@@ -67,7 +67,9 @@ async def _mark_sent(conn: AsyncConnection, kind: str, alert_id: int) -> None:
     # inactive alert. A same-cycle cancel then supersedes the normal push with
     # the same collapse key (audit A-02, race normal↔delete↔cancel).
     await conn.execute(
-        f"UPDATE {table} SET last_sent_at = now(), send_count = send_count + 1 "
+        # Use the post-send time, not the transaction start before the FCM wait:
+        # an ACK committed during that wait must not hide this later delivery.
+        f"UPDATE {table} SET last_sent_at = clock_timestamp(), send_count = send_count + 1 "
         "WHERE id = %s AND status = 'pending'",
         (alert_id,),
     )
