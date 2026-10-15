@@ -14,9 +14,12 @@ from avelren.config import settings
 
 def _seed_acknowledged_alert(database, kind):
     with psycopg.connect(database("admin"), row_factory=dict_row) as conn:
-        conn.execute("INSERT INTO checkpoints(id, title, for_vehicle_type) VALUES(17, 'fixture', 1)")
+        conn.execute(
+            "INSERT INTO checkpoints(id, title, for_vehicle_type) VALUES(17, 'fixture', 1)"
+        )
         device_id = conn.execute(
-            "INSERT INTO devices(fcm_token, secret_hash) VALUES('repeat-token', 'fixture') RETURNING id"
+            "INSERT INTO devices(fcm_token, secret_hash) "
+            "VALUES('repeat-token', 'fixture') RETURNING id"
         ).fetchone()["id"]
         if kind == "threshold":
             parent_id = conn.execute(
@@ -25,7 +28,8 @@ def _seed_acknowledged_alert(database, kind):
                 (device_id,),
             ).fetchone()["id"]
             alert_id = conn.execute(
-                "INSERT INTO alerts(subscription_id, checkpoint_id, threshold, vehicles_at_trigger, "
+                "INSERT INTO alerts(subscription_id, checkpoint_id, threshold, "
+                "vehicles_at_trigger, "
                 "acknowledged_at, last_sent_at, send_count) "
                 "VALUES(%s, 17, 50, 80, now(), now() - interval '10 minutes', 1) RETURNING id",
                 (parent_id,),
@@ -65,7 +69,9 @@ def _alert_state(database, kind, alert_id):
     table = "alerts" if kind == "threshold" else "eta_alerts"
     with psycopg.connect(database("admin"), row_factory=dict_row) as conn:
         return conn.execute(
-            f"SELECT acknowledged_at, last_sent_at, send_count FROM {table} WHERE id=%s", (alert_id,)
+            f"SELECT acknowledged_at, last_sent_at, send_count FROM {table} "
+            "WHERE id=%s",
+            (alert_id,),
         ).fetchone()
 
 

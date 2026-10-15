@@ -55,9 +55,10 @@ def test_ack_keeps_alert_pending_but_hides_it_until_resend(
     assert row["acknowledged_at"] is not None
     assert row["last_sent_at"] is None
     if target_id is not None:
-        assert conn.execute("SELECT is_active FROM eta_targets WHERE id=%s", (target_id,)).fetchone()[
-            "is_active"
-        ]
+        target = conn.execute(
+            "SELECT is_active FROM eta_targets WHERE id=%s", (target_id,)
+        ).fetchone()
+        assert target["is_active"]
 
     # The foreground reconciler must not recreate the just-dismissed notification.
     assert alert_id not in api_client.get("/active-alerts", headers=device.headers()).json()[kind]
