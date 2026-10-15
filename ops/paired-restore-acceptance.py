@@ -135,11 +135,23 @@ def legacy_runtime(manifest: dict | None) -> bool:
     if manifest is None:
         return False
     runtime = validate_manifest(manifest)["runtime"]
-    return (
-        runtime["source_commit"] == "a4a16b64147fcf28c6245f2032a61279ca7c74ec"
-        and runtime["image_id"]
-        == "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3"
-    )
+    # Exact audited writer identities only; the ETA recipe preserves every
+    # writer/model/replay/spool byte from e7. Source identifies its recipe,
+    # not a full canonical runtime. Never combine independent allowlists.
+    return (runtime["source_commit"], runtime["image_id"]) in {
+        (
+            "4503477f334c72ab05409bf241779592d2fe0bf1",
+            "sha256:40219d6c8ceee5a862382dbb62fe3df06181a20488635d47c5a965512eda9a72",
+        ),
+        (
+            "a4a16b64147fcf28c6245f2032a61279ca7c74ec",
+            "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3",
+        ),
+        (
+            "dedf49fcc0b13ddf85bfacaf3cdb1ef71d3db64d",
+            "sha256:64b375cc6a7192ca5f9051bf2217c246d667d993c426ed4a1f3a92957c7375db",
+        ),
+    }
 
 
 async def verify_legacy_cycle(conn, cycle) -> None:

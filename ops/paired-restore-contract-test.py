@@ -99,6 +99,30 @@ class ReaderContracts(unittest.TestCase):
         with self.assertRaises(ManifestError):
             module.legacy_runtime(self.manifest)
 
+    def test_legacy_hotfix_identities_are_exact_pairs(self):
+        self.pair()
+        module = reader()
+        latest_source = "4503477f334c72ab05409bf241779592d2fe0bf1"
+        latest_image = "sha256:40219d6c8ceee5a862382dbb62fe3df06181a20488635d47c5a965512eda9a72"
+        new_source = "dedf49fcc0b13ddf85bfacaf3cdb1ef71d3db64d"
+        new_image = "sha256:64b375cc6a7192ca5f9051bf2217c246d667d993c426ed4a1f3a92957c7375db"
+        old_source = "a4a16b64147fcf28c6245f2032a61279ca7c74ec"
+        old_image = "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3"
+        for source, image, accepted in [
+            (latest_source, latest_image, True),
+            (new_source, new_image, True), (old_source, old_image, True),
+            (latest_source, new_image, False), (new_source, latest_image, False),
+            (latest_source, old_image, False), (old_source, latest_image, False),
+            (new_source, old_image, False), (old_source, new_image, False),
+            ("0" + latest_source[1:], latest_image, False),
+            (latest_source, "sha256:0" + latest_image[8:], False),
+            ("0" + new_source[1:], new_image, False),
+            (new_source, "sha256:0" + new_image[8:], False),
+        ]:
+            with self.subTest(source=source, image=image):
+                self.manifest["runtime"].update(source_commit=source, image_id=image)
+                self.assertEqual(module.legacy_runtime(self.manifest), accepted)
+
     def reject(self, name=NAME):
         before = {p.name: p.read_bytes() for p in self.directory.iterdir() if p.is_file()}
         with self.assertRaises(ManifestError):
