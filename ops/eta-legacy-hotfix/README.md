@@ -11,6 +11,8 @@ SHA-256 `b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740`,
 і незалежно звірений з установленим образом.
 Базовий collector.py походить із того самого коміту. Порівняння з ним має рівно
 дві зміни: прибрані виклики `alerts.expire_stale` та `eta.expire_passed`.
+Контрактний тест відновлює ці два рядки та звіряє SHA-256 з pinned legacy
+джерелом, тому будь-яка інша зміна collector.py зупиняє CI.
 
 `SOURCE_COMMIT`/`AVELREN_GIT_SHA` означає коміт **рецепта backport**, а не
 твердження, що всі runtime-файли походять із сучасного canonical tree.
@@ -39,6 +41,8 @@ Legacy collector продовжує виконувати `alerts.evaluate` та 
 TDD: exact old artifact дав три очікувані failures, після backport 12 tests PASS; уточнення точного legacy zero/NULL контракту дало RED 2, потім 14 tests PASS.
 Collector-контракт окремо дав RED через відсутній overlay та старий Dockerfile,
 після bounded backport — 2 tests PASS.
+Після review додано provenance/build-context/CI gates — collector suite має
+3 tests PASS і запускається обов'язково в database job.
 Це швидкий тест алгоритму з синтетичним SQL fixture, не proof actual PostgreSQL.
 Обов'язкові наступні gates: installed-image restricted-role SQL tests,
 повна рівність інших module hashes і runtime config, strict нова source/image

@@ -41,6 +41,15 @@ def test_paired_backup_root_contract_callers_and_guard_wiring():
     assert "sudo bash ops/paired-backup-guard-contract-test.sh" in commands
 
 
+def test_database_runs_legacy_alert_hotfix_contracts():
+    steps = load("database.yml")["jobs"]["database"]["steps"]
+    commands = [step.get("run", "") for step in steps]
+    assert (
+        "python3 -B -m unittest discover -s ops/eta-legacy-hotfix "
+        "-p 'test_legacy_*.py' -v"
+    ) in commands
+
+
 def test_events():
     assert load("ci.yml").get("on") == {
         "pull_request": {

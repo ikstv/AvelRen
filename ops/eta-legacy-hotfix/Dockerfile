@@ -1,4 +1,4 @@
-# Only these three allowlisted files enter the build context.
+# Only the two allowlisted Python modules are copied into the image.
 FROM avelren-legacy-eta-base:e7b02f58581d
 ARG SOURCE_COMMIT
 ENV AVELREN_GIT_SHA=$SOURCE_COMMIT

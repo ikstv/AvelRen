@@ -19,6 +19,8 @@ jobs:
           for script in scripts/test_database.sh ops/postgres-bootstrap.sh ops/backup.sh ops/backup-contract-test.sh ops/restore.sh ops/restore-artifact.lib.sh ops/restore-artifact-contract-test.sh ops/restore-production-identity.lib.sh ops/restore-production-identity-contract-test.sh ops/restore-production-preflight.lib.sh ops/restore-production-preflight-contract-test.sh ops/restore-engine.lib.sh ops/restore-production-engine.lib.sh ops/restore-production-engine-contract-test.sh ops/restore-production.sh ops/restore-production-contract-test.sh ops/restore-verify.sh ops/restore-contract-test.sh ops/restore-engine-contract-test.sh ops/restore-verify-guard-contract-test.sh ops/restore-integration-test.sh ops/compose-production-contract-test.sh ops/maintenance-window.sh ops/maintenance-reboot.sh ops/maintenance-window-contract-test.sh ops/maintenance-works.sh ops/maintenance-works-contract-test.sh ops/build-candidate-image.sh ops/candidate-image-attestation-contract-test.sh; do
             bash -n "$script"
           done
+      - name: Контракти legacy alert hotfix
+        run: python3 -B -m unittest discover -s ops/eta-legacy-hotfix -p 'test_legacy_*.py' -v
       - name: Контракт telemetry systemd units
         run: python3 ops/telemetry-unit-contract-test.py
       - name: Контракт source-only deployment preflight
