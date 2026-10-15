@@ -140,6 +140,10 @@ def legacy_runtime(manifest: dict | None) -> bool:
     # not a full canonical runtime. Never combine independent allowlists.
     return (runtime["source_commit"], runtime["image_id"]) in {
         (
+            "4503477f334c72ab05409bf241779592d2fe0bf1",
+            "sha256:40219d6c8ceee5a862382dbb62fe3df06181a20488635d47c5a965512eda9a72",
+        ),
+        (
             "a4a16b64147fcf28c6245f2032a61279ca7c74ec",
             "sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3",
         ),

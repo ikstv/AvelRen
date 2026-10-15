@@ -1237,5 +1237,9 @@ Android build/phone/Play лишаються окремими етапами. Def
 [Походження, exact image, локальні DB/restore/rollback докази та межі](audits/ETA-LEGACY-HOTFIX-2026-10-14.md).
 [Новий source-контракт і TDD evidence](audits/LEGACY-ALERT-HOTFIX-SOURCE-2026-10-15.md).
 Попередній image digest засвідчує лише ETA-only рецепт і не є кандидатом для
-оновленого artifact. Нові image/DB/restore/rollback докази, CI, deployment,
-phone acceptance та публікація 1.0.4/Play ще не підтверджені.
+оновленого artifact. Для оновленого artifact зібрано exact candidate
+`sha256:40219d6c8ceee5a862382dbb62fe3df06181a20488635d47c5a965512eda9a72`
+із source `4503477f334c72ab05409bf241779592d2fe0bf1`; 68 installed files/config/base
+layers звірено, змінені лише eta.py та collector.py. Exact-head CI успішний.
+DB/restore/rollback, deployment, phone acceptance та публікація 1.0.4/Play
+ще не підтверджені.
