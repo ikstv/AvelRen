@@ -333,10 +333,19 @@ internal fun AvelRenScreen(
         if (canChangeMonitors) {
             scope.launch {
                 runCatching {
-                    when (row.kind) {
-                        MonitorKind.THRESHOLD -> dataClient.unsubscribe(row.id)
-                        MonitorKind.ETA -> dataClient.deleteEtaTarget(row.id)
-                    }
+                    ua.avelren.app.data.removeMonitorAndReconcile(
+                        remove = {
+                            when (row.kind) {
+                                MonitorKind.THRESHOLD -> dataClient.unsubscribe(row.id)
+                                MonitorKind.ETA -> dataClient.deleteEtaTarget(row.id)
+                            }
+                        },
+                        reconcile = {
+                            if (BuildConfig.ENABLE_PUSH && installation != null) {
+                                ua.avelren.app.notify.NotificationReconciler.reconcile(context, installation)
+                            }
+                        },
+                    )
                 }
                 loadMonitors()
             }
