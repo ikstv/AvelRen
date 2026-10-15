@@ -22,11 +22,15 @@
       "destination": "services/backend/src/avelren/subscriptions_api.py",
       "sha256": "41a3a0a73c8f034141e63cae1e95d17212fb729df2ee97e105d5541e84bef402",
       "revision": {
-        "sha256": "7c8c35e77866a05e4619c9b5a0be2f9f5d83831def96d6719e00ecf2db96b443",
-        "notes": "docs/superpowers/specs/2026-10-12-fcm-token-ownership-design.md",
+        "sha256": "d60d72158cba0392620e6d61c690645c777fc857d133b6f2d6bff08723731aee",
+        "notes": "docs/ALERT-REPEAT-CONTRACT-2026-10-15.md",
         "previous": {
-          "sha256": "9f8659f7858f3cc8bd0d2a76ba0cc3ae209e419ea6bb6bc0c5d4b1e54f066bf3",
-          "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+          "sha256": "7c8c35e77866a05e4619c9b5a0be2f9f5d83831def96d6719e00ecf2db96b443",
+          "notes": "docs/superpowers/specs/2026-10-12-fcm-token-ownership-design.md",
+          "previous": {
+            "sha256": "9f8659f7858f3cc8bd0d2a76ba0cc3ae209e419ea6bb6bc0c5d4b1e54f066bf3",
+            "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+          }
         }
       }
     },

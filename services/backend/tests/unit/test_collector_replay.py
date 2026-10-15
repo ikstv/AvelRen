@@ -11,6 +11,7 @@ import pytest
 from avelren import collector_replay
 from avelren.collector_spool import SpoolStore
 from avelren.echerha import FetchResult
+from avelren.models import WorkloadItem, WorkloadResponse
 
 AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -21,10 +22,26 @@ class Pool:
         yield object()
 
 
-def _pending(tmp_path: Path, at: datetime = AT, error: str | None = None):
+def _pending(
+    tmp_path: Path, at: datetime = AT, error: str | None = None, *, with_item: bool = False
+):
     store = SpoolStore(tmp_path / "cycles.sqlite3")
     seq = store.begin(at)
-    store.finish(seq, FetchResult(None, 429 if error else 200, 4, None, error), 1)
+    response = (
+        WorkloadResponse(
+            data=[
+                WorkloadItem(
+                    id=17,
+                    title="fixture",
+                    for_vehicle_type=1,
+                    vehicle_in_active_queues_counts=80,
+                )
+            ]
+        )
+        if with_item
+        else None
+    )
+    store.finish(seq, FetchResult(response, 429 if error else 200, 4, None, error), 1)
     return store, seq
 
 
@@ -50,7 +67,8 @@ def _patch_db(monkeypatch):
     for obj in (collector_replay.alerts, collector_replay.eta):
         monkeypatch.setattr(obj, "evaluate", AsyncMock())
         expire = "expire_stale" if obj is collector_replay.alerts else "expire_passed"
-        monkeypatch.setattr(obj, expire, AsyncMock())
+        calls[expire] = AsyncMock()
+        monkeypatch.setattr(obj, expire, calls[expire], raising=False)
     return calls
 
 
@@ -139,10 +157,12 @@ def test_old_cycle_skips_push(tmp_path, monkeypatch):
 
 
 def test_fresh_cycle_runs_derived(tmp_path, monkeypatch):
-    store, _ = _pending(tmp_path)
+    store, _ = _pending(tmp_path, with_item=True)
     calls = _patch_db(monkeypatch)
     assert asyncio.run(collector_replay.replay_once(store, Pool(), AT + timedelta(seconds=110)))
     assert calls["record_derived"].await_args.kwargs["error"] is None
+    calls["expire_stale"].assert_not_awaited()
+    calls["expire_passed"].assert_not_awaited()
 
 
 def test_runtime_prunes_acked_after_24_hours(tmp_path, monkeypatch):

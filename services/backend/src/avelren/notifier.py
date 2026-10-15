@@ -3,9 +3,9 @@
 A separate service, not part of the collector: history must keep accumulating
 even if FCM is down. The collector never waits on pushes.
 
-A notification repeats every 5 minutes until the user taps "OK". It is the
-server, not the app, that makes it "endless" — so it survives a phone reboot
-and the app being killed.
+A notification repeats every 5 minutes until the user removes its subscription
+or target. The server, not the app, makes it "endless" — so it survives a
+phone reboot and the app being killed.
 """
 
 import asyncio
@@ -62,11 +62,10 @@ _QUERY = """
 
 async def _mark_sent(conn: AsyncConnection, kind: str, alert_id: int) -> None:
     table = "alerts" if kind == "threshold" else "eta_alerts"
-    # `AND status = 'pending'`: if between the SELECT and this UPDATE the alert
-    # managed to expire (queue dropped / ETA passed), we do NOT record the send
-    # as successful for an already-inactive alert. This keeps the lifecycle
-    # honest, and the cancel of the same cycle (below) supersedes the just-sent
-    # normal push with the same collapse_key (audit A-02, race normal↔expire↔cancel).
+    # `AND status = 'pending'`: if between SELECT and UPDATE the owner deleted
+    # the subscription or target, do not record a successful send for an
+    # inactive alert. A same-cycle cancel then supersedes the normal push with
+    # the same collapse key (audit A-02, race normal↔delete↔cancel).
     await conn.execute(
         f"UPDATE {table} SET last_sent_at = now(), send_count = send_count + 1 "
         "WHERE id = %s AND status = 'pending'",
@@ -137,10 +136,9 @@ async def run_cycle(client: httpx.AsyncClient) -> int:
     except Exception as exc:
         log.warning("surge phase failed: %s", type(exc).__name__)
     async with get_pool().connection() as conn:
-        # Cancels — AFTER the normal pushes in the same cycle. Order matters: if
-        # an alert expired in the middle of the normal phase, the cancel is sent
-        # after its own normal push and with the same collapse_key supersedes it —
-        # the last state on the phone is the cancel (audit A-02).
+        # Cancels follow normal pushes. A deletion during the normal phase is
+        # therefore delivered last with the same collapse key, so the phone's
+        # final state is the cancel (audit A-02).
         await _send_cancels(client, conn)
         await cancels.cleanup_closed(conn)
 

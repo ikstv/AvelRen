@@ -25,8 +25,12 @@
       "destination": "services/backend/src/avelren/notifier.py",
       "sha256": "1b363a9477b0596bd2fb5b57ba049848aaa67ceffd444c119fb61f88433a11e2",
       "revision": {
-        "sha256": "7aa11f01ebb4134d8bd29256b571c9473197e20c9a1791a439df9ded440f6026",
-        "notes": "docs/NOTIFIER-TOKEN-RACE-2026-10-12.md"
+        "sha256": "adcc83291ae0d86fbc99a351f703c6712eaa23d627fbf5befaef3fe427311ce7",
+        "notes": "docs/ALERT-REPEAT-CONTRACT-2026-10-15.md",
+        "previous": {
+          "sha256": "7aa11f01ebb4134d8bd29256b571c9473197e20c9a1791a439df9ded440f6026",
+          "notes": "docs/NOTIFIER-TOKEN-RACE-2026-10-12.md"
+        }
       }
     },
     {
@@ -34,7 +38,11 @@
       "commit": "4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27",
       "source": "app/src/avelren/alerts.py",
       "destination": "services/backend/src/avelren/alerts.py",
-      "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba"
+      "sha256": "3f6cac99e78839a8944354d5356831d1b8bfad045264efec7169d70bd8a573ba",
+      "revision": {
+        "sha256": "3049b6aef1ab72bfb9b1290f8557ea41156bc6dd6d5efdfdeb6d23d683d03ac8",
+        "notes": "docs/ALERT-REPEAT-CONTRACT-2026-10-15.md"
+      }
     },
     {
       "repository": "ikstv/AvelRen",
@@ -43,8 +51,12 @@
       "destination": "services/backend/src/avelren/eta.py",
       "sha256": "b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740",
       "revision": {
-        "sha256": "ecf7a9b8cd012be223cdad3c6f11f7817ceee95f82e89850714ae0819b9e7ef3",
-        "notes": "docs/ETA-FORWARD-CROSSING.md"
+        "sha256": "bb10895eb90e0ff7dacaa3286fecf546e4eea69eccbff87c4ed8c80a7f32b69d",
+        "notes": "docs/ALERT-REPEAT-CONTRACT-2026-10-15.md",
+        "previous": {
+          "sha256": "ecf7a9b8cd012be223cdad3c6f11f7817ceee95f82e89850714ae0819b9e7ef3",
+          "notes": "docs/ETA-FORWARD-CROSSING.md"
+        }
       }
     },
     {
@@ -54,8 +66,12 @@
       "destination": "services/backend/src/avelren/cancels.py",
       "sha256": "afa7f57510af6140509088ac5abf0ebb90e7394685e09a85988093a2187d18d2",
       "revision": {
-        "sha256": "cf3f14c475d9df3c059886ccbc57a153b88a63cd2b0451c14cb228b53060f6a9",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "533bbf89417a0b4bedca3e2532a8cf3996bb0c168b09849e7612e762c905e137",
+        "notes": "docs/ALERT-REPEAT-CONTRACT-2026-10-15.md",
+        "previous": {
+          "sha256": "cf3f14c475d9df3c059886ccbc57a153b88a63cd2b0451c14cb228b53060f6a9",
+          "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        }
       }
     },
     {

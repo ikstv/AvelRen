@@ -121,9 +121,7 @@ async def replay_once(
                 async with pool.connection() as conn:
                     if cycle.items:
                         await alerts.evaluate(conn, list(cycle.items))
-                        await alerts.expire_stale(conn)
                         await eta.evaluate(conn, cycle.at, list(cycle.items))
-                        await eta.expire_passed(conn)
                     await record_derived(conn, cycle.at, error=None)
             except Exception as exc:
                 log.error("derived phase for %s failed: %s", cycle.at.isoformat(), exc)

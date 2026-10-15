@@ -1,16 +1,15 @@
 """Cancelling already-shown notifications (A-02).
 
 The server is the single source of truth about an alert's activity. When an
-alert leaves `pending` not through a local ACK (expire or cascade delete), the
-phone must be told that the ongoing notification should be removed. Two layers:
+alert is removed by a subscription or target DELETE, the phone must be told
+that the ongoing notification should be removed. Two layers:
 
   1. cancel-push via FCM (the fast path, here);
   2. reconciliation on the client at foreground (a convergence guarantee when
      the push was lost — separately, via `active_alert_keys`).
 
-Enqueueing cancels happens IN THE SAME TRANSACTION as the state transition —
-done by the CTEs in `alerts.expire_stale`/`eta.expire_passed` and the delete
-endpoints. Here — only sending from the outbox, its lifecycle, and the
+Enqueueing cancels happens IN THE SAME TRANSACTION as the DELETE state
+transition. Here — only sending from the outbox, its lifecycle, and the
 canonical active state.
 """
 
@@ -93,10 +92,12 @@ async def cleanup_closed(conn: AsyncConnection) -> None:
 
 
 async def active_alert_keys(conn: AsyncConnection, device_id: str) -> dict[str, list[int]]:
-    """Canonical list of the device's active (pending) alerts — for
-    reconciliation. Deliberately WITHOUT a send_count filter: the truth is the
-    status, not the history of a successful counter write. Empty lists — all
-    closed.
+    """Canonical list for foreground reconciliation.
+
+    A locally acknowledged legacy alert stays pending so the notifier can
+    resend it. Until that next successful send, it is omitted here to avoid
+    recreating the notification the user just dismissed. Empty lists mean
+    there is no notification to retain.
     """
     threshold = await (
         await conn.execute(
@@ -105,6 +106,7 @@ async def active_alert_keys(conn: AsyncConnection, device_id: str) -> dict[str, 
             FROM alerts a
             JOIN subscriptions s ON s.id = a.subscription_id
             WHERE s.device_id = %s AND a.status = 'pending'
+              AND (a.acknowledged_at IS NULL OR a.last_sent_at > a.acknowledged_at)
             ORDER BY a.id
             """,
             (device_id,),
@@ -117,6 +119,7 @@ async def active_alert_keys(conn: AsyncConnection, device_id: str) -> dict[str, 
             FROM eta_alerts a
             JOIN eta_targets t ON t.id = a.target_id
             WHERE t.device_id = %s AND a.status = 'pending'
+              AND (a.acknowledged_at IS NULL OR a.last_sent_at > a.acknowledged_at)
             ORDER BY a.id
             """,
             (device_id,),
