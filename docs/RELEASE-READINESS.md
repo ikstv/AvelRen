@@ -1,5 +1,34 @@
 # Що має дійти до телефона
 
+## Canonical collector замість legacy overlay — 16.10.2026
+
+Вилучено Docker-рецепт `ops/eta-legacy-hotfix`, який підміняв сучасний
+spool-capable collector старим прямим writer. Збірка має використовувати
+повний `services/backend`; історичні ETA/collector fixtures залишені лише
+для тестів. [Причина й маршрут збірки](../ops/eta-legacy-hotfix/README.md).
+Canonical ETA, replay, повтори до DELETE, міграції та права не змінюються.
+
+| Етап | Стан |
+| --- | --- |
+| Код | Legacy-рецепт і його build-контекст вилучені; регресійний guard пройшов RED/GREEN |
+| Локальні перевірки | 17 legacy-контрактів, 705 unit, 49 PostgreSQL ETA/repeat/ACK/pipeline; paired contracts: 85 виконано, 12 Docker-only пропущено |
+| Native paired backup/restore | PASS: synthetic пара `20261016-195228`, ACK on/off, SIGKILL recovery, local crypt/readback, restore/replay, pending=0, cleanup PASS; не є production backup |
+| Hosted CI / merge | Для нового diff ще не виконані |
+| Сервер | Не змінений; існуючий `recovery_required` не скидався |
+| Android / телефон / Play | Цим локальним виправленням не перевірялися й не змінювалися |
+
+Штатний `ops/paired-backup-daemon-test.py` перевірив справжні PostgreSQL/SQLite
+snapshots, локальне зашифроване сховище та disposable restore: 2 cycles і 2
+observations, pending після replay 0. Пауза writer 45,014 с; запуски source
+розділені щонайменше 60 с. HTTP підмінено; native backup/recovery не підмінялися.
+Fixture source — робоче дерево на базі `0f4e1f6c50cbd49926d36bdd3bf35a3136c21258`,
+backend байти незмінні. Це не новий main release image і не приймання
+production state. Повторна source-перевірка та документаційний review — без зауважень.
+
+Перед deployment потрібні чиста main, immutable collector image, перевірені
+runtime manifest/restore-сумісність, план відкату й окреме погодження завершення
+наявного backup recovery. Вилучення рецепта не змінює встановлених байтів.
+
 ## OK після кожного resend — 15.10.2026
 
 [Регресія ACK](ALERT-ACK-RESEND-2026-10-15.md) виправляє timestamp

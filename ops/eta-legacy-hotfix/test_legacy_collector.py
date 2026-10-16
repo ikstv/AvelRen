@@ -1,4 +1,4 @@
-"""Behavior contract for the bounded legacy collector overlay."""
+"""Історичний fixture та захист від повторної legacy-підміни collector."""
 
 import ast
 import hashlib
@@ -121,25 +121,11 @@ class LegacyCollector(unittest.TestCase):
         eta.expire_passed.assert_not_awaited()
         module["record_derived"].assert_awaited_once()
 
-    def test_image_overlays_only_eta_and_collector(self):
-        copies = [
-            line.strip()
-            for line in DOCKERFILE.read_text().splitlines()
-            if line.strip().startswith("COPY ")
-        ]
-        self.assertEqual(
-            copies,
-            [
-                "COPY --chown=0:0 --chmod=0644 eta.py "
-                "/usr/local/lib/python3.14/site-packages/avelren/eta.py",
-                "COPY --chown=0:0 --chmod=0644 collector.py "
-                "/usr/local/lib/python3.14/site-packages/avelren/collector.py",
-            ],
-        )
-        self.assertEqual(
-            DOCKERIGNORE.read_text(encoding="utf-8").splitlines(),
-            ["**", "!Dockerfile", "!eta.py", "!collector.py"],
-        )
+    def test_legacy_image_recipe_is_retired(self):
+        # Саме цей рецепт стирав spool-capable collector старим прямим writer.
+        # Fixtures залишаються для порівняння ETA, але їх не можна збирати.
+        self.assertFalse(DOCKERFILE.exists(), "legacy collector overlay must not be buildable")
+        self.assertFalse(DOCKERIGNORE.exists(), "legacy build context must be retired")
 
 
 if __name__ == "__main__":

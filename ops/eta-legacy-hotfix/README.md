@@ -1,53 +1,36 @@
-# Мінімальний legacy alert hotfix
+# Історичні fixtures legacy alert hotfix
 
-Цей artifact — тимчасовий bounded backport двох виправлень на exact production
-collector image `sha256:e7b02f58581d312ecabc84e9a32389fcfea9d7b2330b0155752fb0c42ca5e4c3`:
+## Рецепт збірки вилучено — 16.10.2026
 
-- прямий перетин цільового вікна ETA з PR #141;
-- збереження threshold/ETA alert до ручного видалення підписки або цілі з PR #144.
+Цей каталог більше не є Docker build-контекстом. Старі Dockerfile та
+.dockerignore вилучені: рецепт накладав legacy collector.py поверх
+spool-capable collector. Такий прямий writer не обслуговує capture-only
+і не підтверджує mode ACK, тому paired backup не може безпечно зняти пару.
+Саме видалення одного COPY також недостатнє: успадкований старий replay
+автоматично завершував threshold/ETA alerts.
 
-Базовий eta.py походить з AvelRen 4a8e010aeb02d2d77fef3fc1297e67f4f5e5ab27,
-SHA-256 `b3d18b41cc31b23124976667c792133ff915c4025caef0aef9b24ca59913c740`,
-і незалежно звірений з установленим образом.
-Базовий collector.py походить із того самого коміту. Порівняння з ним має рівно
-дві зміни: прибрані виклики `alerts.expire_stale` та `eta.expire_passed`.
-Контрактний тест відновлює ці два рядки та звіряє SHA-256 з pinned legacy
-джерелом, тому будь-яка інша зміна collector.py зупиняє CI.
+Нові образи будуються з повного canonical services/backend через
+ops/build-candidate-image.sh після злиття в чисту main. Застосовувати
+будь-який legacy overlay до цієї збірки не можна. Canonical collector,
+replay, models та ETA встановлюються разом; їхня сумісність перевіряється
+через native paired backup/restore та PostgreSQL ETA-тести.
 
-`SOURCE_COMMIT`/`AVELREN_GIT_SHA` означає коміт **рецепта backport**, а не
-твердження, що всі runtime-файли походять із сучасного canonical tree.
-Образ успадковує exact legacy base: старі writer/models/replay/spool,
-залежності, entrypoint, user та іншу конфігурацію. Змінюються лише eta.py,
-collector.py і явний source identifier. Build-контекст містить тільки Dockerfile,
-eta.py та collector.py;
-ніяких конфігурацій, credentials, тестів або повного checkout. Build виконується
-локально без мережі/оновлення залежностей; deployment окремо після перевірок.
+Canonical код уже містить прямий перетин ETA-вікна, обробку missing/zero,
+dedup та повтори до DELETE цілі/підписки. У цьому виправленні ці алгоритми,
+міграції, ролі й контракти джерела не змінюються.
 
-Збережено стару поточну window-перевірку, обробку zero wait, `_fire` і dedup.
-Додана перевірка безпосереднього попереднього
-спостереження після створення підписки, якщо поточний ETA вже вище вікна.
-Missing, zero із paused або непорожньою чергою переривають історію; zero з порожньою активною чергою і додатний paused
-залишається придатним. Старі дані та ACK не переписуються, backfill не виконується.
+eta.py і collector.py залишені лише як історичні fixtures та для
+перевірки старої ETA-поведінки. Вони не є payload для встановлення.
+Контрактний тест забороняє повернення legacy-рецепта й build-контексту:
 
-Legacy collector продовжує виконувати `alerts.evaluate` та `eta.evaluate` після
-кожного успішного циклу, але більше не закриває pending alert автоматично через
-спад черги або проходження ETA. Завершення лишається за DELETE підписки/цілі.
+    python -B -m unittest discover -s ops/eta-legacy-hotfix -p 'test_legacy_*.py' -v
 
-Локальні перевірки:
+Історичний deployment source 4503477f334c72ab05409bf241779592d2fe0bf1
+створював image sha256:40219d6c8ceee5a862382dbb62fe3df06181a20488635d47c5a965512eda9a72.
+Його source identifier позначав рецепт backport, а не сучасне дерево всіх
+модулів. Попередні докази збережені в
+[датованому аудиті](../../docs/audits/ETA-LEGACY-HOTFIX-2026-10-14.md).
 
-- `python -B ops/eta-legacy-hotfix/test_legacy_eta.py`;
-- `python -B ops/eta-legacy-hotfix/test_legacy_collector.py`.
-
-TDD: exact old artifact дав три очікувані failures, після backport 12 tests PASS; уточнення точного legacy zero/NULL контракту дало RED 2, потім 14 tests PASS.
-Collector-контракт окремо дав RED через відсутній overlay та старий Dockerfile,
-після bounded backport — 2 tests PASS.
-Після review додано provenance/build-context/CI gates — collector suite має
-3 tests PASS і запускається обов'язково в database job.
-Це швидкий тест алгоритму з синтетичним SQL fixture, не proof actual PostgreSQL.
-Обов'язкові наступні gates: installed-image restricted-role SQL tests,
-повна рівність інших module hashes і runtime config, strict нова source/image
-пара у restore allowlist, standard restore legacy ACK старого і нового образів,
-відкат на exact base, CI та незалежний review. Ні phone delivery, ні звук/OK
-цими source тестами не підтверджено. Canonical mixed-ACK upgrade лишається окремим.
-
-Локальний base tag у Dockerfile допустимий лише після inspect exact e7 ID до й після build; tag не є доказом pin. Перед build оператор сам створює цей приватний tag для перевіреного імпортованого образу, без pull.
+Вилучення рецепта не змінює вже встановлений образ. Deployment і завершення
+наявного recovery_required потребують окремого погодженого плану; автоматичний
+обхід ACK, locks або state цим виправленням не дозволений.
