@@ -1,5 +1,14 @@
 # Що має дійти до телефона
 
+## OK після кожного resend — 15.10.2026
+
+[Регресія ACK](ALERT-ACK-RESEND-2026-10-15.md) виправляє timestamp
+підтвердження після другої та наступних доставок threshold/ETA, а також
+transaction-start timestamp у notifier при ACK під час send. Новий тест
+відтворив дефект для обох видів; API, database, immutable image, hosted CI
+та phone acceptance мають окремі результати. Робочий сервер не змінено;
+Google Play не оновлюємо. Наявність цього запису не закриває rollout gate.
+
 ## Скасування сповіщень після відписки — 15.10.2026
 
 На встановленому 0.1.3 отримано фонові threshold alert77 і ETA alert32
