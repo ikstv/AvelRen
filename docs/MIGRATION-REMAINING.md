@@ -1,5 +1,15 @@
 # Залишки перенесення
 
+## Collector і paired backup — локальний source-крок 16.10.2026
+
+Небезпечний legacy Docker-рецепт вилучено; нові образи мають використовувати
+повний canonical backend зі spool/writer supervisor, ETA-перетином і повторами
+до DELETE. [Код, перевірки й окремі rollout gates](RELEASE-READINESS.md#canonical-collector-замість-legacy-overlay--16102026).
+Історичні fixtures та датовані аудити збережені. Сервер, runtime manifest,
+backup state, timers і встановлені images цим кроком не змінені.
+Завершення наявного `recovery_required` та production-приймання лишаються
+окремими погодженими діями; повторний DB upgrade не входить у цей diff.
+
 ## Актуальний підсумок — 15.10.2026
 
 ### Push-контракт до ручного скасування
