@@ -34,3 +34,26 @@ eta.py і collector.py залишені лише як історичні fixture
 Вилучення рецепта не змінює вже встановлений образ. Deployment і завершення
 наявного recovery_required потребують окремого погодженого плану; автоматичний
 обхід ACK, locks або state цим виправленням не дозволений.
+
+## Ізольоване приймання handoff
+
+`fixtures/db.py` та `fixtures/models.py` — точні копії встановлених модулів,
+знятих read-only 16.10.2026 у локальний `work/backup-repro/installed/avelren`.
+SHA-256:
+
+- `db.py`: `4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309`;
+- `models.py`: `1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae`.
+
+Лише `ops/paired-backup-daemon-test.py` встановлює ці fixtures разом з
+історичними `collector.py` і `eta.py` в окремий disposable test image.
+Його транспорт синтетичний, мережа внутрішня, а image ID відрізняється
+від історичного production image. Перевірка зчитує шляхи й SHA-256 усіх
+чотирьох встановлених модулів. Це не production build-рецепт; сучасний
+helper та candidate встановлюють повне canonical дерево без цих накладень.
+
+Історичний `db.py` не записує `wait_time_status`: значення `legacy_unknown`
+утворюється штатним default схеми, а не SQL-виправленням тестових рядків.
+Перед handoff fixture перевіряє успішне завершення derived-фази старого
+collector; seed додатково читає реальні observations і вимагає
+`legacy_unknown`. Source identifier історичного deployment позначає backport
+рецепт, тому його не можна використовувати як hash сучасного дерева модулів.

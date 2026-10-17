@@ -1,5 +1,7 @@
 # Резервування та відновлення
 
+Контрольований перехід зі старого collector при `recovery_required`: [окремий handoff runbook](COLLECTOR-RECOVERY-HANDOFF.md). Source/isolated acceptance не є server GO.
+
 Актуальний paired source-етап13.10: [пакет, prerequisite guards, first run,
 відкат і межі приймання](../docs/audits/PAIRED-BACKUP-SOURCE-2026-10-13.md).
 Default лишається `sql-only`; intended paired installation потребує всього

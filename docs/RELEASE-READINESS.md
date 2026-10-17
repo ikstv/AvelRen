@@ -1,5 +1,29 @@
 # Що має дійти до телефона
 
+## Collector recovery handoff і legacy spool — 17.10.2026
+
+Підготовлено [контрольований handoff](../ops/COLLECTOR-RECOVERY-HANDOFF.md):
+одна backup/control lease, durable interlock, exact identity/pins, safety captures,
+60 секунд між writers, native off ACK/drain і відкат лише без backlog.
+Offline migration додає per-cycle provenance після read-only SQL звірки;
+strict restore повторно перевіряє SQL, production legacy allowlist не розширено.
+
+| Етап | Стан |
+| --- | --- |
+| Код | Source-кандидат на базі main b009a275e058af9334ef02cd23039f06cebdd3a8; [дизайн](superpowers/specs/2026-10-17-collector-recovery-handoff-design.md) |
+| Локальні перевірки | PASS: 707 unit; 280 PostgreSQL/TimescaleDB (включно з 1439 aged ACK); 22 Linux handoff, 26 lease/state, 9 daemon boundary, 7 real Docker cleanup, 4 handoff wiring, 38 CI workflow contracts; 17 legacy/ETA; Ruff/provenance PASS |
+| Native paired / restore | PASS: synthetic pair `20261017-080544`; 5 verified cycles / 3 observations, pending_after=0; SQL totals 6 runs / 4 observations; crypt readback і cleanup іменованих ресурсів PASS |
+| Hosted CI / merge нового diff | Не виконувалися |
+| Сервер / timer / state | Не змінювалися; нове production-приймання не виконувалося |
+| Android / телефон / Play | Цим кроком не змінювалися й не перевірялися |
+
+Чиста main image b009a27 попереднього кроку не містить нового migration модуля.
+Після merge потрібен новий canonical image і узгоджений host/helper пакет.
+Native fixture — working tree на базі b009a27, а не main release image; 58 installed Python modules збігаються з source. Старий образ має точні captured collector/db/models/ETA bytes, але synthetic image ID. Handoff після SIGKILL дочекався 64,801 с; producer starts — щонайменше 60 с. [Приймання й межі](audits/COLLECTOR-RECOVERY-HANDOFF-2026-10-17.md).
+
+Crash між recreate і journal-ID, boot/PID drift та backlog rollback навмисно
+блокуються; автоматичне adopt або редагування state не дозволені.
+
 ## Canonical collector замість legacy overlay — 16.10.2026
 
 Вилучено Docker-рецепт `ops/eta-legacy-hotfix`, який підміняв сучасний
