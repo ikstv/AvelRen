@@ -33,6 +33,82 @@ IMAGE = (
 
 
 class BoundaryContracts(unittest.TestCase):
+    def test_job_ledger_accepts_bounded_unique_identity_history(self):
+        prefix = "avelren-runtime-test-pair-1-2"
+        identity = dict(
+            container_id="a" * 64,
+            image_id="sha256:" + "b" * 64,
+            source_commit="c" * 40,
+            restart_count=0,
+            started_at="old",
+            volume=prefix + "-spool",
+            network=prefix + "-network",
+        )
+        generation = str(uuid.uuid4())
+        owners = [
+            dict(generation=generation, identity=dict(identity, started_at=str(i)))
+            for i in range(4)
+        ]
+        owners.extend(dict(generation=str(uuid.uuid4()), identity=identity) for _ in range(2))
+        driver.validate_job_owners(owners, prefix)
+        with self.assertRaisesRegex(ValueError, "invalid_job_owners"):
+            driver.validate_job_owners(owners + [owners[0]], prefix)
+        with self.assertRaisesRegex(ValueError, "invalid_job_owners"):
+            driver.validate_job_owners(
+                [dict(generation=str(uuid.uuid4()), identity=identity) for _ in range(17)], prefix
+            )
+
+    def test_cleanup_accepts_any_known_pair_and_preserves_foreign(self):
+        name = "avelren-paired-example-handoff-status"
+        labels = [
+            {"org.avelren.backup.generation": "g", "org.avelren.backup.runtime": r}
+            for r in ("old", "rollback", "candidate")
+        ]
+        for runtime in ("candidate", "foreign"):
+            calls = []
+            cleanup = driver.Cleanup()
+
+            def run(argv, calls=calls, runtime=runtime):
+                calls.append(argv)
+                if "ls" in argv:
+                    return name + "\n"
+                if "inspect" in argv:
+                    return json.dumps(
+                        [
+                            dict(
+                                Config=dict(
+                                    Labels=dict(
+                                        labels[-1], **{"org.avelren.backup.runtime": runtime}
+                                    )
+                                )
+                            )
+                        ]
+                    )
+                return ""
+
+            cleanup.run = run
+            if runtime == "foreign":
+                with self.assertRaisesRegex(ValueError, "cleanup_ownership_unproven"):
+                    cleanup.remove("container", name, labels)
+                self.assertFalse(any("rm" in c for c in calls))
+            else:
+                cleanup.remove("container", name, labels)
+                self.assertTrue(any("rm" in c for c in calls))
+
+    def test_all_handoff_job_kinds_are_part_of_cleanup(self):
+        self.assertEqual(
+            set(driver.JOB_KINDS),
+            {
+                "check",
+                "sql",
+                "spool",
+                "control-on",
+                "control-off",
+                "handoff-migrate",
+                "handoff-status",
+            },
+        )
+
     def test_slow_backup_needs_a_new_completed_cycle_after_completion(self):
         value = dict(
             calls=[dict(monotonic=t, native_attempt_monotonic=t) for t in (0, 60, 120)],
@@ -47,8 +123,10 @@ class BoundaryContracts(unittest.TestCase):
         self.assertFalse(driver.completed_cycle_after(value, 130))
 
     def test_native_request_starts_are_strict_despite_transport_dispatch_jitter(self):
-        calls = [dict(native_attempt_monotonic=0.0, monotonic=.002),
-                 dict(native_attempt_monotonic=60.001, monotonic=60.0015)]
+        calls = [
+            dict(native_attempt_monotonic=0.0, monotonic=0.002),
+            dict(native_attempt_monotonic=60.001, monotonic=60.0015),
+        ]
         self.assertLess(calls[1]["monotonic"] - calls[0]["monotonic"], 60)
         self.assertEqual(driver.native_request_intervals(calls), [60.001])
         calls[1]["native_attempt_monotonic"] = 59.999
@@ -267,10 +345,20 @@ class DockerCleanupContracts(unittest.TestCase):
         later_generation = str(uuid.uuid4())
         later_owned = "avelren-paired-" + later_generation + "-sql"
         driver.register_job_owner(self.root, self.prefix, later_generation, identity)
+        changed_identity = dict(identity, started_at="2026-10-14T00:00:00Z")
+        driver.register_job_owner(self.root, self.prefix, generation, changed_identity)
+        changed_hash = driver.hashlib.sha256(
+            json.dumps(changed_identity, sort_keys=True).encode()
+        ).hexdigest()
+        handoff_owned = [
+            "avelren-paired-" + generation + "-" + kind
+            for kind in ("handoff-status", "handoff-migrate")
+        ]
         for name, digest, owner in (
             (owned, runtime_hash, generation),
             (foreign, "f" * 64, generation),
             (later_owned, runtime_hash, later_generation),
+            *((name, changed_hash, generation) for name in handoff_owned),
         ):
             self.names.append(name)
             driver.command(
@@ -309,6 +397,7 @@ class DockerCleanupContracts(unittest.TestCase):
         self.assertEqual(result["first_failure"], "original_probe_failure")
         self.assertTrue(self.absent(owned))
         self.assertTrue(self.absent(later_owned))
+        self.assertTrue(all(self.absent(name) for name in handoff_owned))
         self.assertFalse(self.absent(foreign))
 
     def test_invalid_job_journal_does_not_skip_owned_container_cleanup(self):
@@ -329,7 +418,7 @@ class DockerCleanupContracts(unittest.TestCase):
         result = driver.cleanup_fixture(
             self.root, self.prefix, ledger, first_failure="original_probe_failure"
         )
-        self.assertEqual(len(result["errors"]), 5)
+        self.assertEqual(len(result["errors"]), 7)
         self.assertTrue(all("JSONDecodeError" in error for error in result["errors"]))
         self.assertEqual(result["first_failure"], "original_probe_failure")
         self.assertTrue(self.absent(api))
@@ -586,32 +675,51 @@ class DockerLifetimeContracts(unittest.TestCase):
         cls.base_tag = cls.helper_tag + "-base"
         cls.addClassCleanup(cls.build_context.cleanup)
         try:
-            source = subprocess.check_output(["git", "-C", str(PATH.parents[1]),
-                                              "rev-parse", "HEAD"], text=True).strip()
+            source = subprocess.check_output(
+                ["git", "-C", str(PATH.parents[1]), "rev-parse", "HEAD"], text=True
+            ).strip()
         except (OSError, subprocess.CalledProcessError):
             if not LOCAL_BASE:
                 raise
             source = "8b2b38d105f5e891148dcf0364a201d7a9b01bf5"  # Local WIP fixture base.
         if LOCAL_BASE:
-            subprocess.run(["docker", "tag", driver.APP, cls.base_tag], check=True,
-                           capture_output=True, timeout=15)
-            cls.addClassCleanup(lambda: subprocess.run(["docker", "image", "rm", cls.base_tag],
-                                                       capture_output=True, timeout=20))
+            subprocess.run(
+                ["docker", "tag", driver.APP, cls.base_tag],
+                check=True,
+                capture_output=True,
+                timeout=15,
+            )
+            cls.addClassCleanup(
+                lambda: subprocess.run(
+                    ["docker", "image", "rm", cls.base_tag], capture_output=True, timeout=20
+                )
+            )
             shutil.copytree(PATH.parents[1] / "services/backend/src/avelren", cls.build / "avelren")
             (cls.build / "Dockerfile").write_text(
                 f"FROM {cls.base_tag}\nUSER root\n"
                 "COPY avelren /usr/local/lib/python3.14/site-packages/avelren\n"
-                f"ENV AVELREN_GIT_SHA={source}\nUSER 10001:10001\n")
+                f"ENV AVELREN_GIT_SHA={source}\nUSER 10001:10001\n"
+            )
             build = ["--network", "none", "--pull=false", str(cls.build)]
         else:
-            build = ["--build-arg", "SOURCE_COMMIT=" + source,
-                     str(PATH.parents[1] / "services/backend")]
-        result = subprocess.run(["docker", "build", "-t", cls.helper_tag, *build],
-                                capture_output=True, text=True, timeout=600)
+            build = [
+                "--build-arg",
+                "SOURCE_COMMIT=" + source,
+                str(PATH.parents[1] / "services/backend"),
+            ]
+        result = subprocess.run(
+            ["docker", "build", "-t", cls.helper_tag, *build],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
         if result.returncode:
             raise AssertionError(result.stderr)
-        cls.addClassCleanup(lambda: subprocess.run(["docker", "image", "rm", cls.helper_tag],
-                                                   capture_output=True, timeout=20))
+        cls.addClassCleanup(
+            lambda: subprocess.run(
+                ["docker", "image", "rm", cls.helper_tag], capture_output=True, timeout=20
+            )
+        )
 
     def setUp(self):
         self.paired = driver.load(PATH.with_name("paired-backup.py"), "lifetime_paired")
@@ -624,36 +732,52 @@ class DockerLifetimeContracts(unittest.TestCase):
         self.volume = self.prefix + "-spool"
         self.names = []
         self.generations = []
-        self.image = driver.command(["docker", "image", "inspect", self.helper_tag,
-                                     "--format", "{{.Id}}"] ).strip()
+        self.image = driver.command(
+            ["docker", "image", "inspect", self.helper_tag, "--format", "{{.Id}}"]
+        ).strip()
         driver.FAILURE_LOG = self.root / "first-failure.log"
         info = json.loads(driver.command(["docker", "image", "inspect", self.image]))[0]
-        source = next(e.split("=", 1)[1] for e in info["Config"]["Env"]
-                      if e.startswith("AVELREN_GIT_SHA="))
-        imported = driver.command([
-            "docker", "run", "--rm", "--network", "none", self.image, "python", "-c",
-            "import hashlib,json;import avelren.paired_backup_spool as p;"
-            "import avelren.collector_control as c;"
-            "print(json.dumps(dict(spool=p.__file__,control=c.__file__,"
-            "sha=hashlib.sha256(open(p.__file__,'rb').read()).hexdigest())))",
-        ])
+        source = next(
+            e.split("=", 1)[1] for e in info["Config"]["Env"] if e.startswith("AVELREN_GIT_SHA=")
+        )
+        imported = driver.command(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                self.image,
+                "python",
+                "-c",
+                "import hashlib,json;import avelren.paired_backup_spool as p;"
+                "import avelren.collector_control as c;"
+                "print(json.dumps(dict(spool=p.__file__,control=c.__file__,"
+                "sha=hashlib.sha256(open(p.__file__,'rb').read()).hexdigest())))",
+            ]
+        )
         origin = json.loads(imported)
         self.assertIn("site-packages/avelren/collector_control.py", origin["control"])
         self.assertIn("site-packages/avelren/paired_backup_spool.py", origin["spool"])
-        self.environment = patch.dict(os.environ, {
-            "AVELREN_BACKUP_HELPER_IMAGE": self.image,
-            "AVELREN_BACKUP_HELPER_SOURCE_COMMIT": source,
-            "AVELREN_BACKUP_HELPER_SHA256": origin["sha"],
-            "AVELREN_BACKUP_PASSWORD": "local-fixture-only",
-            "DOCKER_HOST": "sentinel-invalid-host", "DOCKER_CONTEXT": "sentinel-context",
-            "DOCKER_CONFIG": "/sentinel-config",
-        })
+        self.environment = patch.dict(
+            os.environ,
+            {
+                "AVELREN_BACKUP_HELPER_IMAGE": self.image,
+                "AVELREN_BACKUP_HELPER_SOURCE_COMMIT": source,
+                "AVELREN_BACKUP_HELPER_SHA256": origin["sha"],
+                "AVELREN_BACKUP_PASSWORD": "local-fixture-only",
+                "DOCKER_HOST": "sentinel-invalid-host",
+                "DOCKER_CONTEXT": "sentinel-context",
+                "DOCKER_CONFIG": "/sentinel-config",
+            },
+        )
         self.environment.start()
         self.addCleanup(self.environment.stop)
         # Driver's explicit environment keeps ambient sentinels out of Docker.
         self.docker_environment = self.paired.command_environment(docker=True)
-        self.docker(["volume", "create", "--label", "org.avelren.test.fixture=" + self.prefix,
-                     self.volume])
+        self.docker(
+            ["volume", "create", "--label", "org.avelren.test.fixture=" + self.prefix, self.volume]
+        )
         self.addCleanup(self.cleanup)
         initialize = (
             "import os;from pathlib import Path;from avelren.collector_spool import SpoolStore;"
@@ -661,9 +785,22 @@ class DockerLifetimeContracts(unittest.TestCase):
             "s=SpoolStore(p/'cycles.sqlite3');s.set_capture_only(False);s.set_mode_ack(False);"
             "s.close();[os.chown(f,10001,10001) for f in p.iterdir()]"
         )
-        self.docker(["run", "--rm", "--network", "none", "--user", "0",
-                     "-v", self.volume + ":" + driver.SPOOL, self.image,
-                     "python", "-c", initialize])
+        self.docker(
+            [
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--user",
+                "0",
+                "-v",
+                self.volume + ":" + driver.SPOOL,
+                self.image,
+                "python",
+                "-c",
+                initialize,
+            ]
+        )
         self.collector = self.prefix + "-writer"
         self.names.append(self.collector)
         ack = (
@@ -671,22 +808,52 @@ class DockerLifetimeContracts(unittest.TestCase):
             f"s=SpoolStore(Path({driver.SPOOL!r})/'cycles.sqlite3');\n"
             "while True:\n s.set_mode_ack(s.status().capture_only);time.sleep(.05)\n"
         )
-        collector_id = self.docker(["run", "-d", "--network", "none", "--name", self.collector,
-                                   "--user", "10001:10001", "--label",
-                                   "org.avelren.test.fixture=" + self.prefix, "-v",
-                                   self.volume + ":" + driver.SPOOL, self.image,
-                                   "python", "-c", ack]).strip()
+        collector_id = self.docker(
+            [
+                "run",
+                "-d",
+                "--network",
+                "none",
+                "--name",
+                self.collector,
+                "--user",
+                "10001:10001",
+                "--label",
+                "org.avelren.test.fixture=" + self.prefix,
+                "-v",
+                self.volume + ":" + driver.SPOOL,
+                self.image,
+                "python",
+                "-c",
+                ack,
+            ]
+        ).strip()
         target = json.loads(self.docker(["inspect", collector_id]))[0]
         self.target = target
-        self.identity = dict(container_id=collector_id, image_id=self.image, source_commit=source,
-                             restart_count=0, started_at=target["State"]["StartedAt"],
-                             volume=self.volume, network=self.prefix + "-network")
-        self.manifest = dict(state_dir=str(self.directory), container_name=self.collector,
-                             volume=self.volume, source_commit=source)
+        self.identity = dict(
+            container_id=collector_id,
+            image_id=self.image,
+            source_commit=source,
+            restart_count=0,
+            started_at=target["State"]["StartedAt"],
+            volume=self.volume,
+            network=self.prefix + "-network",
+        )
+        self.manifest = dict(
+            state_dir=str(self.directory),
+            container_name=self.collector,
+            volume=self.volume,
+            source_commit=source,
+        )
 
     def docker(self, argv):
-        result = subprocess.run(["docker", *argv], env=self.docker_environment,
-                                capture_output=True, text=True, timeout=20)
+        result = subprocess.run(
+            ["docker", *argv],
+            env=self.docker_environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
         if result.returncode:
             raise AssertionError(result.stderr)
         return result.stdout
@@ -704,8 +871,19 @@ class DockerLifetimeContracts(unittest.TestCase):
         self.context.cleanup()
 
     def status(self):
-        return json.loads(self.docker(["exec", self.collector, "python", "-m",
-                                      "avelren.collector_control", "capture-only", "status"]))
+        return json.loads(
+            self.docker(
+                [
+                    "exec",
+                    self.collector,
+                    "python",
+                    "-m",
+                    "avelren.collector_control",
+                    "capture-only",
+                    "status",
+                ]
+            )
+        )
 
     def runtime(self, *, delay=None, check=None):
         runtime = self.paired.Runtime(self.manifest, self.work)
@@ -781,9 +959,17 @@ class DockerLifetimeContracts(unittest.TestCase):
         return runtime
 
     def record(self, generation, phase, owner):
-        return dict(format_version=1, generation=generation, phase=phase, owner=owner,
-                    identity=self.identity, created_at=1.0, updated_at=2.0,
-                    initial_capture_only=False, children=[])
+        return dict(
+            format_version=1,
+            generation=generation,
+            phase=phase,
+            owner=owner,
+            identity=self.identity,
+            created_at=1.0,
+            updated_at=2.0,
+            initial_capture_only=False,
+            children=[],
+        )
 
     def wait_lock(self):
         deadline = time.monotonic() + 10
@@ -794,7 +980,7 @@ class DockerLifetimeContracts(unittest.TestCase):
             except ValueError:
                 if time.monotonic() >= deadline:
                     raise
-                time.sleep(.02)
+                time.sleep(0.02)
 
     def recover(self, generation):
         self.wait_lock()
@@ -809,31 +995,55 @@ class DockerLifetimeContracts(unittest.TestCase):
 
     def release(self):
         self.docker(["exec", self.collector, "touch", driver.SPOOL + "/release"])
-        time.sleep(.3)
+        time.sleep(0.3)
         self.assertFalse(self.status()["capture_only"], "late ON after terminal recovery")
         self.assertIs(self.status()["mode_ack"], False)
 
     def test_remote_before_set_on_and_off_owner_sigkill(self):
-        for mode, boundary in (("on", "created"), ("on", "before-set"),
-                               ("off", "created"), ("off", "before-set")):
+        for mode, boundary in (
+            ("on", "created"),
+            ("on", "before-set"),
+            ("off", "created"),
+            ("off", "before-set"),
+        ):
             with self.subTest(mode=mode, boundary=boundary):
                 (self.root / "created").unlink(missing_ok=True)
-                self.docker(["exec", self.collector, "rm", "-f", driver.SPOOL + "/before-set",
-                             driver.SPOOL + "/release"])
+                self.docker(
+                    [
+                        "exec",
+                        self.collector,
+                        "rm",
+                        "-f",
+                        driver.SPOOL + "/before-set",
+                        driver.SPOOL + "/release",
+                    ]
+                )
                 if mode == "off":
-                    self.docker(["exec", self.collector, "python", "-m",
-                                 "avelren.collector_control", "capture-only", "on"])
+                    self.docker(
+                        [
+                            "exec",
+                            self.collector,
+                            "python",
+                            "-m",
+                            "avelren.collector_control",
+                            "capture-only",
+                            "on",
+                        ]
+                    )
                 generation = str(uuid.uuid4())
                 self.generations.append(generation)
                 child = os.fork()
                 if child == 0:
                     try:
-                        runtime = self.runtime(delay=mode,
-                                               check="created" if boundary == "created" else None)
+                        runtime = self.runtime(
+                            delay=mode, check="created" if boundary == "created" else None
+                        )
                         runtime.generation = generation
                         with state.backup_lock(self.directory) as authority:
-                            state.write_state(self.directory, self.record(
-                                generation, mode + "_intent", authority.owner))
+                            state.write_state(
+                                self.directory,
+                                self.record(generation, mode + "_intent", authority.owner),
+                            )
                             runtime.capture_only(mode, authority)
                         os._exit(1)
                     except BaseException:
@@ -842,16 +1052,30 @@ class DockerLifetimeContracts(unittest.TestCase):
                     if boundary == "created":
                         driver.wait(lambda: (self.root / "created").exists(), 10)
                     else:
-                        driver.wait(lambda: bool(self.docker([
-                            "exec", self.collector, "sh", "-c",
-                            "test -e " + driver.SPOOL + "/before-set && echo ready || true"])), 10)
+                        driver.wait(
+                            lambda: bool(
+                                self.docker(
+                                    [
+                                        "exec",
+                                        self.collector,
+                                        "sh",
+                                        "-c",
+                                        "test -e "
+                                        + driver.SPOOL
+                                        + "/before-set && echo ready || true",
+                                    ]
+                                )
+                            ),
+                            10,
+                        )
                     # Lease remains owned while the remote pre-mutation helper is live.
                     with self.assertRaisesRegex(ValueError, "backup_busy"):
                         with state.backup_lock(self.directory):
                             pass
                     name = "avelren-paired-" + generation + "-control-" + mode
-                    owned = bool(self.docker(["ps", "-aq", "--filter",
-                                              "name=^/" + name + "$"]).strip())
+                    owned = bool(
+                        self.docker(["ps", "-aq", "--filter", "name=^/" + name + "$"]).strip()
+                    )
                 finally:
                     self.kill_owner(child)
                 self.wait_lock()
@@ -860,8 +1084,9 @@ class DockerLifetimeContracts(unittest.TestCase):
                         pass
                 result = self.recover(generation)
                 self.assertEqual(result["phase"], "resumed")
-                self.assertFalse(self.docker(["ps", "-aq", "--filter",
-                                             "name=^/" + name + "$"]).strip())
+                self.assertFalse(
+                    self.docker(["ps", "-aq", "--filter", "name=^/" + name + "$"]).strip()
+                )
                 self.release()
                 self.assertTrue(owned, "remote mutation lacks an addressable owned daemon job")
                 with state.operator_guard(self.directory):
@@ -879,12 +1104,23 @@ class DockerLifetimeContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "command_timeout"):
                 runtime.capture_only("on", authority)
             self.assertLess(time.monotonic() - started, 4)
-            self.assertTrue(self.docker([
-                "exec", self.collector, "sh", "-c",
-                "test -e " + driver.SPOOL + "/before-set && echo ready || true"]).strip(),
-                "timeout must exercise a remote process delayed before mutation")
-            self.assertTrue(self.docker(["ps", "-q", "--filter",
-                                         "name=^/" + runtime.job_name("control-on") + "$"]).strip())
+            self.assertTrue(
+                self.docker(
+                    [
+                        "exec",
+                        self.collector,
+                        "sh",
+                        "-c",
+                        "test -e " + driver.SPOOL + "/before-set && echo ready || true",
+                    ]
+                ).strip(),
+                "timeout must exercise a remote process delayed before mutation",
+            )
+            self.assertTrue(
+                self.docker(
+                    ["ps", "-q", "--filter", "name=^/" + runtime.job_name("control-on") + "$"]
+                ).strip()
+            )
             # Timeout has stopped local CLI; production cancellation proves the remote lifetime.
             runtime.deadline = time.monotonic() + 20
             self.assertTrue(runtime.cancel_children([]))
@@ -898,19 +1134,27 @@ class DockerLifetimeContracts(unittest.TestCase):
                     (self.root / "created").unlink(missing_ok=True)
                     if initial == "terminal":
                         with state.backup_lock(self.directory) as authority:
-                            state.write_state(self.directory, self.record(
-                                str(uuid.uuid4()), "published", authority.owner))
+                            state.write_state(
+                                self.directory,
+                                self.record(str(uuid.uuid4()), "published", authority.owner),
+                            )
                     child = os.fork()
                     if child == 0:
                         try:
                             runtime = self.runtime(check=check)
                             publisher = type("Publisher", (), {"preflight": lambda self: None})()
                             self.paired.Coordinator(
-                                self.directory, self.work, runtime, publisher,
-                                self.root / "receipt", self.root / "stamp").run()
+                                self.directory,
+                                self.work,
+                                runtime,
+                                publisher,
+                                self.root / "receipt",
+                                self.root / "stamp",
+                            ).run()
                             os._exit(1)
                         except BaseException:
                             os._exit(2)
+
                     def check_ready(check=check):
                         value = state.read_state(self.directory)
                         if not value or value["phase"] != "prepared":
@@ -922,6 +1166,7 @@ class DockerLifetimeContracts(unittest.TestCase):
                             return False
                         actual = json.loads(self.docker(["inspect", name]))[0]["State"]["Status"]
                         return actual == check
+
                     try:
                         driver.wait(check_ready, 12)
                         self.generations.append(self.generation)
@@ -929,8 +1174,9 @@ class DockerLifetimeContracts(unittest.TestCase):
                         self.kill_owner(child)
                     self.assertEqual(self.recover(self.generation)["phase"], "resumed")
                     name = "avelren-paired-" + self.generation + "-check"
-                    self.assertFalse(self.docker(["ps", "-aq", "--filter",
-                                                 "name=^/" + name + "$"]).strip())
+                    self.assertFalse(
+                        self.docker(["ps", "-aq", "--filter", "name=^/" + name + "$"]).strip()
+                    )
                     self.assertFalse(self.status()["capture_only"])
 
     def test_foreign_control_job_is_preserved_and_blocks_success(self):
@@ -940,42 +1186,100 @@ class DockerLifetimeContracts(unittest.TestCase):
         runtime.generation = generation
         name = runtime.job_name("control-on")
         self.names.append(name)
-        self.docker(["create", "--name", name, "--network", "none", "--label",
-                     "org.avelren.backup.generation=" + generation, "--label",
-                     "org.avelren.backup.runtime=foreign", self.image, "python", "-c", "pass"])
-        dead = dict(pid=2147483647, start_ticks=1,
-                    boot_id=state.process_identity(os.getpid())["boot_id"])
+        self.docker(
+            [
+                "create",
+                "--name",
+                name,
+                "--network",
+                "none",
+                "--label",
+                "org.avelren.backup.generation=" + generation,
+                "--label",
+                "org.avelren.backup.runtime=foreign",
+                self.image,
+                "python",
+                "-c",
+                "pass",
+            ]
+        )
+        dead = dict(
+            pid=2147483647, start_ticks=1, boot_id=state.process_identity(os.getpid())["boot_id"]
+        )
         with state.backup_lock(self.directory):
             state.write_state(self.directory, self.record(generation, "on_intent", dead))
-            self.assertEqual(state.recover_owned_run(self.directory, runtime=runtime)["phase"],
-                             "recovery_required")
+            self.assertEqual(
+                state.recover_owned_run(self.directory, runtime=runtime)["phase"],
+                "recovery_required",
+            )
         self.assertTrue(self.docker(["ps", "-aq", "--filter", "name=^/" + name + "$"]).strip())
         self.assertFalse(self.status()["capture_only"])
 
     def test_initial_foreign_mode_and_generation_are_preserved(self):
         foreign = "avelren-paired-" + str(uuid.uuid4()) + "-control-on"
         self.names.append(foreign)
-        self.docker(["create", "--name", foreign, "--network", "none", "--label",
-                     "org.avelren.backup.generation=foreign", self.image, "python", "-c", "pass"])
-        self.docker(["exec", self.collector, "python", "-m", "avelren.collector_control",
-                     "capture-only", "on"])
+        self.docker(
+            [
+                "create",
+                "--name",
+                foreign,
+                "--network",
+                "none",
+                "--label",
+                "org.avelren.backup.generation=foreign",
+                self.image,
+                "python",
+                "-c",
+                "pass",
+            ]
+        )
+        self.docker(
+            [
+                "exec",
+                self.collector,
+                "python",
+                "-m",
+                "avelren.collector_control",
+                "capture-only",
+                "on",
+            ]
+        )
         runtime = self.runtime()
         publisher = type("Publisher", (), {"preflight": lambda self: None})()
         with self.assertRaisesRegex(ValueError, "existing_or_uncertain_capture_mode"):
-            self.paired.Coordinator(self.directory, self.work, runtime, publisher,
-                                    self.root / "receipt", self.root / "stamp").run()
+            self.paired.Coordinator(
+                self.directory,
+                self.work,
+                runtime,
+                publisher,
+                self.root / "receipt",
+                self.root / "stamp",
+            ).run()
         self.assertIsNone(state.read_state(self.directory))
         self.assertTrue(self.status()["capture_only"])
         self.assertTrue(self.status()["mode_ack"])
-        self.assertFalse(self.docker(["ps", "-aq", "--filter",
-                                     "name=^/" + runtime.job_name("check") + "$"]).strip())
+        self.assertFalse(
+            self.docker(
+                ["ps", "-aq", "--filter", "name=^/" + runtime.job_name("check") + "$"]
+            ).strip()
+        )
         # An unrelated generation also survives successful production recovery.
-        self.docker(["exec", self.collector, "python", "-m", "avelren.collector_control",
-                     "capture-only", "off"])
+        self.docker(
+            [
+                "exec",
+                self.collector,
+                "python",
+                "-m",
+                "avelren.collector_control",
+                "capture-only",
+                "off",
+            ]
+        )
         generation = str(uuid.uuid4())
         self.generations.append(generation)
-        dead = dict(pid=2147483647, start_ticks=1,
-                    boot_id=state.process_identity(os.getpid())["boot_id"])
+        dead = dict(
+            pid=2147483647, start_ticks=1, boot_id=state.process_identity(os.getpid())["boot_id"]
+        )
         with state.backup_lock(self.directory):
             state.write_state(self.directory, self.record(generation, "prepared", dead))
         self.assertEqual(self.recover(generation)["phase"], "resumed")

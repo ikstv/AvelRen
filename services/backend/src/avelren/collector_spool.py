@@ -284,6 +284,11 @@ class SpoolStore:
     def prune_acked(self, now: datetime) -> None:
         try:
             with self._transaction():
+                self.conn.execute(
+                    "DELETE FROM meta WHERE key IN (SELECT 'legacy_verified:' || seq FROM cycles "
+                    "WHERE state='acked' AND acked_at < ?)",
+                    ((_utc(now) - timedelta(hours=24)).isoformat(),),
+                )
                 deleted = self.conn.execute(
                     "DELETE FROM cycles WHERE state='acked' AND acked_at < ?",
                     ((_utc(now) - timedelta(hours=24)).isoformat(),),

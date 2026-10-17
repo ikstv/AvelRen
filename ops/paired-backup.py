@@ -199,6 +199,7 @@ class Coordinator:
         safe_destination(self.stamp, self.work_dir)
         state.require_process_supervision()
         with state.backup_lock(self.state_dir) as authority:
+            state.assert_no_handoff(self.state_dir)
             self.authority = authority
             old = state.read_state(self.state_dir)
             if old is not None and old["phase"] not in state.TERMINAL:

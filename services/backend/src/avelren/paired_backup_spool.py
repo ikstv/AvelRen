@@ -37,12 +37,16 @@ def decode_cycle(row) -> CapturedCycle:
 async def verify_acked_primary(store: SpoolStore, conn: AsyncConnection) -> dict:
     """Read every ACKed result and compare exact primary values without SQLite writes."""
     cycles = observations = 0
+    from .collector_spool_migration import migrated_legacy_cycle
+
     for row in store.conn.execute(
         "SELECT seq,at,payload_version,payload,payload_sha256 FROM cycles "
         "WHERE state='acked' ORDER BY seq"
     ):
         cycle = decode_cycle(row)
-        await verify_committed_cycle(conn, cycle)
+        await verify_committed_cycle(
+            conn, cycle, legacy_unknown=migrated_legacy_cycle(store, cycle),
+        )
         cycles += 1
         observations += len(cycle.items)
     return {"acked_cycles": cycles, "acked_observations": observations}
@@ -169,6 +173,9 @@ def inspect_spool(path: Path) -> dict:
         if connection.execute("PRAGMA auto_vacuum").fetchone()[0] != 2:
             raise SpoolBackupError("spool_schema_invalid")
         _validate_schema(connection)
+        from .collector_spool_migration import validate_legacy_markers
+
+        validate_legacy_markers(connection)
         counts = {"started": 0, "pending": 0, "acked": 0}
         payload_count = 0
         first = last = None

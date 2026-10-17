@@ -50,6 +50,13 @@ def test_database_runs_legacy_alert_hotfix_contracts():
     ) in commands
 
 
+def test_database_runs_recovery_handoff_contracts():
+    steps = load("database.yml")["jobs"]["database"]["steps"]
+    commands = "\n".join(step.get("run", "") for step in steps).splitlines()
+    assert "sudo python3 ops/collector-recovery-handoff-contract-test.py" in commands
+    assert "python3 ops/collector-recovery-handoff-daemon-contract-test.py" in commands
+
+
 def test_events():
     assert load("ci.yml").get("on") == {
         "pull_request": {

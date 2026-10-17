@@ -1,5 +1,9 @@
 # Залишки перенесення
 
+## Recovery handoff — 17.10.2026
+
+Підготовлено [source-механізм і локальні gates](../ops/COLLECTOR-RECOVERY-HANDOFF.md) для наявного recovery_required та legacy spool. Production не змінювали: новий diff потребує review/CI/merge, нового image з чистої main, окремого GO на host/helper/runtime операції та фактичного backup/restore приймання. [Стан етапів](RELEASE-READINESS.md#collector-recovery-handoff-і-legacy-spool--17102026).
+
 ## Collector і paired backup — локальний source-крок 16.10.2026
 
 Небезпечний legacy Docker-рецепт вилучено; нові образи мають використовувати

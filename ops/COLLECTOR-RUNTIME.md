@@ -102,3 +102,8 @@ SQLite може мати acked цикли, яких немає в snapshot. Sour
 Docker unavailable також дає відмову. Guard у Git не доводить встановлення
 на сервері. Для повного production restore потрібен окремий дизайн звірки
 БД/SQLite і приймання. Android/телефон/Play цими перевірками не підтверджені.
+
+
+## Recovery handoff
+
+Заміна legacy writer при незавершеній paired операції виконується тільки через [контрольований handoff](COLLECTOR-RECOVERY-HANDOFF.md). Звичайні start/stop/restart не обходять його durable journal.
