@@ -1,5 +1,21 @@
 # Що має дійти до телефона
 
+## Recovery review і стан сервера — 19.10.2026
+
+[Свіжий read-only аудит і review PR #150](audits/RECOVERY-REVIEW-2026-10-19.md)
+підтвердили роботу API/collector та блокування paired backup у
+`recovery_required`. Остання підтверджена копія — 15.10; timer сам recovery
+не завершує. Production цим кроком не змінювався.
+
+Виправлено три відтворені дефекти handoff: перевірка identity/running після
+drain, fsync фактичних каталогів і safety captures, повтор helper після
+невдалого finish/rollback. Повторний незалежний review без зауважень;
+31 handoff + 26 state + 4 wiring contracts та 707 backend unit tests PASS.
+Початковий head `eb1d5ada` має успішні 11 CI jobs; нові fixes потребують
+власного hosted CI. Review image перевірений, але фінальний пакет має бути
+зібраний із чистої main після інтеграції. Deployment, нові backup/restore,
+Android, телефон і Play цим записом не приймаються.
+
 ## Collector recovery handoff і legacy spool — 17.10.2026
 
 Підготовлено [контрольований handoff](../ops/COLLECTOR-RECOVERY-HANDOFF.md):

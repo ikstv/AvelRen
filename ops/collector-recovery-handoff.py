@@ -113,7 +113,7 @@ class Handoff:
             return self.a.read()
         if self.j["phase"] not in {"started", "off_intent", "state_intent", "terminal_intent"}:
             raise ValueError("invalid_handoff_phase")
-        if self.a.identity() != self.j["new_identity"]:
+        if self.a.identity(require_running=True) != self.j["new_identity"]:
             raise ValueError("identity_changed")
         if self.j["phase"] == "started":
             replacement = dict(
@@ -134,9 +134,15 @@ class Handoff:
                 or status.get("pending_count") != 0
             ):
                 raise ValueError("native_off_ack_and_drain_required")
+            self.check()
+            if self.a.identity(require_running=True) != self.j["new_identity"]:
+                raise ValueError("identity_changed")
             replacement = dict(self.j["expected_state"], phase="resumed")
             self.save(phase="terminal_intent", next_state=replacement)
         if self.j["phase"] == "terminal_intent":
+            self.check()
+            if self.a.identity(require_running=True) != self.j["new_identity"]:
+                raise ValueError("identity_changed")
             self.commit_state("complete")
         return self.a.read()
 
@@ -292,17 +298,29 @@ class LocalAdapter:
         self.state.validate_authority(self.state._authority(self.directory), self.directory)
         if path.exists() or path.is_symlink():
             self.private_read(path)
-        temporary = path.parent / (".handoff-" + uuid.uuid4().hex)
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        directory_fd = os.open(
+            path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        )
         try:
-            with os.fdopen(fd, "w") as stream:
-                json.dump(value, stream, sort_keys=True)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
-            os.fsync(self.state._authority(self.directory).directory_fd)
+            temporary = ".handoff-" + uuid.uuid4().hex
+            fd = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600, dir_fd=directory_fd,
+            )
+            try:
+                with os.fdopen(fd, "w") as stream:
+                    json.dump(value, stream, sort_keys=True)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path.name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+                os.fsync(directory_fd)
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
         finally:
-            temporary.unlink(missing_ok=True)
+            os.close(directory_fd)
 
     def journal_save(self, expected, value):
         if self.journal_read() != expected:
@@ -487,8 +505,10 @@ class LocalAdapter:
         _, checked = self.control.runtime.preflight(self.current)
         return checked
 
-    def identity(self):
+    def identity(self, *, require_running=False):
         item = self.target()
+        if require_running and not item["State"]["Running"]:
+            raise ValueError("collector_stopped")
         return dict(
             container_id=item["Id"],
             image_id=item["Image"],
@@ -591,6 +611,18 @@ class LocalAdapter:
         self.atomic(
             rollback, {"manifest": self.old, "state": self.read(), "target": self.redacted_target()}
         )
+        # Persist capture contents and their directory entries before migration
+        # can change the original spool. The rollback file was synced by atomic.
+        for path, directory in ((sql, False), (spool, False), (capture, True), (self.work, True)):
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+            if directory:
+                flags |= os.O_DIRECTORY
+            fd = os.open(path, flags)
+            try:
+                self.state._private(os.fstat(fd), directory=directory)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
         # Verified legacy provenance is written by the reviewed offline module,
         # after immutable SQL/SQLite safety capture and before the first new cycle.
         self.migrate()
@@ -682,6 +714,7 @@ class LocalAdapter:
 
     def off(self):
         self.mutation_guard()
+        self.cleanup()
         # operator_lock is already held. Native helper retains bounded job
         # supervision; its result must contain the writer's native ACK.
         mode = self.control._execute(
@@ -703,6 +736,8 @@ class LocalAdapter:
             mode = self.runtime.capture_status()
 
     def backlog(self):
+        self.mutation_guard()
+        self.cleanup()
         # SQL is read-only; a writable mount permits WAL/shm coordination
         # after the last writer closes. Leases and stopped writer are required.
         path = self.work / (".backlog-" + uuid.uuid4().hex)

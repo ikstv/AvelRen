@@ -22,6 +22,34 @@
 4. Погодити вікно. Зупинити timer лише після GO, довести відсутність іншого backup/restore/coordinator. Не скидувати locks/state, не починати другий collector, не запускати загальний Compose up або DB migrations.
 5. Зберегти старий image/spec/env (секрети лише в захищеному місці). Новий приватний manifest має відрізнятися тільки image_id/source_commit. State_dir, env/compose paths, project/name/network/volume зберегти. Перевірити SHA tar до load і фактичний image ID після load.
 
+### Склад host-пакета
+
+Пакет містить сім source-файлів нижче з одного reviewed commit і SHA-256
+кожного файла. Шляхи з аудиту 19.10 перед встановленням звірити повторно.
+
+| Source в `ops/` | Призначення |
+| --- | --- |
+| `collector-recovery-handoff.py` | `/usr/local/sbin/collector-recovery-handoff.py` |
+| `paired-backup.py` | `/usr/local/sbin/avelren-paired-backup` **і** `/usr/local/sbin/paired-backup.py`, однакові байти |
+| `paired_backup_state.py` | `/usr/local/sbin/paired_backup_state.py` і sibling модуля runtime control |
+| `paired_backup_manifest.py` | `/usr/local/sbin/paired_backup_manifest.py` |
+| `collector-runtime-control.py` | `/usr/local/sbin/collector-runtime-control.py` і `<runtime-root>/ops/collector-runtime-control.py` |
+| `collector-runtime-preflight.py` | Звірити `/usr/local/sbin/` та `<runtime-root>/ops/`; замінювати лише за відмінності |
+| `compose.collector-runtime.yml` | Звірити `/usr/local/sbin/` і pinned runtime compose path; замінювати лише за відмінності |
+
+Handoff імпортує sibling з буквальним ім'ям `paired-backup.py`, тоді як
+systemd викликає `avelren-paired-backup`: одного перейменованого файла
+недостатньо. Runtime shell wrapper викликає власний sibling control;
+ізольований новий CLI bundle не усуває обхід interlock старим control.
+Приватний rollback archive має зберегти всі попередні файли, їхні права
+та факт відсутності нового файла, а також старі manifest/helper pins.
+До terminal journal не можна повертати старі tools, які не знають interlock.
+
+Dry-run не перевіряє всі SQL/helper/password/disk prerequisites. Їх перевірити
+окремим preflight до prepare. Секретний backup environment лишається на
+хості; для нового helper потрібні узгоджені source/image/module SHA pins,
+а не копіювання старих pins. Новий image має містити migration модуль.
+
 ## Інтерфейс кроків
 
 Виконувати один крок за раз з однаковими pins. Значення нижче отримують зі свіжого read-only preflight; вони не є готовими production pins. Python host-шляхи мають відповідати перевіреному пакету.

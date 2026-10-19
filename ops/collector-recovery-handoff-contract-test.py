@@ -89,7 +89,9 @@ class Adapter:
         self.events.append("start")
         return self.current
 
-    def identity(self):
+    def identity(self, *, require_running=False):
+        if require_running and not self.running:
+            raise ValueError("collector_stopped")
         return self.current
 
     def off(self):
@@ -189,6 +191,8 @@ class Contracts(unittest.TestCase):
         a = module.LocalAdapter.__new__(module.LocalAdapter)
         a.work = Path("/fixture")
         a.old, a.new = {"volume": "volume"}, {"image_id": "new"}
+        a.mutation_guard = lambda: None
+        a.cleanup = lambda: None
 
         def job(kind, image, options, command, output):
             self.assertNotIn("readonly", " ".join(options))
@@ -239,6 +243,104 @@ class Contracts(unittest.TestCase):
         a.ack = False
         module.Handoff(a).finish()
         self.assertEqual(a.record["phase"], "resumed")
+
+    def test_finish_rejects_identity_drift_during_native_off(self):
+        for drift in ({"id": "foreign"}, {"id": "new", "restart_count": 1}):
+            with self.subTest(drift=drift):
+                a = Adapter()
+                module.Handoff(a).prepare()
+                module.Handoff(a).switch()
+                original = a.off
+
+                def off():
+                    status = original()
+                    a.current = drift
+                    return status
+
+                a.off = off
+                with self.assertRaisesRegex(ValueError, "identity_changed"):
+                    module.Handoff(a).finish()
+                self.assertEqual(a.record["phase"], "off_intent")
+                self.assertEqual(a.journal["phase"], "off_intent")
+                a.current = {"id": "new"}
+                a.off = original
+                module.Handoff(a).finish()
+                self.assertEqual(a.record["phase"], "resumed")
+
+    def test_finish_rechecks_state_after_native_off_before_terminal_intent(self):
+        a = Adapter()
+        module.Handoff(a).prepare()
+        module.Handoff(a).switch()
+        original = a.off
+
+        def off():
+            status = original()
+            a.record["phase"] = "foreign"
+            return status
+
+        a.off = off
+        with self.assertRaisesRegex(ValueError, "state_changed"):
+            module.Handoff(a).finish()
+        self.assertEqual(a.record["phase"], "foreign")
+        self.assertEqual(a.journal["phase"], "off_intent")
+
+    def test_finish_rejects_stopped_candidate_after_native_off(self):
+        a = Adapter()
+        module.Handoff(a).prepare()
+        module.Handoff(a).switch()
+        original = a.off
+
+        def off():
+            status = original()
+            a.running = False
+            return status
+
+        a.off = off
+        with self.assertRaisesRegex(ValueError, "collector_stopped"):
+            module.Handoff(a).finish()
+        self.assertEqual(a.record["phase"], "off_intent")
+        self.assertEqual(a.journal["phase"], "off_intent")
+
+    def test_finish_requires_running_with_real_local_identity(self):
+        local = module.LocalAdapter.__new__(module.LocalAdapter)
+        local.current = dict(source_commit="source", volume="volume", network="network")
+        item = dict(
+            Id="candidate", Image="image", RestartCount=0,
+            State={"Running": False, "StartedAt": "started"},
+        )
+        local.target = lambda: item
+        self.assertEqual(local.identity()["container_id"], "candidate")
+        a = Adapter()
+        module.Handoff(a).prepare()
+        module.Handoff(a).switch()
+        a.journal["new_identity"] = local.identity()
+        a.identity = local.identity
+        with self.assertRaisesRegex(ValueError, "collector_stopped"):
+            module.Handoff(a).finish()
+        item["State"]["Running"] = True
+        module.Handoff(a).finish()
+        self.assertEqual(a.record["phase"], "resumed")
+
+    def test_finish_rechecks_identity_after_terminal_intent_is_persisted(self):
+        a = Adapter()
+        module.Handoff(a).prepare()
+        module.Handoff(a).switch()
+        original = a.journal_save
+
+        def journal_save(expected, value):
+            original(expected, value)
+            if value["phase"] == "terminal_intent":
+                a.current = {"id": "foreign"}
+
+        a.journal_save = journal_save
+        with self.assertRaisesRegex(ValueError, "identity_changed"):
+            module.Handoff(a).finish()
+        self.assertEqual(a.record["phase"], "off_intent")
+        self.assertEqual(a.journal["phase"], "terminal_intent")
+        a.current = {"id": "new"}
+        module.Handoff(a).finish()
+        self.assertEqual(a.record["phase"], "resumed")
+        self.assertEqual(a.journal["phase"], "complete")
 
     def test_reverse_handoff_refuses_started_or_unproven_backlog(self):
         for counts in (
@@ -392,6 +494,126 @@ class FilesystemContracts(unittest.TestCase):
         self.a.state = self.state
         self.a.control = SimpleNamespace(runtime=SimpleNamespace(private_path=lambda p: None))
 
+    def helper_retry_fixture(self):
+        paired = module.load("handoff_retry_paired", "paired-backup.py")
+        a = Adapter()
+        a.record.update(initial_capture_only=False, children=[])
+        module.Handoff(a).prepare()
+        module.Handoff(a).switch()
+        runtime = paired.Runtime.__new__(paired.Runtime)
+        runtime.work = self.directory
+        runtime.generation = a.record["generation"]
+        runtime.deadline = module.time.monotonic() + 60
+        runtime.manifest = {"volume": "volume"}
+        runtime.identity = a.identity
+        runtime.helper, runtime.helper_hash = "fixture", "0" * 64
+        runtime.verify_client = lambda: None
+        runtime.verify_helper_image = lambda: None
+        containers = {}
+        exit_code = [1]
+
+        def output(argv, **kwargs):
+            action = argv[1]
+            if action == "create":
+                name = "/" + argv[argv.index("--name") + 1]
+                if any(item["Name"] == name for item in containers.values()):
+                    raise ValueError("docker_create_name_conflict")
+                labels = dict(
+                    argv[i + 1].split("=", 1) for i, arg in enumerate(argv) if arg == "--label"
+                )
+                identifier = "a" * 64
+                containers[identifier] = {
+                    "Id": identifier, "Name": name, "Config": {"Labels": labels},
+                    "State": {"Running": False, "Paused": False, "ExitCode": 0},
+                    "HostConfig": {"RestartPolicy": {"Name": "no"}},
+                }
+                return identifier
+            if action == "inspect":
+                return module.json.dumps([containers[argv[2]]])
+            if action == "ps":
+                name = argv[-1].removeprefix("name=^").removesuffix("$")
+                return "\n".join(k for k, item in containers.items() if item["Name"] == name)
+            if action == "stop":
+                containers[argv[-1]]["State"]["Running"] = False
+                return ""
+            if action == "rm":
+                self.assertFalse(containers[argv[2]]["State"]["Running"])
+                del containers[argv[2]]
+                return ""
+            self.fail("Unexpected Docker command: " + repr(argv))
+
+        def start(argv, *, stdout_path, **kwargs):
+            self.assertEqual(argv[:3], ["docker", "start", "-a"])
+            item = containers[argv[3]]
+            item["State"]["ExitCode"] = exit_code[0]
+            status = (
+                {"capture_only": False, "mode_ack": False, "pending_count": 0, "last_error": None}
+                if item["Name"].endswith("control-off") else {"pending": 0, "started": 0}
+            )
+            stdout_path.write_text(module.json.dumps(status))
+            return exit_code[0]
+
+        self.a.read, self.a.journal_read = a.read, a.journal_read
+        self.a.current = self.a.old = runtime.manifest
+        self.a.new = {"image_id": "new"}
+        self.a.work, self.a.runtime = self.directory, runtime
+        self.a.control = SimpleNamespace(
+            runtime=SimpleNamespace(inspect_inventory=lambda: list(containers.values())),
+            _execute=lambda manifest, command, args, capture_mutation: module.json.loads(
+                capture_mutation(args[0])
+            ),
+        )
+
+        def validate(expected, journal=None):
+            self.state.validate_authority(self.state._authority(self.directory), self.directory)
+            a.validate(expected, journal)
+            self.a.jobs(remove=False)
+
+        self.a.validate = validate
+        runtime.output, runtime.owned_job_record = output, self.a.owned_job_record
+        a.off, a.backlog = self.a.off, self.a.backlog
+        return a, paired, start, containers, exit_code
+
+    def test_failed_owned_helpers_can_be_recreated_on_finish_and_rollback_retry(self):
+        for operation in ("finish", "rollback"):
+            with self.subTest(operation=operation):
+                a, paired, start, containers, exit_code = self.helper_retry_fixture()
+                with self.state.backup_lock(self.directory):
+                    with patch.object(paired.state, "run_bounded", side_effect=start):
+                        with self.assertRaisesRegex(ValueError, "helper_failed"):
+                            getattr(module.Handoff(a), operation)()
+                        self.assertEqual(len(containers), 1)
+                        self.assertEqual(a.journal["phase"],
+                                         "off_intent" if operation == "finish" else "rollback_intent")
+                        exit_code[0] = 0
+                        try:
+                            result = getattr(module.Handoff(a), operation)()
+                        except ValueError as error:
+                            self.fail("Retry must recover a stopped owned helper: " + str(error))
+                self.assertEqual(result["phase"],
+                                 "resumed" if operation == "finish" else "recovery_required")
+                self.assertEqual(containers, {})
+
+    def test_helper_retry_preserves_live_and_foreign_helpers(self):
+        for unsafe in ("live", "foreign"):
+            with self.subTest(unsafe=unsafe):
+                a, paired, start, containers, exit_code = self.helper_retry_fixture()
+                with self.state.backup_lock(self.directory):
+                    with patch.object(paired.state, "run_bounded", side_effect=start):
+                        with self.assertRaisesRegex(ValueError, "helper_failed"):
+                            module.Handoff(a).finish()
+                        item = next(iter(containers.values()))
+                        if unsafe == "live":
+                            item["State"]["Running"] = True
+                        else:
+                            item["Config"]["Labels"]["org.avelren.backup.runtime"] = "foreign"
+                        before = copy.deepcopy(containers)
+                        exit_code[0] = 0
+                        with self.assertRaisesRegex(ValueError, "foreign_ambiguous_or_live_job"):
+                            module.Handoff(a).finish()
+                        self.assertEqual(containers, before)
+                        self.assertEqual(a.record["phase"], "off_intent")
+
     def test_atomic_journal_requires_real_lease_and_interlocks_coordinators(self):
         with self.assertRaises(ValueError):
             self.a.journal_save(None, {"phase": "prepared"})
@@ -418,6 +640,42 @@ class FilesystemContracts(unittest.TestCase):
                     self.a.journal_save(None, {"phase": "prepared"})
             path.unlink()
             self.assertEqual(target.read_text(), "{}")
+
+    def test_atomic_fsyncs_replaced_manifest_and_rollback_parent_directories(self):
+        state_dir = self.directory / "state"
+        state_dir.mkdir(mode=0o700)
+        self.a.directory = state_dir
+        paths = (
+            self.directory / "etc" / "manifest.json",
+            state_dir / "handoff-generation" / "safety-capture" / "rollback.json",
+        )
+        real_fsync = os.fsync
+        for path in paths:
+            with self.subTest(path=path):
+                path.parent.mkdir(mode=0o700, parents=True)
+                path.write_text('{"before":true}')
+                path.chmod(0o600)
+                synced = []
+                synced_files = []
+
+                def fsync(fd):
+                    real_fsync(fd)
+                    target = Path(os.readlink("/proc/self/fd/" + str(fd)))
+                    if target.is_dir():
+                        metadata = os.fstat(fd)
+                        synced.append((metadata.st_dev, metadata.st_ino, path.read_text()))
+                    else:
+                        metadata = os.fstat(fd)
+                        synced_files.append((metadata.st_dev, metadata.st_ino))
+
+                with self.state.backup_lock(state_dir):
+                    with patch.object(module.os, "fsync", side_effect=fsync):
+                        self.a.atomic(path, {"after": True})
+                parent = path.parent.stat()
+                replacement = path.stat()
+                self.assertIn((replacement.st_dev, replacement.st_ino), synced_files)
+                self.assertIn((parent.st_dev, parent.st_ino, '{"after": true}'), synced)
+                self.assertEqual(list(path.parent.glob(".handoff-*")), [])
 
     def test_real_proc_rejects_live_reused_and_other_boot_owners(self):
         dead = self.fixture.record()["owner"]
@@ -564,6 +822,52 @@ class FilesystemContracts(unittest.TestCase):
                 self.a.verify_safety(safety)
             path.write_bytes(original)
         self.a.verify_safety(safety)
+
+    def test_safety_artifacts_and_directory_entries_are_durable_before_migration(self):
+        work = self.directory / "handoff-generation"
+        work.mkdir(mode=0o700)
+        self.a.work = work
+        self.a.args = SimpleNamespace(generation="generation")
+        self.a.old = {"image_id": "old"}
+        self.a.read = lambda: {"phase": "recovery_required"}
+        self.a.target = lambda: {"State": {"Running": False}}
+        self.a.redacted_target = self.a.target
+        files = []
+        synced = []
+        real_fsync = os.fsync
+
+        def snapshot(capture, suffix):
+            path = capture / ("avelren-safety." + suffix)
+            path.write_bytes(module.gzip.compress(b"snapshot"))
+            path.chmod(0o600)
+            files.append(path)
+            return path
+
+        self.a.runtime = SimpleNamespace(
+            verify_client=lambda: None, verify_helper_image=lambda: None,
+            prepare_sql=lambda: None,
+            sql_snapshot=lambda capture, *args: snapshot(capture, "sql.gz"),
+            spool_snapshot=lambda capture, *args: (snapshot(capture, "spool.sqlite3.gz"), {}),
+            cancel_jobs=lambda kinds: True,
+        )
+
+        def fsync(fd):
+            real_fsync(fd)
+            synced.append(Path(os.readlink("/proc/self/fd/" + str(fd))))
+
+        def migrate():
+            capture = files[0].parent
+            for path in (*files, capture, work):
+                self.assertIn(path, synced, "Safety path was not synced before migration: " + str(path))
+            last_sync = {path: index for index, path in enumerate(synced)}
+            self.assertLess(max(last_sync[path] for path in files), last_sync[capture])
+            self.assertLess(last_sync[capture], last_sync[work])
+
+        self.a.migrate = migrate
+        with self.state.backup_lock(self.directory):
+            with patch.object(module.os, "fsync", side_effect=fsync):
+                result = self.a.safety()
+        self.assertEqual(Path(result["directory"]), files[0].parent)
 
     def test_state_write_crash_readback_accepts_exact_replacement(self):
         old = self.fixture.record("recovery_required")
