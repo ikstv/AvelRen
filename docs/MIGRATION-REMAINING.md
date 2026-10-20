@@ -1,5 +1,22 @@
 # Залишки перенесення
 
+## Наступний крок після server rollout — 20.10.2026
+
+[Canonical collector, нова пара й off-host restore прийняті](audits/COLLECTOR-RECOVERY-DEPLOYMENT-2026-10-20.md):
+main `6ba462b5`, CI 11/11 SUCCESS, handoff complete; 22 природні цикли
+по 60 с, pending=0. Production-пара `20261020-090106` пройшла publication,
+readback та isolated restore/replay з exact counts і cleanup. Timer
+enabled/active, наступний запуск за readback — 21.10.2026 03:25:27 UTC.
+Цей результат уточнює recovery-блокер у датованих записах нижче.
+
+Далі — FullTest APK із чистої актуальної main та телефонне приймання
+threshold/ETA: звук, кожен «ОК», повтор через п'ять хвилин, foreground,
+DELETE/cancel. Лише потім — окремий Play update/release етап із сумісним
+підписом і збереженням даних. Android/телефон/Play ще не прийняті.
+Hosted CI/merge off-host виправлення `4c0f139` залишаються окремим source
+кроком; retirement legacy Timescale ролі/jobs, R08 та решта backlog
+цим deployment не закриваються.
+
 ## Пріоритет після аудиту — 19.10.2026
 
 [Свіжий серверний аудит і review](audits/RECOVERY-REVIEW-2026-10-19.md):

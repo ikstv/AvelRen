@@ -1,0 +1,144 @@
+{
+  "format_version": 1,
+  "scope": "Вибрані безсекретні докази; вихідні receipts збережено приватно. Без SQL, spool payloads, credentials, device identity та remote command arguments.",
+  "source_evidence_sha256": {
+    "production-acceptance.json": "7d2dc567b29735624d111e0d22d97e1023da30dc43bffe7ef3d40ee19e5ce632",
+    "production-final-acceptance.json": "7d24f3a534e20ee172419c97edf6d11d3427ddf8b706667bb2d099b41ee0b0d3",
+    "production-backup-success.json": "95df1ef006c2be1564c3e119a23f4b8ccd39844d357f88db968b1c46eb047a04",
+    "downloaded-pair-verification.json": "13a204163d9915632099f6a3f5088f218926218e9e2ffbac003c61c484b546de",
+    "actual-restore/result.json": "4355f9d6445f0bc9e9dc799f0873242218ba8aeb8d90061617658300b2024fc0",
+    "production-timer-resumed.json": "d5c78bcc83b891e4cf43c410112453de6c724606bf9ece03518fcc9a91738faf",
+    "handoff-finish-result.json": "06737c0fad4d5079bd30e2706604e923ab725d15dc8539a7f21ec1275088f467",
+    "production-installation.json": "c26b9a082d2975d6b86bd373c8ca4fb131d1c3d897765daf63e4fa3a37ddbec7",
+    "production-image-attestation-summary.json": "43b8d5856858edbddc9b71f1f3bff1c8ae57a6309da0c528d02398387098026c",
+    "main-ci-success.json": "bb72c3d630525fd0327427a705bb7aa58e33050cd1a3ceccf458c92b9576a718",
+    "production-operation-cleanup.json": "52c1510d0501cd3712098299f9a7b8b1f4cb8665bf13cf0100bdf8957eca52b2"
+  },
+  "deployment": {
+    "source_commit": "6ba462b5ed9341270d552626b8af1039813ec721",
+    "image_id": "sha256:c5ed1370f6880cfd0d57f3f4866f8d0bfac5f8f8d04a3abb8dda3f4775fae3ab",
+    "ci_run_id": 39390778658,
+    "ci_jobs_success": 11,
+    "handoff_finished_at_utc": "2026-10-20T08:56:40+00:00",
+    "journal_phase": "complete",
+    "state_phase": "published"
+  },
+  "acceptance": {
+    "first_pass_at_utc": "2026-10-20T09:00:30.8022920+00:00",
+    "first_natural_cycles": 5,
+    "final_pass_at_utc": "2026-10-20T09:17:49.4259400+00:00",
+    "final_natural_cycles": 22,
+    "intervals_seconds": [
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0
+    ],
+    "cycles_after_backup_stamp": 3,
+    "pending_count": 0,
+    "acked_count": 22,
+    "capture_only": false,
+    "mode_ack": false,
+    "health_status": "ok",
+    "health_age_seconds": 34,
+    "workload_rows": 38,
+    "sql_values_verified": true,
+    "eta_formulas_verified": true,
+    "unaffected_containers_unchanged": true
+  },
+  "backup": {
+    "backup_id": "20261020-090106",
+    "service_started_at_utc": "2026-10-20T09:00:45+00:00",
+    "service_exited_at_utc": "2026-10-20T09:14:53+00:00",
+    "status": "paired_backup_verified",
+    "pause_seconds": 45.276,
+    "writer_resumed": true,
+    "snapshots": {
+      "spool": {
+        "finished_at": "2026-10-20T09:01:27.309905+00:00",
+        "started_at": "2026-10-20T09:01:22.669645+00:00"
+      },
+      "sql": {
+        "finished_at": "2026-10-20T09:01:22.669594+00:00",
+        "started_at": "2026-10-20T09:01:06.004851+00:00"
+      }
+    },
+    "snapshot_state_counts": {
+      "acked": 5,
+      "pending": 1,
+      "started": 0
+    },
+    "manifest_sha256": "20341bda2a2a7a32a66a6084ffcf727511d5e4b55672144fcea11f0e9b94f18a",
+    "receipt_sha256": "c58c6cb9884eedb4fe85e3ffdae35ca3c8705e7eb9b692156dea3413c288bace",
+    "stamp": "2026-10-20T09:14:53.101662+00:00",
+    "download_result": "PASS",
+    "files_sha256": {
+      "avelren-20261020-090106.pair.json": "20341bda2a2a7a32a66a6084ffcf727511d5e4b55672144fcea11f0e9b94f18a",
+      "avelren-20261020-090106.spool.sqlite3.gz": "d141751e0b5f83982d598640a4ee08472de620377432a80d1ee1cebed7e4af22",
+      "avelren-20261020-090106.spool.sqlite3.gz.sha256": "92cf0aea5672b20fc749ac0be9f4d968f270d8accc5c02d4dd8ab89ddf88b04d",
+      "avelren-20261020-090106.sql.gz": "c97c2f5ec5b2e647718afc2b6fe3e80bf37010683d9ba14afaebe4d3cd9c42a7",
+      "avelren-20261020-090106.sql.gz.sha256": "5197a3153eae56db39a74b3d0fa86b1755cff80dccafc8ea271f0e723b8f2785"
+    }
+  },
+  "restore": {
+    "source_commit": "4c0f13907e5de7b0a9bd7f40d6213b8c24f5f8f2",
+    "runner_sha256": "cd444e11381939c2806db8d2e1d311bd2b6ef7ed4c5a59479c9fd35c8cb3ce01",
+    "controller_image": "sha256:350ee315fbb8a9a50bf674eb3e0c9449267b905d645dafbcfc7ddd866b86ae86",
+    "app_image": "sha256:c5ed1370f6880cfd0d57f3f4866f8d0bfac5f8f8d04a3abb8dda3f4775fae3ab",
+    "profile": "modern_strict",
+    "explicit_legacy_timescale_owner": "avelren",
+    "status": "PASS",
+    "exit_code": 0,
+    "receipt": {
+      "acked_cycles": 5,
+      "acked_observations": 190,
+      "pending_after": 0,
+      "primary_counts": {
+        "observations": 4014776,
+        "runs": 107267
+      },
+      "recovered_started": 0,
+      "replayed_sequences": [
+        19651
+      ],
+      "verified_cycles": 6,
+      "verified_observations": 228
+    },
+    "pair_unchanged": true,
+    "cleanup": "PASS",
+    "owned_volume_removed": true,
+    "hosted_ci_and_merge_for_harness": "not_yet_run"
+  },
+  "timer": {
+    "result": "PASS",
+    "resumed_at_utc": "2026-10-20T09:19:20.744833+00:00",
+    "active_state": "active",
+    "sub_state": "waiting",
+    "unit_file_state": "enabled",
+    "next_trigger_utc": "2026-10-21T03:25:27+00:00"
+  },
+  "operation_cleanup": {
+    "result": "PASS",
+    "at_utc": "2026-10-20T09:20:37.003632+00:00",
+    "completed_units_stopped_count": 4,
+    "historical_recovery_failure_reset_after_acceptance": true,
+    "backup_state_unchanged": true
+  }
+}

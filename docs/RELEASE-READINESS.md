@@ -1,5 +1,27 @@
 # Що має дійти до телефона
 
+## Collector, нова резервна пара й off-host restore — прийнято 20.10.2026
+
+[Фактичне production-приймання](audits/COLLECTOR-RECOVERY-DEPLOYMENT-2026-10-20.md)
+уточнює попередні source-етапи нижче: main `6ba462b5`, CI 11/11 SUCCESS,
+canonical image `sha256:c5ed1370…` встановлений; handoff завершено.
+Після нього прийнято п'ять, а фінально 22 природні цикли з інтервалами
+60 с, pending=0, capture_only=false/mode_ack=false; SQL/API/ETA та
+незмінність решти контейнерів перевірені.
+
+Нова production-пара `20261020-090106` опублікована, отримана off-host
+і відновлена: 6 verified cycles / 228 observations, 5 ACK / 190 observations,
+pending sequence 19651 відтворено; pending_after=0, hashes незмінні,
+cleanup PASS. Timer повернуто 09:19:20 UTC, enabled/active; наступний запуск
+за readback — **21.10.2026 03:25:27 UTC**. Це не доказ його майбутнього виконання.
+
+Off-host harness прийнято на `4c0f139`; це окремий source від production
+image. Його hosted CI/merge ще не виконані. Наступний користувацький крок —
+current-main FullTest APK і телефонна матриця threshold/ETA: звук, повторний
+«ОК», природний повтор через п'ять хвилин, foreground та DELETE/cancel;
+після цього — окреме приймання оновлення через Play. Android/телефон/Play
+цим серверним етапом не прийняті.
+
 ## Off-host restore після заміни legacy collector — 20.10.2026
 
 Сучасний manifest не усуває старого SQL owner Timescale jobs. Додано
