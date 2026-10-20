@@ -112,6 +112,8 @@ jobs:
           python3 ops/paired-backup-disposable-contract-test.py
           sudo python3 ops/paired-backup-daemon-contract-test.py --docker
           sudo python3 ops/paired-backup-state-contract-test.py
+          sudo python3 ops/collector-recovery-handoff-contract-test.py
+          python3 ops/collector-recovery-handoff-daemon-contract-test.py
           sudo python3 ops/paired-backup-contract-test.py
           sudo bash ops/paired-backup-guard-contract-test.sh
           python3 ops/paired-restore-contract-test.py

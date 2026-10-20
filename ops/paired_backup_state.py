@@ -290,7 +290,28 @@ def write_state(state_dir: Path, value: dict) -> None:
             pass
 
 
+def assert_no_handoff(state_dir):
+    """A staged/crashed operator handoff blocks every ordinary coordinator."""
+    directory_fd = _directory(state_dir)
+    try:
+        try:
+            fd = os.open('collector-handoff.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                         dir_fd=directory_fd)
+        except FileNotFoundError:
+            return
+        with os.fdopen(fd) as stream:
+            _private(os.fstat(stream.fileno()))
+            data = stream.read(131073)
+        value = json.loads(data)
+        if (len(data) > 131072 or not isinstance(value, dict)
+                or value.get('format_version') != 1 or value.get('phase') not in {'complete', 'rolled_back'}):
+            raise ValueError('collector_handoff_required')
+    finally:
+        os.close(directory_fd)
+
+
 def _assert_resolved(state_dir):
+    assert_no_handoff(state_dir)
     value = read_state(state_dir)
     if value is not None and value["phase"] not in TERMINAL:
         raise ValueError("backup_recovery_required")
@@ -587,6 +608,7 @@ def _owner_dead(owner):
 
 def recover_owned_run(state_dir: Path, *, runtime: object) -> dict:
     authority = _authority(state_dir)
+    assert_no_handoff(state_dir)
     value = read_state(state_dir)
     if value is None:
         return {"status": "no_backup_state"}

@@ -39,7 +39,9 @@ async def _cycle_exists(conn: AsyncConnection, at: datetime) -> bool:
     return row is not None
 
 
-async def verify_committed_cycle(conn: AsyncConnection, cycle: CapturedCycle) -> None:
+async def verify_committed_cycle(
+    conn: AsyncConnection, cycle: CapturedCycle, *, legacy_unknown: bool = False,
+) -> None:
     """Verify every persisted primary field and observation, not row counts alone."""
     run = await (
         await conn.execute(
@@ -68,7 +70,8 @@ async def verify_committed_cycle(conn: AsyncConnection, cycle: CapturedCycle) ->
     )) for row in rows]
     expected = sorted(
         (item.id, item.wait_time if item.wait_time is not None else 0,
-         item.wait_time_status, item.vehicles_in_queue, item.is_paused)
+         "legacy_unknown" if legacy_unknown else item.wait_time_status,
+         item.vehicles_in_queue, item.is_paused)
         for item in cycle.items
     )
     if actual != expected:
@@ -92,13 +95,21 @@ async def replay_once(
     cycle = store.next_pending()
     if cycle is None:
         return False
+    from .collector_spool_migration import migrated_legacy_cycle
+
+    legacy = migrated_legacy_cycle(store, cycle)
 
     # Primary rows must commit together, then be read back in a new transaction.
     async with pool.connection() as conn:
         if await _cycle_exists(conn, cycle.at):
             # Crash after commit-before-ack: verify before any new mutation.
-            await verify_committed_cycle(conn, cycle)
+            if legacy:
+                await verify_committed_cycle(conn, cycle, legacy_unknown=True)
+            else:
+                await verify_committed_cycle(conn, cycle)
         else:
+            if legacy:
+                raise ReplayConflict("migrated legacy primary missing")
             if cycle.items:
                 await upsert_countries(conn, list(cycle.countries))
                 await upsert_checkpoints(conn, list(cycle.items), list(cycle.countries))
@@ -108,7 +119,10 @@ async def replay_once(
                 len(cycle.items), cycle.error,
             )
     async with pool.connection() as conn:
-        await verify_committed_cycle(conn, cycle)
+        if legacy:
+            await verify_committed_cycle(conn, cycle, legacy_unknown=True)
+        else:
+            await verify_committed_cycle(conn, cycle)
         processed = await _derived_processed(conn, cycle.at)
 
     if not processed:

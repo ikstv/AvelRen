@@ -190,6 +190,7 @@ async def verify_legacy_cycle(conn, cycle) -> None:
 async def recover_pair(store, dsn: str, *, manifest: dict | None = None) -> dict:
     """ACK verification precedes any restored SQLite mutation and FIFO replay."""
     from avelren.collector_replay import replay_once, verify_committed_cycle
+    from avelren.collector_spool_migration import migrated_legacy_cycle
     from avelren.paired_backup_spool import decode_cycle, verify_acked_primary
     from psycopg.rows import dict_row
     from psycopg_pool import AsyncConnectionPool
@@ -234,7 +235,9 @@ async def recover_pair(store, dsn: str, *, manifest: dict | None = None) -> dict
                 if cycle.seq in legacy_sequences:
                     await verify_legacy_cycle(conn, cycle)
                 else:
-                    await verify_committed_cycle(conn, cycle)
+                    await verify_committed_cycle(
+                        conn, cycle, legacy_unknown=migrated_legacy_cycle(store, cycle),
+                    )
             counts = await (
                 await conn.execute(
                     "SELECT (SELECT count(*) FROM collector_runs) AS runs, "

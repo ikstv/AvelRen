@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 APP = "avelren-app@sha256:9d32a0d54ff9711b54a082f39074e21ba456775b078caf01a293b95109674735"
@@ -46,8 +47,7 @@ def completed_cycle_after(value, completion):
 def native_request_intervals(calls):
     starts = [call["native_attempt_monotonic"] for call in calls]
     if any(
-        type(start) not in (int, float) or not math.isfinite(start)
-        or call["monotonic"] < start
+        type(start) not in (int, float) or not math.isfinite(start) or call["monotonic"] < start
         for start, call in zip(starts, calls, strict=True)
     ):
         raise ValueError("invalid_native_request_trace")
@@ -60,6 +60,17 @@ def native_request_intervals(calls):
 def registered_create(tracked, name, create):
     tracked.append(name)
     return create()
+
+
+JOB_KINDS = (
+    "check",
+    "sql",
+    "spool",
+    "control-on",
+    "control-off",
+    "handoff-migrate",
+    "handoff-status",
+)
 
 
 class Cleanup:
@@ -102,7 +113,13 @@ class Cleanup:
             if kind == "container"
             else item.get("Labels", {})
         )
-        if labels and any((actual or {}).get(key) != value for key, value in labels.items()):
+        # A handoff generation has several recorded runtime identities. Match
+        # one complete pair, never combine fields from different identities.
+        alternatives = labels if isinstance(labels, list) else [labels]
+        if labels and not any(
+            all((actual or {}).get(key) == value for key, value in expected.items())
+            for expected in alternatives
+        ):
             raise ValueError("cleanup_ownership_unproven")
         options = ["-fv"] if kind == "container" else []
         self.run(["docker", kind, "rm", *options, name])
@@ -203,7 +220,7 @@ def validate_ledger(value, prefix):
             raise ValueError("invalid_fixture_ledger")
     for key, suffixes in (
         ("containers", ("collector", "api", "rclone", "sql-lock")),
-        ("images", ("offline-base", "helper", "collector-image")),
+        ("images", ("offline-base", "helper", "collector-image", "legacy-collector-image")),
     ):
         if (
             not isinstance(value[key], list)
@@ -259,19 +276,17 @@ def read_private_json(path):
 
 
 def validate_job_owners(value, prefix):
-    if not isinstance(value, list) or len(value) > 2:
+    if not isinstance(value, list) or len(value) > 16:
         raise ValueError("invalid_job_owners")
-    generations = set()
+    pairs = set()
     for owner in value:
         if (
             not isinstance(owner, dict)
             or set(owner) != {"generation", "identity"}
             or not isinstance(owner["generation"], str)
             or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", owner["generation"])
-            or owner["generation"] in generations
         ):
             raise ValueError("invalid_job_owners")
-        generations.add(owner["generation"])
         identity = owner["identity"]
         if (
             not isinstance(identity, dict)
@@ -300,6 +315,10 @@ def validate_job_owners(value, prefix):
         ):
             if not isinstance(identity[key], str) or not re.fullmatch(pattern, identity[key]):
                 raise ValueError("invalid_job_identity")
+        pair = (owner["generation"], json.dumps(identity, sort_keys=True))
+        if pair in pairs:
+            raise ValueError("invalid_job_owners")
+        pairs.add(pair)
 
 
 def register_job_owner(fixture, prefix, generation, identity):
@@ -390,26 +409,26 @@ def cleanup_fixture(fixture, prefix, ledger, *, coordinator_pid=None, first_fail
         owners = read_private_json(path) if path.exists() else []
         validate_job_owners(owners, prefix)
         failures = []
-        for current in owners:
-            name = "avelren-paired-" + current["generation"] + "-" + kind
-            runtime_hash = hashlib.sha256(
-                json.dumps(current["identity"], sort_keys=True).encode()
-            ).hexdigest()
+        for generation in dict.fromkeys(current["generation"] for current in owners):
+            name = "avelren-paired-" + generation + "-" + kind
+            alternatives = [
+                {
+                    "org.avelren.backup.generation": generation,
+                    "org.avelren.backup.runtime": hashlib.sha256(
+                        json.dumps(current["identity"], sort_keys=True).encode()
+                    ).hexdigest(),
+                }
+                for current in owners
+                if current["generation"] == generation
+            ]
             try:
-                cleanup.remove(
-                    "container",
-                    name,
-                    {
-                        "org.avelren.backup.generation": current["generation"],
-                        "org.avelren.backup.runtime": runtime_hash,
-                    },
-                )
+                cleanup.remove("container", name, alternatives)
             except BaseException as error:
                 failures.append(type(error).__name__)
         if failures:
             raise ValueError("cleanup_job_removals_unproven:" + ",".join(failures))
 
-    for kind in ("check", "sql", "spool", "control-on", "control-off"):
+    for kind in JOB_KINDS:
         cleanup.add("job-" + kind, lambda kind=kind: remove_job(kind))
     for name in reversed(containers):
         labels = (
@@ -649,12 +668,14 @@ def run(args):
         shutil.copytree(root / "services/backend/src/avelren", build / "avelren")
         shutil.copytree(root / "db", build / "db")
         shutil.copy(root / "ops/collector-spool-daemon-test.py", build / "seed.py")
+        shutil.copy(root / "ops/collector-spool-migration-test.py", build / "migration-fixture.py")
         # Install the current complete package at the existing pinned app's actual
         # site-packages location, offline. No mounted source/PYTHONPATH proof.
         (build / "Dockerfile").write_text(
             f"FROM {base_tag}\nUSER root\n"
             "COPY avelren /usr/local/lib/python3.14/site-packages/avelren\n"
             "COPY db /fixture/db\nCOPY seed.py /fixture/seed.py\n"
+            "COPY migration-fixture.py /fixture/migration-fixture.py\n"
             f"ENV AVELREN_GIT_SHA={args.source_commit}\nUSER 10001:10001\n"
         )
         helper_tag = args.prefix + "-helper"
@@ -672,12 +693,15 @@ def run(args):
                     helper,
                     "python",
                     "-c",
-                    "import json,os,hashlib;import avelren.paired_backup_spool as m;"
+                    "import json,os,hashlib;from pathlib import Path;"
+                    "import avelren.paired_backup_spool as m;"
                     "from avelren import collector_control as c;"
                     "print(json.dumps(dict(uid=os.geteuid(),origin=m.__file__,"
                     "sha256=hashlib.sha256(open(m.__file__,'rb').read()).hexdigest(),"
                     "control_origin=c.__file__,"
-                    "control_sha256=hashlib.sha256(open(c.__file__,'rb').read()).hexdigest())))",
+                    "control_sha256=hashlib.sha256(open(c.__file__,'rb').read()).hexdigest(),"
+                    "modules={p.name:hashlib.sha256(p.read_bytes()).hexdigest() "
+                    "for p in Path(m.__file__).parent.glob('*.py')})))",
                 ]
             )
         )
@@ -693,30 +717,39 @@ def run(args):
         assert proof["control_origin"] == (
             "/usr/local/lib/python3.14/site-packages/avelren/collector_control.py"
         )
-        assert proof["control_sha256"] == hashlib.sha256(
-            (build / "avelren/collector_control.py").read_bytes()
-        ).hexdigest()
+        assert (
+            proof["control_sha256"]
+            == hashlib.sha256((build / "avelren/collector_control.py").read_bytes()).hexdigest()
+        )
+        assert proof["modules"] == {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (build / "avelren").glob("*.py")
+        }
         evidence.update(helper_image_id=helper, installed_helper=proof)
-        transport = old.SYNTHETIC.replace(
-            "    original=httpx.AsyncClient",
-            "    from avelren.echerha import RequestPacer\n"
-            "    attempts=[]\n"
-            "    original_wait=RequestPacer.wait\n"
-            "    async def observed_wait(self):\n"
-            "        await original_wait(self)\n"
-            "        attempts.append(self.last_start)\n"
-            "    RequestPacer.wait=observed_wait\n"
-            "    original=httpx.AsyncClient",
-        ).replace(
-            "        trace=Path(",
-            "        assert len(attempts)==1\n"
-            "        native_attempt=attempts.pop(0)\n"
-            "        trace=Path(",
-        ).replace(
-            "{'at':time.time()}",
-            "{'at':time.time(),'monotonic':time.monotonic(),"
-            "'native_attempt_monotonic':native_attempt,"
-            "'device':request.headers['X-Device-Id']}",
+        transport = (
+            old.SYNTHETIC.replace(
+                "    original=httpx.AsyncClient",
+                "    from avelren.echerha import RequestPacer\n"
+                "    attempts=[]\n"
+                "    original_wait=RequestPacer.wait\n"
+                "    async def observed_wait(self):\n"
+                "        await original_wait(self)\n"
+                "        attempts.append(self.last_start)\n"
+                "    RequestPacer.wait=observed_wait\n"
+                "    original=httpx.AsyncClient",
+            )
+            .replace(
+                "        trace=Path(",
+                "        assert len(attempts)==1\n"
+                "        native_attempt=attempts.pop(0)\n"
+                "        trace=Path(",
+            )
+            .replace(
+                "{'at':time.time()}",
+                "{'at':time.time(),'monotonic':time.monotonic(),"
+                "'native_attempt_monotonic':native_attempt,"
+                "'device':request.headers['X-Device-Id']}",
+            )
         )
         (build / "sitecustomize.py").write_text(transport)
         (build / "sitecustomize.py").chmod(0o644)
@@ -741,6 +774,93 @@ def run(args):
         )
         image = json.loads(command(["docker", "image", "inspect", collector_tag]))[0]["Id"]
         evidence["collector_image_id"] = image
+        # Captured historical writer dependencies are confined to this synthetic
+        # disposable image; the modern helper image retains its complete source.
+        legacy_source = root / "ops/eta-legacy-hotfix/collector.py"
+        legacy_modules = {
+            "collector": legacy_source,
+            "db": root / "ops/eta-legacy-hotfix/fixtures/db.py",
+            "models": root / "ops/eta-legacy-hotfix/fixtures/models.py",
+            "eta": root / "ops/eta-legacy-hotfix/eta.py",
+        }
+        expected_legacy_hashes = {
+            "db": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
+            "models": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
+        }
+        for name, source in legacy_modules.items():
+            actual = hashlib.sha256(source.read_bytes()).hexdigest()
+            if name in expected_legacy_hashes:
+                assert actual == expected_legacy_hashes[name]
+            shutil.copy(source, build / ("legacy-" + name + ".py"))
+        (build / "legacy-sitecustomize.py").write_text(
+            old.SYNTHETIC.replace("synthetic-requests.jsonl", "legacy-synthetic-requests.jsonl")
+        )
+        (build / "legacy-sitecustomize.py").chmod(0o644)
+        (build / "Dockerfile.legacy-collector").write_text(
+            f"FROM {helper_tag}\nUSER root\n"
+            + "".join(
+                "COPY legacy-" + name + ".py "
+                "/usr/local/lib/python3.14/site-packages/avelren/" + name + ".py\n"
+                for name in legacy_modules
+            )
+            + "COPY legacy-sitecustomize.py /synthetic/sitecustomize.py\n"
+            "ENV PYTHONPATH=/synthetic AVELREN_RUNTIME_TEST_SYNTHETIC=1\nUSER 10001:10001\n"
+        )
+        legacy_tag = args.prefix + "-legacy-collector-image"
+        images.append(legacy_tag)
+        command(
+            [
+                "docker",
+                "build",
+                "--network",
+                "none",
+                "-f",
+                str(build / "Dockerfile.legacy-collector"),
+                "-t",
+                legacy_tag,
+                str(build),
+            ]
+        )
+        legacy_image = json.loads(command(["docker", "image", "inspect", legacy_tag]))[0]["Id"]
+        legacy_proof = json.loads(
+            command(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--network",
+                    "none",
+                    legacy_image,
+                    "python",
+                    "-c",
+                    "import os,json,hashlib,importlib,sys,avelren.collector as c;"
+                    "mods={n:importlib.import_module('avelren.'+n) "
+                    "for n in ('collector','db','models','eta')};"
+                    "proof={n:dict(origin=m.__file__,sha256=hashlib.sha256("
+                    "open(m.__file__,'rb').read()).hexdigest()) for n,m in mods.items()};"
+                    "print(json.dumps(dict(uid=os.geteuid(),origin=c.__file__,modules=proof,"
+                    "synthetic_loaded='sitecustomize' in sys.modules,"
+                    "sha256=hashlib.sha256(open(c.__file__,'rb').read()).hexdigest())))",
+                ]
+            )
+        )
+        assert legacy_proof["synthetic_loaded"]
+        for name, source in legacy_modules.items():
+            assert legacy_proof["modules"][name] == dict(
+                origin="/usr/local/lib/python3.14/site-packages/avelren/" + name + ".py",
+                sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+            )
+        assert legacy_proof["uid"] == 10001
+        assert legacy_proof["sha256"] == hashlib.sha256(legacy_source.read_bytes()).hexdigest()
+        assert legacy_proof["origin"] == (
+            "/usr/local/lib/python3.14/site-packages/avelren/collector.py"
+        )
+        evidence["legacy_fixture"] = dict(
+            image_id=legacy_image,
+            installed=legacy_proof,
+            provenance="disposable historical source with synthetic transport; "
+            "not audited production image",
+        )
         rclone_container = args.prefix + "-rclone"
         containers.append(rclone_container)
         command(
@@ -898,6 +1018,24 @@ def run(args):
                 f"import os;os.chown('{SPOOL}',10001,10001);os.chmod('{SPOOL}',0o700)",
             ]
         )
+        command(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--user",
+                "10001:10001",
+                "-v",
+                volume + ":" + SPOOL,
+                helper,
+                "python",
+                "-c",
+                "from pathlib import Path;from avelren.collector_spool import SpoolStore;"
+                f"SpoolStore(Path('{SPOOL}/cycles.sqlite3')).close()",
+            ]
+        )
         env_file = fixture / "collector.env"
         env_file.write_text(
             "DATABASE_URL="
@@ -922,11 +1060,16 @@ def run(args):
             state_dir=str(state_dir),
         )
         manifest_path = fixture / "manifest.json"
+        new_manifest = dict(manifest)
+        new_path = fixture / "new-manifest.json"
+        new_path.write_text(json.dumps(new_manifest))
+        new_path.chmod(0o600)
+        manifest["image_id"] = legacy_image
         manifest_path.write_text(json.dumps(manifest))
         manifest_path.chmod(0o600)
         collector_env = dict(
             environment,
-            COLLECTOR_IMAGE_ID=image,
+            COLLECTOR_IMAGE_ID=legacy_image,
             COLLECTOR_ENV_FILE=str(env_file),
             COLLECTOR_CONTAINER_NAME=manifest["container_name"],
             COLLECTOR_NETWORK=network,
@@ -1030,7 +1173,7 @@ def run(args):
 
             def capture_only(self, mode, authority):
                 if mode == "off":
-                    for kind in ("check", "sql", "spool", "control-on", "control-off"):
+                    for kind in JOB_KINDS:
                         assert not self.output(
                             [
                                 "docker",
@@ -1191,6 +1334,139 @@ def run(args):
             name = "avelren-paired-" + value["generation"] + "-sql"
             ids = command(["docker", "ps", "-q", "--filter", "name=^/" + name + "$"]).split()
             return ids[0] if ids else False
+
+        print("real legacy recovery handoff before normal paired backup", flush=True)
+        wait(
+            lambda: (
+                int(
+                    command(
+                        [
+                            "docker",
+                            "exec",
+                            db,
+                            "psql",
+                            "-U",
+                            "avelren_admin",
+                            "-d",
+                            "avelren",
+                            "-Atc",
+                            "SELECT count(*) FROM collector_runs",
+                        ]
+                    ).strip()
+                )
+                >= 1
+            ),
+            90,
+        )
+        wait(
+            lambda: (
+                int(
+                    command(
+                        [
+                            "docker",
+                            "exec",
+                            db,
+                            "psql",
+                            "-U",
+                            "avelren_admin",
+                            "-d",
+                            "avelren",
+                            "-Atc",
+                            "SELECT count(*) FROM collector_runs "
+                            "WHERE derived_processed_at IS NOT NULL AND derived_error IS NULL",
+                        ]
+                    ).strip()
+                )
+                >= 1
+            ),
+            30,
+        )
+        legacy_statuses = command(
+            [
+                "docker",
+                "exec",
+                db,
+                "psql",
+                "-U",
+                "avelren_admin",
+                "-d",
+                "avelren",
+                "-Atc",
+                "SELECT DISTINCT wait_time_status FROM observations",
+            ]
+        ).split()
+        assert legacy_statuses == ["legacy_unknown"]
+        evidence["legacy_fixture"]["primary_wait_time_status"] = legacy_statuses
+        evidence["legacy_fixture"]["derived_success"] = True
+        handoff = load(root / "ops/collector-recovery-handoff.py", "handoff_acceptance")
+        handoff_daemon = load(
+            root / "ops/collector-recovery-handoff-daemon-test.py", "handoff_daemon"
+        )
+
+        def migration_fixture(adapter, action):
+            output = adapter.work / (".fixture-" + action + "-" + uuid.uuid4().hex)
+            adapter.runtime.job(
+                "handoff-migrate",
+                helper,
+                [
+                    "--network",
+                    network,
+                    "--env-file",
+                    str(env_file),
+                    "--user",
+                    "10001:10001",
+                    "--mount",
+                    "type=volume,src=" + volume + ",dst=" + SPOOL,
+                ],
+                [
+                    "python",
+                    "/fixture/migration-fixture.py",
+                    action,
+                    "--spool",
+                    SPOOL + "/cycles.sqlite3",
+                    "--audited-source-commit",
+                    "4503477f334c72ab05409bf241779592d2fe0bf1",
+                    "--audited-image-id",
+                    "sha256:40219d6c8ceee5a862382dbb62fe3df06181a20488635d47c5a965512eda9a72",
+                    "--fixture-image-id",
+                    legacy_image,
+                    "--legacy-source-sha256",
+                    legacy_proof["sha256"],
+                ],
+                output,
+            )
+            result = json.loads(output.read_text())
+            assert adapter.runtime.cancel_jobs(["handoff-migrate"]) is True
+            if action == "migrate-fixture":
+                evidence.setdefault("spool_migrations", []).append(result)
+            return result
+
+        handoff_daemon.run(
+            dict(
+                handoff=handoff,
+                state=state,
+                control=paired.load_controller(),
+                paired=paired,
+                command=command,
+                manifest_path=manifest_path,
+                new_path=new_path,
+                manifest=manifest,
+                new_manifest=new_manifest,
+                work=work,
+                stack=stack,
+                sql_project=sql_project,
+                helper=helper,
+                status=status,
+                evidence=evidence,
+                wait=wait,
+                seed=lambda adapter: migration_fixture(adapter, "seed-legacy"),
+                migrate=lambda adapter: migration_fixture(adapter, "migrate-fixture"),
+                register_job=lambda generation, identity: register_job_owner(
+                    fixture, args.prefix, generation, identity
+                ),
+            )
+        )
+        manifest = new_manifest
 
         print("wait first real producer cycle / API smoke", flush=True)
         wait(lambda: status()["status"]["acked_count"] >= 1 and status()["calls"], 90)

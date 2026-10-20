@@ -1,5 +1,20 @@
 # Залишки перенесення
 
+## Пріоритет після аудиту — 19.10.2026
+
+[Свіжий серверний аудит і review](audits/RECOVERY-REVIEW-2026-10-19.md):
+API та 60-секундні цикли працюють, paired backup залишається у
+`recovery_required`; остання успішна копія — 15.10. У PR #150 виправлено
+три дефекти завершення/повтору handoff і durability. Локальні регресії
+та повторний review пройшли. Потрібні hosted CI нового head, інтеграція,
+чистий main image та цілісний host/helper пакет; далі окремий server GO,
+handoff і нове paired backup/restore приймання. Потім — телефонні сценарії
+повторного «ОК», звуку та cancel з точним APK hash.
+
+## Recovery handoff — 17.10.2026
+
+Підготовлено [source-механізм і локальні gates](../ops/COLLECTOR-RECOVERY-HANDOFF.md) для наявного recovery_required та legacy spool. Production не змінювали: новий diff потребує review/CI/merge, нового image з чистої main, окремого GO на host/helper/runtime операції та фактичного backup/restore приймання. [Стан етапів](RELEASE-READINESS.md#collector-recovery-handoff-і-legacy-spool--17102026).
+
 ## Collector і paired backup — локальний source-крок 16.10.2026
 
 Небезпечний legacy Docker-рецепт вилучено; нові образи мають використовувати
