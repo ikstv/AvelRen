@@ -969,6 +969,27 @@ def run(args):
                 "/fixture/db/migrations",
             ]
         )
+        # Synthetic owned source only: retain a legacy job owner in a modern pair.
+        # Disable these fixture policies so the inert role cannot run background work.
+        legacy_jobs = int(
+            command(
+                [
+                    "docker", "exec", db, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
+                    "-U", "avelren_admin", "-d", "avelren", "-c",
+                    "CREATE ROLE avelren NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                    "NOREPLICATION NOBYPASSRLS; "
+                    "UPDATE _timescaledb_config.bgw_job "
+                    "SET owner='avelren'::regrole, scheduled=false "
+                    "WHERE hypertable_id IS NOT NULL; "
+                    "SELECT count(*) FROM _timescaledb_config.bgw_job "
+                    "WHERE owner='avelren'::regrole AND NOT scheduled;",
+                ]
+            ).strip()
+        )
+        assert legacy_jobs >= 1
+        evidence["legacy_timescale_job_owner_fixture"] = dict(
+            owner="avelren", jobs=legacy_jobs, scheduled=False
+        )
         command(
             [
                 "docker",
@@ -1585,8 +1606,16 @@ def run(args):
             ]
         )
         manifest_name = "avelren-" + result["backup_id"] + ".pair.json"
-        manifest_value = paired.pair.load_manifest((download / manifest_name).read_bytes())
+        manifest_bytes = (download / manifest_name).read_bytes()
+        manifest_value = paired.pair.load_manifest(manifest_bytes)
         paired.pair.verify_local_pair(manifest_value, download)
+        assert manifest_value["runtime"]["source_commit"] == new_manifest["source_commit"]
+        assert manifest_value["runtime"]["image_id"] == new_manifest["image_id"]
+        profile_command = [
+            sys.executable, str(root / "ops/paired-restore-acceptance.py"), "profile",
+            "--manifest", str(download / manifest_name),
+        ]
+        assert command(profile_command).strip() == "modern_strict"
         encrypted = [p.read_bytes() for p in remote_dir.rglob("*") if p.is_file()]
         assert len(encrypted) == 5
         assert all(p.read_bytes() not in encrypted for p in download.iterdir())
@@ -1597,22 +1626,53 @@ def run(args):
         print("Task4 native isolated restore/replay", flush=True)
         restore_env = paired.command_environment(docker=True)
         restore_env["TMPDIR"] = str(fixture)
-        restored = command(
+        restore_command = [
+            "bash",
+            str(root / "ops/paired-restore-rehearsal.sh"),
+            "--directory",
+            str(download),
+            "--manifest",
+            manifest_name,
+            "--app-image",
+            helper,
+        ]
+        # Keep the same bounded process-group cancellation/cleanup as the success path.
+        refused = command(
             [
-                "bash",
-                str(root / "ops/paired-restore-rehearsal.sh"),
-                "--directory",
-                str(download),
-                "--manifest",
-                manifest_name,
-                "--app-image",
-                helper,
+                "bash", "-c",
+                '"$@" 2>&1; status=$?; printf "default_restore_exit=%s\\n" "$status"; '
+                '[ "$status" -eq 1 ]',
+                "expected-default-restore-failure",
+                *restore_command,
             ],
+            env=restore_env,
+            seconds=600,
+        )
+        assert "native_restore_failed" in refused.splitlines()
+        assert "default_restore_exit=1" in refused.splitlines()
+        assert not list(fixture.glob("avelren-paired-restore.*"))
+        restored = command(
+            [*restore_command, "--legacy-timescale-owner", "avelren"],
             env=restore_env,
             seconds=600,
         )
         safe = next(json.loads(line) for line in restored.splitlines() if line.startswith("{"))
         assert safe["pending_after"] == 0
+        assert "paired_restore_rehearsal_ok" in restored.splitlines()
+        assert not list(fixture.glob("avelren-paired-restore.*"))
+        assert (download / manifest_name).read_bytes() == manifest_bytes
+        paired.pair.verify_local_pair(manifest_value, download)
+        assert command(profile_command).strip() == "modern_strict"
+        evidence["modern_pair_legacy_job_owner_restore"] = dict(
+            profile="modern_strict",
+            runtime=manifest_value["runtime"],
+            manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+            default_exit=1,
+            default_failure="native_restore_failed",
+            explicit_owner="avelren",
+            explicit_restore="PASS",
+            pair_unchanged=True,
+        )
         evidence["native_restore_receipt"] = safe
         events = [
             json.loads(line) for line in (fixture / "lifecycle.jsonl").read_text().splitlines()
