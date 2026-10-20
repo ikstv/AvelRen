@@ -226,6 +226,130 @@ class ImageContracts(unittest.TestCase):
                 self.assertEqual(list(root.glob("avelren-paired-restore.*")), [])
 
 
+class LegacyOwnerOptionContracts(unittest.TestCase):
+    def setUp(self):
+        self.fixture = ReaderContracts()
+        self.fixture.setUp()
+        self.fixture.pair()
+        self.root = self.fixture.directory
+        self.calls = self.root / "docker.calls"
+        executable = self.root / "docker"
+        executable.write_text(
+            "#!/usr/bin/env bash\n"
+            'printf "%s\\n" "$*" >>"$PAIRED_TEST_CALLS"\n'
+            "if command -v cygpath >/dev/null; then "
+            'EVIDENCE=$(cygpath -u "$AVELREN_PAIR_WORK"); else '
+            "EVIDENCE=$AVELREN_PAIR_WORK; fi\n"
+            'case "$*" in\n'
+            '*"paired-restore-acceptance.py prepare"*) '
+            'mkdir -p "$EVIDENCE/pair"; '
+            'cp "$PAIRED_TEST_MANIFEST" "$EVIDENCE/pair/pair.json"; '
+            'printf "SELECT 1;\\n" | gzip -c '
+            '>"$EVIDENCE/pair/avelren-20261013-090000.sql.gz" ;;\n'
+            '*" up -d --wait db"|*"postgres-bootstrap.sh fresh"|'
+            '*"paired-restore-legacy-role.sql"|*" down --volumes --remove-orphans") ;;\n'
+            # Stop at the native restore boundary, after the real profile decision.
+            '*" exec -T db sh -c "*) exit 47 ;;\n'
+            "*) exit 49 ;;\n"
+            "esac\n"
+        )
+        executable.chmod(0o700)
+
+    def tearDown(self):
+        self.fixture.tearDown()
+
+    def run_shell(self, *arguments, extra_env=None):
+        if self.calls.exists():
+            self.calls.unlink()
+        bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
+        env = {
+            **os.environ,
+            "PATH": self.root.as_posix() + os.pathsep + os.environ["PATH"],
+            "TMPDIR": self.root.as_posix(),
+            "PAIRED_TEST_CALLS": self.calls.as_posix(),
+            "PAIRED_TEST_MANIFEST": (self.root / NAME).as_posix(),
+            **(extra_env or {}),
+        }
+        result = subprocess.run(
+            [
+                bash,
+                (ROOT / "ops/paired-restore-rehearsal.sh").as_posix(),
+                "--directory",
+                self.root.as_posix(),
+                "--manifest",
+                NAME,
+                *arguments,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        calls = self.calls.read_text().splitlines() if self.calls.exists() else []
+        self.assertEqual(list(self.root.glob("avelren-paired-restore.*")), [])
+        return result, calls
+
+    def assert_bootstrap_selection(self, arguments, expected_count):
+        result, calls = self.run_shell(*arguments)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("native_restore_failed", result.stderr)
+        self.assertTrue(any(" exec -T db sh -c " in call for call in calls), calls)
+        role_calls = [call for call in calls if "paired-restore-legacy-role.sql" in call]
+        self.assertEqual(len(role_calls), expected_count, calls)
+        for call in role_calls:
+            self.assertIn("-e PGOPTIONS=-c avelren.paired_rehearsal=1 db psql", call)
+            self.assertIn("-X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U avelren_admin -d postgres", call)
+            self.assertIn("-f /workspace/ops/paired-restore-legacy-role.sql", call)
+        self.assertIn("down --volumes --remove-orphans", calls[-1])
+        self.assertEqual(json.loads((self.root / NAME).read_text()), self.fixture.manifest)
+
+    def test_modern_profile_explicit_owner_runs_guarded_placeholder(self):
+        self.assert_bootstrap_selection(["--legacy-timescale-owner", "avelren"], 1)
+
+    def test_modern_profile_without_owner_skips_placeholder(self):
+        self.assert_bootstrap_selection([], 0)
+
+    def test_legacy_profile_without_owner_keeps_automatic_placeholder(self):
+        self.fixture.manifest["runtime"].update(
+            source_commit="4503477f334c72ab05409bf241779592d2fe0bf1",
+            image_id="sha256:40219d6c8ceee5a862382dbb62fe3df06181a20488635d47c5a965512eda9a72",
+        )
+        self.fixture.save()
+        self.assert_bootstrap_selection([], 1)
+
+    def test_invalid_missing_or_duplicate_owner_is_refused_before_docker(self):
+        for arguments in [
+            ["--legacy-timescale-owner"],
+            ["--legacy-timescale-owner", ""],
+            ["--legacy-timescale-owner", "postgres"],
+            ["--legacy-timescale-owner", "AVELREN"],
+            ["--legacy-timescale-owner", "avelren_admin"],
+            ["--legacy-timescale-owner", "avelren; SELECT 1"],
+            ["--legacy-timescale-owner", "--app-image", "sha256:" + "a" * 64],
+            ["--legacy-timescale-owner", "avelren", "--legacy-timescale-owner", "avelren"],
+            ["--legacy-timescale-owner", "avelren", "--legacy-timescale-owner", "postgres"],
+        ]:
+            with self.subTest(arguments=arguments):
+                result, calls = self.run_shell(*arguments)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(calls, [])
+
+    def test_explicit_owner_does_not_bypass_inherited_configuration_refusal(self):
+        for key, value in [
+            ("DATABASE_URL", "postgresql://production/avelren"),
+            ("AVELREN_COMPOSE_PROJECT", "avelren"),
+            ("AVELREN_PAIR_WORK", "/production"),
+            ("AVELREN_RESTORE_TARGET", "avelren"),
+        ]:
+            with self.subTest(key=key):
+                result, calls = self.run_shell(
+                    "--legacy-timescale-owner", "avelren", extra_env={key: value}
+                )
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("rehearsal_configuration_refused", result.stderr)
+                self.assertEqual(calls, [])
+
+
 class ReceiptContracts(unittest.TestCase):
     def setUp(self):
         self.fixture = ReaderContracts()

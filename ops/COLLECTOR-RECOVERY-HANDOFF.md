@@ -73,7 +73,35 @@ python3 /usr/local/sbin/collector-recovery-handoff.py dry-run \
 
 Offline migration SQL — read-only repeatable read. Payload/cycle state й SQL primary rows зберігаються; атомарні per-cycle markers прив’язані до exact audited legacy writer і даних. Подальші replay/restore незалежно звіряють SQL. Modern rows без marker не отримують legacy послаблення. Aged ACK прибирає лише штатний prune; ручне видалення для проходження тестів заборонене.
 
-Після finish потрібні п’ять природних циклів одного producer, pending=0, capture_only=false/mode_ack=false, свіжа ETA/SQL/API, незмінні інші services. Потім окремо погоджена нова paired copy: власний backup ID, publication/readback, stamp/receipt/state з тим самим ID; окремий off-host restore/replay та exact counts. Тільки після цих PASS повернути timer і перевірити next UTC. Старі receipt та systemctl reset-failed не доводять успіх нової спроби.
+Після finish потрібні п’ять природних циклів одного producer, pending=0, capture_only=false/mode_ack=false, свіжа ETA/SQL/API, незмінні інші services. Потім окремо погоджена нова paired copy: власний backup ID, publication/readback, receipt/manifest з тим самим ID та свіжі stamp/state; окремий off-host restore/replay та exact counts. Тільки після цих PASS повернути timer і перевірити next UTC. Старі receipt та systemctl reset-failed не доводять успіх нової спроби.
+
+### Off-host restore та старий власник Timescale jobs
+
+Перед репетицією перевірити read-only `SELECT job_id, owner FROM
+timescaledb_information.jobs ORDER BY job_id`. Новий collector не змінює
+власників jobs у SQL dump. Якщо фактично підтверджено `owner=avelren`,
+для **ізольованої off-host** репетиції нової перевіреної пари додати:
+
+```bash
+bash ops/paired-restore-rehearsal.sh \
+  --directory "$PRIVATE_PAIR_DIRECTORY" \
+  --manifest "avelren-${BACKUP_ID}.pair.json" \
+  --app-image "$VERIFIED_IMAGE_ID" \
+  --legacy-timescale-owner avelren
+```
+
+Опція приймає тільки буквальне `avelren` і створює обмежену NOLOGIN роль
+лише у власному disposable кластері. Небезпечну наявну роль відхиляє.
+Це окрема передумова SQL restore: manifest і `modern_strict` replay,
+per-cycle markers та allowlist legacy writer не змінюються. Без опції
+modern-пара не створює роль; відомий legacy-профіль зберігає попередню
+автоматичну поведінку. Production-роль цим кроком не змінюють.
+
+Зафіксувати source commit/SHA off-host scripts, image ID, SHA п'яти
+отриманих файлів до/після, safe replay receipt і cleanup. Receipt/manifest
+мають backup ID; stamp містить UTC, а state — generation/identity/phase.
+Їх зв'язок доводять новою service invocation і часовими межами, а не
+додаванням відсутніх полів. Synthetic pair не замінює нову production copy.
 
 ## Переривання та відкат
 

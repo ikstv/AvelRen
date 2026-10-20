@@ -1,5 +1,25 @@
 # Що має дійти до телефона
 
+## Off-host restore після заміни legacy collector — 20.10.2026
+
+Сучасний manifest не усуває старого SQL owner Timescale jobs. Додано
+явну [опцію ізольованої репетиції](../ops/COLLECTOR-RECOVERY-HANDOFF.md#off-host-restore-та-старий-власник-timescale-jobs)
+`--legacy-timescale-owner avelren`: лише restricted NOLOGIN placeholder,
+без послаблення `modern_strict` replay або зміни production-ролі.
+
+Локально: 22 restore contracts PASS; native synthetic dump із чотирма
+jobs owner=avelren відтворив default failure, а explicit opt-in пройшов
+restore/schema/API/replay. Перевірено 3 cycles / 2 observations, recovered
+started=1, pending=0; hashes п'яти вхідних файлів незмінні. Небезпечна
+наявна роль відхилена. Source бази — `6ba462b5ed9341270d552626b8af1039813ec721`,
+перевірений backend image — `sha256:c5ed1370f6880cfd0d57f3f4866f8d0bfac5f8f8d04a3abb8dda3f4775fae3ab`.
+Повна native paired integration також PASS: synthetic modern-пара зі
+старими owners відхилена без опції та відновлена з нею; verified 5 cycles /
+3 observations, pending=0, незмінні manifest/hashes, cleanup PASS. Природні
+інтервали collector — 60.001 / 60.000 s; API, SIGKILL recovery та restart/drain PASS.
+Це локальне source-приймання: review/CI/merge виправлення й окрема
+реальна off-host pair залишаються відкритими; Android/телефон/Play не зачіпали.
+
 ## Recovery review і стан сервера — 19.10.2026
 
 [Свіжий read-only аудит і review PR #150](audits/RECOVERY-REVIEW-2026-10-19.md)

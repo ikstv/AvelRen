@@ -11,12 +11,16 @@ for variable in $(compgen -v); do
             [ -z "${!variable:-}" ] || fail rehearsal_configuration_refused ;;
     esac
 done
-DIRECTORY= MANIFEST= APP_IMAGE= APP_IMAGE_SELECTED=0
+DIRECTORY= MANIFEST= APP_IMAGE= APP_IMAGE_SELECTED=0 LEGACY_TIMESCALE_OWNER=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --directory) [ "$#" -ge 2 ] || fail rehearsal_arguments_invalid; DIRECTORY=$2; shift 2 ;;
         --manifest) [ "$#" -ge 2 ] || fail rehearsal_arguments_invalid; MANIFEST=$2; shift 2 ;;
         --app-image) [ "$#" -ge 2 ] || fail rehearsal_arguments_invalid; APP_IMAGE=$2; APP_IMAGE_SELECTED=1; shift 2 ;;
+        --legacy-timescale-owner)
+            [ "$#" -ge 2 ] && [ "$2" = avelren ] && [ -z "$LEGACY_TIMESCALE_OWNER" ] \
+                || fail rehearsal_arguments_invalid
+            LEGACY_TIMESCALE_OWNER=avelren; shift 2 ;;
         *) fail rehearsal_arguments_invalid ;;
     esac
 done
@@ -97,21 +101,24 @@ compose exec -T -e AVELREN_TEST_DB=1 -e AVELREN_DB_NAME=avelren_pair_roles_test 
     -e AVELREN_NOTIFIER_PASSWORD=ci-only -e AVELREN_WATCHDOG_PASSWORD=ci-only \
     -e AVELREN_API_PASSWORD=ci-only db bash /workspace/ops/postgres-bootstrap.sh fresh \
     >"$WORK/native-bootstrap.log" 2>&1 || fail native_role_bootstrap_failed 1
-# The verified pair selects this one compatibility profile. Never create this
-# placeholder through the general restore engine or in a caller-selected DB.
+# Payload compatibility remains tied to the verified pair. An explicit operator
+# observation of legacy Timescale job ownership may independently require this
+# restricted role in the fresh disposable cluster, even for a modern writer.
+# Never create it through the general restore engine or in a caller-selected DB.
 profile=$("$RECEIPT_PYTHON" "$ROOT/ops/paired-restore-acceptance.py" profile \
     --manifest "$(native_path "$WORK/pair/pair.json")") || fail pair_profile_invalid 1
 case "$profile" in
-    legacy_pre_status)
-        compose exec -T -e PGPASSWORD=ci-only \
-            -e PGOPTIONS='-c avelren.paired_rehearsal=1' db \
-            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U avelren_admin -d postgres \
-            -f /workspace/ops/paired-restore-legacy-role.sql \
-            >"$WORK/legacy-role.log" 2>&1 || fail legacy_role_placeholder_failed 1
-        ;;
+    legacy_pre_status) LEGACY_TIMESCALE_OWNER=avelren ;;
     modern_strict) ;;
     *) fail pair_profile_invalid 1 ;;
 esac
+if [ "$LEGACY_TIMESCALE_OWNER" = avelren ]; then
+    compose exec -T -e PGPASSWORD=ci-only \
+        -e PGOPTIONS='-c avelren.paired_rehearsal=1' db \
+        psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U avelren_admin -d postgres \
+        -f /workspace/ops/paired-restore-legacy-role.sql \
+        >"$WORK/legacy-role.log" 2>&1 || fail legacy_role_placeholder_failed 1
+fi
 export AVELREN_STACK_DIR=$ROOT AVELREN_COMPOSE_FILE=$COMPOSE_FILE
 export AVELREN_COMPOSE_PROJECT=$PROJECT AVELREN_COMPOSE_PROJECT_DIR=$COMPOSE_DIR
 export AVELREN_COMPOSE_ENV_FILE=$COMPOSE_ENV AVELREN_COMPOSE_ENV_GUARD=isolated
