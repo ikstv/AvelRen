@@ -275,7 +275,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "51654c4a1837bcdb38e77b15043dd9584eea0cf8723eecfa4b8ca21430421d00",
+        "sha256": "3dc604f2b018b9aa0183c0e7e98f83960f0e524b0cf11ab9559e01e6b03c22a2",
         "notes": "docs/RELEASE-READINESS.md"
       },
       "revision_history": [
@@ -289,6 +289,10 @@
         },
         {
           "sha256": "7d5b95ad10a013d6b9011efd365a0d9df667282a856843744d5c6a0f0acf39d8",
+          "notes": "docs/RELEASE-READINESS.md"
+        },
+        {
+          "sha256": "51654c4a1837bcdb38e77b15043dd9584eea0cf8723eecfa4b8ca21430421d00",
           "notes": "docs/RELEASE-READINESS.md"
         }
       ]
@@ -311,7 +315,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "e19996502f145c65be9c0ed8feec8b00975387205c9f6bf1aa1ccaa7b9e683ce",
+        "sha256": "11b6929ea619dd3f96061c2bcc13690c230e6473151fcbd9f42d02f9853549cf",
         "notes": "docs/RELEASE-READINESS.md"
       },
       "revision_history": [
@@ -349,6 +353,14 @@
         },
         {
           "sha256": "f984144d2ffeb84e773739e138e821d9b0de02ae6499f3212d64d8e1d73526a0",
+          "notes": "docs/RELEASE-READINESS.md"
+        },
+        {
+          "sha256": "e19996502f145c65be9c0ed8feec8b00975387205c9f6bf1aa1ccaa7b9e683ce",
+          "notes": "docs/RELEASE-READINESS.md"
+        },
+        {
+          "sha256": "fc8c4be7c2ffb22e2dac17deb7878593ba6c731c00a0976eae0a73d52beff1d7",
           "notes": "docs/RELEASE-READINESS.md"
         }
       ]

@@ -170,7 +170,8 @@ internal fun AdministrationSettings(
                             installation.authenticatedCall { Api.unlockAdmin(it, password) }
                     }
                 }
-                AdminAccessForm(access, installationId, Modifier.fillMaxWidth().weight(1f))
+                AdminAccessForm(access, installationId, Modifier.fillMaxWidth()
+                    .weight(1f, fill = !BuildConfig.ENABLE_TEST_DRAWER))
             }
         }
     }

@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -300,8 +301,20 @@ internal fun ForecastOverviewScreen(
             style = MaterialTheme.typography.bodySmall)
     }
     if (picker) Dialog(onDismissRequest = { picker = false },
-        properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars), color = AppBackground) {
+        properties = if (BuildConfig.ENABLE_TEST_DRAWER)
+            DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+            else DialogProperties(usePlatformDefaultWidth = false)) {
+        if (BuildConfig.ENABLE_TEST_DRAWER) FullTestPickerWindowChrome()
+        val pickerModifier = if (BuildConfig.ENABLE_TEST_DRAWER) {
+            // A full-width Dialog can measure taller than its visible window. Bound
+            // the viewport before insets so its final row stays above system gestures.
+            val configuration = LocalConfiguration.current
+            Modifier.size(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
+                .background(AppBackground).windowInsetsPadding(WindowInsets.safeDrawing)
+        } else {
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
+        }
+        Surface(pickerModifier, color = AppBackground) {
             Column(Modifier.padding(20.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Виберіть КПП", Modifier.weight(1f), color = AppInk,
@@ -323,7 +336,8 @@ internal fun ForecastOverviewScreen(
                     val chipBorder = if (BuildConfig.ENABLE_TEST_DRAWER) BorderStroke(1.dp, MaterialTheme.avelren.line)
                         else BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))
                     FlowRow(Modifier.fillMaxWidth().padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = if (BuildConfig.ENABLE_TEST_DRAWER) Arrangement.spacedBy(8.dp) else Arrangement.Top) {
                         FilterChip(selected = countryFilter == null, onClick = ua.avelren.app.ui.theme.hapticClick { countryFilter = null }, label = { Text("Всі") },
                             modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier,
                             colors = chipColors, border = chipBorder, shape = RoundedCornerShape(20.dp))
@@ -337,6 +351,7 @@ internal fun ForecastOverviewScreen(
                 if (!BuildConfig.ENABLE_TEST_DRAWER) pickerToolbar()
                 val visible = if (countryFilter == null) checkpoints else checkpoints.filter { it.flag_emoji == countryFilter }
                 LazyColumn((if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.weight(1f) else Modifier).padding(top = 16.dp),
+                    contentPadding = if (BuildConfig.ENABLE_TEST_DRAWER) PaddingValues(bottom = 16.dp) else PaddingValues(0.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (BuildConfig.ENABLE_TEST_DRAWER) item {
                         Column(Modifier.fillMaxWidth()) { pickerToolbar() }

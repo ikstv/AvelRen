@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
@@ -80,6 +81,7 @@ import android.os.Build
 
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
@@ -2497,14 +2499,23 @@ private fun CheckpointPickerSheet(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = if (BuildConfig.ENABLE_TEST_DRAWER)
+            DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+            else DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(PickerSheetBg)
+        if (BuildConfig.ENABLE_TEST_DRAWER) FullTestPickerWindowChrome()
+        val pickerModifier = if (BuildConfig.ENABLE_TEST_DRAWER) {
+            // Bound the full-width dialog before applying system insets, matching
+            // the forecast picker so its last row cannot extend behind gestures.
+            val configuration = LocalConfiguration.current
+            Modifier.size(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
+                .background(PickerSheetBg).windowInsetsPadding(WindowInsets.safeDrawing)
+        } else {
+            Modifier.fillMaxSize().background(PickerSheetBg)
                 .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 14.dp, vertical = 16.dp),
+        }
+        Column(
+            pickerModifier.padding(horizontal = 14.dp, vertical = 16.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -2538,7 +2549,11 @@ private fun CheckpointPickerSheet(
             }
             Spacer(Modifier.height(12.dp))
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(
+                modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.weight(1f) else Modifier,
+                contentPadding = if (BuildConfig.ENABLE_TEST_DRAWER) PaddingValues(bottom = 16.dp) else PaddingValues(0.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 // Макет: `flex-wrap:wrap; gap:8px` — пігулки переносяться в рядок,
                 // а не стоять колонкою; знизу відступ ~16 до списку.
                 item {
@@ -2568,7 +2583,7 @@ private fun CheckpointPickerSheet(
                         onClick = { onPick(row.checkpoint_id) },
                     )
                 }
-                item { Spacer(Modifier.height(14.dp)) }
+                if (!BuildConfig.ENABLE_TEST_DRAWER) item { Spacer(Modifier.height(14.dp)) }
             }
         }
     }
