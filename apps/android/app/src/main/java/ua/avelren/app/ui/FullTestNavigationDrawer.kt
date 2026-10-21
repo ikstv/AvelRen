@@ -284,7 +284,7 @@ internal fun FullTestNavigationDrawer(
                             Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Text("Розробник: Tanko Viktor", color = colors.text,
+                            Text("Developer: Tanko Viktor", color = colors.text,
                                 style = MaterialTheme.typography.bodySmall)
                             Text("Версія ${BuildConfig.VERSION_NAME} · FullTest", color = colors.secondary,
                                 style = MaterialTheme.typography.bodySmall)
