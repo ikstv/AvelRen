@@ -38,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -63,12 +62,12 @@ internal fun FullTestDialog(
 ) {
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = DialogProperties(usePlatformDefaultWidth = true, decorFitsSystemWindows = false),
     ) {
-        // Dialog із довільною шириною може передати необмежену висоту.
-        // Розмір поточного вікна задає скінченну межу ще до scroll-контейнерів.
-        val configuration = LocalConfiguration.current
-        Box(Modifier.size(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)) {
+        FullTestPickerWindowChrome(preserveDim = true)
+        // Native MATCH_PARENT bounds keep the card inside the actual window;
+        // retain the platform dim layer for ordinary dialogs.
+        Box(Modifier.fillMaxSize()) {
             // Окремий нижній шар не додає дубль кнопки «Закрити» для TalkBack.
             Box(Modifier.matchParentSize().pointerInput(onDismiss) {
                 detectTapGestures { onDismiss() }
