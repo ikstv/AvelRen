@@ -216,6 +216,7 @@ internal fun AvelRenScreen(
     // (у макеті теж лише підсвітка), тож поки це тільки стан підсвітки.
     var activeTab by remember { mutableStateOf("home") }
     var testMenuOpen by remember { mutableStateOf(false) }
+    var testMenuRefreshing by remember { mutableStateOf(false) }
     var settingsInitialPage by remember { mutableStateOf("menu") }
     var settingsCurrentPage by remember { mutableStateOf("menu") }
     var settingsNavigationRequest by remember { mutableStateOf(0) }
@@ -704,6 +705,29 @@ internal fun AvelRenScreen(
         FullTestNavigationDrawer(
             open = testMenuOpen,
             selected = selectedDestination,
+            checkpointTitle = current?.let { "${it.flag_emoji.orEmpty()} ${it.title}".trim() },
+            serverStatus = serverStatus,
+            refreshing = testMenuRefreshing,
+            canChooseCheckpoint = workload.isNotEmpty(),
+            onChooseCheckpoint = {
+                testMenuOpen = false
+                pendingAiCp = null
+                surgeOpen = false
+                activeTab = "home"
+                showPicker = true
+            },
+            onRefresh = {
+                if (!testMenuRefreshing) {
+                    testMenuRefreshing = true
+                    scope.launch {
+                        try {
+                            refresh()
+                        } finally {
+                            testMenuRefreshing = false
+                        }
+                    }
+                }
+            },
             onClose = { testMenuOpen = false },
             onSelect = { destination ->
                 testMenuOpen = false

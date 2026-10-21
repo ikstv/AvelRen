@@ -11,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -46,9 +47,12 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -74,11 +78,13 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -87,6 +93,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import ua.avelren.app.BuildConfig
 import ua.avelren.app.R
+import ua.avelren.app.data.ServerStatus
 import ua.avelren.app.ui.theme.AppAccent
 import ua.avelren.app.ui.theme.AppBackground
 import ua.avelren.app.ui.theme.AppInk
@@ -126,8 +133,14 @@ private fun drawerColors(): DrawerColors = DrawerColors(
 internal fun FullTestNavigationDrawer(
     open: Boolean,
     selected: FullTestDestination?,
+    checkpointTitle: String?,
+    serverStatus: ServerStatus,
+    refreshing: Boolean,
+    canChooseCheckpoint: Boolean,
     onClose: () -> Unit,
     onSelect: (FullTestDestination) -> Unit,
+    onChooseCheckpoint: () -> Unit,
+    onRefresh: () -> Unit,
 ) {
     val visibility = remember { MutableTransitionState(false) }
     visibility.targetState = open
@@ -250,38 +263,58 @@ internal fun FullTestNavigationDrawer(
                         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            DrawerGroup(colors) {
-                                DrawerRow(FullTestDestination.HOME, "Головна", "Черга на обраному КПП",
-                                    Icons.Outlined.Home, selected, open, colors, onClose, onSelect)
-                                DrawerDivider(colors)
-                                DrawerRow(FullTestDestination.MONITOR, "Моніторинг", "Пороги та час в’їзду",
-                                    Icons.Outlined.Schedule, selected, open, colors, onClose, onSelect)
-                                DrawerDivider(colors)
-                                DrawerRow(FullTestDestination.FORECAST, "Прогноз черги", "Прогноз, зростання та голос",
-                                    Icons.Outlined.Insights, selected, open, colors, onClose, onSelect)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            DrawerCheckpointCard(
+                                checkpointTitle = checkpointTitle,
+                                status = serverStatus,
+                                refreshing = refreshing,
+                                canChooseCheckpoint = open && canChooseCheckpoint,
+                                canRefresh = open && !refreshing,
+                                colors = colors,
+                                onChooseCheckpoint = {
+                                    onClose()
+                                    onChooseCheckpoint()
+                                },
+                                onRefresh = onRefresh,
+                            )
+                            DrawerSection("ОГЛЯД", colors) {
+                                DrawerGroup(colors) {
+                                    DrawerRow(FullTestDestination.HOME, "Головна",
+                                        Icons.Outlined.Home, selected, open, colors, onClose, onSelect)
+                                    DrawerDivider(colors)
+                                    DrawerRow(FullTestDestination.MONITOR, "Моніторинг",
+                                        Icons.Outlined.Schedule, selected, open, colors, onClose, onSelect)
+                                    DrawerDivider(colors)
+                                    DrawerRow(FullTestDestination.FORECAST, "Прогноз черги",
+                                        Icons.Outlined.Insights, selected, open, colors, onClose, onSelect)
+                                }
                             }
-                            DrawerGroup(colors) {
-                                DrawerRow(FullTestDestination.NOTIFICATIONS, "Сповіщення", "Звук і дозволи",
-                                    Icons.Outlined.Notifications, selected, open, colors, onClose, onSelect)
-                                DrawerDivider(colors)
-                                DrawerRow(FullTestDestination.THEME, "Тема", "Темна або світла",
-                                    Icons.Outlined.DarkMode, selected, open, colors, onClose, onSelect)
+                            DrawerSection("НАЛАШТУВАННЯ", colors) {
+                                DrawerGroup(colors) {
+                                    DrawerRow(FullTestDestination.NOTIFICATIONS, "Сповіщення",
+                                        Icons.Outlined.Notifications, selected, open, colors, onClose, onSelect)
+                                    DrawerDivider(colors)
+                                    DrawerRow(FullTestDestination.THEME, "Тема",
+                                        Icons.Outlined.DarkMode, selected, open, colors, onClose, onSelect,
+                                        trailingText = if (dark) "Темна" else "Світла")
+                                }
                             }
-                            DrawerGroup(colors) {
-                                DrawerRow(FullTestDestination.ABOUT, "Про застосунок", null,
-                                    Icons.Outlined.Info, selected, open, colors, onClose, onSelect)
-                                DrawerDivider(colors)
-                                DrawerRow(FullTestDestination.PRIVACY, "Політика конфіденційності", null,
-                                    Icons.Outlined.Shield, selected, open, colors, onClose, onSelect)
-                                DrawerDivider(colors)
-                                DrawerRow(FullTestDestination.DEVELOPER, "Для розробника", null,
-                                    Icons.Outlined.Code, selected, open, colors, onClose, onSelect)
+                            DrawerSection("ПРО ЗАСТОСУНОК", colors) {
+                                DrawerGroup(colors) {
+                                    DrawerRow(FullTestDestination.ABOUT, "Про застосунок",
+                                        Icons.Outlined.Info, selected, open, colors, onClose, onSelect)
+                                    DrawerDivider(colors)
+                                    DrawerRow(FullTestDestination.PRIVACY, "Політика конфіденційності",
+                                        Icons.Outlined.Shield, selected, open, colors, onClose, onSelect)
+                                    DrawerDivider(colors)
+                                    DrawerRow(FullTestDestination.DEVELOPER, "Для розробника",
+                                        Icons.Outlined.Code, selected, open, colors, onClose, onSelect)
+                                }
                             }
                             Spacer(Modifier.height(4.dp))
                         }
                         Column(
-                            Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
+                            Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text("Developer: Tanko Viktor", color = colors.text,
@@ -299,7 +332,7 @@ internal fun FullTestNavigationDrawer(
 @Composable
 private fun DrawerHeader(colors: DrawerColors, onClose: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 8.dp, end = 2.dp, top = 12.dp, bottom = 20.dp),
+        Modifier.fillMaxWidth().padding(start = 8.dp, end = 2.dp, top = 8.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -325,9 +358,127 @@ private fun DrawerHeader(colors: DrawerColors, onClose: () -> Unit) {
 }
 
 @Composable
+private fun DrawerCheckpointCard(
+    checkpointTitle: String?,
+    status: ServerStatus,
+    refreshing: Boolean,
+    canChooseCheckpoint: Boolean,
+    canRefresh: Boolean,
+    colors: DrawerColors,
+    onChooseCheckpoint: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        Modifier.fillMaxWidth().clip(shape).background(colors.group)
+            .border(1.dp, colors.accent.copy(alpha = 0.5f), shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("ОБРАНИЙ КПП", color = colors.accent, style = MaterialTheme.typography.labelSmall)
+        // Text semantics retain the complete name even when the visual label is ellipsized.
+        Text(
+            text = checkpointTitle?.takeIf { it.isNotBlank() } ?: "Оберіть пункт пропуску",
+            color = colors.text,
+            style = MaterialTheme.typography.titleMedium,
+            fontSize = 14.sp,
+            lineHeight = 18.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (status.label.isNotBlank() || status == ServerStatus.CHECKING) {
+            val statusColor = when (status) {
+                ServerStatus.ONLINE -> MaterialTheme.avelren.go
+                ServerStatus.NO_INTERNET -> MaterialTheme.avelren.closed
+                ServerStatus.WEAK_INTERNET, ServerStatus.MAINTENANCE, ServerStatus.RESTARTING -> colors.accent
+                else -> colors.secondary
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (status == ServerStatus.CHECKING) {
+                    CircularProgressIndicator(Modifier.size(10.dp), color = statusColor, strokeWidth = 1.5.dp)
+                } else {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(statusColor))
+                }
+                Text(
+                    text = if (status == ServerStatus.CHECKING) "Перевіряємо зв’язок" else status.label,
+                    color = colors.secondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DrawerQuickAction(
+                label = "Обрати КПП",
+                icon = Icons.Outlined.Place,
+                enabled = canChooseCheckpoint,
+                filled = true,
+                busy = false,
+                colors = colors,
+                onClick = onChooseCheckpoint,
+                modifier = Modifier.weight(1f),
+            )
+            DrawerQuickAction(
+                label = if (refreshing) "Оновлюємо" else "Оновити дані",
+                icon = Icons.Outlined.Refresh,
+                enabled = canRefresh,
+                filled = false,
+                busy = refreshing,
+                colors = colors,
+                onClick = onRefresh,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrawerQuickAction(
+    label: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    filled: Boolean,
+    busy: Boolean,
+    colors: DrawerColors,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val alpha = if (enabled || busy) 1f else 0.45f
+    val foreground = (if (filled) colors.onAccent else colors.accent).copy(alpha = alpha)
+    Row(
+        modifier.heightIn(min = 44.dp).clip(shape)
+            .background(if (filled) colors.accent.copy(alpha = alpha) else Color.Transparent)
+            .border(1.dp, colors.accent.copy(alpha = alpha), shape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = hapticClick(onClick))
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (busy) {
+            CircularProgressIndicator(Modifier.size(16.dp), color = foreground, strokeWidth = 2.dp)
+        } else {
+            Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(16.dp))
+        }
+        Text(label, color = foreground, style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
+    }
+}
+
+@Composable
+private fun DrawerSection(title: String, colors: DrawerColors, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, color = colors.secondary, style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(start = 12.dp).semantics { heading() })
+        content()
+    }
+}
+
+@Composable
 private fun DrawerGroup(colors: DrawerColors, content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.group),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.group),
     ) { content() }
 }
 
@@ -340,41 +491,39 @@ private fun DrawerDivider(colors: DrawerColors) {
 private fun DrawerRow(
     destination: FullTestDestination,
     title: String,
-    subtitle: String?,
     icon: ImageVector,
     selectedDestination: FullTestDestination?,
     enabled: Boolean,
     colors: DrawerColors,
     onClose: () -> Unit,
     onSelect: (FullTestDestination) -> Unit,
+    trailingText: String? = null,
 ) {
     val isSelected = destination == selectedDestination
     val foreground = if (isSelected) colors.onAccent else colors.text
     Row(
-        Modifier.fillMaxWidth().heightIn(min = if (subtitle == null) 60.dp else 72.dp)
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .background(if (isSelected) colors.accent else Color.Transparent)
             .semantics { selected = isSelected }
             .clickable(enabled = enabled, role = Role.Button, onClick = hapticClick {
                 onClose()
                 onSelect(destination)
             })
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(icon, null, tint = if (isSelected) colors.onAccent else colors.secondary,
-            modifier = Modifier.size(24.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = foreground, fontSize = 17.sp,
-                style = MaterialTheme.typography.titleMedium, lineHeight = 22.sp)
-            if (subtitle != null) {
-                Text(subtitle, color = if (isSelected) colors.onAccent else colors.secondary,
-                    fontSize = 13.sp, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
-            }
+            modifier = Modifier.size(22.dp))
+        Text(title, color = foreground, style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f))
+        if (trailingText != null) {
+            Text(trailingText, color = if (isSelected) colors.onAccent else colors.secondary,
+                style = MaterialTheme.typography.bodySmall)
         }
         Icon(Icons.Filled.ChevronRight, null,
             tint = if (isSelected) colors.onAccent else colors.secondary,
-            modifier = Modifier.size(20.dp))
+            modifier = Modifier.size(18.dp))
     }
 }
 

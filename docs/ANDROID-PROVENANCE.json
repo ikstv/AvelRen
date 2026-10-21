@@ -297,7 +297,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "31429655858b0f621a696778bffe6184936ea25196682972db5d44aa3ede71ef",
+        "sha256": "6a0571fe412d29b4348dacbd5a27c79657f287f7168da5db9d7de5a3e1844612",
         "notes": "docs/RELEASE-READINESS.md"
       },
       "revision_history": [
@@ -315,6 +315,10 @@
               "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
             }
           },
+          "notes": "docs/RELEASE-READINESS.md"
+        },
+        {
+          "sha256": "31429655858b0f621a696778bffe6184936ea25196682972db5d44aa3ede71ef",
           "notes": "docs/RELEASE-READINESS.md"
         }
       ]
