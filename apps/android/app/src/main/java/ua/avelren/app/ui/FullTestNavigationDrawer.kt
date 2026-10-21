@@ -298,7 +298,8 @@ internal fun FullTestNavigationDrawer(
                                         badgeCount = monitorCount?.takeIf { it >= 0 })
                                     DrawerDivider(colors)
                                     DrawerRow(FullTestDestination.FORECAST, "Прогноз черги",
-                                        Icons.Outlined.Insights, selected, open, colors, onClose, onSelect)
+                                        Icons.Outlined.Insights, selected, open, colors, onClose, onSelect,
+                                        beta = true)
                                 }
                             }
                             DrawerSection("НАЛАШТУВАННЯ", colors) {
@@ -558,15 +559,18 @@ private fun DrawerRow(
     onClose: () -> Unit,
     onSelect: (FullTestDestination) -> Unit,
     badgeCount: Int? = null,
+    beta: Boolean = false,
 ) {
     val isSelected = destination == selectedDestination
     val foreground = if (isSelected) colors.onAccent else colors.text
+    val badgeText = if (beta) "BETA" else badgeCount?.toString()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .background(if (isSelected) colors.accent else Color.Transparent)
             .semantics {
                 selected = isSelected
-                if (badgeCount != null) stateDescription = "Пороги та ETA: $badgeCount"
+                if (beta) stateDescription = "Бета-версія"
+                else if (badgeCount != null) stateDescription = "Пороги та ETA: $badgeCount"
             }
             .clickable(enabled = enabled, role = Role.Button, onClick = hapticClick {
                 onClose()
@@ -580,10 +584,10 @@ private fun DrawerRow(
             modifier = Modifier.size(22.dp))
         Text(title, color = foreground, style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f))
-        if (badgeCount != null) {
+        if (badgeText != null) {
             val badgeColor = if (isSelected) colors.onAccent else colors.accent
             Text(
-                text = badgeCount.toString(),
+                text = badgeText,
                 color = badgeColor,
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.clearAndSetSemantics { }.clip(RoundedCornerShape(8.dp))

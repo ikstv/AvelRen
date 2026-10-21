@@ -47,7 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import ua.avelren.app.data.PushSyncState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
@@ -75,7 +74,6 @@ import android.os.Build
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
 
@@ -238,12 +236,7 @@ internal fun AvelRenScreen(
     val keepScreenOn = if (BuildConfig.ENABLE_TEST_DRAWER) {
         val enabled by remember(context) { UiPrefs.keepScreenOnFlow(context) }
             .collectAsStateWithLifecycle(false)
-        val view = LocalView.current
-        DisposableEffect(view, enabled) {
-            val previous = view.keepScreenOn
-            view.keepScreenOn = enabled
-            onDispose { view.keepScreenOn = previous }
-        }
+        FullTestKeepScreenOn(enabled)
         enabled
     } else false
     fun savePreference(action: suspend () -> Unit) {
@@ -674,6 +667,17 @@ internal fun AvelRenScreen(
                 }
             } else if (current != null) {
                 item { HeroPanel(current) { showPicker = true } }
+                if (BuildConfig.ENABLE_TEST_DRAWER) {
+                    item {
+                        FullTestCheckpointActions(
+                            canChangeMonitors = canChangeMonitors,
+                            onThreshold = { pendingThresholdCp = current },
+                            onEta = { pendingEtaCp = current },
+                            onForecast = { surgeOpen = false; pendingAiCp = current },
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                }
                 item {
                     RegistrationChart(
                         values = history,
@@ -2127,11 +2131,13 @@ internal fun SettingsDeveloperFooter(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        FadingHairline()
-        Spacer(Modifier.height(8.dp))
+        if (!BuildConfig.ENABLE_TEST_DRAWER) {
+            FadingHairline()
+            Spacer(Modifier.height(8.dp))
+        }
         Text(
             "DEVELOPER — TANKO VIKTOR",
-            color = AppInk.copy(alpha = 0.4f),
+            color = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.ink2 else AppInk.copy(alpha = 0.4f),
             style = MaterialTheme.typography.labelSmall,
             fontSize = 9.sp,
             letterSpacing = 1.sp,
@@ -2588,6 +2594,7 @@ private fun colorForRate(delta: Int): Color {
 private fun RegistrationChart(values: List<Int>?, modifier: Modifier = Modifier) {
     val gridInk = ChartGrid
     val pointOutline = AppInk
+    val areaInk = AppInk
     val axisStyle = MaterialTheme.typography.bodySmall.copy(
         fontSize = 8.sp, fontWeight = FontWeight.Bold, color = ChartAxis,
     )
@@ -2669,11 +2676,26 @@ private fun RegistrationChart(values: List<Int>?, modifier: Modifier = Modifier)
                 // Лінія ПРЯМА: точки з'єднані навскіс (не сходинками) — так менше
                 // «сходів», особливо на вищому полотні.
                 val strokeW = 2.5.dp.toPx()
+                if (BuildConfig.ENABLE_TEST_DRAWER) {
+                    // One continuous area avoids seams between independently shaded segments.
+                    // Rate colours remain on the measured line; the area is neutral decoration.
+                    val area = Path().apply {
+                        moveTo(x(0), h)
+                        for (i in 0 until n) lineTo(x(i), y(data[i]))
+                        lineTo(x(n - 1), h)
+                        close()
+                    }
+                    drawPath(area, brush = Brush.verticalGradient(
+                        0f to areaInk.copy(alpha = 0.12f), 1f to Color.Transparent,
+                        startY = 0f, endY = h,
+                    ))
+                }
                 for (i in 1 until n) {
                     val c = colorForRate(data[i] - data[i - 1])
                     val x0 = x(i - 1); val x1 = x(i)
                     val yPrev = y(data[i - 1]); val yCur = y(data[i])
                     // Заливка — трапеція під діагональним відрізком до низу.
+                    if (!BuildConfig.ENABLE_TEST_DRAWER) {
                     val fill = Path().apply {
                         moveTo(x0, yPrev)
                         lineTo(x1, yCur)
@@ -2688,6 +2710,7 @@ private fun RegistrationChart(values: List<Int>?, modifier: Modifier = Modifier)
                             startY = minOf(yPrev, yCur), endY = h,
                         ),
                     )
+                    }
                     // Сам відрізок — прямою від точки до точки.
                     drawLine(c, Offset(x0, yPrev), Offset(x1, yCur), strokeW, cap = StrokeCap.Round)
                 }
