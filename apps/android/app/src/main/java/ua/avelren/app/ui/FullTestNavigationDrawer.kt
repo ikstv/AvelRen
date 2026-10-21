@@ -51,6 +51,7 @@ import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -77,7 +78,6 @@ import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,8 +87,13 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import ua.avelren.app.BuildConfig
 import ua.avelren.app.R
+import ua.avelren.app.ui.theme.AppAccent
+import ua.avelren.app.ui.theme.AppBackground
+import ua.avelren.app.ui.theme.AppInk
+import ua.avelren.app.ui.theme.AppOnAccent
 import ua.avelren.app.ui.theme.LocalThemeChoice
 import ua.avelren.app.ui.theme.ThemeChoice
+import ua.avelren.app.ui.theme.avelren
 import ua.avelren.app.ui.theme.hapticClick
 
 internal enum class FullTestDestination {
@@ -101,26 +106,20 @@ private data class DrawerColors(
     val text: Color,
     val secondary: Color,
     val divider: Color,
+    val accent: Color,
+    val onAccent: Color,
 )
 
 @Composable
-private fun drawerColors(): DrawerColors = if (LocalThemeChoice.current == ThemeChoice.LIGHT) {
-    DrawerColors(
-        panel = Color(0xFFF5F6F8),
-        group = Color.White,
-        text = Color(0xFF191D23),
-        secondary = Color(0xFF59616C),
-        divider = Color(0xFFE8EAEE),
-    )
-} else {
-    DrawerColors(
-        panel = Color(0xFF0B0D0F),
-        group = Color(0xFF15181B),
-        text = Color(0xFFF0F1F3),
-        secondary = Color(0xFFA4ABB4),
-        divider = Color(0xFF22262B),
-    )
-}
+private fun drawerColors(): DrawerColors = DrawerColors(
+    panel = AppBackground,
+    group = MaterialTheme.colorScheme.surfaceVariant,
+    text = AppInk,
+    secondary = MaterialTheme.avelren.ink2,
+    divider = MaterialTheme.avelren.line,
+    accent = AppAccent,
+    onAccent = AppOnAccent,
+)
 
 /** Тестова навігація. Окреме modal-вікно ізолює фокус і Back від вмісту під ним. */
 @Composable
@@ -149,7 +148,10 @@ internal fun FullTestNavigationDrawer(
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
+            // Compose 1.7 measures both axes from Configuration when this is false,
+            // which can exceed the visible dialog area on Android 15. MATCH_PARENT
+            // below supplies the width; keep the parent's real height constraints.
+            usePlatformDefaultWidth = true,
             decorFitsSystemWindows = false,
         ),
     ) {
@@ -241,46 +243,54 @@ internal fun FullTestNavigationDrawer(
                     .padding(horizontal = 12.dp),
             ) {
                 DrawerHeader(colors = colors, onClose = onClose)
-                Column(
-                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    DrawerGroup(colors) {
-                        DrawerRow(FullTestDestination.HOME, "Головна", "Черга на обраному КПП",
-                            Icons.Outlined.Home, selected, open, colors, onClose, onSelect)
-                        DrawerDivider(colors)
-                        DrawerRow(FullTestDestination.MONITOR, "Моніторинг", "Пороги та час в’їзду",
-                            Icons.Outlined.Schedule, selected, open, colors, onClose, onSelect)
-                        DrawerDivider(colors)
-                        DrawerRow(FullTestDestination.FORECAST, "Прогноз черги", "Прогноз, зростання та голос",
-                            Icons.Outlined.Insights, selected, open, colors, onClose, onSelect)
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    // Footer stays at the bottom when everything fits, and joins
+                    // the scroll content on short screens or with larger fonts.
+                    Column(
+                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            DrawerGroup(colors) {
+                                DrawerRow(FullTestDestination.HOME, "Головна", "Черга на обраному КПП",
+                                    Icons.Outlined.Home, selected, open, colors, onClose, onSelect)
+                                DrawerDivider(colors)
+                                DrawerRow(FullTestDestination.MONITOR, "Моніторинг", "Пороги та час в’їзду",
+                                    Icons.Outlined.Schedule, selected, open, colors, onClose, onSelect)
+                                DrawerDivider(colors)
+                                DrawerRow(FullTestDestination.FORECAST, "Прогноз черги", "Прогноз, зростання та голос",
+                                    Icons.Outlined.Insights, selected, open, colors, onClose, onSelect)
+                            }
+                            DrawerGroup(colors) {
+                                DrawerRow(FullTestDestination.NOTIFICATIONS, "Сповіщення", "Звук і дозволи",
+                                    Icons.Outlined.Notifications, selected, open, colors, onClose, onSelect)
+                                DrawerDivider(colors)
+                                DrawerRow(FullTestDestination.THEME, "Тема", "Темна або світла",
+                                    Icons.Outlined.DarkMode, selected, open, colors, onClose, onSelect)
+                            }
+                            DrawerGroup(colors) {
+                                DrawerRow(FullTestDestination.ABOUT, "Про застосунок", null,
+                                    Icons.Outlined.Info, selected, open, colors, onClose, onSelect)
+                                DrawerDivider(colors)
+                                DrawerRow(FullTestDestination.PRIVACY, "Політика конфіденційності", null,
+                                    Icons.Outlined.Shield, selected, open, colors, onClose, onSelect)
+                                DrawerDivider(colors)
+                                DrawerRow(FullTestDestination.DEVELOPER, "Для розробника", null,
+                                    Icons.Outlined.Code, selected, open, colors, onClose, onSelect)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        Column(
+                            Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text("Розробник: Tanko Viktor", color = colors.text,
+                                style = MaterialTheme.typography.bodySmall)
+                            Text("Версія ${BuildConfig.VERSION_NAME} · FullTest", color = colors.secondary,
+                                style = MaterialTheme.typography.bodySmall)
+                        }
                     }
-                    DrawerGroup(colors) {
-                        DrawerRow(FullTestDestination.NOTIFICATIONS, "Сповіщення", "Звук і дозволи",
-                            Icons.Outlined.Notifications, selected, open, colors, onClose, onSelect)
-                        DrawerDivider(colors)
-                        DrawerRow(FullTestDestination.THEME, "Тема", "Темна або світла",
-                            Icons.Outlined.DarkMode, selected, open, colors, onClose, onSelect)
-                    }
-                    DrawerGroup(colors) {
-                        DrawerRow(FullTestDestination.ABOUT, "Про застосунок", null,
-                            Icons.Outlined.Info, selected, open, colors, onClose, onSelect)
-                        DrawerDivider(colors)
-                        DrawerRow(FullTestDestination.PRIVACY, "Політика конфіденційності", null,
-                            Icons.Outlined.Shield, selected, open, colors, onClose, onSelect)
-                        DrawerDivider(colors)
-                        DrawerRow(FullTestDestination.DEVELOPER, "Для розробника", null,
-                            Icons.Outlined.Code, selected, open, colors, onClose, onSelect)
-                    }
-                    Spacer(Modifier.height(4.dp))
                 }
-                Text(
-                    text = "Версія ${BuildConfig.VERSION_NAME} · FullTest",
-                    color = colors.secondary,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
-                )
             }
         }
     }
@@ -297,13 +307,13 @@ private fun DrawerHeader(colors: DrawerColors, onClose: () -> Unit) {
             painter = painterResource(R.drawable.ic_launcher_foreground),
             contentDescription = null,
             modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF15181B)),
+                .background(Color.Black),
         )
         Column(Modifier.weight(1f)) {
             Text("AvelRen", color = colors.text, fontSize = 24.sp,
-                fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleLarge)
             Text("Черги на кордоні", color = colors.secondary, fontSize = 12.sp,
-                fontFamily = FontFamily.SansSerif)
+                style = MaterialTheme.typography.bodySmall)
         }
         IconButton(
             onClick = hapticClick(onClose),
@@ -339,10 +349,10 @@ private fun DrawerRow(
     onSelect: (FullTestDestination) -> Unit,
 ) {
     val isSelected = destination == selectedDestination
-    val foreground = if (isSelected) Color.White else colors.text
+    val foreground = if (isSelected) colors.onAccent else colors.text
     Row(
         Modifier.fillMaxWidth().heightIn(min = if (subtitle == null) 60.dp else 72.dp)
-            .background(if (isSelected) Color(0xFF075BB7) else Color.Transparent)
+            .background(if (isSelected) colors.accent else Color.Transparent)
             .semantics { selected = isSelected }
             .clickable(enabled = enabled, role = Role.Button, onClick = hapticClick {
                 onClose()
@@ -352,18 +362,18 @@ private fun DrawerRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Icon(icon, null, tint = if (isSelected) Color.White else colors.secondary,
+        Icon(icon, null, tint = if (isSelected) colors.onAccent else colors.secondary,
             modifier = Modifier.size(24.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = foreground, fontSize = 17.sp, fontWeight = FontWeight.Medium,
-                fontFamily = FontFamily.SansSerif, lineHeight = 22.sp)
+            Text(title, color = foreground, fontSize = 17.sp,
+                style = MaterialTheme.typography.titleMedium, lineHeight = 22.sp)
             if (subtitle != null) {
-                Text(subtitle, color = if (isSelected) Color(0xFFDBEAFE) else colors.secondary,
-                    fontSize = 13.sp, fontFamily = FontFamily.SansSerif, lineHeight = 18.sp)
+                Text(subtitle, color = if (isSelected) colors.onAccent else colors.secondary,
+                    fontSize = 13.sp, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
             }
         }
         Icon(Icons.Filled.ChevronRight, null,
-            tint = if (isSelected) Color.White else colors.secondary,
+            tint = if (isSelected) colors.onAccent else colors.secondary,
             modifier = Modifier.size(20.dp))
     }
 }
@@ -375,6 +385,6 @@ internal fun FullTestMenuButton(onClick: () -> Unit, modifier: Modifier = Modifi
         onClick = hapticClick(onClick),
         modifier = modifier.size(60.dp).clip(CircleShape).background(colors.group),
     ) {
-        Icon(Icons.Filled.Menu, contentDescription = "Меню", tint = colors.text, modifier = Modifier.size(28.dp))
+        Icon(Icons.Filled.Menu, contentDescription = "Меню", tint = colors.accent, modifier = Modifier.size(28.dp))
     }
 }
