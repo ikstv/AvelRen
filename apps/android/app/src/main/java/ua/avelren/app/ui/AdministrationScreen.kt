@@ -61,8 +61,11 @@ internal fun AdministrationSettings(
     client: AdminAccessClient? = null,
     serverClient: AdminServerClient? = null,
     onOpenPrivacyPolicy: (() -> Unit)? = null,
+    initialPage: String = "menu",
+    onPageChanged: ((String) -> Unit)? = null,
 ) {
-    var page by rememberSaveable { mutableStateOf("menu") }
+    var page by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
+    LaunchedEffect(page) { onPageChanged?.invoke(page) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current

@@ -45,7 +45,8 @@ require(
 text = config.read_text(encoding="utf-8")
 for field, value in (("APPLICATION_ID", '"ua.avelren.app.test"'),
                      ("API_BASE_URL", '"https://api.bordersignal.pp.ua/api"'),
-                     ("VERSION_NAME", '"0.1.3-test"'), ("ENABLE_PUSH", "true")):
+                     ("VERSION_NAME", '"0.1.3-test"'), ("ENABLE_PUSH", "true"),
+                     ("ENABLE_TEST_DRAWER", "true")):
     require(re.search(r"\b" + field + r"\s*=\s*" + re.escape(value) + r"\s*;", text),
             "Wrong full Test BuildConfig: " + field)
-print("Full Test: real main/API/FCM/voice and isolated package PASS")
+print("Full Test: real main/API/FCM/voice, test drawer and isolated package PASS")

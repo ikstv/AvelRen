@@ -7,9 +7,15 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "e0566fe3da86e21252a6b5db8b5e8c0a5af43e4f6e1a9390b46390702fc18691",
+        "sha256": "6ba9893d1402c6d9547f0afb41168aa164241340518fc99f0f166254f346f34e",
         "notes": "docs/RELEASE-READINESS.md"
-      }
+      },
+      "revision_history": [
+        {
+          "sha256": "e0566fe3da86e21252a6b5db8b5e8c0a5af43e4f6e1a9390b46390702fc18691",
+          "notes": "docs/RELEASE-READINESS.md"
+        }
+      ]
     },
     {
       "repository": "ikstv/AvelRen",
@@ -263,9 +269,15 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "80977658bed0a449a4f84355949e47b932cd03e0251628f059cabaa31912b19a",
+        "sha256": "45a0527de4be0ccf765c5a6ad06d7029376d41d5f4e2cc74c22899b45bb17153",
         "notes": "docs/RELEASE-READINESS.md"
-      }
+      },
+      "revision_history": [
+        {
+          "sha256": "80977658bed0a449a4f84355949e47b932cd03e0251628f059cabaa31912b19a",
+          "notes": "docs/RELEASE-READINESS.md"
+        }
+      ]
     },
     {
       "repository": "ikstv/AvelRen",
@@ -285,21 +297,27 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "fd2c640242cc11f2676207237223276a66b1ef579d712d8e24eecf3440cf8eff",
-        "previous": {
-          "sha256": "cb672f3223c1656655c216bbfa34999491132e1960b33b62af67e20d368b4eb4",
-          "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md",
-          "previous": {
-            "sha256": "a5311228e71fb5b0646da15f74d6b05f4e230f398003a4b6ae837bd936e9aaa7",
-            "previous": {
-              "sha256": "d4f076e05ccaf22950f11f783092976c9e799cf520cf5733b396362c1adc67ef",
-              "notes": "docs/RELEASE-READINESS.md"
-            },
-            "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
-          }
-        },
+        "sha256": "31429655858b0f621a696778bffe6184936ea25196682972db5d44aa3ede71ef",
         "notes": "docs/RELEASE-READINESS.md"
-      }
+      },
+      "revision_history": [
+        {
+          "sha256": "fd2c640242cc11f2676207237223276a66b1ef579d712d8e24eecf3440cf8eff",
+          "previous": {
+            "sha256": "cb672f3223c1656655c216bbfa34999491132e1960b33b62af67e20d368b4eb4",
+            "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md",
+            "previous": {
+              "sha256": "a5311228e71fb5b0646da15f74d6b05f4e230f398003a4b6ae837bd936e9aaa7",
+              "previous": {
+                "sha256": "d4f076e05ccaf22950f11f783092976c9e799cf520cf5733b396362c1adc67ef",
+                "notes": "docs/RELEASE-READINESS.md"
+              },
+              "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
+            }
+          },
+          "notes": "docs/RELEASE-READINESS.md"
+        }
+      ]
     },
     {
       "repository": "ikstv/AvelRen",

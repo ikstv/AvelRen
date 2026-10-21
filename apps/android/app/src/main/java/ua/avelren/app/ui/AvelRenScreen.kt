@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextButton
 import ua.avelren.app.data.PushSyncState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +74,7 @@ import android.os.Build
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
 
 import androidx.compose.ui.res.painterResource
@@ -212,6 +215,11 @@ internal fun AvelRenScreen(
     // Активна вкладка нижньої навігації. Окремого екрана «Моніторинг» ще нема
     // (у макеті теж лише підсвітка), тож поки це тільки стан підсвітки.
     var activeTab by remember { mutableStateOf("home") }
+    var testMenuOpen by remember { mutableStateOf(false) }
+    var settingsInitialPage by remember { mutableStateOf("menu") }
+    var settingsCurrentPage by remember { mutableStateOf("menu") }
+    var settingsNavigationRequest by remember { mutableStateOf(0) }
+    val uriHandler = LocalUriHandler.current
     // Динаміка реєстрацій обраного КПП за останню годину. null — ще не
     // завантажено; порожній список — сервер віддав, але точок замало.
     var history by remember { mutableStateOf<List<Int>?>(null) }
@@ -466,9 +474,12 @@ internal fun AvelRenScreen(
     BackHandler(enabled = forecastOpen) { pendingAiCp = null; surgeOpen = false }
     val density = LocalDensity.current
     var bottomChromeHeightPx by remember { mutableStateOf(0) }
-    val bottomChromePadding = bottomChromeContentInset(
-        with(density) { bottomChromeHeightPx.toDp().value }, updateAvailable,
-    ).dp
+    val measuredBottomChromeDp = with(density) { bottomChromeHeightPx.toDp().value }
+    val bottomChromePadding = if (BuildConfig.ENABLE_TEST_DRAWER) {
+        maxOf(84f, measuredBottomChromeDp + 8f).dp
+    } else {
+        bottomChromeContentInset(measuredBottomChromeDp, updateAvailable).dp
+    }
 
     // Усі основні вкладки мають рівне чорне тло.
     Box(Modifier.fillMaxSize().background(if (forecastOpen) MonitorBg else AppBackground)) {
@@ -553,16 +564,22 @@ internal fun AvelRenScreen(
             )
         }
     } else if (onSettings) {
+        key(settingsNavigationRequest) {
         SettingsScreen(
             adminClient = adminClient,
             adminServerClient = adminServerClient,
             onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+            initialPage = settingsInitialPage,
+            onPageChanged = if (BuildConfig.ENABLE_TEST_DRAWER) {
+                { page -> settingsCurrentPage = page }
+            } else null,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = bottomChromePadding),
         )
+        }
     } else {
         LazyColumn(
             modifier = Modifier
@@ -634,7 +651,9 @@ internal fun AvelRenScreen(
     if (!forecastOpen) {
         Column(
             modifier = Modifier.align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.systemBars)
+                .windowInsetsPadding(
+                    if (BuildConfig.ENABLE_TEST_DRAWER) WindowInsets.navigationBars else WindowInsets.systemBars,
+                )
                 .onSizeChanged { bottomChromeHeightPx = it.height }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -656,12 +675,64 @@ internal fun AvelRenScreen(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
-            BottomNavBar(
-                activeTab = activeTab, onSelect = { activeTab = it },
-                flatDark = onMonitor || onSettings,
-            )
+            if (BuildConfig.ENABLE_TEST_DRAWER) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                    FullTestMenuButton(onClick = { testMenuOpen = true })
+                }
+            } else {
+                BottomNavBar(
+                    activeTab = activeTab, onSelect = { activeTab = it },
+                    flatDark = onMonitor || onSettings,
+                )
+            }
         }
     }
+    }
+
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        val selectedDestination = when {
+            forecastOpen -> FullTestDestination.FORECAST
+            onMonitor -> FullTestDestination.MONITOR
+            onSettings -> when (settingsCurrentPage) {
+                "theme" -> FullTestDestination.THEME
+                "about" -> FullTestDestination.ABOUT
+                "admin" -> FullTestDestination.DEVELOPER
+                else -> null
+            }
+            else -> FullTestDestination.HOME
+        }
+        FullTestNavigationDrawer(
+            open = testMenuOpen,
+            selected = selectedDestination,
+            onClose = { testMenuOpen = false },
+            onSelect = { destination ->
+                testMenuOpen = false
+                when (destination) {
+                    FullTestDestination.NOTIFICATIONS -> onOpenNotificationSettings()
+                    FullTestDestination.PRIVACY -> {
+                        if (onOpenPrivacyPolicy != null) onOpenPrivacyPolicy()
+                        else uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
+                    }
+                    else -> {
+                        pendingAiCp = null
+                        surgeOpen = destination == FullTestDestination.FORECAST
+                        activeTab = when (destination) {
+                            FullTestDestination.HOME -> "home"
+                            FullTestDestination.MONITOR, FullTestDestination.FORECAST -> "monitor"
+                            else -> "settings"
+                        }
+                        if (activeTab == "settings") {
+                            settingsInitialPage = when (destination) {
+                                FullTestDestination.THEME -> "theme"
+                                FullTestDestination.ABOUT -> "about"
+                                else -> "admin"
+                            }
+                            settingsNavigationRequest += 1
+                        }
+                    }
+                }
+            },
+        )
     }
 
     if (showUpdatePrompt && updateAvailable && updateState.actionable) {
@@ -1858,6 +1929,8 @@ internal fun SettingsScreen(
     adminClient: AdminAccessClient? = null,
     adminServerClient: AdminServerClient? = null,
     onOpenPrivacyPolicy: (() -> Unit)? = null,
+    initialPage: String = "menu",
+    onPageChanged: ((String) -> Unit)? = null,
 ) {
     MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
         androidx.compose.material3.Surface(
@@ -1870,7 +1943,10 @@ internal fun SettingsScreen(
                     showServerStatus = false,
                     title = "Налаштування",
                 )
-                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient, onOpenPrivacyPolicy)
+                AdministrationSettings(
+                    Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient,
+                    onOpenPrivacyPolicy, initialPage, onPageChanged,
+                )
             }
         }
     }

@@ -65,6 +65,7 @@ android {
         // echerha.gov.ua — the client talks only to us (AGENTS.md, rule 1).
         buildConfigField("String", "API_BASE_URL", "\"https://api.bordersignal.pp.ua/api\"")
         buildConfigField("boolean", "ENABLE_PUSH", "true")
+        buildConfigField("boolean", "ENABLE_TEST_DRAWER", "false")
     }
 
     signingConfigs {
@@ -102,6 +103,7 @@ android {
             if (fullTest) {
                 applicationIdSuffix = ".test"
                 versionNameSuffix = "-test"
+                buildConfigField("boolean", "ENABLE_TEST_DRAWER", "true")
                 resValue("string", "google_app_id", pushQaProps.getProperty("googleAppId"))
                 resValue("string", "gcm_defaultSenderId", pushQaProps.getProperty("senderId"))
                 resValue("string", "google_api_key", pushQaProps.getProperty("apiKey"))
