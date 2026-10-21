@@ -32,8 +32,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -46,16 +48,20 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -77,13 +83,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,7 +113,7 @@ import ua.avelren.app.ui.theme.avelren
 import ua.avelren.app.ui.theme.hapticClick
 
 internal enum class FullTestDestination {
-    HOME, MONITOR, FORECAST, NOTIFICATIONS, THEME, ABOUT, PRIVACY, DEVELOPER,
+    HOME, MONITOR, FORECAST, SETTINGS, NOTIFICATIONS, THEME, ABOUT, PRIVACY, DEVELOPER,
 }
 
 private data class DrawerColors(
@@ -137,10 +146,12 @@ internal fun FullTestNavigationDrawer(
     serverStatus: ServerStatus,
     refreshing: Boolean,
     canChooseCheckpoint: Boolean,
+    monitorCount: Int?,
     onClose: () -> Unit,
     onSelect: (FullTestDestination) -> Unit,
     onChooseCheckpoint: () -> Unit,
     onRefresh: () -> Unit,
+    onToggleTheme: () -> Unit,
 ) {
     val visibility = remember { MutableTransitionState(false) }
     visibility.targetState = open
@@ -283,7 +294,8 @@ internal fun FullTestNavigationDrawer(
                                         Icons.Outlined.Home, selected, open, colors, onClose, onSelect)
                                     DrawerDivider(colors)
                                     DrawerRow(FullTestDestination.MONITOR, "Моніторинг",
-                                        Icons.Outlined.Schedule, selected, open, colors, onClose, onSelect)
+                                        Icons.Outlined.Schedule, selected, open, colors, onClose, onSelect,
+                                        badgeCount = monitorCount?.takeIf { it >= 0 })
                                     DrawerDivider(colors)
                                     DrawerRow(FullTestDestination.FORECAST, "Прогноз черги",
                                         Icons.Outlined.Insights, selected, open, colors, onClose, onSelect)
@@ -291,12 +303,14 @@ internal fun FullTestNavigationDrawer(
                             }
                             DrawerSection("НАЛАШТУВАННЯ", colors) {
                                 DrawerGroup(colors) {
+                                    DrawerRow(FullTestDestination.SETTINGS, "Налаштування",
+                                        Icons.Outlined.Settings, selected, open, colors, onClose, onSelect)
+                                    DrawerDivider(colors)
                                     DrawerRow(FullTestDestination.NOTIFICATIONS, "Сповіщення",
                                         Icons.Outlined.Notifications, selected, open, colors, onClose, onSelect)
                                     DrawerDivider(colors)
-                                    DrawerRow(FullTestDestination.THEME, "Тема",
-                                        Icons.Outlined.DarkMode, selected, open, colors, onClose, onSelect,
-                                        trailingText = if (dark) "Темна" else "Світла")
+                                    DrawerThemeToggle(dark = dark, enabled = open, colors = colors,
+                                        onToggleTheme = onToggleTheme)
                                 }
                             }
                             DrawerSection("ПРО ЗАСТОСУНОК", colors) {
@@ -369,6 +383,8 @@ private fun DrawerCheckpointCard(
     onRefresh: () -> Unit,
 ) {
     val shape = RoundedCornerShape(20.dp)
+    val fullTitle = checkpointTitle?.takeIf { it.isNotBlank() } ?: "Оберіть пункт пропуску"
+    val checkpointLabel = fullTestCheckpointLabel(fullTitle)
     Column(
         Modifier.fillMaxWidth().clip(shape).background(colors.group)
             .border(1.dp, colors.accent.copy(alpha = 0.5f), shape)
@@ -376,16 +392,25 @@ private fun DrawerCheckpointCard(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("ОБРАНИЙ КПП", color = colors.accent, style = MaterialTheme.typography.labelSmall)
-        // Text semantics retain the complete name even when the visual label is ellipsized.
-        Text(
-            text = checkpointTitle?.takeIf { it.isNotBlank() } ?: "Оберіть пункт пропуску",
-            color = colors.text,
-            style = MaterialTheme.typography.titleMedium,
-            fontSize = 14.sp,
-            lineHeight = 18.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(
+            Modifier.clearAndSetSemantics { contentDescription = fullTitle },
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = checkpointLabel.name,
+                color = colors.text,
+                style = MaterialTheme.typography.titleMedium,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            checkpointLabel.vehicleCategory?.let { category ->
+                // Vehicle limits and cargo restrictions must remain readable in full.
+                Text(category, color = colors.secondary, style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp, lineHeight = 14.sp)
+            }
+        }
         if (status.label.isNotBlank() || status == ServerStatus.CHECKING) {
             val statusColor = when (status) {
                 ServerStatus.ONLINE -> MaterialTheme.avelren.go
@@ -488,6 +513,41 @@ private fun DrawerDivider(colors: DrawerColors) {
 }
 
 @Composable
+private fun DrawerThemeToggle(
+    dark: Boolean,
+    enabled: Boolean,
+    colors: DrawerColors,
+    onToggleTheme: () -> Unit,
+) {
+    val toggle = hapticClick(onToggleTheme)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .toggleable(value = dark, enabled = enabled, role = Role.Switch, onValueChange = { toggle() })
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(if (dark) Icons.Outlined.DarkMode else Icons.Outlined.LightMode,
+            contentDescription = null, tint = colors.secondary, modifier = Modifier.size(22.dp))
+        Text("Темна тема", color = colors.text, style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f))
+        Switch(
+            checked = dark,
+            onCheckedChange = null,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = colors.onAccent,
+                checkedTrackColor = colors.accent,
+                checkedBorderColor = colors.accent,
+                uncheckedThumbColor = colors.secondary,
+                uncheckedTrackColor = colors.group,
+                uncheckedBorderColor = colors.divider,
+            ),
+        )
+    }
+}
+
+@Composable
 private fun DrawerRow(
     destination: FullTestDestination,
     title: String,
@@ -497,14 +557,17 @@ private fun DrawerRow(
     colors: DrawerColors,
     onClose: () -> Unit,
     onSelect: (FullTestDestination) -> Unit,
-    trailingText: String? = null,
+    badgeCount: Int? = null,
 ) {
     val isSelected = destination == selectedDestination
     val foreground = if (isSelected) colors.onAccent else colors.text
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .background(if (isSelected) colors.accent else Color.Transparent)
-            .semantics { selected = isSelected }
+            .semantics {
+                selected = isSelected
+                if (badgeCount != null) stateDescription = "Пороги та ETA: $badgeCount"
+            }
             .clickable(enabled = enabled, role = Role.Button, onClick = hapticClick {
                 onClose()
                 onSelect(destination)
@@ -517,9 +580,17 @@ private fun DrawerRow(
             modifier = Modifier.size(22.dp))
         Text(title, color = foreground, style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f))
-        if (trailingText != null) {
-            Text(trailingText, color = if (isSelected) colors.onAccent else colors.secondary,
-                style = MaterialTheme.typography.bodySmall)
+        if (badgeCount != null) {
+            val badgeColor = if (isSelected) colors.onAccent else colors.accent
+            Text(
+                text = badgeCount.toString(),
+                color = badgeColor,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.clearAndSetSemantics { }.clip(RoundedCornerShape(8.dp))
+                    .background(badgeColor.copy(alpha = 0.12f)).widthIn(min = 24.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                textAlign = TextAlign.Center,
+            )
         }
         Icon(Icons.Filled.ChevronRight, null,
             tint = if (isSelected) colors.onAccent else colors.secondary,

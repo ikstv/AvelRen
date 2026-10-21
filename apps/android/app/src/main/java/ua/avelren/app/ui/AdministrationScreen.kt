@@ -63,6 +63,7 @@ internal fun AdministrationSettings(
     onOpenPrivacyPolicy: (() -> Unit)? = null,
     initialPage: String = "menu",
     onPageChanged: ((String) -> Unit)? = null,
+    menuContent: (@Composable ((String) -> Unit) -> Unit)? = null,
 ) {
     var page by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
     LaunchedEffect(page) { onPageChanged?.invoke(page) }
@@ -74,6 +75,9 @@ internal fun AdministrationSettings(
     BackHandler(page != "menu") { page = "menu" }
     Column(modifier) {
         if (page == "menu") {
+            if (menuContent != null) {
+                menuContent { page = it }
+            } else {
             Column(
                 Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp),
@@ -84,6 +88,7 @@ internal fun AdministrationSettings(
                 SettingsMenuItem("Для розробника", Icons.Default.AdminPanelSettings) {
                     page = "admin"
                 }
+            }
             }
         } else if (page == "theme") {
             SettingsPageHeader("Тема") { page = "menu" }

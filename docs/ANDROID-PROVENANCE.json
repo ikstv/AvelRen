@@ -196,9 +196,15 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/UiPrefs.kt",
       "sha256": "8ada275eb3d9e739bae2820499dee16a1f5ffb5a3d40d9f2ca7ec4c06a917cba",
       "revision": {
-        "sha256": "82431c507b1aee0b09133894f1bf1534874eb8c423c62f71760dd8643cd7a4bc",
-        "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
-      }
+        "sha256": "cffde492a7725f6b245637976446104bdf43b2d3c187e557d7486359a65295ae",
+        "notes": "docs/RELEASE-READINESS.md"
+      },
+      "revision_history": [
+        {
+          "sha256": "82431c507b1aee0b09133894f1bf1534874eb8c423c62f71760dd8643cd7a4bc",
+          "notes": "docs/ANDROID-1.0.3-INTEGRATION.md"
+        }
+      ]
     },
     {
       "repository": "ikstv/AvelRen",
@@ -269,12 +275,16 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "45a0527de4be0ccf765c5a6ad06d7029376d41d5f4e2cc74c22899b45bb17153",
+        "sha256": "7d5b95ad10a013d6b9011efd365a0d9df667282a856843744d5c6a0f0acf39d8",
         "notes": "docs/RELEASE-READINESS.md"
       },
       "revision_history": [
         {
           "sha256": "80977658bed0a449a4f84355949e47b932cd03e0251628f059cabaa31912b19a",
+          "notes": "docs/RELEASE-READINESS.md"
+        },
+        {
+          "sha256": "45a0527de4be0ccf765c5a6ad06d7029376d41d5f4e2cc74c22899b45bb17153",
           "notes": "docs/RELEASE-READINESS.md"
         }
       ]
@@ -297,7 +307,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "6a0571fe412d29b4348dacbd5a27c79657f287f7168da5db9d7de5a3e1844612",
+        "sha256": "d9fb37a7af07649387c1e61da0e62907ad9ba8dfe334d4a3df2b2b55985e7b8f",
         "notes": "docs/RELEASE-READINESS.md"
       },
       "revision_history": [
@@ -319,6 +329,10 @@
         },
         {
           "sha256": "31429655858b0f621a696778bffe6184936ea25196682972db5d44aa3ede71ef",
+          "notes": "docs/RELEASE-READINESS.md"
+        },
+        {
+          "sha256": "6a0571fe412d29b4348dacbd5a27c79657f287f7168da5db9d7de5a3e1844612",
           "notes": "docs/RELEASE-READINESS.md"
         }
       ]

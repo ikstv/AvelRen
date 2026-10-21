@@ -47,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import ua.avelren.app.data.PushSyncState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
@@ -74,6 +75,7 @@ import android.os.Build
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
 
@@ -114,6 +116,9 @@ import ua.avelren.app.data.BackgroundDelivery
 import ua.avelren.app.data.BackgroundDeliveryHint
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
+import ua.avelren.app.data.UiPrefs
+import ua.avelren.app.ui.theme.LocalThemeChoice
+import ua.avelren.app.ui.theme.ThemeChoice
 import ua.avelren.app.data.LiveRefresh
 import ua.avelren.app.data.NetworkAvailability
 import ua.avelren.app.data.InternetState
@@ -229,6 +234,33 @@ internal fun AvelRenScreen(
     // сервера: subscriptions()/subscribe()/unsubscribe(). Флоу: тап по плитці →
     // пікер КПП → вибір порога (50/100/150/200) → subscribe.
     val scope = rememberCoroutineScope()
+    val selectedTheme = LocalThemeChoice.current
+    val keepScreenOn = if (BuildConfig.ENABLE_TEST_DRAWER) {
+        val enabled by remember(context) { UiPrefs.keepScreenOnFlow(context) }
+            .collectAsStateWithLifecycle(false)
+        val view = LocalView.current
+        DisposableEffect(view, enabled) {
+            val previous = view.keepScreenOn
+            view.keepScreenOn = enabled
+            onDispose { view.keepScreenOn = previous }
+        }
+        enabled
+    } else false
+    fun savePreference(action: suspend () -> Unit) {
+        scope.launch {
+            try { action() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                android.widget.Toast.makeText(context, "Не вдалося зберегти налаштування", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val toggleTheme: () -> Unit = {
+        savePreference {
+            UiPrefs.setTheme(context, if (selectedTheme == ThemeChoice.DARK) ThemeChoice.LIGHT else ThemeChoice.DARK)
+        }
+    }
+    var showRatingInfo by remember { mutableStateOf(false) }
     val installation = remember(context, screenClient) {
         if (screenClient == null) (context.applicationContext as AvelRenApp).installation else null
     }
@@ -470,6 +502,9 @@ internal fun AvelRenScreen(
     val serverStatus = ServerStatus.resolve(internet, responseSucceeded, freshness?.stale, maintenance, freshnessNow)
 
     val onMonitor = activeTab == "monitor"
+    val activeMonitorCount = if (monitorsLoaded && !monitorsFailed) {
+        subscriptions.size + etaTargets.count { it.is_active }
+    } else null
     val onSettings = activeTab == "settings"
     val forecastOpen = pendingAiCp != null || surgeOpen
     BackHandler(enabled = forecastOpen) { pendingAiCp = null; surgeOpen = false }
@@ -574,6 +609,26 @@ internal fun AvelRenScreen(
             onPageChanged = if (BuildConfig.ENABLE_TEST_DRAWER) {
                 { page -> settingsCurrentPage = page }
             } else null,
+            menuContent = if (BuildConfig.ENABLE_TEST_DRAWER) { navigate ->
+                FullTestSettingsScreen(
+                    dark = selectedTheme == ThemeChoice.DARK,
+                    onToggleTheme = toggleTheme,
+                    keepScreenOn = keepScreenOn,
+                    onKeepScreenOnChange = { enabled -> savePreference { UiPrefs.setKeepScreenOn(context, enabled) } },
+                    notificationsEnabled = !notificationsSilent,
+                    ignoringBatteryOptimizations = ignoringBatteryOptimizations,
+                    onOpenNotificationSettings = onOpenNotificationSettings,
+                    onOpenBatterySettings = onOpenBatterySettings,
+                    onShareApp = { shareAvelRen(context) },
+                    onRateApp = { showRatingInfo = true },
+                    onOpenAbout = { navigate("about") },
+                    onOpenPrivacy = {
+                        if (onOpenPrivacyPolicy != null) onOpenPrivacyPolicy()
+                        else openAvelRenPrivacy(context)
+                    },
+                    onOpenDeveloper = { navigate("admin") },
+                )
+            } else null,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
@@ -677,9 +732,13 @@ internal fun AvelRenScreen(
                 )
             }
             if (BuildConfig.ENABLE_TEST_DRAWER) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                    FullTestMenuButton(onClick = { testMenuOpen = true })
-                }
+                FullTestBottomBar(
+                    activeTab = activeTab,
+                    monitorCount = activeMonitorCount,
+                    onOpenMenu = { testMenuOpen = true },
+                    onHome = { activeTab = "home" },
+                    onMonitoring = { activeTab = "monitor" },
+                )
             } else {
                 BottomNavBar(
                     activeTab = activeTab, onSelect = { activeTab = it },
@@ -698,7 +757,7 @@ internal fun AvelRenScreen(
                 "theme" -> FullTestDestination.THEME
                 "about" -> FullTestDestination.ABOUT
                 "admin" -> FullTestDestination.DEVELOPER
-                else -> null
+                else -> FullTestDestination.SETTINGS
             }
             else -> FullTestDestination.HOME
         }
@@ -709,6 +768,8 @@ internal fun AvelRenScreen(
             serverStatus = serverStatus,
             refreshing = testMenuRefreshing,
             canChooseCheckpoint = workload.isNotEmpty(),
+            monitorCount = activeMonitorCount,
+            onToggleTheme = toggleTheme,
             onChooseCheckpoint = {
                 testMenuOpen = false
                 pendingAiCp = null
@@ -749,6 +810,7 @@ internal fun AvelRenScreen(
                             settingsInitialPage = when (destination) {
                                 FullTestDestination.THEME -> "theme"
                                 FullTestDestination.ABOUT -> "about"
+                                FullTestDestination.SETTINGS -> "menu"
                                 else -> "admin"
                             }
                             settingsNavigationRequest += 1
@@ -756,6 +818,13 @@ internal fun AvelRenScreen(
                     }
                 }
             },
+        )
+    }
+
+    if (BuildConfig.ENABLE_TEST_DRAWER && showRatingInfo) {
+        FullTestRatingInfo(
+            onDismiss = { showRatingInfo = false },
+            onOpenStore = { showRatingInfo = false; openAvelRenStore(context) },
         )
     }
 
@@ -1955,6 +2024,7 @@ internal fun SettingsScreen(
     onOpenPrivacyPolicy: (() -> Unit)? = null,
     initialPage: String = "menu",
     onPageChanged: ((String) -> Unit)? = null,
+    menuContent: (@Composable ((String) -> Unit) -> Unit)? = null,
 ) {
     MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
         androidx.compose.material3.Surface(
@@ -1970,6 +2040,7 @@ internal fun SettingsScreen(
                 AdministrationSettings(
                     Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient,
                     onOpenPrivacyPolicy, initialPage, onPageChanged,
+                    menuContent,
                 )
             }
         }
