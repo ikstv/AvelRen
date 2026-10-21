@@ -81,7 +81,6 @@ import android.os.Build
 
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
@@ -2500,15 +2499,14 @@ private fun CheckpointPickerSheet(
     Dialog(
         onDismissRequest = onDismiss,
         properties = if (BuildConfig.ENABLE_TEST_DRAWER)
-            DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+            DialogProperties(usePlatformDefaultWidth = true, decorFitsSystemWindows = false)
             else DialogProperties(usePlatformDefaultWidth = false),
     ) {
         if (BuildConfig.ENABLE_TEST_DRAWER) FullTestPickerWindowChrome()
         val pickerModifier = if (BuildConfig.ENABLE_TEST_DRAWER) {
-            // Bound the full-width dialog before applying system insets, matching
-            // the forecast picker so its last row cannot extend behind gestures.
-            val configuration = LocalConfiguration.current
-            Modifier.size(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
+            // Use the helper's MATCH_PARENT window constraints, as in the drawer,
+            // instead of Compose 1.7's configuration-sized full-width measurement.
+            Modifier.fillMaxSize()
                 .background(PickerSheetBg).windowInsetsPadding(WindowInsets.safeDrawing)
         } else {
             Modifier.fillMaxSize().background(PickerSheetBg)

@@ -18,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -302,14 +301,13 @@ internal fun ForecastOverviewScreen(
     }
     if (picker) Dialog(onDismissRequest = { picker = false },
         properties = if (BuildConfig.ENABLE_TEST_DRAWER)
-            DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+            DialogProperties(usePlatformDefaultWidth = true, decorFitsSystemWindows = false)
             else DialogProperties(usePlatformDefaultWidth = false)) {
         if (BuildConfig.ENABLE_TEST_DRAWER) FullTestPickerWindowChrome()
         val pickerModifier = if (BuildConfig.ENABLE_TEST_DRAWER) {
-            // A full-width Dialog can measure taller than its visible window. Bound
-            // the viewport before insets so its final row stays above system gestures.
-            val configuration = LocalConfiguration.current
-            Modifier.size(configuration.screenWidthDp.dp, configuration.screenHeightDp.dp)
+            // The helper supplies MATCH_PARENT; default-width measurement keeps
+            // the native window's real height constraints before safe insets.
+            Modifier.fillMaxSize()
                 .background(AppBackground).windowInsetsPadding(WindowInsets.safeDrawing)
         } else {
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
