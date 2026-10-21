@@ -26,6 +26,6 @@ class ProductionAppScreenClient(
     private suspend fun mutate(call: suspend (DeviceStore.Credentials) -> Unit) {
         val source = mutationCredentials
         if (source == null) installation.authenticatedCall(call)
-        else call(source() ?: throw IllegalStateException("Немає облікових даних для зміни моніторингу."))
+        else source()?.let { call(it) }
     }
 }

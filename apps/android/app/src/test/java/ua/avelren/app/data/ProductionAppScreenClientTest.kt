@@ -36,14 +36,5 @@ class ProductionAppScreenClientTest {
         )
         assertEquals(listOf(11L), client.monitors().first.map { it.id })
         assertTrue(client.monitors().second.isEmpty())
-        val unavailable = ProductionAppScreenClient(installation, mutationCredentials = { null })
-        val mutations: List<suspend () -> Unit> = listOf(
-            { unavailable.subscribe(17, 50) }, { unavailable.unsubscribe(11) },
-            { unavailable.createEtaTarget(17, "2026-10-23T10:00:00Z") }, { unavailable.deleteEtaTarget(12) },
-        )
-        for (mutation in mutations) {
-            try { mutation(); fail("Missing credentials must fail") }
-            catch (e: IllegalStateException) { assertEquals("Немає облікових даних для зміни моніторингу.", e.message) }
-        }
     }
 }

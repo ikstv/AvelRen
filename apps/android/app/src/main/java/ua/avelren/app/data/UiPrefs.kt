@@ -17,20 +17,8 @@ private val ONBOARDING_KEY = booleanPreferencesKey("onboarding_seen")
 private val FORECAST_IDS = stringPreferencesKey("forecast_preview_checkpoints")
 private val THEME_KEY = stringPreferencesKey("theme")
 private val KEEP_SCREEN_ON_KEY = booleanPreferencesKey("fulltest_keep_screen_on")
-private val FAVORITE_IDS = stringPreferencesKey("fulltest_favorite_checkpoints")
 
 object UiPrefs {
-    fun favoriteIdsFlow(ctx: Context): Flow<List<Int>> =
-        ctx.uiPrefs.data.map { FavoriteCheckpoints.parse(it[FAVORITE_IDS]) }
-
-    suspend fun toggleFavoriteCheckpoint(ctx: Context, id: Int) {
-        ctx.uiPrefs.edit { prefs ->
-            prefs[FAVORITE_IDS] = FavoriteCheckpoints.toggle(
-                FavoriteCheckpoints.parse(prefs[FAVORITE_IDS]), id,
-            ).joinToString(",")
-        }
-    }
-
     fun keepScreenOnFlow(ctx: Context): Flow<Boolean> =
         ctx.uiPrefs.data.map { it[KEEP_SCREEN_ON_KEY] ?: false }
 
