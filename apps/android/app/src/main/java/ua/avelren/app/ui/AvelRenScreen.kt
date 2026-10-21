@@ -49,6 +49,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import ua.avelren.app.data.PushSyncState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -123,6 +124,12 @@ import ua.avelren.app.data.BackgroundDeliveryHint
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
 import ua.avelren.app.data.UiPrefs
+import ua.avelren.app.data.DataRecency
+import ua.avelren.app.data.FavoriteCheckpoints
+import ua.avelren.app.data.EditableMonitor
+import ua.avelren.app.data.MonitorEditStatus
+import ua.avelren.app.data.NotificationReadiness
+import ua.avelren.app.notify.NotificationDiagnostics
 import ua.avelren.app.ui.theme.LocalThemeChoice
 import ua.avelren.app.ui.theme.ThemeChoice
 import ua.avelren.app.data.LiveRefresh
@@ -247,6 +254,19 @@ internal fun AvelRenScreen(
         FullTestKeepScreenOn(enabled)
         enabled
     } else false
+    val favoriteIds = if (BuildConfig.ENABLE_TEST_DRAWER) {
+        val ids by remember(context) { UiPrefs.favoriteIdsFlow(context) }.collectAsStateWithLifecycle(emptyList())
+        ids
+    } else emptyList()
+    var notificationReadiness by remember { mutableStateOf<NotificationReadiness.Result?>(null) }
+    LaunchedEffect(lifecycleOwner, activeTab) {
+        if (BuildConfig.ENABLE_TEST_DRAWER) lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            do {
+                notificationReadiness = NotificationReadiness.evaluate(NotificationDiagnostics.snapshot(context))
+                if (activeTab == "settings") delay(5_000)
+            } while (activeTab == "settings")
+        }
+    }
     fun savePreference(action: suspend () -> Unit) {
         scope.launch {
             try { action() }
@@ -305,6 +325,14 @@ internal fun AvelRenScreen(
     // Рядок, який ✕ пропонує прибрати — тримаємо до підтвердження (запобіжник
     // від випадкового тапу). Саме видалення — лише після «Прибрати».
     var pendingRemove by remember { mutableStateOf<MonitorRow?>(null) }
+    var pendingEdit by remember { mutableStateOf<MonitorRow?>(null) }
+    var editBusy by remember { mutableStateOf(false) }
+    var monitorRemoveBusy by remember { mutableStateOf(false) }
+    var editError by remember { mutableStateOf<String?>(null) }
+    var manualRefreshPending by remember { mutableStateOf(false) }
+    val editRow: (MonitorRow) -> Unit = { row ->
+        if (canChangeMonitors && !editBusy && !monitorRemoveBusy) { editError = null; pendingEdit = row }
+    }
     // Одне тіло завантаження моніторингу на всі тригери — старт, зміна вкладки,
     // відновлення мережі, полл, зміни підписок, — щоб вони не розійшлись у
     // поведінці. Прапорець зводиться лише коли ОБИДВА запити вдались: інакше
@@ -359,6 +387,7 @@ internal fun AvelRenScreen(
                 current = now?.let { "${it.vehicles_in_queue}" } ?: "—",
                 kind = MonitorKind.THRESHOLD,
                 id = s.id,
+                editable = EditableMonitor(s.id, s.checkpoint_id, threshold = s.threshold),
             )
         } + etaTargets.map { t ->
             val now = workload.firstOrNull { it.checkpoint_id == t.checkpoint_id }
@@ -368,13 +397,16 @@ internal fun AvelRenScreen(
                 current = now?.let { WaitPresentation.entryEta(it) }?.let { formatEntry(it) } ?: "—",
                 kind = MonitorKind.ETA,
                 id = t.id,
+                editable = EditableMonitor(t.id, t.checkpoint_id, targetAt = t.target_at),
             )
         }
     }
     val removeRow: (MonitorRow) -> Unit = { row ->
-        if (canChangeMonitors) {
+        if (canChangeMonitors && (!BuildConfig.ENABLE_TEST_DRAWER || (!monitorRemoveBusy && !editBusy))) {
             scope.launch {
-                runCatching {
+                if (BuildConfig.ENABLE_TEST_DRAWER) monitorRemoveBusy = true
+                try {
+                val removal = runCatching {
                     ua.avelren.app.data.removeMonitorAndReconcile(
                         remove = {
                             when (row.kind) {
@@ -388,8 +420,12 @@ internal fun AvelRenScreen(
                             }
                         },
                     )
-                }
+                }.onFailure { if (it is CancellationException) throw it }
                 loadMonitors()
+                if (BuildConfig.ENABLE_TEST_DRAWER) android.widget.Toast.makeText(context,
+                    if (removal.isSuccess) "Моніторинг скасовано" else "Не вдалося завершити скасування. Перевірте оновлений список.",
+                    android.widget.Toast.LENGTH_LONG).show()
+                } finally { monitorRemoveBusy = false }
             }
         }
     }
@@ -590,6 +626,8 @@ internal fun AvelRenScreen(
             MonitoringTile(
                 rows = monitorRows,
                 onRemove = { pendingRemove = it },
+                onEdit = if (BuildConfig.ENABLE_TEST_DRAWER && canChangeMonitors) editRow else null,
+                actionsEnabled = !BuildConfig.ENABLE_TEST_DRAWER || (canChangeMonitors && !editBusy && !monitorRemoveBusy),
                 modifier = Modifier.fillMaxWidth(),
                 homeStyle = true,
                 fill = false,
@@ -628,6 +666,7 @@ internal fun AvelRenScreen(
                         else openAvelRenPrivacy(context)
                     },
                     onOpenDeveloper = { navigate("admin") },
+                    notificationReadiness = notificationReadiness,
                 )
             } else null,
             modifier = Modifier
@@ -652,6 +691,24 @@ internal fun AvelRenScreen(
                     remainingMinutes = maintenance?.remainingMinutes(freshnessNow),
                 )
             }
+            if (BuildConfig.ENABLE_TEST_DRAWER) {
+                item {
+                    FullTestDataStatus(DataRecency.describe(obsTime, freshnessNow, internet, responseSucceeded),
+                        refreshing = manualRefreshPending,
+                        onRefresh = {
+                            if (!manualRefreshPending) scope.launch {
+                                manualRefreshPending = true
+                                try { refresh() } finally { manualRefreshPending = false }
+                            }
+                        })
+                }
+                item {
+                    FullTestFavorites(workload, favoriteIds, selected,
+                        onSelect = { id -> selected = id; DeviceStore.saveSelectedCheckpoint(context, id) },
+                        onToggle = { id -> savePreference { UiPrefs.toggleFavoriteCheckpoint(context, id) } },
+                        modifier = Modifier.padding(vertical = 12.dp))
+                }
+            }
             if (pushState != null && pushState != PushSyncState.Synced) {
                 item { PushSyncStatus(pushState, retryPush) }
             }
@@ -674,6 +731,13 @@ internal fun AvelRenScreen(
                     }
                 }
             } else if (current != null) {
+                if (BuildConfig.ENABLE_TEST_DRAWER) item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Поточний КПП", color = MaterialTheme.avelren.ink2, modifier = Modifier.weight(1f))
+                        FullTestFavoriteToggle(current.checkpoint_id, current.title, current.checkpoint_id in favoriteIds,
+                            onToggle = { id -> savePreference { UiPrefs.toggleFavoriteCheckpoint(context, id) } })
+                    }
+                }
                 item { HeroPanel(current) { showPicker = true } }
                 if (BuildConfig.ENABLE_TEST_DRAWER) {
                     item {
@@ -697,6 +761,8 @@ internal fun AvelRenScreen(
                     MonitoringTile(
                         rows = monitorRows,
                         onRemove = { pendingRemove = it },
+                        onEdit = if (BuildConfig.ENABLE_TEST_DRAWER && canChangeMonitors) editRow else null,
+                        actionsEnabled = !BuildConfig.ENABLE_TEST_DRAWER || (canChangeMonitors && !editBusy && !monitorRemoveBusy),
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                         homeStyle = true,
                         loaded = monitorsLoaded,
@@ -864,6 +930,8 @@ internal fun AvelRenScreen(
                 showPicker = false
             },
             onDismiss = { showPicker = false },
+            favoriteIds = favoriteIds,
+            onToggleFavorite = { id -> savePreference { UiPrefs.toggleFavoriteCheckpoint(context, id) } },
         )
     }
 
@@ -880,6 +948,8 @@ internal fun AvelRenScreen(
                 showThresholdCpPicker = false
             },
             onDismiss = { showThresholdCpPicker = false },
+            favoriteIds = favoriteIds,
+            onToggleFavorite = { id -> savePreference { UiPrefs.toggleFavoriteCheckpoint(context, id) } },
         )
     }
 
@@ -937,6 +1007,8 @@ internal fun AvelRenScreen(
                 showEtaCpPicker = false
             },
             onDismiss = { showEtaCpPicker = false },
+            favoriteIds = favoriteIds,
+            onToggleFavorite = { id -> savePreference { UiPrefs.toggleFavoriteCheckpoint(context, id) } },
         )
     }
 
@@ -950,6 +1022,30 @@ internal fun AvelRenScreen(
             },
             onDismiss = { pendingRemove = null },
         )
+    }
+
+    if (BuildConfig.ENABLE_TEST_DRAWER) pendingEdit?.let { row ->
+        row.editable?.let { original ->
+            FullTestMonitorEditor(original = original, title = row.label, busy = editBusy, error = editError,
+                onDismiss = { if (!editBusy) { pendingEdit = null; editError = null } },
+                onSave = { value ->
+                    if (!editBusy && canChangeMonitors) scope.launch {
+                        editBusy = true
+                        try {
+                            val result = ua.avelren.app.data.replaceMonitor(dataClient, original, value)
+                            if (result.status == MonitorEditStatus.SUCCESS || result.status == MonitorEditStatus.NO_CHANGE) {
+                                pendingEdit = null
+                                android.widget.Toast.makeText(context, result.message, android.widget.Toast.LENGTH_LONG).show()
+                                if (result.status == MonitorEditStatus.SUCCESS && BuildConfig.ENABLE_PUSH && installation != null) {
+                                    runCatching { ua.avelren.app.notify.NotificationReconciler.reconcile(context, installation) }
+                                        .onFailure { if (it is CancellationException) throw it }
+                                }
+                            } else editError = result.message
+                            loadMonitors()
+                        } finally { editBusy = false }
+                    }
+                })
+        }
     }
 
     // Крок 2 — вибір дня й часу в'їзду → createEtaTarget.
@@ -1146,6 +1242,7 @@ data class MonitorRow(
     val current: String,
     val kind: MonitorKind,
     val id: Long,
+    val editable: EditableMonitor? = null,
 )
 
 private val WatchRowBorder: Color @Composable get() = AppInk.copy(alpha = 0.14f)  // rgba(255,255,255,.14)
@@ -1162,6 +1259,8 @@ private fun MonitoringTile(
     failed: Boolean = false,
     onRetry: () -> Unit = {},
     notificationsSilent: Boolean = false,  // дозволу нема → рядки несуть позначку «беззвучна»
+    onEdit: ((MonitorRow) -> Unit)? = null,
+    actionsEnabled: Boolean = true,
 ) {
     val shape = RoundedCornerShape(if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 16.dp)
     Column(
@@ -1230,7 +1329,10 @@ private fun MonitoringTile(
                     .then(if (fill) Modifier.weight(1f).verticalScroll(rememberScrollState()) else Modifier),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                rows.forEach { row -> MonitorRowView(row, notificationsSilent) { onRemove(row) } }
+                rows.forEach { row -> MonitorRowView(row, notificationsSilent,
+                    actionsEnabled = actionsEnabled,
+                    onEdit = onEdit?.takeIf { row.editable != null }?.let { edit -> { edit(row) } },
+                    onRemove = { onRemove(row) }) }
             }
         }
     }
@@ -1241,7 +1343,9 @@ private fun MonitoringTile(
  * Кнопка прибирання спільна з прогнозом і відкриває підтвердження.
  */
 @Composable
-private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemove: () -> Unit) {
+@OptIn(ExperimentalLayoutApi::class)
+private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onEdit: (() -> Unit)? = null,
+    actionsEnabled: Boolean = true, onRemove: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -1272,7 +1376,13 @@ private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemo
                     style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TabularNumberFeature),
                 )
             }
-            RemoveCheckpointButton(row.label, onClick = onRemove)
+            if (onEdit == null) RemoveCheckpointButton(row.label, enabled = actionsEnabled, onClick = onRemove)
+        }
+        if (onEdit != null) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onEdit, enabled = actionsEnabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Змінити") }
+                TextButton(onClick = onRemove, enabled = actionsEnabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Скасувати моніторинг") }
+            }
         }
         if (notificationsSilent) {
             // Позначка «беззвучна» — суто зі стану дозволу в момент рендеру.
@@ -1813,12 +1923,13 @@ private fun ForecastScreen(
     var failed by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var horizonStart by remember { mutableStateOf(Instant.now()) }
+    var receivedAt by remember { mutableStateOf<Instant?>(null) }
     LaunchedEffect(checkpointId, reload) {
         loading = true
         failed = false
         horizonStart = Instant.now()
         runCatching { loadForecast(checkpointId) }
-            .onSuccess { forecast = it; loading = false }
+            .onSuccess { forecast = it; receivedAt = Instant.now(); loading = false }
             .onFailure { failed = true; loading = false }
     }
 
@@ -1864,6 +1975,9 @@ private fun ForecastScreen(
         }
 
         val f = forecast
+        if (BuildConfig.ENABLE_TEST_DRAWER) item {
+            SurfaceForecastExplanation(receivedAt, f?.status)
+        }
         when {
             loading -> item {
                 Box(Modifier.fillMaxWidth().padding(vertical = 56.dp), contentAlignment = Alignment.Center) {
@@ -2484,16 +2598,22 @@ private fun CheckpointPickerSheet(
     onFilter: (String?) -> Unit,
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
+    favoriteIds: List<Int> = emptyList(),
+    onToggleFavorite: ((Int) -> Unit)? = null,
 ) {
+    var query by remember { mutableStateOf("") }
     // Фільтр-прапори й відсортований список — лише коли змінились дані/фільтр,
     // а не на кожну рекомпозицію діалогу (сортування ~40 елементів щоразу).
     val flags = remember(workload) {
         workload.mapNotNull { it.flag_emoji }.distinct().sorted()
     }
-    val rows = remember(workload, countryFilter) {
-        (if (countryFilter == null) workload
+    val rows = remember(workload, countryFilter, query, favoriteIds) {
+        val filtered = (if (countryFilter == null) workload
         else workload.filter { it.flag_emoji == countryFilter })
             .sortedByDescending { it.vehicles_in_queue }
+        if (BuildConfig.ENABLE_TEST_DRAWER) FavoriteCheckpoints.orderedForPicker(
+            filtered.filter { it.title.contains(query.trim(), ignoreCase = true) }, favoriteIds, Api.Workload::checkpoint_id)
+        else filtered
     }
 
     Dialog(
@@ -2555,6 +2675,16 @@ private fun CheckpointPickerSheet(
                 // Макет: `flex-wrap:wrap; gap:8px` — пігулки переносяться в рядок,
                 // а не стоять колонкою; знизу відступ ~16 до списку.
                 item {
+                    if (BuildConfig.ENABLE_TEST_DRAWER) {
+                        OutlinedTextField(value = query, onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            label = { Text("Пошук КПП") }, singleLine = true,
+                            trailingIcon = if (query.isNotEmpty()) { {
+                                IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Очистити пошук КПП")
+                                }
+                            } } else null)
+                    }
                     FlowRow(
                         Modifier.fillMaxWidth().padding(bottom = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2575,11 +2705,22 @@ private fun CheckpointPickerSheet(
                     }
                 }
                 items(rows, key = { it.checkpoint_id }) { row ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
                     PickerRow(
                         item = row,
                         selected = row.checkpoint_id == selectedId,
                         onClick = { onPick(row.checkpoint_id) },
                     )
+                    }
+                    if (BuildConfig.ENABLE_TEST_DRAWER && onToggleFavorite != null) {
+                        FullTestFavoriteToggle(row.checkpoint_id, row.title, row.checkpoint_id in favoriteIds, onToggleFavorite)
+                    }
+                    }
+                }
+                if (BuildConfig.ENABLE_TEST_DRAWER && rows.isEmpty()) item {
+                    Text("За цим пошуком КПП не знайдено. Змініть назву або країну.", color = AppInk,
+                        modifier = Modifier.padding(12.dp))
                 }
                 if (!BuildConfig.ENABLE_TEST_DRAWER) item { Spacer(Modifier.height(14.dp)) }
             }

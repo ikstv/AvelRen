@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import ua.avelren.app.data.NotificationReadiness
 import ua.avelren.app.ui.theme.AppAccent
 import ua.avelren.app.ui.theme.AppBackground
 import ua.avelren.app.ui.theme.AppInk
@@ -67,6 +68,7 @@ internal fun FullTestSettingsScreen(
     onOpenPrivacy: () -> Unit,
     onOpenDeveloper: () -> Unit,
     modifier: Modifier = Modifier,
+    notificationReadiness: NotificationReadiness.Result? = null,
 ) {
     Column(
         modifier = modifier.fillMaxWidth()
@@ -94,7 +96,7 @@ internal fun FullTestSettingsScreen(
         FullTestSettingsGroup("Сповіщення") {
             FullTestSettingsAction(
                 title = "Звук і сповіщення",
-                subtitle = if (notificationsEnabled) {
+                subtitle = notificationReadiness?.let { "${it.title}. ${it.detail} Натисніть, щоб відкрити налаштування Android." } ?: if (notificationsEnabled) {
                     "Дозвіл Android надано · налаштувати звук"
                 } else {
                     "Вимкнено в Android · відкрити налаштування"
@@ -102,11 +104,29 @@ internal fun FullTestSettingsScreen(
                 icon = Icons.Outlined.Notifications,
                 onClick = onOpenNotificationSettings,
             )
+            notificationReadiness?.indicators?.forEach { indicator ->
+                FullTestSettingsDivider()
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = when (indicator.status) {
+                            NotificationReadiness.Status.Observed -> indicator.title
+                            NotificationReadiness.Status.Attention -> "Увага · ${indicator.title}"
+                            NotificationReadiness.Status.Unknown -> "Невідомо · ${indicator.title}"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (indicator.status == NotificationReadiness.Status.Attention) AppAccent else AppInk,
+                    )
+                    Text(indicator.detail, color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             FullTestSettingsDivider()
             FullTestSettingsAction(
                 title = "Фонова робота",
                 subtitle = if (ignoringBatteryOptimizations) {
-                    "Перевірити обмеження батареї Android"
+                    "Стандартна оптимізація батареї Android вимкнена"
                 } else {
                     "Android може обмежувати роботу у фоні"
                 },

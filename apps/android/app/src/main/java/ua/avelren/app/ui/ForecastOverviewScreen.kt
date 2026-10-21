@@ -78,6 +78,7 @@ internal fun ForecastOverviewScreen(
     var changeJob by remember { mutableStateOf<Job?>(null) }
     var voiceProblem by remember { mutableStateOf(local.voiceProblem()) }
     var now by remember { mutableStateOf(Instant.now()) }
+    var receivedAt by remember { mutableStateOf<Instant?>(null) }
     suspend fun refresh() = mutex.withLock {
         try {
             val cps = repository.checkpoints()
@@ -92,6 +93,7 @@ internal fun ForecastOverviewScreen(
             subscriptions = subs
             snapshots = states
             now = Instant.now()
+            receivedAt = now
             error = null
             val channelStates = mutableListOf<VoiceChannelState>()
             var failure: String? = null
@@ -199,6 +201,7 @@ internal fun ForecastOverviewScreen(
                         style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            if (BuildConfig.ENABLE_TEST_DRAWER) item { SurfaceForecastExplanation(receivedAt) }
             item { Text("Вибрано ${ids.size} із ${ForecastSelection.MAX}", color = AppAccent, fontWeight = FontWeight.Bold) }
             item {
                 if (ids.size < ForecastSelection.MAX) {
