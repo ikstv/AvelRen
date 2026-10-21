@@ -36,12 +36,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Build as MaintenanceIcon
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,6 +58,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -1155,19 +1162,21 @@ private fun MonitoringTile(
     onRetry: () -> Unit = {},
     notificationsSilent: Boolean = false,  // дозволу нема → рядки несуть позначку «беззвучна»
 ) {
+    val shape = RoundedCornerShape(if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 16.dp)
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (homeStyle) AppBackground else HeroGlass)
-            .border(if (homeStyle) 1.5.dp else 1.dp, if (homeStyle) SignWarn.copy(alpha = 0.5f) else HeroBorder, RoundedCornerShape(16.dp))
+            .clip(shape)
+            .background(if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.colorScheme.surfaceVariant else if (homeStyle) AppBackground else HeroGlass)
+            .border(if (homeStyle && !BuildConfig.ENABLE_TEST_DRAWER) 1.5.dp else 1.dp,
+                if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line else if (homeStyle) SignWarn.copy(alpha = 0.5f) else HeroBorder, shape)
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
             "Ваш моніторинг",
-            color = HeroYellow,
+            color = if (BuildConfig.ENABLE_TEST_DRAWER) AppInk else HeroYellow,
             fontWeight = FontWeight.Black,
             style = MaterialTheme.typography.bodyMedium,
-            fontSize = 12.sp,
+            fontSize = if (BuildConfig.ENABLE_TEST_DRAWER) 16.sp else 12.sp,
             letterSpacing = 0.025.em,
         )
         if (failed || (!loaded && !loading)) {
@@ -1235,6 +1244,7 @@ private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemo
     Column(
         Modifier
             .fillMaxWidth()
+            .then(if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.clip(RoundedCornerShape(12.dp)).background(AppBackground) else Modifier)
             .border(1.dp, WatchRowBorder, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1294,11 +1304,14 @@ private fun ActionTile(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit = {},
 ) {
+    val shape = RoundedCornerShape(if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 16.dp)
     Row(
         modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(AppBackground)
-            .border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            .clip(shape)
+            .background(if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.colorScheme.surfaceVariant else AppBackground)
+            .border(if (BuildConfig.ENABLE_TEST_DRAWER) 1.dp else 1.5.dp,
+                if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line else SignWarn.copy(alpha = 0.5f), shape)
+            .then(if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.semantics { role = Role.Button } else Modifier)
             .tapNoRipple {
                 onClick()
             }
@@ -1310,10 +1323,10 @@ private fun ActionTile(
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                color = HeroYellow,
+                color = if (BuildConfig.ENABLE_TEST_DRAWER) AppInk else HeroYellow,
                 fontWeight = FontWeight.Black,
                 style = MaterialTheme.typography.bodyMedium,
-                fontSize = 12.sp,
+                fontSize = if (BuildConfig.ENABLE_TEST_DRAWER) 16.sp else 12.sp,
                 letterSpacing = 0.025.em,
             )
             Spacer(Modifier.height(4.dp))
@@ -1321,11 +1334,14 @@ private fun ActionTile(
                 subtitle,
                 color = EmptyInk,
                 style = MaterialTheme.typography.bodySmall,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                fontSize = if (BuildConfig.ENABLE_TEST_DRAWER) 13.sp else 12.sp,
+                lineHeight = if (BuildConfig.ENABLE_TEST_DRAWER) 19.sp else 16.sp,
             )
         }
         Spacer(Modifier.width(12.dp))
+        if (BuildConfig.ENABLE_TEST_DRAWER) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.avelren.ink2, modifier = Modifier.size(24.dp))
+        } else {
         // «+» намальований штрихами (не гліф шрифту): рівні плечі, круглі кінці,
         // ідеально по центру — чистіший вигляд.
         val iconAccent = HeroYellow
@@ -1335,6 +1351,7 @@ private fun ActionTile(
             val sw = 2.2.dp.toPx()
             drawLine(iconAccent, Offset(c - arm, c), Offset(c + arm, c), sw, cap = StrokeCap.Round)
             drawLine(iconAccent, Offset(c, c - arm), Offset(c, c + arm), sw, cap = StrokeCap.Round)
+        }
         }
     }
 }
@@ -1515,6 +1532,16 @@ private fun SilentSubscribeDialog(
     onSubscribeAnyway: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Сповіщення вимкнені", onDismiss, actions = {
+            FullTestDialogAction("Увімкнути сповіщення", onEnable, primary = true)
+            FullTestDialogAction("Все одно підписатись", onSubscribeAnyway)
+        }) {
+            Text("Без дозволу на сповіщення підписка не зможе вас попередити — сервер надішле, але екран промовчить.",
+                color = AppInk, style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1576,6 +1603,21 @@ private fun ThresholdChooserDialog(
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Поріг сповіщення", onDismiss, actions = {
+            FullTestDialogAction("Скасувати", onDismiss)
+        }) {
+            Text(checkpointTitle, color = AppInk, style = MaterialTheme.typography.titleMedium)
+            Text("Сповістити, коли авто в черзі буде:", color = MaterialTheme.avelren.ink2,
+                style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(50, 100, 150, 200, 250, 300, 350, 400).forEach { value ->
+                    PickerFilterChip("$value", active = false) { onPick(value) }
+                }
+            }
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1660,6 +1702,25 @@ private fun EtaChooserDialog(
     val hours = remember { (0..23).map { "%02d:00".format(it) } }
     var dayOff by remember { mutableStateOf(1) }        // за замовч. ЗАВТРА
     var hour by remember { mutableStateOf("06:00") }
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Час в'їзду", onDismiss, actions = {
+            FullTestDialogAction("Стежити", { onPick(etaIso(today, dayOff, hour)) }, primary = true)
+            FullTestDialogAction("Скасувати", onDismiss)
+        }) {
+            Text(checkpointTitle, color = AppInk, style = MaterialTheme.typography.titleMedium)
+            Text("Коли плануєте в'їхати:", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                (0..4).forEach { off ->
+                    PickerFilterChip(etaDayLabel(today, off), active = dayOff == off) { dayOff = off }
+                }
+            }
+            Text("Час за Києвом", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                hours.forEach { value -> PickerFilterChip(value, active = hour == value) { hour = value } }
+            }
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1769,6 +1830,11 @@ private fun ForecastScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
+            if (BuildConfig.ENABLE_TEST_DRAWER) {
+                TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("←  Назад до КПП", color = HeroYellow, fontWeight = FontWeight.Bold)
+                }
+            } else {
             Text(
                 "←  Назад до КПП",
                 color = HeroYellow,
@@ -1776,6 +1842,7 @@ private fun ForecastScreen(
                 fontSize = 14.sp,
                 modifier = Modifier.tapNoRipple(onClick = onBack).padding(vertical = 8.dp),
             )
+            }
         }
         item {
             Column {
@@ -1877,6 +1944,26 @@ private fun ForecastPeakCard(point: Api.CountForecastPoint) {
 
 @Composable
 private fun ForecastHourRow(point: Api.CountForecastPoint, maxVehicles: Int, isPeak: Boolean) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(forecastHourLabel(point.time), modifier = Modifier.weight(1f),
+                    color = if (isPeak) HeroYellow else MaterialTheme.avelren.ink2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("${point.vehicles_expected} авто", modifier = Modifier.weight(1f), textAlign = TextAlign.End,
+                    color = AppInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            Text(forecastRangeLabel(point), color = MaterialTheme.avelren.ink2, fontSize = 12.sp)
+            val fraction = if (maxVehicles > 0) (point.vehicles_expected.toFloat() / maxVehicles).coerceIn(0f, 1f) else 0f
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(MaterialTheme.avelren.line)) {
+                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(HeroYellow.copy(alpha = if (isPeak) 1f else 0.58f)))
+            }
+        }
+        return
+    }
     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             forecastHourLabel(point.time),
@@ -1958,6 +2045,15 @@ internal fun ConfirmRemoveDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Прибрати з моніторингу?", onDismiss, actions = {
+            FullTestDialogAction("Прибрати", onConfirm, primary = true)
+            FullTestDialogAction("Скасувати", onDismiss)
+        }) {
+            Text(description, color = AppInk, style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -2058,6 +2154,18 @@ private fun AppUpdateDialog(
     onUpdate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog(if (ready) "Оновлення готове" else "Доступна нова версія", onDismiss, actions = {
+            FullTestDialogAction(if (ready) "Встановити" else "Оновити", onUpdate,
+                primary = true, enabled = !actionPending)
+            FullTestDialogAction("Пізніше", onDismiss)
+        }) {
+            Text(if (ready) "Нову версію завантажено. Для встановлення AvelRen буде перезапущено."
+                else "Оновіть AvelRen через Google Play, щоб отримати останні зміни.",
+                color = AppInk, style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -2403,6 +2511,13 @@ private fun CheckpointPickerSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (BuildConfig.ENABLE_TEST_DRAWER) {
+                    Text("Оберіть КПП", color = AppInk, style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Filled.Close, contentDescription = "Закрити вибір КПП", tint = MaterialTheme.avelren.ink2)
+                    }
+                } else {
                 // Макет: `font:900 10.5px; letter-spacing:2px; color:rgba(255,255,255,.6)`
                 // → трекінг 2/10.5 = 0.19em.
                 Text(
@@ -2419,6 +2534,7 @@ private fun CheckpointPickerSheet(
                     fontSize = 17.sp,
                     modifier = Modifier.tapNoRipple(onClick = onDismiss).padding(4.dp),
                 )
+                }
             }
             Spacer(Modifier.height(12.dp))
 
@@ -2475,6 +2591,22 @@ private fun PickerFilterChip(
     inactiveColor: Color = HeroYellow,
     onClick: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        Box(
+            Modifier.clip(RoundedCornerShape(16.dp))
+                .background(if (active) HeroYellow else MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, if (active) HeroYellow else MaterialTheme.avelren.line, RoundedCornerShape(16.dp))
+                .heightIn(min = 48.dp)
+                .semantics { selected = active; role = Role.Button }
+                .tapNoRipple(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(label, color = if (active) PickerInk else AppInk, fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Text(
         label,
         color = if (active) PickerInk else inactiveColor,
@@ -2503,6 +2635,7 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
     val subColor = if (selected) PickerSubOnYellow else EmptyInk
     val borderColor = if (selected) PickerInk else Color.Transparent
     val plateColor = if (selected) PickerInk else HeroYellow
+    val shape = if (BuildConfig.ENABLE_TEST_DRAWER) RoundedCornerShape(20.dp) else RoadSignShape.Card
     // Дата в'їзду парситься раз на КПП (ключ — entry_eta), а не на кожен кадр
     // скролу: OffsetDateTime.parse + форматер помітно дорожчі за решту рядка.
     val entrySub = remember(item.entry_eta, item.wait_estimate) {
@@ -2512,9 +2645,10 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoadSignShape.Card)
+            .clip(shape)
             .background(bg)
-            .border(2.dp, borderColor, RoadSignShape.Card)
+            .border(if (BuildConfig.ENABLE_TEST_DRAWER) 1.dp else 2.dp,
+                if (BuildConfig.ENABLE_TEST_DRAWER && !selected) MaterialTheme.avelren.line else borderColor, shape)
             .tapNoRipple {
                 onClick()
             }

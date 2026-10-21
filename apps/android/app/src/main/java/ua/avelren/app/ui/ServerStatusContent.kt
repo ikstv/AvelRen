@@ -1,6 +1,7 @@
 package ua.avelren.app.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -25,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.util.Locale
 import kotlinx.coroutines.launch
+import ua.avelren.app.BuildConfig
+import ua.avelren.app.ui.theme.AppAccent
+import ua.avelren.app.ui.theme.avelren
 import ua.avelren.app.ui.theme.SignGo
 import ua.avelren.app.ui.theme.SignWarn
 import ua.avelren.app.ui.theme.SignClosed
@@ -39,13 +44,20 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
     // Hide expired values even if the user leaves this screen untouched; no HTTP polling.
     LaunchedEffect(loader, loader.status) { loader.expireSnapshot() }
     val presentation = serverStatusPresentation(loader.status, Instant.now())
-    Column(modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
+    Column(modifier.verticalScroll(rememberScrollState()).padding(
+        horizontal = if (BuildConfig.ENABLE_TEST_DRAWER) 0.dp else 20.dp,
+        vertical = if (BuildConfig.ENABLE_TEST_DRAWER) 16.dp else 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Стан сервера", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Стан сервера", style = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.typography.titleLarge
+            else MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = ua.avelren.app.ui.theme.hapticClick { scope.launch { loader.refresh() } }, enabled = !loader.busy,
-                modifier = Modifier.heightIn(min = 48.dp)) {
+                modifier = Modifier.heightIn(min = 48.dp),
+                shape = if (BuildConfig.ENABLE_TEST_DRAWER) RoundedCornerShape(16.dp) else ButtonDefaults.textShape,
+                colors = if (BuildConfig.ENABLE_TEST_DRAWER) ButtonDefaults.textButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = AppAccent,
+                ) else ButtonDefaults.textButtonColors()) {
                 Box(contentAlignment = Alignment.Center) {
                     if (loader.busy) {
                         // Preserve the text footprint without exposing a second accessible label.
@@ -62,8 +74,7 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Column(Modifier.fillMaxWidth()
-            .border(1.dp, SignWarn.copy(alpha = 0.65f), RoundedCornerShape(16.dp)).padding(12.dp),
+        Column(Modifier.fillMaxWidth().serverResourcePanel(),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("CPU", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -87,8 +98,7 @@ internal fun ServerStatusContent(server: AdminServerClient, modifier: Modifier =
 private fun ResourceStrip(label: String, status: ua.avelren.app.data.Api.ServerResourceStatus?,
     maxAgeSeconds: Long, traffic: Boolean = false) {
     val p = resourceStatusPresentation(status, Instant.now(), maxAgeSeconds, traffic)
-    Column(Modifier.fillMaxWidth()
-        .border(1.dp, SignWarn.copy(alpha = 0.65f), RoundedCornerShape(16.dp)).padding(12.dp),
+    Column(Modifier.fillMaxWidth().serverResourcePanel(),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top) {
@@ -107,9 +117,20 @@ private fun ResourceStrip(label: String, status: ua.avelren.app.data.Api.ServerR
 }
 
 @Composable
+private fun Modifier.serverResourcePanel(): Modifier = if (BuildConfig.ENABLE_TEST_DRAWER) {
+    val shape = RoundedCornerShape(20.dp)
+    clip(shape).background(MaterialTheme.colorScheme.surfaceVariant)
+        .border(1.dp, MaterialTheme.avelren.line, shape).padding(16.dp)
+} else {
+    border(1.dp, SignWarn.copy(alpha = 0.65f), RoundedCornerShape(16.dp)).padding(12.dp)
+}
+
+@Composable
 private fun CpuBar(percent: Double?) {
     val fraction = (percent?.div(100.0) ?: 0.0).coerceIn(0.0, 1.0).toFloat()
-    val track = MaterialTheme.colorScheme.surfaceVariant
+    val track = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line
+        else MaterialTheme.colorScheme.surfaceVariant
+    val fill = AppAccent
     Canvas(Modifier.fillMaxWidth().height(26.dp).semantics {
         if (percent != null) progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
     }) {
@@ -117,12 +138,16 @@ private fun CpuBar(percent: Double?) {
         val height = 12.dp.toPx()
         drawRoundRect(track, Offset(0f, y), Size(size.width, height), CornerRadius(height / 2))
         if (fraction > 0f) {
-            val brush = Brush.horizontalGradient(listOf(SignGo, SignWarn, SignClosed), endX = size.width)
-            clipRect(right = size.width * fraction) {
-                // Static translucent halo: no blur bitmap, animation or repeated sampling.
-                drawRoundRect(brush, Offset(0f, y - 3.dp.toPx()), Size(size.width, height + 6.dp.toPx()),
-                    CornerRadius(height), alpha = 0.14f)
-                drawRoundRect(brush, Offset(0f, y), Size(size.width, height), CornerRadius(height / 2))
+            if (BuildConfig.ENABLE_TEST_DRAWER) {
+                drawRoundRect(fill, Offset(0f, y), Size(size.width * fraction, height), CornerRadius(height / 2))
+            } else {
+                val brush = Brush.horizontalGradient(listOf(SignGo, SignWarn, SignClosed), endX = size.width)
+                clipRect(right = size.width * fraction) {
+                    // Static translucent halo: no blur bitmap, animation or repeated sampling.
+                    drawRoundRect(brush, Offset(0f, y - 3.dp.toPx()), Size(size.width, height + 6.dp.toPx()),
+                        CornerRadius(height), alpha = 0.14f)
+                    drawRoundRect(brush, Offset(0f, y), Size(size.width, height), CornerRadius(height / 2))
+                }
             }
         }
     }
