@@ -4,9 +4,22 @@
 
 У релізному кандидаті увімкнено інтерфейс, перевірений у FullTest, і задано
 versionName 1.0.4 / versionCode 7. Код версії потребує звірки з Play Console.
-Це підготовка source: збірка, приймання телефона, CI, main та публікація
-потребують окремих підтверджень. Продакшн Firebase client конфігурацію та
-підписаний релізний APK ще не перевірено.
+Код `c02d514`: FullTest unit tests, lint, assemble і verify_full_test пройшли;
+тестовий APK `1.0.4-test` SHA-256
+`e7a5bd1615c54065c7d6c92eaa54201f72ff47af9de8b38b870b8056499c13f1`
+встановлено та звірено на телефоні 22.10; перевірено відкриття добового
+графіка і повернення. Інші production-сценарії це не підтверджує.
+
+Release `assembleRelease`, `bundleRelease`, `lintRelease` і release unit tests
+успішні. APK SHA-256
+`b093d5a2964934e6c939e7a3c87ee98f61aeb7e5010bc04b41959da06be3ed83`;
+AAB SHA-256 `62ef973428e2df91d7f31fb8ab07f4477041daab36641eb8dadbd2d8af0e01b4`.
+APK підписано чинним upload certificate `b3c2c5c3…d90018ce`, AAB
+jarsigner перевірено. Firebase client-ресурси збігаються з офіційним APK,
+встановленим із Play; delivery push/голосу на релізному APK не перевірено.
+Підпис Play APK відрізняється, тому upload-signed APK не встановлено поверх
+офіційного застосунку. Main, CI, приймання Play і публікація залишаються
+окремими етапами.
 
 ## Графік історії за добу — 22.10.2026
 
