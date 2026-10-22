@@ -21,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import ua.avelren.app.data.Api
 import ua.avelren.app.ui.HistoryChartSample
 import ua.avelren.app.ui.historyChartSegments
+import ua.avelren.app.ui.historyChartTimeLabels
 import ua.avelren.app.ui.colorForRate
 import ua.avelren.app.ui.theme.AvelRenTheme
 import java.time.Instant
@@ -45,11 +46,13 @@ private fun HistoryScreen(id: Int, title: String, onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var segments by remember { mutableStateOf<List<List<HistoryChartSample>>>(emptyList()) }
+    var chartEnd by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(id, retry) {
         loading = true; error = false
         try {
             val history = Api.history(id, 24)
-            segments = historyChartSegments(history.points, Instant.now())
+            chartEnd = Instant.now()
+            segments = historyChartSegments(history.points, chartEnd)
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { error = true }
         finally { loading = false }
@@ -61,7 +64,7 @@ private fun HistoryScreen(id: Int, title: String, onBack: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                Text("Динаміка черги · останні 24 години", style = MaterialTheme.typography.bodySmall)
+                Text("Динаміка черги · 24 години · час Києва", style = MaterialTheme.typography.bodySmall)
             }
         }
         when {
@@ -73,13 +76,13 @@ private fun HistoryScreen(id: Int, title: String, onBack: () -> Unit) {
                 }
             }
             segments.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Немає даних за останні 24 години") }
-            else -> HistoryGraph(segments, Modifier.weight(1f))
+            else -> HistoryGraph(segments, chartEnd, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun HistoryGraph(segments: List<List<HistoryChartSample>>, modifier: Modifier = Modifier) {
+private fun HistoryGraph(segments: List<List<HistoryChartSample>>, end: Instant, modifier: Modifier = Modifier) {
     val samples = segments.flatten()
     val lowest = (samples.minOfOrNull { it.vehicles } ?: 0).coerceAtLeast(0)
     val highest = (samples.maxOfOrNull { it.vehicles } ?: 0).coerceAtLeast(lowest)
@@ -131,7 +134,7 @@ private fun HistoryGraph(segments: List<List<HistoryChartSample>>, modifier: Mod
             }
         }
         Row(Modifier.fillMaxWidth().padding(start = 52.dp, top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf("−24 год", "−18 год", "−12 год", "−6 год", "Зараз").forEach {
+            historyChartTimeLabels(end).forEach {
                 Text(it, fontSize = 11.sp, color = axisColor)
             }
         }
