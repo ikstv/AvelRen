@@ -263,8 +263,12 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "80977658bed0a449a4f84355949e47b932cd03e0251628f059cabaa31912b19a",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "5555d6699c8ed18672ef6ad0eb4da539407b75b645750bd0b1b54cabea049807",
+        "notes": "docs/RELEASE-READINESS.md",
+        "previous": {
+          "sha256": "80977658bed0a449a4f84355949e47b932cd03e0251628f059cabaa31912b19a",
+          "notes": "docs/RELEASE-READINESS.md"
+        }
       }
     },
     {
@@ -285,20 +289,28 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "fd2c640242cc11f2676207237223276a66b1ef579d712d8e24eecf3440cf8eff",
+        "sha256": "981b488ab1d369551cfcacff1adf947c987dd46f2c7ca3baa89e1f5306cbd953",
+        "notes": "docs/RELEASE-READINESS.md",
         "previous": {
-          "sha256": "cb672f3223c1656655c216bbfa34999491132e1960b33b62af67e20d368b4eb4",
-          "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md",
+          "sha256": "8de88e3aa892a87f253b89ae1fa9ed91d2844c8c4fed3756c9046a1fcc497d76",
+          "notes": "docs/RELEASE-READINESS.md",
           "previous": {
-            "sha256": "a5311228e71fb5b0646da15f74d6b05f4e230f398003a4b6ae837bd936e9aaa7",
+            "sha256": "fd2c640242cc11f2676207237223276a66b1ef579d712d8e24eecf3440cf8eff",
             "previous": {
-              "sha256": "d4f076e05ccaf22950f11f783092976c9e799cf520cf5733b396362c1adc67ef",
-              "notes": "docs/RELEASE-READINESS.md"
+              "sha256": "cb672f3223c1656655c216bbfa34999491132e1960b33b62af67e20d368b4eb4",
+              "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md",
+              "previous": {
+                "sha256": "a5311228e71fb5b0646da15f74d6b05f4e230f398003a4b6ae837bd936e9aaa7",
+                "previous": {
+                  "sha256": "d4f076e05ccaf22950f11f783092976c9e799cf520cf5733b396362c1adc67ef",
+                  "notes": "docs/RELEASE-READINESS.md"
+                },
+                "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
+              }
             },
-            "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
+            "notes": "docs/RELEASE-READINESS.md"
           }
-        },
-        "notes": "docs/RELEASE-READINESS.md"
+        }
       }
     },
     {
