@@ -58,8 +58,8 @@ android {
         applicationId = "ua.avelren.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.0.4"
+        versionCode = 8
+        versionName = "0.1.4"
 
         // The domain is moved into config: the app has no mention of
         // echerha.gov.ua — the client talks only to us (AGENTS.md, rule 1).
