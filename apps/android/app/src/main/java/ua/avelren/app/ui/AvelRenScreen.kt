@@ -1681,10 +1681,8 @@ private fun etaDayLabel(today: java.time.LocalDate, off: Int): String = when (of
 }
 
 /** ISO-8601 з offset для createEtaTarget з обраних дня й часу (київський пояс). */
-private fun etaIso(today: java.time.LocalDate, off: Int, hour: String): String {
-    val parts = hour.split(":")
-    return today.plusDays(off.toLong())
-        .atTime(parts[0].toInt(), parts[1].toInt())
+private fun etaIso(date: java.time.LocalDate, hour: Int): String {
+    return date.atTime(hour, 0)
         .atZone(KYIV)
         .toOffsetDateTime()
         .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
@@ -1698,26 +1696,52 @@ private fun EtaChooserDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val today = remember { java.time.LocalDate.now(KYIV) }
-    // Усі 24 години (00:00–23:00), а не крок 3 год.
-    val hours = remember { (0..23).map { "%02d:00".format(it) } }
-    var dayOff by remember { mutableStateOf(1) }        // за замовч. ЗАВТРА
-    var hour by remember { mutableStateOf("06:00") }
+    var now by remember { mutableStateOf(Instant.now()) }
+    val today = now.atZone(KYIV).toLocalDate()
+    var selectedDate by remember { mutableStateOf(today.plusDays(1)) }
+    var hour by remember { mutableStateOf<Int?>(6) }
+    var showError by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            now = Instant.now()
+        }
+    }
+    val hours = etaFutureHours(selectedDate, now, KYIV)
+    val submit = {
+        val current = Instant.now()
+        now = current
+        val selectedHour = hour
+        if (selectedHour != null && etaTargetIsFuture(selectedDate, selectedHour, current, KYIV)) {
+            onPick(etaIso(selectedDate, selectedHour))
+        } else {
+            hour = null
+            showError = true
+        }
+    }
     if (BuildConfig.ENABLE_TEST_DRAWER) {
         FullTestDialog("Час в'їзду", onDismiss, actions = {
-            FullTestDialogAction("Стежити", { onPick(etaIso(today, dayOff, hour)) }, primary = true)
+            FullTestDialogAction("Стежити", submit, primary = true)
             FullTestDialogAction("Скасувати", onDismiss)
         }) {
             Text(checkpointTitle, color = AppInk, style = MaterialTheme.typography.titleMedium)
             Text("Коли плануєте в'їхати:", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodyMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 (0..4).forEach { off ->
-                    PickerFilterChip(etaDayLabel(today, off), active = dayOff == off) { dayOff = off }
+                    val date = today.plusDays(off.toLong())
+                    PickerFilterChip(etaDayLabel(today, off), active = selectedDate == date) {
+                        selectedDate = date; hour = null; showError = false
+                    }
                 }
             }
             Text("Час за Києвом", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                hours.forEach { value -> PickerFilterChip(value, active = hour == value) { hour = value } }
+                hours.forEach { value -> PickerFilterChip("%02d:00".format(value), active = hour == value) { hour = value; showError = false } }
+            }
+            if (hours.isEmpty()) {
+                Text("На цей день майбутніх годин немає. Оберіть інший день.", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodySmall)
+            } else if (showError || (hour != null && hour !in hours)) {
+                Text("Оберіть майбутній час в'їзду.", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodySmall)
             }
         }
         return
@@ -1753,8 +1777,9 @@ private fun EtaChooserDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 (0..4).forEach { off ->
-                    PickerFilterChip(etaDayLabel(today, off), active = dayOff == off) {
-                        dayOff = off
+                    val date = today.plusDays(off.toLong())
+                    PickerFilterChip(etaDayLabel(today, off), active = selectedDate == date) {
+                        selectedDate = date; hour = null; showError = false
                     }
                 }
             }
@@ -1764,10 +1789,18 @@ private fun EtaChooserDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 hours.forEach { h ->
-                    PickerFilterChip(h, active = hour == h) {
+                    PickerFilterChip("%02d:00".format(h), active = hour == h) {
                         hour = h
+                        showError = false
                     }
                 }
+            }
+            if (hours.isEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("На цей день майбутніх годин немає. Оберіть інший день.", color = EmptyInk, style = MaterialTheme.typography.bodySmall)
+            } else if (showError || (hour != null && hour !in hours)) {
+                Spacer(Modifier.height(10.dp))
+                Text("Оберіть майбутній час в'їзду.", color = EmptyInk, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(18.dp))
             Text(
@@ -1782,7 +1815,7 @@ private fun EtaChooserDialog(
                     .clip(RoundedCornerShape(12.dp))
                     .background(HeroYellow)
                     .tapNoRipple {
-                        onPick(etaIso(today, dayOff, hour))
+                        submit()
                     }
                     .padding(vertical = 13.dp),
             )

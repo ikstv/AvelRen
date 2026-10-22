@@ -93,9 +93,9 @@ internal fun FullTestSettingsScreen(
         }
         FullTestSettingsGroup("Сповіщення") {
             FullTestSettingsAction(
-                title = "Звук і сповіщення",
+                title = "Звук і вібрація сповіщень",
                 subtitle = if (notificationsEnabled) {
-                    "Дозвіл Android надано · налаштувати звук"
+                    "Налаштувати звук і вібрацію в Android"
                 } else {
                     "Вимкнено в Android · відкрити налаштування"
                 },
