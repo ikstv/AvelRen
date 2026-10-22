@@ -319,26 +319,30 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "94ff0acc31d1fe9e743e770831d227f15b7c9c185244e981d1cd8a7d5f40f394",
+        "sha256": "3642bc7f1e3c83b1a3d4642529f99a83278860a37edd4831d0f8c94cbbb043ad",
         "notes": "docs/RELEASE-READINESS.md",
         "previous": {
-          "sha256": "e363e375a262e81974e4cbac8b9d57d1d89cd7986907ced2395d049b4d8cc034",
+          "sha256": "94ff0acc31d1fe9e743e770831d227f15b7c9c185244e981d1cd8a7d5f40f394",
           "notes": "docs/RELEASE-READINESS.md",
           "previous": {
-            "sha256": "38b2040b0414bcc988af04ac653197f2bcc7dcba97fd9ba14d5ebe4e349273ea",
+            "sha256": "e363e375a262e81974e4cbac8b9d57d1d89cd7986907ced2395d049b4d8cc034",
             "notes": "docs/RELEASE-READINESS.md",
             "previous": {
-              "sha256": "811435459a0dab667ec36a1e1ab46f128079b6c79d7e16e20b930412445c7cac",
+              "sha256": "38b2040b0414bcc988af04ac653197f2bcc7dcba97fd9ba14d5ebe4e349273ea",
               "notes": "docs/RELEASE-READINESS.md",
               "previous": {
-                "sha256": "5d0507eb895de2571f2f47ce5d6e14e58955fd8b80053105cb4e3788620e2f4f",
+                "sha256": "811435459a0dab667ec36a1e1ab46f128079b6c79d7e16e20b930412445c7cac",
                 "notes": "docs/RELEASE-READINESS.md",
                 "previous": {
-                  "sha256": "22396b3c8b58ad90cdbbe670e6d6ddbadf4127d76db02e547c3356d47f3f2a59",
+                  "sha256": "5d0507eb895de2571f2f47ce5d6e14e58955fd8b80053105cb4e3788620e2f4f",
                   "notes": "docs/RELEASE-READINESS.md",
                   "previous": {
-                    "sha256": "ab0112d6db198c11def24e64d1529af841de4596738e6c8a7dc7f0a52dcf446f",
-                    "notes": "docs/RELEASE-READINESS.md"
+                    "sha256": "22396b3c8b58ad90cdbbe670e6d6ddbadf4127d76db02e547c3356d47f3f2a59",
+                    "notes": "docs/RELEASE-READINESS.md",
+                    "previous": {
+                      "sha256": "ab0112d6db198c11def24e64d1529af841de4596738e6c8a7dc7f0a52dcf446f",
+                      "notes": "docs/RELEASE-READINESS.md"
+                    }
                   }
                 }
               }

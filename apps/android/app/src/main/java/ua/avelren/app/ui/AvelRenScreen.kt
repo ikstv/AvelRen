@@ -2764,7 +2764,7 @@ private const val REG_HOT_RATE = 6f
  * `delta ≤ 0` (черга не росте / зменшується) → зелений; поодинокі
  * реєстрації → жовтий; `delta ≥ REG_HOT_RATE` (масовий наплив) → червоний.
  */
-private fun colorForRate(delta: Int): Color {
+internal fun colorForRate(delta: Int): Color {
     val t = (delta / REG_HOT_RATE).coerceIn(0f, 1f)
     return if (t < 0.5f) lerp(ChartGreen, ChartYellow, t * 2f)
     else lerp(ChartYellow, ChartRed, (t - 0.5f) * 2f)

@@ -21,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import ua.avelren.app.data.Api
 import ua.avelren.app.ui.HistoryChartSample
 import ua.avelren.app.ui.historyChartSegments
+import ua.avelren.app.ui.colorForRate
 import ua.avelren.app.ui.theme.AvelRenTheme
 import java.time.Instant
 
@@ -85,38 +86,53 @@ private fun HistoryGraph(segments: List<List<HistoryChartSample>>, modifier: Mod
     val padding = ((highest - lowest) / 10).coerceAtLeast(1)
     val minValue = (lowest - padding).coerceAtLeast(0)
     val maxValue = (highest + padding).coerceAtLeast(minValue + 1)
-    val line = MaterialTheme.colorScheme.primary
-    val grid = MaterialTheme.colorScheme.onSurface.copy(alpha = .16f)
+    val grid = MaterialTheme.colorScheme.onSurface.copy(alpha = .22f)
+    val axisColor = MaterialTheme.colorScheme.onSurfaceVariant
     Column(modifier.fillMaxWidth()) {
-        Text("Авто · $minValue–$maxValue", style = MaterialTheme.typography.labelSmall)
+        Text("Авто", style = MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(4.dp))
-        Canvas(Modifier.fillMaxWidth().weight(1f)) {
-            for (i in 0..4) {
-                val y = size.height * i / 4f
-                drawLine(grid, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+        Row(Modifier.fillMaxWidth().weight(1f)) {
+            Column(Modifier.width(52.dp).fillMaxHeight().padding(end = 6.dp),
+                verticalArrangement = Arrangement.SpaceBetween) {
+                for (i in 0..4) {
+                    val label = maxValue - (maxValue - minValue) * i / 4
+                    Text("$label", fontSize = 11.sp, color = axisColor, maxLines = 1)
+                }
             }
-            fun point(sample: HistoryChartSample): Offset = Offset(sample.position * size.width,
-                size.height * (1f - (sample.vehicles.coerceAtLeast(0) - minValue).toFloat() / (maxValue - minValue)))
-            segments.forEach { segment ->
-                if (segment.size == 1) drawCircle(line, radius = 3.dp.toPx(), center = point(segment.first()))
-                else {
-                    val path = Path().apply {
-                        val first = point(segment.first()); moveTo(first.x, first.y)
-                        segment.drop(1).forEach { val p = point(it); lineTo(p.x, p.y) }
+            Canvas(Modifier.weight(1f).fillMaxHeight().padding(vertical = 7.dp)) {
+                for (i in 0..4) {
+                    val y = size.height * i / 4f
+                    drawLine(grid, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                }
+                fun point(sample: HistoryChartSample): Offset = Offset(sample.position * size.width,
+                    size.height * (1f - (sample.vehicles.coerceAtLeast(0) - minValue).toFloat() / (maxValue - minValue)))
+                segments.forEach { segment ->
+                    if (segment.size == 1) {
+                        drawCircle(colorForRate(0), radius = 3.dp.toPx(), center = point(segment.first()))
+                    } else {
+                        for (i in 1 until segment.size) {
+                            val previous = segment[i - 1]
+                            val current = segment[i]
+                            val start = point(previous)
+                            val end = point(current)
+                            val color = colorForRate(current.vehicles - previous.vehicles)
+                            val fill = Path().apply {
+                                moveTo(start.x, start.y); lineTo(end.x, end.y)
+                                lineTo(end.x, size.height); lineTo(start.x, size.height); close()
+                            }
+                            drawPath(fill, Brush.verticalGradient(
+                                0f to color.copy(alpha = .38f), 1f to Color.Transparent,
+                                startY = minOf(start.y, end.y), endY = size.height,
+                            ))
+                            drawLine(color, start, end, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        }
                     }
-                    val fill = Path().apply {
-                        val first = point(segment.first()); moveTo(first.x, size.height); lineTo(first.x, first.y)
-                        segment.drop(1).forEach { val p = point(it); lineTo(p.x, p.y) }
-                        lineTo(point(segment.last()).x, size.height); close()
-                    }
-                    drawPath(fill, Brush.verticalGradient(listOf(line.copy(alpha = .35f), Color.Transparent), endY = size.height))
-                    drawPath(path, line, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth().padding(start = 52.dp, top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             listOf("−24 год", "−18 год", "−12 год", "−6 год", "Зараз").forEach {
-                Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(it, fontSize = 11.sp, color = axisColor)
             }
         }
     }
