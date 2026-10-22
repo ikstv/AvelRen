@@ -58,8 +58,8 @@ android {
         applicationId = "ua.avelren.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.1.3"
+        versionCode = 7
+        versionName = "1.0.4"
 
         // The domain is moved into config: the app has no mention of
         // echerha.gov.ua — the client talks only to us (AGENTS.md, rule 1).
@@ -111,6 +111,8 @@ android {
             }
         }
         release {
+            // Promote the interface validated in FullTest to the release candidate.
+            buildConfigField("boolean", "ENABLE_TEST_DRAWER", "true")
             // First release ships unminified on purpose: minify + resource
             // shrinking need a ProGuard pass verified on-device (ktor +
             // kotlinx.serialization + Firebase use reflection). The rules are

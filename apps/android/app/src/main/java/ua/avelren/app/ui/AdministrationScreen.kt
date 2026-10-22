@@ -213,6 +213,10 @@ private fun SettingsPageHeader(title: String, onBack: () -> Unit) {
 @Composable
 private fun AboutContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val candidateNotes = remember(context) {
+        context.assets.open("release-notes/v1.0.4.uk.txt")
+            .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
+    }
     val currentNotes = remember(context) {
         context.assets.open("release-notes/v0.1.3.uk.txt")
             .bufferedReader(Charsets.UTF_8).use { it.readText().trimEnd() }
@@ -237,6 +241,7 @@ private fun AboutContent(modifier: Modifier = Modifier) {
     ) {
         Text("AvelRen — версія ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        ReleaseNotesSection("Версія 1.0.4", candidateNotes)
         ReleaseNotesSection(releaseHistoryHeading("0.1.3", Instant.parse("2026-10-07T00:00:00Z")), currentNotes)
         // publishedAt відповідних GitHub Releases, звірено 07.10.2026.
         ReleaseNotesSection(releaseHistoryHeading("0.1.2", Instant.parse("2026-09-26T01:16:12Z")), releaseNotes)

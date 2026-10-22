@@ -264,7 +264,7 @@ private fun FullTestOnboarding(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Версія $version · FullTest",
+                    "Версія $version" + if (BuildConfig.DEBUG) " · FullTest" else "",
                     color = colors.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.Center,

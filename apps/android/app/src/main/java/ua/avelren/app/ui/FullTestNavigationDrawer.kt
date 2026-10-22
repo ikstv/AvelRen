@@ -334,7 +334,7 @@ internal fun FullTestNavigationDrawer(
                         ) {
                             Text("Developer: Tanko Viktor", color = colors.text,
                                 style = MaterialTheme.typography.bodySmall)
-                            Text("Версія ${BuildConfig.VERSION_NAME} · FullTest", color = colors.secondary,
+                            Text("Версія ${BuildConfig.VERSION_NAME}" + if (BuildConfig.DEBUG) " · FullTest" else "", color = colors.secondary,
                                 style = MaterialTheme.typography.bodySmall)
                         }
                     }

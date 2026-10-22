@@ -7,8 +7,12 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "6ba9893d1402c6d9547f0afb41168aa164241340518fc99f0f166254f346f34e",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "54de93ce71d32de1f8f95cfd365069e9bad81bc2570e73d3518d851ea8c8f597",
+        "notes": "docs/RELEASE-READINESS.md",
+        "previous": {
+          "sha256": "6ba9893d1402c6d9547f0afb41168aa164241340518fc99f0f166254f346f34e",
+          "notes": "docs/RELEASE-READINESS.md"
+        }
       },
       "revision_history": [
         {
@@ -279,8 +283,12 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "3dc604f2b018b9aa0183c0e7e98f83960f0e524b0cf11ab9559e01e6b03c22a2",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "45b9653e97a40b080fa4c6d059d67e02b97998f613704bfcd03c523a9e2cf6ca",
+        "notes": "docs/RELEASE-READINESS.md",
+        "previous": {
+          "sha256": "3dc604f2b018b9aa0183c0e7e98f83960f0e524b0cf11ab9559e01e6b03c22a2",
+          "notes": "docs/RELEASE-READINESS.md"
+        }
       },
       "revision_history": [
         {
@@ -408,8 +416,12 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/OnboardingScreen.kt",
       "sha256": "90f1228b43d37bc1b4ed71bb0bda344135b2f4960cc6336e9a6a04b3bbc2f783",
       "revision": {
-        "sha256": "4fd5d03ec71b2ff95dc5151756eec350697294b2b84cf38e8c3e4d9db7f79519",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "97e836d14f49182a64150232e2e1e35a919386be206a9dd13b3be00792362c71",
+        "notes": "docs/RELEASE-READINESS.md",
+        "previous": {
+          "sha256": "4fd5d03ec71b2ff95dc5151756eec350697294b2b84cf38e8c3e4d9db7f79519",
+          "notes": "docs/RELEASE-READINESS.md"
+        }
       },
       "revision_history": [
         {

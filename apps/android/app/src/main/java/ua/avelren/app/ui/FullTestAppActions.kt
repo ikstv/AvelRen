@@ -9,6 +9,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import ua.avelren.app.BuildConfig
 import ua.avelren.app.ui.theme.AppBackground
 import ua.avelren.app.ui.theme.AppInk
 import ua.avelren.app.ui.theme.hapticClick
@@ -65,7 +66,7 @@ internal fun FullTestRatingInfo(onDismiss: () -> Unit, onOpenStore: () -> Unit) 
         textContentColor = AppInk,
         title = { Text("Оцінити AvelRen") },
         text = {
-            Text("FullTest — окрема тестова збірка без публічних оцінок. Відкриємо офіційний AvelRen у Google Play. Доступ до сторінки й можливість залишити оцінку залежать від публікації та вашого акаунта; у закритому тестуванні доступний приватний відгук.")
+            Text(if (BuildConfig.DEBUG) "FullTest — окрема тестова збірка без публічних оцінок. Відкриємо офіційний AvelRen у Google Play." else "Відкриємо сторінку AvelRen у Google Play, де можна оцінити додаток.")
         },
         confirmButton = { TextButton(onClick = hapticClick(onOpenStore)) { Text("Відкрити Google Play") } },
         dismissButton = { TextButton(onClick = hapticClick(onDismiss)) { Text("Назад") } },
