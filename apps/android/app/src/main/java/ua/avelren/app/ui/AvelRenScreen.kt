@@ -121,8 +121,10 @@ import ua.avelren.app.ui.theme.AppBackground
 import ua.avelren.app.ui.theme.AppInk
 import ua.avelren.app.ui.theme.AppOnAccent
 import ua.avelren.app.ui.theme.HeroNumberStyle
+import ua.avelren.app.ui.theme.LocalThemeChoice
 import ua.avelren.app.ui.theme.RoadSignShape
 import ua.avelren.app.ui.theme.TabularNumberFeature
+import ua.avelren.app.ui.theme.ThemeChoice
 import ua.avelren.app.ui.theme.avelren
 import ua.avelren.app.ui.theme.plateBorder
 import ua.avelren.app.ui.theme.tapNoRipple
@@ -557,6 +559,7 @@ internal fun AvelRenScreen(
             adminClient = adminClient,
             adminServerClient = adminServerClient,
             onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+            onOpenNotificationSettings = onOpenNotificationSettings,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
@@ -1470,10 +1473,8 @@ private fun etaDayLabel(today: java.time.LocalDate, off: Int): String = when (of
 }
 
 /** ISO-8601 з offset для createEtaTarget з обраних дня й часу (київський пояс). */
-private fun etaIso(today: java.time.LocalDate, off: Int, hour: String): String {
-    val parts = hour.split(":")
-    return today.plusDays(off.toLong())
-        .atTime(parts[0].toInt(), parts[1].toInt())
+private fun etaIso(date: java.time.LocalDate, hour: Int): String {
+    return date.atTime(hour, 0)
         .atZone(KYIV)
         .toOffsetDateTime()
         .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
@@ -1487,11 +1488,18 @@ private fun EtaChooserDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val today = remember { java.time.LocalDate.now(KYIV) }
-    // Усі 24 години (00:00–23:00), а не крок 3 год.
-    val hours = remember { (0..23).map { "%02d:00".format(it) } }
-    var dayOff by remember { mutableStateOf(1) }        // за замовч. ЗАВТРА
-    var hour by remember { mutableStateOf("06:00") }
+    var now by remember { mutableStateOf(Instant.now()) }
+    val today = now.atZone(KYIV).toLocalDate()
+    var selectedDate by remember { mutableStateOf(today.plusDays(1)) }
+    var hour by remember { mutableStateOf<Int?>(6) }
+    var showError by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            now = Instant.now()
+        }
+    }
+    val hours = etaFutureHours(selectedDate, now, KYIV)
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1523,8 +1531,11 @@ private fun EtaChooserDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 (0..4).forEach { off ->
-                    PickerFilterChip(etaDayLabel(today, off), active = dayOff == off) {
-                        dayOff = off
+                    val date = today.plusDays(off.toLong())
+                    PickerFilterChip(etaDayLabel(today, off), active = selectedDate == date) {
+                        selectedDate = date
+                        hour = null
+                        showError = false
                     }
                 }
             }
@@ -1534,10 +1545,18 @@ private fun EtaChooserDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 hours.forEach { h ->
-                    PickerFilterChip(h, active = hour == h) {
+                    PickerFilterChip("%02d:00".format(h), active = hour == h) {
                         hour = h
+                        showError = false
                     }
                 }
+            }
+            if (hours.isEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("На цей день майбутніх годин немає. Оберіть інший день.", color = EmptyInk, style = MaterialTheme.typography.bodySmall)
+            } else if (showError || (hour != null && hour !in hours)) {
+                Spacer(Modifier.height(10.dp))
+                Text("Оберіть майбутній час в'їзду.", color = EmptyInk, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(18.dp))
             Text(
@@ -1552,7 +1571,15 @@ private fun EtaChooserDialog(
                     .clip(RoundedCornerShape(12.dp))
                     .background(HeroYellow)
                     .tapNoRipple {
-                        onPick(etaIso(today, dayOff, hour))
+                        val current = Instant.now()
+                        now = current
+                        val selectedHour = hour
+                        if (selectedHour != null && etaTargetIsFuture(selectedDate, selectedHour, current, KYIV)) {
+                            onPick(etaIso(selectedDate, selectedHour))
+                        } else {
+                            hour = null
+                            showError = true
+                        }
                     }
                     .padding(vertical = 13.dp),
             )
@@ -1858,6 +1885,7 @@ internal fun SettingsScreen(
     adminClient: AdminAccessClient? = null,
     adminServerClient: AdminServerClient? = null,
     onOpenPrivacyPolicy: (() -> Unit)? = null,
+    onOpenNotificationSettings: () -> Unit = {},
 ) {
     MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
         androidx.compose.material3.Surface(
@@ -1870,7 +1898,7 @@ internal fun SettingsScreen(
                     showServerStatus = false,
                     title = "Налаштування",
                 )
-                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient, onOpenPrivacyPolicy)
+                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient, onOpenPrivacyPolicy, onOpenNotificationSettings)
             }
         }
     }
@@ -1990,7 +2018,7 @@ private fun BottomNavBar(
             .fillMaxWidth()
             .heightIn(min = 60.dp)
             .height(IntrinsicSize.Min)
-            .shadow(if (flatDark) 0.dp else 8.dp, RoundedCornerShape(20.dp))
+            .shadow(if (flatDark || LocalThemeChoice.current == ThemeChoice.LIGHT) 0.dp else 8.dp, RoundedCornerShape(20.dp))
             .background(if (flatDark) AppBackground else NavGlass, RoundedCornerShape(20.dp))
             .border(1.dp, NavBorder, RoundedCornerShape(20.dp)),
     ) {

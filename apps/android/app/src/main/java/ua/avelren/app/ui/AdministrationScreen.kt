@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,6 +62,7 @@ internal fun AdministrationSettings(
     client: AdminAccessClient? = null,
     serverClient: AdminServerClient? = null,
     onOpenPrivacyPolicy: (() -> Unit)? = null,
+    onOpenNotificationSettings: () -> Unit = {},
 ) {
     var page by rememberSaveable { mutableStateOf("menu") }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -78,6 +80,7 @@ internal fun AdministrationSettings(
             ) {
                 SettingsMenuItem("Про додаток", Icons.Default.Info) { page = "about" }
                 SettingsMenuItem("Тема", Icons.Default.Palette) { page = "theme" }
+                SettingsMenuItem("Звук і вібрація сповіщень", Icons.Default.Notifications, onOpenNotificationSettings)
                 SettingsMenuItem("Для розробника", Icons.Default.AdminPanelSettings) {
                     page = "admin"
                 }
