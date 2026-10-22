@@ -23,6 +23,11 @@
         android:theme="@style/Theme.AvelRen">
 
         <activity
+            android:name=".HistoryChartActivity"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.AvelRen">

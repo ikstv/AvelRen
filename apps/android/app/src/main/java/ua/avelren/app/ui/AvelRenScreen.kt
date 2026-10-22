@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
+import android.content.Intent
 import android.os.Build
 
 import androidx.compose.ui.layout.ContentScale
@@ -117,6 +118,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ua.avelren.app.BuildConfig
 import ua.avelren.app.AvelRenApp
+import ua.avelren.app.HistoryChartActivity
 import ua.avelren.app.R
 import ua.avelren.app.data.BackgroundDelivery
 import ua.avelren.app.data.BackgroundDeliveryHint
@@ -678,7 +680,13 @@ internal fun AvelRenScreen(
                 item {
                     RegistrationChart(
                         values = history,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).then(
+                            if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.hapticClickable {
+                                context.startActivity(Intent(context, HistoryChartActivity::class.java)
+                                    .putExtra(HistoryChartActivity.CHECKPOINT_ID, current.checkpoint_id)
+                                    .putExtra(HistoryChartActivity.CHECKPOINT_TITLE, current.title))
+                            } else Modifier
+                        ),
                     )
                 }
                 item {
@@ -693,6 +701,7 @@ internal fun AvelRenScreen(
                         failed = monitorsFailed,
                         onRetry = reloadSubs,
                         notificationsSilent = notificationsSilent,
+                        onAdd = { activeTab = "monitor" },
                     )
                 }
             } else {
@@ -1151,6 +1160,7 @@ private fun MonitoringTile(
     failed: Boolean = false,
     onRetry: () -> Unit = {},
     notificationsSilent: Boolean = false,  // дозволу нема → рядки несуть позначку «беззвучна»
+    onAdd: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 16.dp)
     Column(
@@ -1159,6 +1169,7 @@ private fun MonitoringTile(
             .background(if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.colorScheme.surfaceVariant else if (homeStyle) AppBackground else HeroGlass)
             .border(if (homeStyle && !BuildConfig.ENABLE_TEST_DRAWER) 1.5.dp else 1.dp,
                 if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line else if (homeStyle) SignWarn.copy(alpha = 0.5f) else HeroBorder, shape)
+            .then(if (onAdd != null && rows.isEmpty() && loaded && !loading && !failed) Modifier.hapticClickable(onClick = onAdd) else Modifier)
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
@@ -1202,7 +1213,7 @@ private fun MonitoringTile(
                     )
                 } else {
                     Text(
-                        "Нема вибраних вами КПП для моніторингу",
+                        if (onAdd != null) "Натисніть тут, щоб додати" else "Нема вибраних вами КПП для моніторингу",
                         color = EmptyInk,
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 12.5.sp,
