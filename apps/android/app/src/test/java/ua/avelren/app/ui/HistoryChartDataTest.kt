@@ -22,7 +22,7 @@ class HistoryChartDataTest {
     }
     @Test fun `time labels use Kyiv dates and the same 24 hour window`() {
         val labels = historyChartTimeLabels(Instant.parse("2026-10-22T12:00:00Z"))
-        assertEquals(listOf("21.10 15:00", "21.10 21:00", "22.10 03:00", "22.10 09:00", "22.10 15:00"), labels)
+        assertEquals(listOf("15:00", "18:00", "21:00", "00:00", "03:00", "06:00", "09:00", "12:00", "15:00"), labels)
     }
 
 }

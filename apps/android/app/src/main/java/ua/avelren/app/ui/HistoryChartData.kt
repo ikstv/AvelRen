@@ -22,7 +22,7 @@ internal fun historyChartSegments(points: List<Api.HistoryPoint>, end: Instant):
 }
 
 internal fun historyChartTimeLabels(end: Instant): List<String> {
-    val formatter = java.time.format.DateTimeFormatter.ofPattern("dd.MM HH:mm")
+    val formatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
         .withZone(java.time.ZoneId.of("Europe/Kyiv"))
-    return listOf(24L, 18L, 12L, 6L, 0L).map { formatter.format(end.minusSeconds(it * 3600)) }
+    return (24L downTo 0L step 3L).map { formatter.format(end.minusSeconds(it * 3600)) }
 }

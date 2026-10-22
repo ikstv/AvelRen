@@ -14,7 +14,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
@@ -64,7 +66,11 @@ private fun HistoryScreen(id: Int, title: String, onBack: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                Text("Динаміка черги · 24 години · час Києва", style = MaterialTheme.typography.bodySmall)
+                val dates = remember(chartEnd) {
+                    val format = java.time.format.DateTimeFormatter.ofPattern("dd.MM").withZone(java.time.ZoneId.of("Europe/Kyiv"))
+                    "${format.format(chartEnd.minusSeconds(86400))}–${format.format(chartEnd)}"
+                }
+                Text("Динаміка черги · $dates · час Києва", style = MaterialTheme.typography.bodySmall)
             }
         }
         when {
@@ -107,6 +113,11 @@ private fun HistoryGraph(segments: List<List<HistoryChartSample>>, end: Instant,
                     val y = size.height * i / 4f
                     drawLine(grid, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
                 }
+                val dash = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))
+                for (i in 0..8) {
+                    val x = size.width * i / 8f
+                    drawLine(grid, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx(), pathEffect = dash)
+                }
                 fun point(sample: HistoryChartSample): Offset = Offset(sample.position * size.width,
                     size.height * (1f - (sample.vehicles.coerceAtLeast(0) - minValue).toFloat() / (maxValue - minValue)))
                 segments.forEach { segment ->
@@ -133,9 +144,13 @@ private fun HistoryGraph(segments: List<List<HistoryChartSample>>, end: Instant,
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(start = 52.dp, top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            historyChartTimeLabels(end).forEach {
-                Text(it, fontSize = 11.sp, color = axisColor)
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(start = 52.dp, top = 4.dp).height(20.dp)) {
+            val labelWidth = 42.dp
+            historyChartTimeLabels(end).forEachIndexed { index, label ->
+                val center = maxWidth * (index / 8f)
+                val start = (center - labelWidth / 2).coerceIn(0.dp, (maxWidth - labelWidth).coerceAtLeast(0.dp))
+                Text(label, modifier = Modifier.offset(x = start).width(labelWidth),
+                    textAlign = TextAlign.Center, fontSize = 11.sp, color = axisColor, maxLines = 1)
             }
         }
     }
