@@ -7,11 +7,15 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "54de93ce71d32de1f8f95cfd365069e9bad81bc2570e73d3518d851ea8c8f597",
+        "sha256": "4671e4354f92a07c441c3d7fc94b5b2ab005049d9363d1a70a5aea155d933910",
         "notes": "docs/RELEASE-READINESS.md",
         "previous": {
-          "sha256": "6ba9893d1402c6d9547f0afb41168aa164241340518fc99f0f166254f346f34e",
-          "notes": "docs/RELEASE-READINESS.md"
+          "sha256": "54de93ce71d32de1f8f95cfd365069e9bad81bc2570e73d3518d851ea8c8f597",
+          "notes": "docs/RELEASE-READINESS.md",
+          "previous": {
+            "sha256": "6ba9893d1402c6d9547f0afb41168aa164241340518fc99f0f166254f346f34e",
+            "notes": "docs/RELEASE-READINESS.md"
+          }
         }
       },
       "revision_history": [
@@ -49,11 +53,15 @@
       "destination": "apps/android/app/src/main/AndroidManifest.xml",
       "sha256": "3cdf1970beb2c5f5e23f21d3d6ac149771a13db8d8cf4ac88376945176e30bc9",
       "revision": {
-        "sha256": "ae4fe8863e14bd1b2a0231474b3dd379b37259c934431934b802e4a560f7075f",
+        "sha256": "e0da0c7804502d5e6765af04ceb42d5c6163be5969648a939489c623b516973a",
         "notes": "docs/RELEASE-READINESS.md",
         "previous": {
-          "sha256": "267ea9d25f71b45f1a70336eb52ea104e157855037955e9739ab6186c05e1af8",
-          "notes": "docs/ANDROID-SYSTEM-VOICE.md"
+          "sha256": "ae4fe8863e14bd1b2a0231474b3dd379b37259c934431934b802e4a560f7075f",
+          "notes": "docs/RELEASE-READINESS.md",
+          "previous": {
+            "sha256": "267ea9d25f71b45f1a70336eb52ea104e157855037955e9739ab6186c05e1af8",
+            "notes": "docs/ANDROID-SYSTEM-VOICE.md"
+          }
         }
       }
     },
@@ -283,11 +291,15 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AdministrationScreen.kt",
       "sha256": "49f8def05fe8faa7bb7202cf7e9cac73ba1d28c3af5f268059d5fafadd96686c",
       "revision": {
-        "sha256": "45b9653e97a40b080fa4c6d059d67e02b97998f613704bfcd03c523a9e2cf6ca",
+        "sha256": "3da1c4d514ccc74b05822f815741eb3cfcc4285c8a9508fc34297515e88d47fd",
         "notes": "docs/RELEASE-READINESS.md",
         "previous": {
-          "sha256": "3dc604f2b018b9aa0183c0e7e98f83960f0e524b0cf11ab9559e01e6b03c22a2",
-          "notes": "docs/RELEASE-READINESS.md"
+          "sha256": "45b9653e97a40b080fa4c6d059d67e02b97998f613704bfcd03c523a9e2cf6ca",
+          "notes": "docs/RELEASE-READINESS.md",
+          "previous": {
+            "sha256": "3dc604f2b018b9aa0183c0e7e98f83960f0e524b0cf11ab9559e01e6b03c22a2",
+            "notes": "docs/RELEASE-READINESS.md"
+          }
         }
       },
       "revision_history": [
