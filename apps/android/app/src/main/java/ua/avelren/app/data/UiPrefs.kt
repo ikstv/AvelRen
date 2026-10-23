@@ -16,8 +16,16 @@ private val ONBOARDING_KEY = booleanPreferencesKey("onboarding_seen")
 
 private val FORECAST_IDS = stringPreferencesKey("forecast_preview_checkpoints")
 private val THEME_KEY = stringPreferencesKey("theme")
+private val KEEP_SCREEN_ON_KEY = booleanPreferencesKey("fulltest_keep_screen_on")
 
 object UiPrefs {
+    fun keepScreenOnFlow(ctx: Context): Flow<Boolean> =
+        ctx.uiPrefs.data.map { it[KEEP_SCREEN_ON_KEY] ?: false }
+
+    suspend fun setKeepScreenOn(ctx: Context, enabled: Boolean) {
+        ctx.uiPrefs.edit { it[KEEP_SCREEN_ON_KEY] = enabled }
+    }
+
     fun forecastIdsFlow(ctx: Context): Flow<List<Int>> =
         ctx.uiPrefs.data.map { ForecastSelection.parse(it[FORECAST_IDS]) }
 

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-feature android:name="android.hardware.screen.landscape" android:required="false" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Потрібен для registerNetworkCallback: щойно зв'язок відновлюється,
          екран оновлюється одразу, не чекаючи наступного 60-секундного циклу.
@@ -21,6 +23,11 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AvelRen">
+
+        <activity
+            android:name=".HistoryChartActivity"
+            android:exported="false"
+            android:screenOrientation="landscape" />
 
         <activity
             android:name=".MainActivity"

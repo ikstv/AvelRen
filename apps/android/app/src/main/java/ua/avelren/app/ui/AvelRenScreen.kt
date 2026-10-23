@@ -23,7 +23,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -35,24 +37,32 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Build as MaintenanceIcon
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import ua.avelren.app.data.PushSyncState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -67,11 +77,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
+import android.content.Intent
 import android.os.Build
 
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
 
 import androidx.compose.ui.res.painterResource
@@ -106,11 +118,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ua.avelren.app.BuildConfig
 import ua.avelren.app.AvelRenApp
+import ua.avelren.app.HistoryChartActivity
 import ua.avelren.app.R
 import ua.avelren.app.data.BackgroundDelivery
 import ua.avelren.app.data.BackgroundDeliveryHint
 import ua.avelren.app.data.Api
 import ua.avelren.app.data.DeviceStore
+import ua.avelren.app.data.UiPrefs
+import ua.avelren.app.ui.theme.LocalThemeChoice
+import ua.avelren.app.ui.theme.ThemeChoice
 import ua.avelren.app.data.LiveRefresh
 import ua.avelren.app.data.NetworkAvailability
 import ua.avelren.app.data.InternetState
@@ -212,6 +228,12 @@ internal fun AvelRenScreen(
     // Активна вкладка нижньої навігації. Окремого екрана «Моніторинг» ще нема
     // (у макеті теж лише підсвітка), тож поки це тільки стан підсвітки.
     var activeTab by remember { mutableStateOf("home") }
+    var testMenuOpen by remember { mutableStateOf(false) }
+    var testMenuRefreshing by remember { mutableStateOf(false) }
+    var settingsInitialPage by remember { mutableStateOf("menu") }
+    var settingsCurrentPage by remember { mutableStateOf("menu") }
+    var settingsNavigationRequest by remember { mutableStateOf(0) }
+    val uriHandler = LocalUriHandler.current
     // Динаміка реєстрацій обраного КПП за останню годину. null — ще не
     // завантажено; порожній список — сервер віддав, але точок замало.
     var history by remember { mutableStateOf<List<Int>?>(null) }
@@ -220,6 +242,28 @@ internal fun AvelRenScreen(
     // сервера: subscriptions()/subscribe()/unsubscribe(). Флоу: тап по плитці →
     // пікер КПП → вибір порога (50/100/150/200) → subscribe.
     val scope = rememberCoroutineScope()
+    val selectedTheme = LocalThemeChoice.current
+    val keepScreenOn = if (BuildConfig.ENABLE_TEST_DRAWER) {
+        val enabled by remember(context) { UiPrefs.keepScreenOnFlow(context) }
+            .collectAsStateWithLifecycle(false)
+        FullTestKeepScreenOn(enabled)
+        enabled
+    } else false
+    fun savePreference(action: suspend () -> Unit) {
+        scope.launch {
+            try { action() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                android.widget.Toast.makeText(context, "Не вдалося зберегти налаштування", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val toggleTheme: () -> Unit = {
+        savePreference {
+            UiPrefs.setTheme(context, if (selectedTheme == ThemeChoice.DARK) ThemeChoice.LIGHT else ThemeChoice.DARK)
+        }
+    }
+    var showRatingInfo by remember { mutableStateOf(false) }
     val installation = remember(context, screenClient) {
         if (screenClient == null) (context.applicationContext as AvelRenApp).installation else null
     }
@@ -461,14 +505,20 @@ internal fun AvelRenScreen(
     val serverStatus = ServerStatus.resolve(internet, responseSucceeded, freshness?.stale, maintenance, freshnessNow)
 
     val onMonitor = activeTab == "monitor"
+    val activeMonitorCount = if (monitorsLoaded && !monitorsFailed) {
+        subscriptions.size + etaTargets.count { it.is_active }
+    } else null
     val onSettings = activeTab == "settings"
     val forecastOpen = pendingAiCp != null || surgeOpen
     BackHandler(enabled = forecastOpen) { pendingAiCp = null; surgeOpen = false }
     val density = LocalDensity.current
     var bottomChromeHeightPx by remember { mutableStateOf(0) }
-    val bottomChromePadding = bottomChromeContentInset(
-        with(density) { bottomChromeHeightPx.toDp().value }, updateAvailable,
-    ).dp
+    val measuredBottomChromeDp = with(density) { bottomChromeHeightPx.toDp().value }
+    val bottomChromePadding = if (BuildConfig.ENABLE_TEST_DRAWER) {
+        maxOf(84f, measuredBottomChromeDp + 8f).dp
+    } else {
+        bottomChromeContentInset(measuredBottomChromeDp, updateAvailable).dp
+    }
 
     // Усі основні вкладки мають рівне чорне тло.
     Box(Modifier.fillMaxSize().background(if (forecastOpen) MonitorBg else AppBackground)) {
@@ -553,16 +603,42 @@ internal fun AvelRenScreen(
             )
         }
     } else if (onSettings) {
+        key(settingsNavigationRequest) {
         SettingsScreen(
             adminClient = adminClient,
             adminServerClient = adminServerClient,
             onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+            initialPage = settingsInitialPage,
+            onPageChanged = if (BuildConfig.ENABLE_TEST_DRAWER) {
+                { page -> settingsCurrentPage = page }
+            } else null,
+            menuContent = if (BuildConfig.ENABLE_TEST_DRAWER) { navigate ->
+                FullTestSettingsScreen(
+                    dark = selectedTheme == ThemeChoice.DARK,
+                    onToggleTheme = toggleTheme,
+                    keepScreenOn = keepScreenOn,
+                    onKeepScreenOnChange = { enabled -> savePreference { UiPrefs.setKeepScreenOn(context, enabled) } },
+                    notificationsEnabled = !notificationsSilent,
+                    ignoringBatteryOptimizations = ignoringBatteryOptimizations,
+                    onOpenNotificationSettings = onOpenNotificationSettings,
+                    onOpenBatterySettings = onOpenBatterySettings,
+                    onShareApp = { shareAvelRen(context) },
+                    onRateApp = { showRatingInfo = true },
+                    onOpenAbout = { navigate("about") },
+                    onOpenPrivacy = {
+                        if (onOpenPrivacyPolicy != null) onOpenPrivacyPolicy()
+                        else openAvelRenPrivacy(context)
+                    },
+                    onOpenDeveloper = { navigate("admin") },
+                )
+            } else null,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = bottomChromePadding),
         )
+        }
     } else {
         LazyColumn(
             modifier = Modifier
@@ -604,7 +680,13 @@ internal fun AvelRenScreen(
                 item {
                     RegistrationChart(
                         values = history,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).then(
+                            if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.hapticClickable {
+                                context.startActivity(Intent(context, HistoryChartActivity::class.java)
+                                    .putExtra(HistoryChartActivity.CHECKPOINT_ID, current.checkpoint_id)
+                                    .putExtra(HistoryChartActivity.CHECKPOINT_TITLE, current.title))
+                            } else Modifier
+                        ),
                     )
                 }
                 item {
@@ -619,6 +701,7 @@ internal fun AvelRenScreen(
                         failed = monitorsFailed,
                         onRetry = reloadSubs,
                         notificationsSilent = notificationsSilent,
+                        onAdd = { activeTab = "monitor" },
                     )
                 }
             } else {
@@ -634,7 +717,9 @@ internal fun AvelRenScreen(
     if (!forecastOpen) {
         Column(
             modifier = Modifier.align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.systemBars)
+                .windowInsetsPadding(
+                    if (BuildConfig.ENABLE_TEST_DRAWER) WindowInsets.navigationBars else WindowInsets.systemBars,
+                )
                 .onSizeChanged { bottomChromeHeightPx = it.height }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -656,12 +741,101 @@ internal fun AvelRenScreen(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
-            BottomNavBar(
-                activeTab = activeTab, onSelect = { activeTab = it },
-                flatDark = onMonitor || onSettings,
-            )
+            if (BuildConfig.ENABLE_TEST_DRAWER) {
+                FullTestBottomBar(
+                    activeTab = activeTab,
+                    monitorCount = activeMonitorCount,
+                    onOpenMenu = { testMenuOpen = true },
+                    onHome = { activeTab = "home" },
+                    onMonitoring = { activeTab = "monitor" },
+                )
+            } else {
+                BottomNavBar(
+                    activeTab = activeTab, onSelect = { activeTab = it },
+                    flatDark = onMonitor || onSettings,
+                )
+            }
         }
     }
+    }
+
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        val selectedDestination = when {
+            forecastOpen -> FullTestDestination.FORECAST
+            onMonitor -> FullTestDestination.MONITOR
+            onSettings -> when (settingsCurrentPage) {
+                "theme" -> FullTestDestination.THEME
+                "about" -> FullTestDestination.ABOUT
+                "admin" -> FullTestDestination.DEVELOPER
+                else -> FullTestDestination.SETTINGS
+            }
+            else -> FullTestDestination.HOME
+        }
+        FullTestNavigationDrawer(
+            open = testMenuOpen,
+            selected = selectedDestination,
+            checkpointTitle = current?.let { "${it.flag_emoji.orEmpty()} ${it.title}".trim() },
+            serverStatus = serverStatus,
+            refreshing = testMenuRefreshing,
+            canChooseCheckpoint = workload.isNotEmpty(),
+            monitorCount = activeMonitorCount,
+            onToggleTheme = toggleTheme,
+            onChooseCheckpoint = {
+                testMenuOpen = false
+                pendingAiCp = null
+                surgeOpen = false
+                activeTab = "home"
+                showPicker = true
+            },
+            onRefresh = {
+                if (!testMenuRefreshing) {
+                    testMenuRefreshing = true
+                    scope.launch {
+                        try {
+                            refresh()
+                        } finally {
+                            testMenuRefreshing = false
+                        }
+                    }
+                }
+            },
+            onClose = { testMenuOpen = false },
+            onSelect = { destination ->
+                testMenuOpen = false
+                when (destination) {
+                    FullTestDestination.NOTIFICATIONS -> onOpenNotificationSettings()
+                    FullTestDestination.PRIVACY -> {
+                        if (onOpenPrivacyPolicy != null) onOpenPrivacyPolicy()
+                        else uriHandler.openUri("https://api.bordersignal.pp.ua/privacy?v=20260924")
+                    }
+                    else -> {
+                        pendingAiCp = null
+                        surgeOpen = destination == FullTestDestination.FORECAST
+                        activeTab = when (destination) {
+                            FullTestDestination.HOME -> "home"
+                            FullTestDestination.MONITOR, FullTestDestination.FORECAST -> "monitor"
+                            else -> "settings"
+                        }
+                        if (activeTab == "settings") {
+                            settingsInitialPage = when (destination) {
+                                FullTestDestination.THEME -> "theme"
+                                FullTestDestination.ABOUT -> "about"
+                                FullTestDestination.SETTINGS -> "menu"
+                                else -> "admin"
+                            }
+                            settingsNavigationRequest += 1
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    if (BuildConfig.ENABLE_TEST_DRAWER && showRatingInfo) {
+        FullTestRatingInfo(
+            onDismiss = { showRatingInfo = false },
+            onOpenStore = { showRatingInfo = false; openAvelRenStore(context) },
+        )
     }
 
     if (showUpdatePrompt && updateAvailable && updateState.actionable) {
@@ -986,20 +1160,24 @@ private fun MonitoringTile(
     failed: Boolean = false,
     onRetry: () -> Unit = {},
     notificationsSilent: Boolean = false,  // дозволу нема → рядки несуть позначку «беззвучна»
+    onAdd: (() -> Unit)? = null,
 ) {
+    val shape = RoundedCornerShape(if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 16.dp)
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (homeStyle) AppBackground else HeroGlass)
-            .border(if (homeStyle) 1.5.dp else 1.dp, if (homeStyle) SignWarn.copy(alpha = 0.5f) else HeroBorder, RoundedCornerShape(16.dp))
+            .clip(shape)
+            .background(if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.colorScheme.surfaceVariant else if (homeStyle) AppBackground else HeroGlass)
+            .border(if (homeStyle && !BuildConfig.ENABLE_TEST_DRAWER) 1.5.dp else 1.dp,
+                if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line else if (homeStyle) SignWarn.copy(alpha = 0.5f) else HeroBorder, shape)
+            .then(if (onAdd != null && rows.isEmpty() && loaded && !loading && !failed) Modifier.hapticClickable(onClick = onAdd) else Modifier)
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
             "Ваш моніторинг",
-            color = HeroYellow,
+            color = if (BuildConfig.ENABLE_TEST_DRAWER) AppInk else HeroYellow,
             fontWeight = FontWeight.Black,
             style = MaterialTheme.typography.bodyMedium,
-            fontSize = 12.sp,
+            fontSize = if (BuildConfig.ENABLE_TEST_DRAWER) 16.sp else 12.sp,
             letterSpacing = 0.025.em,
         )
         if (failed || (!loaded && !loading)) {
@@ -1035,7 +1213,7 @@ private fun MonitoringTile(
                     )
                 } else {
                     Text(
-                        "Нема вибраних вами КПП для моніторингу",
+                        if (onAdd != null) "Натисніть тут, щоб додати" else "Нема вибраних вами КПП для моніторингу",
                         color = EmptyInk,
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 12.5.sp,
@@ -1067,6 +1245,7 @@ private fun MonitorRowView(row: MonitorRow, notificationsSilent: Boolean, onRemo
     Column(
         Modifier
             .fillMaxWidth()
+            .then(if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.clip(RoundedCornerShape(12.dp)).background(AppBackground) else Modifier)
             .border(1.dp, WatchRowBorder, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1126,11 +1305,14 @@ private fun ActionTile(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit = {},
 ) {
+    val shape = RoundedCornerShape(if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 16.dp)
     Row(
         modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(AppBackground)
-            .border(1.5.dp, SignWarn.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            .clip(shape)
+            .background(if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.colorScheme.surfaceVariant else AppBackground)
+            .border(if (BuildConfig.ENABLE_TEST_DRAWER) 1.dp else 1.5.dp,
+                if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line else SignWarn.copy(alpha = 0.5f), shape)
+            .then(if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.semantics { role = Role.Button } else Modifier)
             .tapNoRipple {
                 onClick()
             }
@@ -1142,10 +1324,10 @@ private fun ActionTile(
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                color = HeroYellow,
+                color = if (BuildConfig.ENABLE_TEST_DRAWER) AppInk else HeroYellow,
                 fontWeight = FontWeight.Black,
                 style = MaterialTheme.typography.bodyMedium,
-                fontSize = 12.sp,
+                fontSize = if (BuildConfig.ENABLE_TEST_DRAWER) 16.sp else 12.sp,
                 letterSpacing = 0.025.em,
             )
             Spacer(Modifier.height(4.dp))
@@ -1153,11 +1335,14 @@ private fun ActionTile(
                 subtitle,
                 color = EmptyInk,
                 style = MaterialTheme.typography.bodySmall,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                fontSize = if (BuildConfig.ENABLE_TEST_DRAWER) 13.sp else 12.sp,
+                lineHeight = if (BuildConfig.ENABLE_TEST_DRAWER) 19.sp else 16.sp,
             )
         }
         Spacer(Modifier.width(12.dp))
+        if (BuildConfig.ENABLE_TEST_DRAWER) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.avelren.ink2, modifier = Modifier.size(24.dp))
+        } else {
         // «+» намальований штрихами (не гліф шрифту): рівні плечі, круглі кінці,
         // ідеально по центру — чистіший вигляд.
         val iconAccent = HeroYellow
@@ -1167,6 +1352,7 @@ private fun ActionTile(
             val sw = 2.2.dp.toPx()
             drawLine(iconAccent, Offset(c - arm, c), Offset(c + arm, c), sw, cap = StrokeCap.Round)
             drawLine(iconAccent, Offset(c, c - arm), Offset(c, c + arm), sw, cap = StrokeCap.Round)
+        }
         }
     }
 }
@@ -1347,6 +1533,16 @@ private fun SilentSubscribeDialog(
     onSubscribeAnyway: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Сповіщення вимкнені", onDismiss, actions = {
+            FullTestDialogAction("Увімкнути сповіщення", onEnable, primary = true)
+            FullTestDialogAction("Все одно підписатись", onSubscribeAnyway)
+        }) {
+            Text("Без дозволу на сповіщення підписка не зможе вас попередити — сервер надішле, але екран промовчить.",
+                color = AppInk, style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1408,6 +1604,21 @@ private fun ThresholdChooserDialog(
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Поріг сповіщення", onDismiss, actions = {
+            FullTestDialogAction("Скасувати", onDismiss)
+        }) {
+            Text(checkpointTitle, color = AppInk, style = MaterialTheme.typography.titleMedium)
+            Text("Сповістити, коли авто в черзі буде:", color = MaterialTheme.avelren.ink2,
+                style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(50, 100, 150, 200, 250, 300, 350, 400).forEach { value ->
+                    PickerFilterChip("$value", active = false) { onPick(value) }
+                }
+            }
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1470,10 +1681,8 @@ private fun etaDayLabel(today: java.time.LocalDate, off: Int): String = when (of
 }
 
 /** ISO-8601 з offset для createEtaTarget з обраних дня й часу (київський пояс). */
-private fun etaIso(today: java.time.LocalDate, off: Int, hour: String): String {
-    val parts = hour.split(":")
-    return today.plusDays(off.toLong())
-        .atTime(parts[0].toInt(), parts[1].toInt())
+private fun etaIso(date: java.time.LocalDate, hour: Int): String {
+    return date.atTime(hour, 0)
         .atZone(KYIV)
         .toOffsetDateTime()
         .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
@@ -1487,11 +1696,56 @@ private fun EtaChooserDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val today = remember { java.time.LocalDate.now(KYIV) }
-    // Усі 24 години (00:00–23:00), а не крок 3 год.
-    val hours = remember { (0..23).map { "%02d:00".format(it) } }
-    var dayOff by remember { mutableStateOf(1) }        // за замовч. ЗАВТРА
-    var hour by remember { mutableStateOf("06:00") }
+    var now by remember { mutableStateOf(Instant.now()) }
+    val today = now.atZone(KYIV).toLocalDate()
+    var selectedDate by remember { mutableStateOf(today.plusDays(1)) }
+    var hour by remember { mutableStateOf<Int?>(6) }
+    var showError by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            now = Instant.now()
+        }
+    }
+    val hours = etaFutureHours(selectedDate, now, KYIV)
+    val submit = {
+        val current = Instant.now()
+        now = current
+        val selectedHour = hour
+        if (selectedHour != null && etaTargetIsFuture(selectedDate, selectedHour, current, KYIV)) {
+            onPick(etaIso(selectedDate, selectedHour))
+        } else {
+            hour = null
+            showError = true
+        }
+    }
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Час в'їзду", onDismiss, actions = {
+            FullTestDialogAction("Стежити", submit, primary = true)
+            FullTestDialogAction("Скасувати", onDismiss)
+        }) {
+            Text(checkpointTitle, color = AppInk, style = MaterialTheme.typography.titleMedium)
+            Text("Коли плануєте в'їхати:", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                (0..4).forEach { off ->
+                    val date = today.plusDays(off.toLong())
+                    PickerFilterChip(etaDayLabel(today, off), active = selectedDate == date) {
+                        selectedDate = date; hour = null; showError = false
+                    }
+                }
+            }
+            Text("Час за Києвом", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                hours.forEach { value -> PickerFilterChip("%02d:00".format(value), active = hour == value) { hour = value; showError = false } }
+            }
+            if (hours.isEmpty()) {
+                Text("На цей день майбутніх годин немає. Оберіть інший день.", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodySmall)
+            } else if (showError || (hour != null && hour !in hours)) {
+                Text("Оберіть майбутній час в'їзду.", color = MaterialTheme.avelren.ink2, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1523,8 +1777,9 @@ private fun EtaChooserDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 (0..4).forEach { off ->
-                    PickerFilterChip(etaDayLabel(today, off), active = dayOff == off) {
-                        dayOff = off
+                    val date = today.plusDays(off.toLong())
+                    PickerFilterChip(etaDayLabel(today, off), active = selectedDate == date) {
+                        selectedDate = date; hour = null; showError = false
                     }
                 }
             }
@@ -1534,10 +1789,18 @@ private fun EtaChooserDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 hours.forEach { h ->
-                    PickerFilterChip(h, active = hour == h) {
+                    PickerFilterChip("%02d:00".format(h), active = hour == h) {
                         hour = h
+                        showError = false
                     }
                 }
+            }
+            if (hours.isEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("На цей день майбутніх годин немає. Оберіть інший день.", color = EmptyInk, style = MaterialTheme.typography.bodySmall)
+            } else if (showError || (hour != null && hour !in hours)) {
+                Spacer(Modifier.height(10.dp))
+                Text("Оберіть майбутній час в'їзду.", color = EmptyInk, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(18.dp))
             Text(
@@ -1552,7 +1815,7 @@ private fun EtaChooserDialog(
                     .clip(RoundedCornerShape(12.dp))
                     .background(HeroYellow)
                     .tapNoRipple {
-                        onPick(etaIso(today, dayOff, hour))
+                        submit()
                     }
                     .padding(vertical = 13.dp),
             )
@@ -1601,6 +1864,11 @@ private fun ForecastScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
+            if (BuildConfig.ENABLE_TEST_DRAWER) {
+                TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("←  Назад до КПП", color = HeroYellow, fontWeight = FontWeight.Bold)
+                }
+            } else {
             Text(
                 "←  Назад до КПП",
                 color = HeroYellow,
@@ -1608,6 +1876,7 @@ private fun ForecastScreen(
                 fontSize = 14.sp,
                 modifier = Modifier.tapNoRipple(onClick = onBack).padding(vertical = 8.dp),
             )
+            }
         }
         item {
             Column {
@@ -1709,6 +1978,26 @@ private fun ForecastPeakCard(point: Api.CountForecastPoint) {
 
 @Composable
 private fun ForecastHourRow(point: Api.CountForecastPoint, maxVehicles: Int, isPeak: Boolean) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(forecastHourLabel(point.time), modifier = Modifier.weight(1f),
+                    color = if (isPeak) HeroYellow else MaterialTheme.avelren.ink2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("${point.vehicles_expected} авто", modifier = Modifier.weight(1f), textAlign = TextAlign.End,
+                    color = AppInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            Text(forecastRangeLabel(point), color = MaterialTheme.avelren.ink2, fontSize = 12.sp)
+            val fraction = if (maxVehicles > 0) (point.vehicles_expected.toFloat() / maxVehicles).coerceIn(0f, 1f) else 0f
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(MaterialTheme.avelren.line)) {
+                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(HeroYellow.copy(alpha = if (isPeak) 1f else 0.58f)))
+            }
+        }
+        return
+    }
     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             forecastHourLabel(point.time),
@@ -1790,6 +2079,15 @@ internal fun ConfirmRemoveDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog("Прибрати з моніторингу?", onDismiss, actions = {
+            FullTestDialogAction("Прибрати", onConfirm, primary = true)
+            FullTestDialogAction("Скасувати", onDismiss)
+        }) {
+            Text(description, color = AppInk, style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1858,6 +2156,9 @@ internal fun SettingsScreen(
     adminClient: AdminAccessClient? = null,
     adminServerClient: AdminServerClient? = null,
     onOpenPrivacyPolicy: (() -> Unit)? = null,
+    initialPage: String = "menu",
+    onPageChanged: ((String) -> Unit)? = null,
+    menuContent: (@Composable ((String) -> Unit) -> Unit)? = null,
 ) {
     MaterialTheme(colorScheme = MaterialTheme.colorScheme) {
         androidx.compose.material3.Surface(
@@ -1870,7 +2171,11 @@ internal fun SettingsScreen(
                     showServerStatus = false,
                     title = "Налаштування",
                 )
-                AdministrationSettings(Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient, onOpenPrivacyPolicy)
+                AdministrationSettings(
+                    Modifier.fillMaxWidth().weight(1f), adminClient, adminServerClient,
+                    onOpenPrivacyPolicy, initialPage, onPageChanged,
+                    menuContent,
+                )
             }
         }
     }
@@ -1883,6 +2188,18 @@ private fun AppUpdateDialog(
     onUpdate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        FullTestDialog(if (ready) "Оновлення готове" else "Доступна нова версія", onDismiss, actions = {
+            FullTestDialogAction(if (ready) "Встановити" else "Оновити", onUpdate,
+                primary = true, enabled = !actionPending)
+            FullTestDialogAction("Пізніше", onDismiss)
+        }) {
+            Text(if (ready) "Нову версію завантажено. Для встановлення AvelRen буде перезапущено."
+                else "Оновіть AvelRen через Google Play, щоб отримати останні зміни.",
+                color = AppInk, style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1956,11 +2273,13 @@ internal fun SettingsDeveloperFooter(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        FadingHairline()
-        Spacer(Modifier.height(8.dp))
+        if (!BuildConfig.ENABLE_TEST_DRAWER) {
+            FadingHairline()
+            Spacer(Modifier.height(8.dp))
+        }
         Text(
             "DEVELOPER — TANKO VIKTOR",
-            color = AppInk.copy(alpha = 0.4f),
+            color = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.ink2 else AppInk.copy(alpha = 0.4f),
             style = MaterialTheme.typography.labelSmall,
             fontSize = 9.sp,
             letterSpacing = 1.sp,
@@ -2212,20 +2531,35 @@ private fun CheckpointPickerSheet(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = if (BuildConfig.ENABLE_TEST_DRAWER)
+            DialogProperties(usePlatformDefaultWidth = true, decorFitsSystemWindows = false)
+            else DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(PickerSheetBg)
+        if (BuildConfig.ENABLE_TEST_DRAWER) FullTestPickerWindowChrome()
+        val pickerModifier = if (BuildConfig.ENABLE_TEST_DRAWER) {
+            // Use the helper's MATCH_PARENT window constraints, as in the drawer,
+            // instead of Compose 1.7's configuration-sized full-width measurement.
+            Modifier.fillMaxSize()
+                .background(PickerSheetBg).windowInsetsPadding(WindowInsets.safeDrawing)
+        } else {
+            Modifier.fillMaxSize().background(PickerSheetBg)
                 .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 14.dp, vertical = 16.dp),
+        }
+        Column(
+            pickerModifier.padding(horizontal = 14.dp, vertical = 16.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (BuildConfig.ENABLE_TEST_DRAWER) {
+                    Text("Оберіть КПП", color = AppInk, style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Filled.Close, contentDescription = "Закрити вибір КПП", tint = MaterialTheme.avelren.ink2)
+                    }
+                } else {
                 // Макет: `font:900 10.5px; letter-spacing:2px; color:rgba(255,255,255,.6)`
                 // → трекінг 2/10.5 = 0.19em.
                 Text(
@@ -2242,10 +2576,15 @@ private fun CheckpointPickerSheet(
                     fontSize = 17.sp,
                     modifier = Modifier.tapNoRipple(onClick = onDismiss).padding(4.dp),
                 )
+                }
             }
             Spacer(Modifier.height(12.dp))
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(
+                modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.weight(1f) else Modifier,
+                contentPadding = if (BuildConfig.ENABLE_TEST_DRAWER) PaddingValues(bottom = 16.dp) else PaddingValues(0.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 // Макет: `flex-wrap:wrap; gap:8px` — пігулки переносяться в рядок,
                 // а не стоять колонкою; знизу відступ ~16 до списку.
                 item {
@@ -2275,7 +2614,7 @@ private fun CheckpointPickerSheet(
                         onClick = { onPick(row.checkpoint_id) },
                     )
                 }
-                item { Spacer(Modifier.height(14.dp)) }
+                if (!BuildConfig.ENABLE_TEST_DRAWER) item { Spacer(Modifier.height(14.dp)) }
             }
         }
     }
@@ -2298,6 +2637,22 @@ private fun PickerFilterChip(
     inactiveColor: Color = HeroYellow,
     onClick: () -> Unit,
 ) {
+    if (BuildConfig.ENABLE_TEST_DRAWER) {
+        Box(
+            Modifier.clip(RoundedCornerShape(16.dp))
+                .background(if (active) HeroYellow else MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, if (active) HeroYellow else MaterialTheme.avelren.line, RoundedCornerShape(16.dp))
+                .heightIn(min = 48.dp)
+                .semantics { selected = active; role = Role.Button }
+                .tapNoRipple(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(label, color = if (active) PickerInk else AppInk, fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     Text(
         label,
         color = if (active) PickerInk else inactiveColor,
@@ -2326,6 +2681,7 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
     val subColor = if (selected) PickerSubOnYellow else EmptyInk
     val borderColor = if (selected) PickerInk else Color.Transparent
     val plateColor = if (selected) PickerInk else HeroYellow
+    val shape = if (BuildConfig.ENABLE_TEST_DRAWER) RoundedCornerShape(20.dp) else RoadSignShape.Card
     // Дата в'їзду парситься раз на КПП (ключ — entry_eta), а не на кожен кадр
     // скролу: OffsetDateTime.parse + форматер помітно дорожчі за решту рядка.
     val entrySub = remember(item.entry_eta, item.wait_estimate) {
@@ -2335,9 +2691,10 @@ private fun PickerRow(item: Api.Workload, selected: Boolean, onClick: () -> Unit
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoadSignShape.Card)
+            .clip(shape)
             .background(bg)
-            .border(2.dp, borderColor, RoadSignShape.Card)
+            .border(if (BuildConfig.ENABLE_TEST_DRAWER) 1.dp else 2.dp,
+                if (BuildConfig.ENABLE_TEST_DRAWER && !selected) MaterialTheme.avelren.line else borderColor, shape)
             .tapNoRipple {
                 onClick()
             }
@@ -2407,7 +2764,7 @@ private const val REG_HOT_RATE = 6f
  * `delta ≤ 0` (черга не росте / зменшується) → зелений; поодинокі
  * реєстрації → жовтий; `delta ≥ REG_HOT_RATE` (масовий наплив) → червоний.
  */
-private fun colorForRate(delta: Int): Color {
+internal fun colorForRate(delta: Int): Color {
     val t = (delta / REG_HOT_RATE).coerceIn(0f, 1f)
     return if (t < 0.5f) lerp(ChartGreen, ChartYellow, t * 2f)
     else lerp(ChartYellow, ChartRed, (t - 0.5f) * 2f)

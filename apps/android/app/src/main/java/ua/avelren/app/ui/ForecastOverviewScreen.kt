@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +43,7 @@ import ua.avelren.app.data.*
 import ua.avelren.app.notify.*
 import ua.avelren.app.data.ForecastSelection
 import ua.avelren.app.ui.theme.*
+import ua.avelren.app.BuildConfig
 
 /** Серверні підписки та підтвердження реальних подій у погодженому інтерфейсі. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -173,10 +175,18 @@ internal fun ForecastOverviewScreen(
     }
     BackHandler { if (picker) picker = false else onBack() }
     Column(Modifier.fillMaxSize().background(AppBackground).windowInsetsPadding(WindowInsets.systemBars)) {
-        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 20.dp, top = 18.dp),
+        Row(Modifier.fillMaxWidth().padding(start = if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 8.dp,
+            end = 20.dp, top = if (BuildConfig.ENABLE_TEST_DRAWER) 12.dp else 18.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = ua.avelren.app.ui.theme.hapticClick(onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад до Моніторингу", tint = AppAccent) }
-            Text("Прогноз черги", color = AppInk, style = MaterialTheme.typography.headlineMedium)
+            IconButton(onClick = ua.avelren.app.ui.theme.hapticClick(onBack),
+                modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.size(48.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant) else Modifier) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад до Моніторингу", tint = AppAccent)
+            }
+            Text("Прогноз черги", color = AppInk,
+                modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.weight(1f).padding(start = 12.dp) else Modifier,
+                style = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
+                fontWeight = if (BuildConfig.ENABLE_TEST_DRAWER) FontWeight.Bold else null)
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -185,14 +195,21 @@ internal fun ForecastOverviewScreen(
                     Text("До ${ForecastSelection.MAX} КПП · прогноз і початок зростання", color = AppAccent,
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     Text("Моніторинг черги та голосові повідомлення для трьох обраних КПП: прогноз можливого зростання й повідомлення про початок масової реєстрації.",
-                        color = AppInk, style = MaterialTheme.typography.bodyMedium)
+                        color = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.ink2 else AppInk,
+                        style = MaterialTheme.typography.bodyMedium)
                 }
             }
             item { Text("Вибрано ${ids.size} із ${ForecastSelection.MAX}", color = AppAccent, fontWeight = FontWeight.Bold) }
             item {
                 if (ids.size < ForecastSelection.MAX) {
-                    OutlinedButton(enabled = !busy && !loading && error == null, onClick = ua.avelren.app.ui.theme.hapticClick { picker = true }, modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp), border = BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f)),
+                    OutlinedButton(enabled = !busy && !loading && error == null, onClick = ua.avelren.app.ui.theme.hapticClick { picker = true },
+                        modifier = Modifier.fillMaxWidth().then(if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier),
+                        shape = RoundedCornerShape(if (BuildConfig.ENABLE_TEST_DRAWER) 20.dp else 16.dp),
+                        border = if (BuildConfig.ENABLE_TEST_DRAWER) BorderStroke(1.dp, AppAccent)
+                            else BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f)),
+                        colors = if (BuildConfig.ENABLE_TEST_DRAWER) ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = AppAccent,
+                        ) else ButtonDefaults.outlinedButtonColors(),
                         contentPadding = PaddingValues(16.dp)) { Text("Додати КПП", fontWeight = FontWeight.Bold) }
                 } else { Text("Щоб додати інший КПП, приберіть один із вибраних", color = AppInk,
                     style = MaterialTheme.typography.bodySmall) }
@@ -200,7 +217,8 @@ internal fun ForecastOverviewScreen(
             if (loading) item { CircularProgressIndicator(color = AppAccent) }
             if (!notificationsAllowed && ids.isNotEmpty()) item {
                 Text("Дозвольте сповіщення, щоб телефон міг попереджати", color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = ua.avelren.app.ui.theme.hapticClick(onOpenNotificationSettings)) { Text("Дозволити повідомлення") }
+                TextButton(onClick = ua.avelren.app.ui.theme.hapticClick(onOpenNotificationSettings),
+                    modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier) { Text("Дозволити повідомлення") }
             }
             if (voiceProblem != null && ids.isNotEmpty()) item {
                 Text(SurgePresentation.voiceHint(true, notificationsAllowed, voiceProblem), color = MaterialTheme.colorScheme.error)
@@ -210,20 +228,25 @@ internal fun ForecastOverviewScreen(
                             context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                                 .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
                         }.onFailure { onOpenNotificationSettings() }
-                    }) { Text("Налаштування сповіщень") }
+                    }, modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier) { Text("Налаштування сповіщень") }
                 }
             }
             error?.let { message -> item {
                 Text(message, color = MaterialTheme.colorScheme.error)
-                TextButton(enabled = !busy, onClick = ua.avelren.app.ui.theme.hapticClick { scope.launch { refresh() } }) { Text("Оновити") }
+                TextButton(enabled = !busy, onClick = ua.avelren.app.ui.theme.hapticClick { scope.launch { refresh() } },
+                    modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier) { Text("Оновити") }
             } }
             if (!loading && error == null && ids.isEmpty()) item { Text("Ще немає вибраних КПП. Натисніть «Додати КПП», щоб почати.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(ids, key = { it }) { id ->
                 val cp = checkpoints.firstOrNull { it.checkpoint_id == id }
-                Surface(modifier = Modifier.fillMaxWidth(), color = AppBackground,
-                    shape = RoadSignShape.Card, border = BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Surface(modifier = Modifier.fillMaxWidth(),
+                    color = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.colorScheme.surfaceVariant else AppBackground,
+                    shape = if (BuildConfig.ENABLE_TEST_DRAWER) RoundedCornerShape(20.dp) else RoadSignShape.Card,
+                    border = if (BuildConfig.ENABLE_TEST_DRAWER) BorderStroke(1.dp, MaterialTheme.avelren.line)
+                        else BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))) {
+                    Column(Modifier.padding(if (BuildConfig.ENABLE_TEST_DRAWER) 16.dp else 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (BuildConfig.ENABLE_TEST_DRAWER) 10.dp else 6.dp)) {
                         Text(cp?.let { "${it.flag_emoji.orEmpty()} ${it.title}" } ?: "КПП №$id",
                             Modifier.fillMaxWidth(), color = AppAccent, fontWeight = FontWeight.Bold)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -245,7 +268,7 @@ internal fun ForecastOverviewScreen(
                             .filter { !local.isBlocked(it.surge_alert_id) &&
                                 runCatching { Instant.parse(it.expires_at) > now }.getOrDefault(false) }
                             .forEach { alert ->
-                                HorizontalDivider(color = AppAccent.copy(alpha = 0.3f))
+                                HorizontalDivider(color = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line else AppAccent.copy(alpha = 0.3f))
                                 Text(if (alert.kind == "surge_forecast") "Прогноз" else "Фактичне зростання",
                                     color = AppAccent, fontWeight = FontWeight.Bold)
                                 Text(alert.body, color = AppInk, style = MaterialTheme.typography.titleMedium,
@@ -261,52 +284,83 @@ internal fun ForecastOverviewScreen(
                                 }
                                 TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = ua.avelren.app.ui.theme.hapticClick { acknowledge(alert) }) { Text("Зрозуміло") }
                             }
-                        TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = ua.avelren.app.ui.theme.hapticClick { onCountForecast(id) }) { Text("Черга на добу →") }
+                        TextButton(modifier = Modifier.heightIn(min = 48.dp).then(if (BuildConfig.ENABLE_TEST_DRAWER)
+                            Modifier.fillMaxWidth().border(1.dp, MaterialTheme.avelren.line, RoundedCornerShape(14.dp)) else Modifier),
+                            shape = if (BuildConfig.ENABLE_TEST_DRAWER) RoundedCornerShape(14.dp) else ButtonDefaults.textShape,
+                            onClick = ua.avelren.app.ui.theme.hapticClick { onCountForecast(id) }) { Text("Черга на добу →") }
                     }
                 }
             }
 
         }
-        HorizontalDivider(color = AppAccent.copy(alpha = 0.25f))
+        HorizontalDivider(color = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.line else AppAccent.copy(alpha = 0.25f))
         Text("Функція в розробці",
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-            color = AppInk, style = MaterialTheme.typography.bodySmall)
+            color = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.avelren.ink2 else AppInk,
+            style = MaterialTheme.typography.bodySmall)
     }
     if (picker) Dialog(onDismissRequest = { picker = false },
-        properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars), color = AppBackground) {
+        properties = if (BuildConfig.ENABLE_TEST_DRAWER)
+            DialogProperties(usePlatformDefaultWidth = true, decorFitsSystemWindows = false)
+            else DialogProperties(usePlatformDefaultWidth = false)) {
+        if (BuildConfig.ENABLE_TEST_DRAWER) FullTestPickerWindowChrome()
+        val pickerModifier = if (BuildConfig.ENABLE_TEST_DRAWER) {
+            // The helper supplies MATCH_PARENT; default-width measurement keeps
+            // the native window's real height constraints before safe insets.
+            Modifier.fillMaxSize()
+                .background(AppBackground).windowInsetsPadding(WindowInsets.safeDrawing)
+        } else {
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
+        }
+        Surface(pickerModifier, color = AppBackground) {
             Column(Modifier.padding(20.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Виберіть КПП", Modifier.weight(1f), color = AppInk,
                         style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    TextButton(onClick = ua.avelren.app.ui.theme.hapticClick { picker = false }) { Text("Готово") }
+                    TextButton(onClick = ua.avelren.app.ui.theme.hapticClick { picker = false },
+                        modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier) { Text("Готово") }
                 }
-                Text("Вибрано ${ids.size} із ${ForecastSelection.MAX}", color = AppAccent, fontWeight = FontWeight.Bold)
-                if (ids.size >= ForecastSelection.MAX) Text("Щоб додати інший КПП, приберіть один із вибраних",
-                    Modifier.padding(top = 8.dp), color = AppInk, style = MaterialTheme.typography.bodySmall)
-                if (checkpoints.isEmpty()) Text("Список КПП ще не завантажено. Поверніться до Моніторингу та перевірте інтернет.",
-                    Modifier.padding(top = 20.dp), color = AppInk)
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                val chipColors = FilterChipDefaults.filterChipColors(
-                    containerColor = AppBackground, labelColor = AppInk,
-                    selectedContainerColor = AppAccent, selectedLabelColor = AppOnAccent,
-                )
-                val chipBorder = BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))
-                FlowRow(Modifier.fillMaxWidth().padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = countryFilter == null, onClick = ua.avelren.app.ui.theme.hapticClick { countryFilter = null }, label = { Text("Всі") },
-                        colors = chipColors, border = chipBorder, shape = RoundedCornerShape(20.dp))
-                    checkpoints.mapNotNull { it.flag_emoji }.distinct().sorted().forEach { flag ->
-                        FilterChip(selected = countryFilter == flag, onClick = ua.avelren.app.ui.theme.hapticClick { countryFilter = flag },
-                            label = { Text(countryLabel(flag)) }, colors = chipColors, border = chipBorder, shape = RoundedCornerShape(20.dp))
+                val pickerToolbar: @Composable () -> Unit = {
+                    Text("Вибрано ${ids.size} із ${ForecastSelection.MAX}", color = AppAccent, fontWeight = FontWeight.Bold)
+                    if (ids.size >= ForecastSelection.MAX) Text("Щоб додати інший КПП, приберіть один із вибраних",
+                        Modifier.padding(top = 8.dp), color = AppInk, style = MaterialTheme.typography.bodySmall)
+                    if (checkpoints.isEmpty()) Text("Список КПП ще не завантажено. Поверніться до Моніторингу та перевірте інтернет.",
+                        Modifier.padding(top = 20.dp), color = AppInk)
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    val chipColors = FilterChipDefaults.filterChipColors(
+                        containerColor = if (BuildConfig.ENABLE_TEST_DRAWER) MaterialTheme.colorScheme.surfaceVariant else AppBackground, labelColor = AppInk,
+                        selectedContainerColor = AppAccent, selectedLabelColor = AppOnAccent,
+                    )
+                    val chipBorder = if (BuildConfig.ENABLE_TEST_DRAWER) BorderStroke(1.dp, MaterialTheme.avelren.line)
+                        else BorderStroke(1.5.dp, AppAccent.copy(alpha = 0.5f))
+                    FlowRow(Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = if (BuildConfig.ENABLE_TEST_DRAWER) Arrangement.spacedBy(8.dp) else Arrangement.Top) {
+                        FilterChip(selected = countryFilter == null, onClick = ua.avelren.app.ui.theme.hapticClick { countryFilter = null }, label = { Text("Всі") },
+                            modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier,
+                            colors = chipColors, border = chipBorder, shape = RoundedCornerShape(20.dp))
+                        checkpoints.mapNotNull { it.flag_emoji }.distinct().sorted().forEach { flag ->
+                            FilterChip(selected = countryFilter == flag, onClick = ua.avelren.app.ui.theme.hapticClick { countryFilter = flag },
+                                modifier = if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.heightIn(min = 48.dp) else Modifier,
+                                label = { Text(countryLabel(flag)) }, colors = chipColors, border = chipBorder, shape = RoundedCornerShape(20.dp))
+                        }
                     }
                 }
+                if (!BuildConfig.ENABLE_TEST_DRAWER) pickerToolbar()
                 val visible = if (countryFilter == null) checkpoints else checkpoints.filter { it.flag_emoji == countryFilter }
-                LazyColumn(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn((if (BuildConfig.ENABLE_TEST_DRAWER) Modifier.weight(1f) else Modifier).padding(top = 16.dp),
+                    contentPadding = if (BuildConfig.ENABLE_TEST_DRAWER) PaddingValues(bottom = 16.dp) else PaddingValues(0.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (BuildConfig.ENABLE_TEST_DRAWER) item {
+                        Column(Modifier.fillMaxWidth()) { pickerToolbar() }
+                    }
                     items(visible, key = { it.checkpoint_id }) { cp ->
                         val checked = cp.checkpoint_id in ids
                         val enabled = !busy && (checked || ids.size < ForecastSelection.MAX)
-                        Row(Modifier.fillMaxWidth().border(1.5.dp, AppAccent.copy(alpha = if (enabled) 0.5f else 0.2f), RoundedCornerShape(16.dp))
+                        Row(Modifier.fillMaxWidth().then(if (BuildConfig.ENABLE_TEST_DRAWER) Modifier
+                            .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, if (checked) AppAccent else MaterialTheme.avelren.line, RoundedCornerShape(20.dp))
+                            else Modifier.border(1.5.dp, AppAccent.copy(alpha = if (enabled) 0.5f else 0.2f), RoundedCornerShape(16.dp)))
                             .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = ua.avelren.app.ui.theme.hapticToggle {
                                 if (checked) pendingRemove = cp.checkpoint_id else select(cp.checkpoint_id, true)
                             }).padding(12.dp),
