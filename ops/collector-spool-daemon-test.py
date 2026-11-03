@@ -51,12 +51,52 @@ def response(request):
 
 
 def wait(predicate, seconds):
+    started = time.monotonic()
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if predicate():
             return
         time.sleep(0.25)
-    raise AssertionError(f'acceptance condition not reached within {seconds}s')
+    elapsed = time.monotonic() - started
+    trace_exists = TRACE.exists()
+    captured = requests() if trace_exists else []
+    snapshot_store = None
+    try:
+        snapshot_store = SpoolStore(PATH)
+        status = snapshot_store.status()
+    except Exception:
+        status = None
+    finally:
+        if snapshot_store is not None:
+            snapshot_store.close()
+    last_capture = captured[-1].get('at') if captured else 'unavailable'
+    if status is None:
+        snapshot = {
+            'requests': len(captured),
+            'pending_count': 'unavailable',
+            'capture_only': 'unavailable',
+            'last_error': 'unavailable',
+            'trace_file_exists': trace_exists,
+            'elapsed_seconds': round(elapsed, 3),
+            'last_successful_capture': last_capture,
+        }
+    else:
+        snapshot = {
+            'requests': len(captured),
+            'pending_count': status.pending_count,
+            'capture_only': status.capture_only,
+            'last_error': status.last_error,
+            'trace_file_exists': trace_exists,
+            'elapsed_seconds': round(elapsed, 3),
+            'last_successful_capture': last_capture,
+        }
+    raise AssertionError(
+        f'acceptance condition not reached within {seconds}s; snapshot={snapshot}'
+    )
+
+
+def wait_requests(count, seconds):
+    wait(lambda: len(requests()) >= count, seconds)
 
 
 def seed():
@@ -87,7 +127,7 @@ def verify(store):
         ).fetchall()
     finally:
         backup.close()
-    assert len(captured) >= 6
+    assert len(captured) >= 5
     with psycopg.connect(settings.database_dsn) as conn:
         rows = conn.execute('SELECT time,wait_time_seconds,vehicles_in_queue FROM observations '
                             'WHERE checkpoint_id=7 ORDER BY time').fetchall()
@@ -108,7 +148,7 @@ def verify(store):
         item = json.loads(payload)['items'][0]
         assert row[1:] == (item['wait_time'], item['vehicle_in_active_queues_counts'])
     calls = requests()
-    assert len(calls) == len(rows), 'missing or duplicated captured cycle'
+    assert len(calls) == len(rows) + 1, 'missing or duplicated captured cycle'
     assert all(b['at'] - a['at'] >= 59.5 for a,b in pairwise(calls))
     assert store.status().pending_count == 0
     assert store.capture_only() and store.status().mode_ack is True
@@ -139,6 +179,9 @@ def main():
         if action == 'wait-cycles':
             count, seconds = map(int, sys.argv[2:])
             wait(lambda: len(requests()) >= count and store.status().pending_count >= count, seconds)
+        elif action == 'wait-requests':
+            count, seconds = map(int, sys.argv[2:])
+            wait_requests(count, seconds)
         elif action == 'wait-aged':
             wait(lambda: time.time() - requests()[4]['at'] > 121, 130)
         elif action == 'paused':

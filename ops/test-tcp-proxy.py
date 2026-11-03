@@ -66,33 +66,53 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
         await writer.wait_closed()
 
     async def test_connection_limit_rejects_excess_client(self):
-        proxy.CONNECT_TIMEOUT = 0.05
-        self.slots = asyncio.BoundedSemaphore(1)
-        gate = asyncio.Event()
+        original_timeout = proxy.CONNECT_TIMEOUT
+        try:
+            proxy.CONNECT_TIMEOUT = 1.0
+            slot_acquired = asyncio.Event()
 
-        async def holding_backend(reader, writer):
-            await gate.wait()
-            writer.close()
-            await writer.wait_closed()
+            class SignallingSemaphore(asyncio.BoundedSemaphore):
+                async def acquire(self):
+                    acquired = await super().acquire()
+                    slot_acquired.set()
+                    return acquired
 
-        self.backend.close()
-        await self.backend.wait_closed()
-        self.backend = await asyncio.start_server(holding_backend, "127.0.0.1", 0)
-        proxy.BACKEND_PORT = self.backend.sockets[0].getsockname()[1]
-        self.front.close()
-        await self.front.wait_closed()
-        self.front = await asyncio.start_server(
-            proxy.make_handler(self.slots, self.active), "127.0.0.1", 0
-        )
-        port = self.front.sockets[0].getsockname()[1]
-        first = await asyncio.open_connection("127.0.0.1", port)
-        second_reader, second_writer = await asyncio.open_connection("127.0.0.1", port)
-        self.assertEqual(await asyncio.wait_for(second_reader.read(), timeout=1), b"")
-        second_writer.close()
-        await second_writer.wait_closed()
-        gate.set()
-        first[1].close()
-        await first[1].wait_closed()
+            self.slots = SignallingSemaphore(1)
+            gate = asyncio.Event()
+
+            async def holding_backend(reader, writer):
+                await gate.wait()
+                writer.close()
+                await writer.wait_closed()
+
+            self.backend.close()
+            await self.backend.wait_closed()
+            self.backend = await asyncio.start_server(holding_backend, "127.0.0.1", 0)
+            proxy.BACKEND_PORT = self.backend.sockets[0].getsockname()[1]
+            self.front.close()
+            await self.front.wait_closed()
+            self.front = await asyncio.start_server(
+                proxy.make_handler(self.slots, self.active), "127.0.0.1", 0
+            )
+            port = self.front.sockets[0].getsockname()[1]
+            first = await asyncio.open_connection("127.0.0.1", port)
+            await asyncio.wait_for(slot_acquired.wait(), timeout=1)
+            second_reader, second_writer = await asyncio.open_connection("127.0.0.1", port)
+            self.assertEqual(await asyncio.wait_for(second_reader.read(), timeout=1), b"")
+            second_writer.close()
+            await second_writer.wait_closed()
+            gate.set()
+            first[1].close()
+            await first[1].wait_closed()
+            if self.active:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*tuple(self.active), return_exceptions=True), timeout=1
+                    )
+                except asyncio.TimeoutError:
+                    raise
+        finally:
+            proxy.CONNECT_TIMEOUT = original_timeout
 
 
 if __name__ == "__main__":

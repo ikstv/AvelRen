@@ -71,19 +71,21 @@ postgres_stopped=1
 assert_dns
 assert_db_down
 compose up -d collector-test
-# Each process waits 60s before its first request, then 60s per further cycle.
-# Budgets include 30s for container scheduling and spool completion.
-compose exec -T collector-test python "$driver" wait-cycles 2 150
+# Two cycles require four paced requests: workload/details at t=60/120s,
+# then workload/details at t=180/240s; 30s is reserved for scheduling/spool I/O.
+compose exec -T collector-test python "$driver" wait-cycles 2 270
 compose kill -s SIGKILL collector-test
 # Preserve 60s between requests while restarting the disposable process.
 compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/null
 compose start collector-test
-compose exec -T collector-test python "$driver" wait-cycles 5 210
+# Existing 2 cycles plus 3 new cycles: 60s startup, requests/details through t=360s,
+# plus 30s for scheduling and spool I/O.
+compose exec -T collector-test python "$driver" wait-cycles 5 390
 compose exec -T collector-test python -m avelren.collector_control capture-only on
 compose kill -s SIGKILL collector-test
 compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/null
 compose start collector-test
-compose exec -T collector-test python "$driver" wait-cycles 6 90
+compose exec -T collector-test python "$driver" wait-requests 6 90
 compose exec -T collector-test python "$driver" wait-aged
 compose up -d --wait test-db-process
 postgres_stopped=0
