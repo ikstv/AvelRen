@@ -26,9 +26,17 @@ def requests():
 
 
 def response(request):
-    assert str(request.url) == 'https://back.echerha.gov.ua/api/v5/workload/1'
+    url = str(request.url)
+    is_details = '/details/1/30' in url
+    assert is_details or url == 'https://back.echerha.gov.ua/api/v5/workload/1'
     assert request.headers['X-Device-Id'] == DEVICE
     assert 'Authorization' not in request.headers and 'Cookie' not in request.headers
+    if is_details:
+        return httpx.Response(200, json={
+            'meta': {'last_page': 1},
+            'data': [{'estimated_time': '2026-10-01T12:00:00+00:00',
+                      'additional': {'icons': []}}],
+        })
     number = len(requests()) + 1
     with TRACE.open('a') as stream:
         stream.write(json.dumps({'number': number, 'at': time.time()}) + '\n')
