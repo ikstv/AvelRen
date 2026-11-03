@@ -122,7 +122,7 @@
       "destination": "services/backend/src/avelren/echerha.py",
       "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
       "revision": {
-        "sha256": "ba5b22acff139633eb9adba888aaf7413c3d1c57ac12cb7e13eeaa25eb050f1a",
+        "sha256": "6e3b93f95047d390bf1422817b31e5f8242fef4933c0b1285cc1a7831c7fe97c",
         "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
       }
     },
