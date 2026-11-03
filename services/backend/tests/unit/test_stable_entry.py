@@ -35,7 +35,14 @@ async def test_selects_last_stable_vehicle_from_tail():
 @pytest.mark.anyio
 async def test_skips_return_from_extend_and_uses_previous_page():
     pages = {
-        1: page([row("2026-11-03T20:34:00+02:00", [4]), row("2026-11-03T20:20:00+02:00", [10])], 1, 2),
+        1: page(
+            [
+                row("2026-11-03T20:34:00+02:00", [4]),
+                row("2026-11-03T20:20:00+02:00", [10]),
+            ],
+            1,
+            2,
+        ),
         2: page([row("2026-11-03T19:55:00+02:00")], 2, 2),
     }
 
