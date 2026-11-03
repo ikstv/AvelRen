@@ -34,9 +34,10 @@ compose run --rm --no-deps -T \
     collector-test python -m avelren.migrate /workspace/db/migrations </dev/null
 compose run --rm --no-deps -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" seed </dev/null
 # Keep the service DNS record present while making PostgreSQL unavailable.
-# Stopping the container removes test-db from Docker DNS and turns the outage
-# contract into an unrelated name-resolution failure.
-compose pause test-db
+# Stopping the container removes test-db from Docker DNS; pausing it leaves
+# TCP connections hanging. Stop only PostgreSQL inside the live container so
+# the outage is a fast connection refusal with stable service discovery.
+compose exec -T test-db sh -c 'pg_ctl -D "$PGDATA" -m immediate stop' </dev/null
 compose up -d collector-test
 # Each process waits 60s before its first request, then 60s per further cycle.
 # Budgets include 30s for container scheduling and spool completion.
@@ -52,7 +53,7 @@ compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/nu
 compose start collector-test
 compose exec -T collector-test python "$driver" wait-cycles 6 90
 compose exec -T collector-test python "$driver" wait-aged
-compose unpause test-db
+compose exec -T test-db sh -c 'pg_ctl -D "$PGDATA" -w start' </dev/null
 compose exec -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" paused
 compose exec -T collector-test python "$driver" backup
 compose exec -T collector-test python -m avelren.collector_control capture-only off
