@@ -66,7 +66,7 @@ async def verify_committed_cycle(
             (cycle.at,),
         )
     ).fetchall()
-    actual = [tuple(row[name] for name in (
+    actual = [tuple(row.get(name) for name in (
         "checkpoint_id", "wait_time_seconds", "wait_time_status", "vehicles_in_queue", "is_paused",
         "stable_entry_time"
     )) for row in rows]
