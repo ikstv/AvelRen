@@ -14,31 +14,40 @@ cleanup() {
     local status=$?
     trap - EXIT
     if [ "$postgres_stopped" -eq 1 ]; then
-        compose exec -T test-db su postgres -s /bin/sh -c 'pg_ctl -D "$PGDATA" -w start' </dev/null || status=1
+        compose up -d --wait test-db-process || status=1
         postgres_stopped=0
     fi
-    if [ "$status" -ne 0 ]; then compose logs --tail 30 collector-test test-db || true; fi
+    if [ "$status" -ne 0 ]; then compose logs --tail 30 collector-test test-db test-db-process || true; fi
     compose down --volumes --remove-orphans || status=1
     exit "$status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 assert_dns() {
     compose run --rm --no-deps -T collector-test python -c \
         'import socket; socket.gethostbyname("test-db")' </dev/null
 }
 assert_db_ready() {
-    compose exec -T test-db pg_isready -h 127.0.0.1 -U avelren_admin -d postgres </dev/null
+    compose exec -T test-db-process pg_isready -h 127.0.0.1 -U avelren_admin -d postgres </dev/null
+    compose run --rm --no-deps -T \
+        -e DATABASE_URL=postgresql://avelren_admin:ci-only@test-db:5432/postgres?connect_timeout=3 \
+        collector-test python -c \
+        'import os, psycopg; psycopg.connect(os.environ["DATABASE_URL"]).close()' </dev/null
 }
 assert_db_down() {
-    if compose run --rm --no-deps -T collector-test pg_isready -h test-db -p 5432 -U avelren_collector -d avelren_spool_test </dev/null; then
+    if compose run --rm --no-deps -T \
+        -e DATABASE_URL=postgresql://avelren_collector:ci-only@test-db:5432/avelren_spool_test?connect_timeout=3 \
+        collector-test python -c \
+        'import os, psycopg; psycopg.connect(os.environ["DATABASE_URL"]).close()' </dev/null; then
         echo 'PostgreSQL unexpectedly accepts connections during outage' >&2
         return 1
     fi
 }
 driver=/workspace/ops/collector-spool-daemon-test.py
 admin_dsn=postgresql://avelren_admin:ci-only@test-db:5432/avelren_spool_test
-compose build collector-test
-compose up -d --wait test-db
+compose build collector-test test-db
+compose up -d --wait test-db-process test-db
 assert_dns
 assert_db_ready
 compose exec -T \
@@ -48,7 +57,7 @@ compose exec -T \
     -e AVELREN_BACKUP_PASSWORD=ci-only -e AVELREN_COLLECTOR_PASSWORD=ci-only \
     -e AVELREN_NOTIFIER_PASSWORD=ci-only -e AVELREN_WATCHDOG_PASSWORD=ci-only \
     -e AVELREN_API_PASSWORD=ci-only \
-    test-db bash /workspace/ops/postgres-bootstrap.sh fresh </dev/null
+    test-db-process bash /workspace/ops/postgres-bootstrap.sh fresh </dev/null
 compose run --rm --no-deps -T \
     -e DATABASE_URL=postgresql://avelren_migrator:ci-only@test-db:5432/avelren_spool_test \
     collector-test python -m avelren.migrate /workspace/db/migrations </dev/null
@@ -57,7 +66,7 @@ compose run --rm --no-deps -T -e "DATABASE_URL=$admin_dsn" collector-test python
 # Stopping the container removes test-db from Docker DNS; pausing it leaves
 # TCP connections hanging. Stop only PostgreSQL inside the live container so
 # the outage is a fast connection refusal with stable service discovery.
-compose exec -T test-db su postgres -s /bin/sh -c 'pg_ctl -D "$PGDATA" -m immediate stop' </dev/null
+compose stop test-db-process
 postgres_stopped=1
 assert_dns
 assert_db_down
@@ -76,7 +85,7 @@ compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/nu
 compose start collector-test
 compose exec -T collector-test python "$driver" wait-cycles 6 90
 compose exec -T collector-test python "$driver" wait-aged
-compose exec -T test-db su postgres -s /bin/sh -c 'pg_ctl -D "$PGDATA" -w start' </dev/null
+compose up -d --wait test-db-process
 postgres_stopped=0
 assert_dns
 assert_db_ready
