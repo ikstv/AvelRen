@@ -35,6 +35,7 @@ def _pending(
                     title="fixture",
                     for_vehicle_type=1,
                     vehicle_in_active_queues_counts=80,
+                    stable_entry_time=None,
                 )
             ]
         )

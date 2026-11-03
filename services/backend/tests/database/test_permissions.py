@@ -1,5 +1,7 @@
 """Реальні обмеження ролей на тимчасовій TimescaleDB."""
 
+from pathlib import Path
+
 import psycopg
 import pytest
 from psycopg import sql
@@ -57,7 +59,9 @@ def test_backup_reads_every_public_table_and_sequence_but_cannot_write(database)
 @pytest.mark.parametrize("role", ["collector", "notifier", "watchdog", "api"])
 def test_runtime_cannot_modify_schema_or_read_device_secrets(database, role):
     with psycopg.connect(database(role), autocommit=True) as conn:
-        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 16
+        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == len(
+            list(Path(__file__).resolve().parents[4].joinpath("db/migrations").glob("*.sql"))
+        )
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("CREATE TABLE public.unauthorized(id int)")
         if role != "api":

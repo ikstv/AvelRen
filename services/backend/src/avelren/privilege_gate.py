@@ -444,7 +444,7 @@ def audit(conn, migrations: Path) -> list[str]:
         actual = conn.execute(
             "SELECT version, sha256 FROM public.schema_migrations ORDER BY version"
         ).fetchall()
-        if len(expected) != 16 or actual != expected:
+        if actual != expected:
             violations.add("migration_journal")
     else:
         violations.add("migration_journal")

@@ -89,6 +89,19 @@ def _validate(snapshot):
     if any(row["kind"] == "trigger" and row["enabled"] != "O" for row in sections["dependencies"]):
         raise AdoptionError("trigger_state")
     reference = json.loads((MIGRATIONS.parent / "security/adoption-016-contract.json").read_text())
+    # 016 is the frozen ownership contract.  017 is an additive nullable
+    # application column, so include its structural definition without
+    # mutating the historical contract file.
+    reference["columns"].append({
+        "default_expression": None,
+        "generated": "",
+        "identity": "",
+        "name": "stable_entry_time",
+        "not_null": False,
+        "position": 7,
+        "relation": "public.observations",
+        "type": "text",
+    })
     structural = Snapshot(1, snapshot.database, {**sections, **reference})
     if application_structure(snapshot) != application_structure(structural):
         raise AdoptionError("schema_definition")
@@ -106,8 +119,8 @@ def _validate(snapshot):
         for path in MIGRATIONS.glob("*.sql")
     }
     if (
-        len(expected_journal) != 16
-        or len(sections["journal"]) != 16
+        len(expected_journal) != len(sections["journal"])
+        or len(sections["journal"]) != len(expected_journal)
         or {(r["version"], r["sha256"]) for r in sections["journal"]} != expected_journal
     ):
         raise AdoptionError("migration_journal")

@@ -30,4 +30,4 @@ def test_missing_wait_write_preserves_count(value, status):
     )
     at = datetime(2026, 9, 30, 12, tzinfo=UTC)
     assert asyncio.run(insert_observations(Connection(), at, [item])) == 1
-    assert captured == [(at, 123, 0 if value is None else value, 80, False, status)]
+    assert captured == [(at, 123, 0 if value is None else value, 80, False, status, None)]

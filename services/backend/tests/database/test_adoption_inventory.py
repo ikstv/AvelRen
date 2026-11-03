@@ -1,10 +1,14 @@
 """Inventory читає поточну 001–016 без запису."""
 
+from pathlib import Path
+
 import psycopg
 import pytest
 
 from avelren.adoption_inventory import AdoptionError, capture, encode, fingerprint
 from avelren.privilege_gate import SEQUENCES, TABLES
+
+MIGRATIONS = Path(__file__).resolve().parents[4] / "db/migrations"
 
 
 def read_snapshot(database):
@@ -19,7 +23,7 @@ def test_current_inventory_is_stable_and_complete(database):
     assert fingerprint(before) == fingerprint(after)
     roots = {row["name"] for row in before.sections["relations"] if row["schema"] == "public"}
     assert roots == set(TABLES) | set(SEQUENCES)
-    assert len(before.sections["journal"]) == 16
+    assert len(before.sections["journal"]) == len(list(MIGRATIONS.glob("*.sql")))
     assert len([row for row in before.sections["routines"] if not row["extension"]]) == 4
     assert b"ci-only" not in encode(before)
 

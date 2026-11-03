@@ -44,7 +44,10 @@ def main():
     data = preserved(dsn)
     assert data[0], "restored observations absent"
     assert data[1], "restored aggregate absent"
-    assert len(data[2]) == 16, "restored journal differs"
+    migration_count = len(
+        list(Path(__file__).resolve().parents[1].joinpath("db/migrations").glob("*.sql"))
+    )
+    assert len(data[2]) == migration_count, "restored journal differs"
     assert any(row["kind"] == "compressed_relation" for row in initial.sections["topology"])
     with psycopg.connect(dsn) as conn:
         conn.execute("GRANT SELECT ON observations TO PUBLIC")

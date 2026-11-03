@@ -1,4 +1,4 @@
-"""Read-only PostgreSQL catalog inventory for adoption 001–016.
+"""Read-only PostgreSQL catalog inventory for adoption 001–017.
 
 Behavioral provenance: AvelRen@4a8e010 deploy/postgres-ownership.lib.sh.
 No table data, role passwords, migrations or service operations are read/run.

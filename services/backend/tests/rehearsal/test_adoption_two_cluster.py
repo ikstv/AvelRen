@@ -57,7 +57,10 @@ def test_adoption_two_cluster_target_refusal_preserves_both_clusters(tmp_path, m
             )
     snapshots = tuple(read_snapshot(dsn) for dsn in dsns)
     journals = tuple(snapshot.sections["journal"] for snapshot in snapshots)
-    assert len(journals[0]) == len(journals[1]) == 16
+    migration_count = len(
+        list(Path(__file__).resolve().parents[3].joinpath("db/migrations").glob("*.sql"))
+    )
+    assert len(journals[0]) == len(journals[1]) == migration_count
     assert journals[0] == journals[1]
     plans = tuple(build_plan(snapshot) for snapshot in snapshots)
     assert encode(snapshots[0]) == encode(snapshots[1])
