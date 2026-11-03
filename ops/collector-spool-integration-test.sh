@@ -6,21 +6,41 @@ PROJECT="avelren-spool-test-${RANDOM}-${RANDOM}"
 ROOT_FOR_COMPOSE=$ROOT
 if command -v cygpath >/dev/null 2>&1; then ROOT_FOR_COMPOSE=$(cygpath -w "$ROOT"); fi
 readonly ROOT PROJECT ROOT_FOR_COMPOSE
+postgres_stopped=0
 compose() {
     MSYS_NO_PATHCONV=1 docker compose -p "$PROJECT" -f "$ROOT_FOR_COMPOSE/ops/compose.collector-spool-test.yml" "$@"
 }
 cleanup() {
     local status=$?
     trap - EXIT
+    if [ "$postgres_stopped" -eq 1 ]; then
+        compose exec -T test-db su postgres -s /bin/sh -c 'pg_ctl -D "$PGDATA" -w start' </dev/null || status=1
+        postgres_stopped=0
+    fi
     if [ "$status" -ne 0 ]; then compose logs --tail 30 collector-test test-db || true; fi
     compose down --volumes --remove-orphans || status=1
     exit "$status"
 }
 trap cleanup EXIT
+assert_dns() {
+    compose run --rm --no-deps -T collector-test python -c \
+        'import socket; socket.gethostbyname("test-db")' </dev/null
+}
+assert_db_ready() {
+    compose exec -T test-db pg_isready -h 127.0.0.1 -U avelren_admin -d postgres </dev/null
+}
+assert_db_down() {
+    if compose run --rm --no-deps -T collector-test pg_isready -h test-db -p 5432 -U avelren_collector -d avelren_spool_test </dev/null; then
+        echo 'PostgreSQL unexpectedly accepts connections during outage' >&2
+        return 1
+    fi
+}
 driver=/workspace/ops/collector-spool-daemon-test.py
 admin_dsn=postgresql://avelren_admin:ci-only@test-db:5432/avelren_spool_test
 compose build collector-test
 compose up -d --wait test-db
+assert_dns
+assert_db_ready
 compose exec -T \
     -e AVELREN_TEST_DB=1 -e AVELREN_DB_NAME=avelren_spool_test \
     -e AVELREN_ADMIN_DSN=postgresql://avelren_admin:ci-only@127.0.0.1:5432/postgres \
@@ -37,7 +57,10 @@ compose run --rm --no-deps -T -e "DATABASE_URL=$admin_dsn" collector-test python
 # Stopping the container removes test-db from Docker DNS; pausing it leaves
 # TCP connections hanging. Stop only PostgreSQL inside the live container so
 # the outage is a fast connection refusal with stable service discovery.
-compose exec -T test-db sh -c 'pg_ctl -D "$PGDATA" -m immediate stop' </dev/null
+compose exec -T test-db su postgres -s /bin/sh -c 'pg_ctl -D "$PGDATA" -m immediate stop' </dev/null
+postgres_stopped=1
+assert_dns
+assert_db_down
 compose up -d collector-test
 # Each process waits 60s before its first request, then 60s per further cycle.
 # Budgets include 30s for container scheduling and spool completion.
@@ -53,7 +76,10 @@ compose run --rm --no-deps -T collector-test python "$driver" wait-next </dev/nu
 compose start collector-test
 compose exec -T collector-test python "$driver" wait-cycles 6 90
 compose exec -T collector-test python "$driver" wait-aged
-compose exec -T test-db sh -c 'pg_ctl -D "$PGDATA" -w start' </dev/null
+compose exec -T test-db su postgres -s /bin/sh -c 'pg_ctl -D "$PGDATA" -w start' </dev/null
+postgres_stopped=0
+assert_dns
+assert_db_ready
 compose exec -T -e "DATABASE_URL=$admin_dsn" collector-test python "$driver" paused
 compose exec -T collector-test python "$driver" backup
 compose exec -T collector-test python -m avelren.collector_control capture-only off
