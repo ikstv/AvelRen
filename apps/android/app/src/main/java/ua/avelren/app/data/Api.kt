@@ -131,6 +131,7 @@ object Api {
         // from it, not from the HTTP request time (AND-4).
         val time: String? = null,
         val wait_estimate: WaitEstimate? = null,
+        val stable_entry_time: String? = null,
     )
 
     @Serializable

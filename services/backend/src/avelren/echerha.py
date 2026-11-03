@@ -2,10 +2,12 @@ import asyncio
 import errno
 import hashlib
 import logging
-import re
 import socket
 import ssl
 import time
+import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
@@ -252,3 +254,46 @@ async def fetch_workload(
         return FetchResult(None, r.status_code, duration_ms, body_sha256, f"parse: {exc}")
 
     return FetchResult(parsed, r.status_code, duration_ms, body_sha256, None)
+
+
+async def fetch_stable_entry_time(
+    client: httpx.AsyncClient, checkpoint_id: int, *, pacer: RequestPacer | None = None,
+) -> str | None:
+    """Read the queue tail without retaining vehicle identifiers."""
+    try:
+        device_id = _canonical_device_id(settings.echerha_device_id)
+        device_name = _validated_device_name(settings.echerha_device_name)
+        headers = {**REQUIRED_HEADERS, "X-User-Agent": f"UABorder/{settings.echerha_client_version} Web/1.1.0 User/guest", "X-Device-Id": device_id, "X-Device-Name": device_name, "User-Agent": settings.user_agent}
+        url = (f"{settings.echerha_base_url}/v{settings.echerha_api_version}/workload/{settings.echerha_vehicle_type}/checkpoints/{checkpoint_id}/details/1/30")
+        async def get(page: int):
+            if pacer is not None:
+                await pacer.wait()
+            return await client.get(url, params={"page": page}, headers=headers, auth=None, follow_redirects=False)
+        first = await get(1)
+        first.raise_for_status()
+        payloads = {1: first.json()}
+        last_page = min(int(payloads[1].get("meta", {}).get("last_page", 1)), 100)
+        for page in range(last_page, 0, -1):
+            payload = payloads.get(page)
+            if payload is None:
+                response = await get(page)
+                response.raise_for_status()
+                payload = response.json()
+            for row in reversed(payload.get("data", [])):
+                additional = row.get("additional") or {}
+                icons = additional.get("icons") or []
+                if 4 in icons or 10 in icons:
+                    continue
+                value = row.get("estimated_time")
+                if isinstance(value, str) and value.strip():
+                    try:
+                        return datetime.fromisoformat(value.replace("Z", "+00:00")).isoformat()
+                    except ValueError:
+                        months = {"січня": 1, "лютого": 2, "березня": 3, "квітня": 4, "травня": 5, "червня": 6, "липня": 7, "серпня": 8, "вересня": 9, "жовтня": 10, "листопада": 11, "грудня": 12}
+                        match = re.fullmatch(r"\s*(\d{1,2})\s+([^\s]+)\s+(\d{1,2}):(\d{2})\s*", value)
+                        if match and match.group(2) in months:
+                            now = datetime.now(ZoneInfo("Europe/Kyiv"))
+                            return datetime(now.year, months[match.group(2)], int(match.group(1)), int(match.group(3)), int(match.group(4)), tzinfo=ZoneInfo("Europe/Kyiv")).isoformat()
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError):
+        return None
+    return None

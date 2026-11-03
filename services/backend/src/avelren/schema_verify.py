@@ -43,6 +43,7 @@ FEATURE_MIGRATIONS = frozenset(
         "013_admin_installation_lock",
         "014_admin_pin_rebind",
         "016_surge_monitor",
+        "017_stable_entry_time",
     }
 )
 
@@ -99,6 +100,7 @@ _TABLES_V: list[tuple[str | None, str]] = [
 _COLUMNS_V: list[tuple[str | None, str, str]] = [
     ("016_surge_monitor", "devices", "notification_capabilities"),
     ("015_wait_time_status", "observations", "wait_time_status"),
+    ("017_stable_entry_time", "observations", "stable_entry_time"),
     ("013_admin_installation_lock", "devices", "admin_blocked_until"),
     ("011_admin_access", "admin_access", "approved_device_id"),
     ("011_admin_access", "admin_access", "pin_hash"),

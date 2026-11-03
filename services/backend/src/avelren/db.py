@@ -111,8 +111,8 @@ async def insert_observations(
         """
         INSERT INTO observations
             (time, checkpoint_id, wait_time_seconds, vehicles_in_queue, is_paused,
-             wait_time_status)
-        VALUES (%s, %s, %s, %s, %s, %s)
+             wait_time_status, stable_entry_time)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (checkpoint_id, time) DO NOTHING
         """,
         [
@@ -123,6 +123,7 @@ async def insert_observations(
                 i.vehicles_in_queue,
                 i.is_paused,
                 i.wait_time_status,
+                i.stable_entry_time,
             )
             for i in items
         ],

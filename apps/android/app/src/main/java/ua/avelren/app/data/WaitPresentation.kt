@@ -9,7 +9,7 @@ object WaitPresentation {
             else -> false
         }
 
-    fun entryEta(workload: Api.Workload): String? = workload.wait_estimate?.let {
+    fun entryEta(workload: Api.Workload): String? = workload.stable_entry_time ?: workload.wait_estimate?.let {
         if (usable(it)) it.entry_eta else null
     } ?: if (workload.wait_estimate == null) workload.entry_eta else null
 
