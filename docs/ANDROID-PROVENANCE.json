@@ -87,12 +87,12 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/Api.kt",
       "sha256": "2a165f98b363bbfc3db195eea3f2d0485de2d297247f51aa62c750bb5377f997",
       "revision": {
-        "sha256": "14050a7416b49b2ff9f254c1130a70b325945163f9f732e49beeca24d76b9df5",
+        "sha256": "f7bc6a1963310caa824ddbad1a8452a7981d7abc403db23faa5ae27e39dc19e0",
         "previous": {
           "sha256": "b17a5f6c61a76afefadfef751bc0624610bef93e3f4c3b950a682ce177d82eb8",
           "notes": "docs/RELEASE-READINESS.md"
         },
-        "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md"
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
       }
     },
     {

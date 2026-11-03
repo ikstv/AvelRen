@@ -14,8 +14,8 @@
       "destination": "services/backend/src/avelren/collector.py",
       "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
       "revision": {
-        "sha256": "e1438e4976e314b848f48b2f8e4eea707c32161008139ae6da79172041159bdd",
-        "notes": "docs/COLLECTOR-REQUEST-PACING.md"
+        "sha256": "94b897cddc9fd7f87996906b52914237058cc6832ce856d7da3199d43e59bb87",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
       }
     },
     {
@@ -107,8 +107,12 @@
       "destination": "services/backend/src/avelren/db.py",
       "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
       "revision": {
-        "sha256": "8b363ef2b09adb73c3bc3cea7e7718c54bca9c01c16b052b068e970864d51adf",
-        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+        "sha256": "d77c9082c728b9bde2621eac978bdc932e81a6e84006f91227802692010cbc08",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md",
+        "previous": {
+          "sha256": "8b363ef2b09adb73c3bc3cea7e7718c54bca9c01c16b052b068e970864d51adf",
+          "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+        }
       }
     },
     {
@@ -118,8 +122,8 @@
       "destination": "services/backend/src/avelren/echerha.py",
       "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
       "revision": {
-        "sha256": "d21e0a3255a63bf84b2c0041c5c2ba15612b22c315c223ad1d213b7cbd445557",
-        "notes": "docs/COLLECTOR-REQUEST-PACING.md"
+        "sha256": "ba5b22acff139633eb9adba888aaf7413c3d1c57ac12cb7e13eeaa25eb050f1a",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
       }
     },
     {
@@ -129,8 +133,8 @@
       "destination": "services/backend/src/avelren/models.py",
       "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
       "revision": {
-        "sha256": "1b6cdf050717dd30471d1252cfc4f9b59e29b68a7dbf8fb21ec38481269ec3d5",
-        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+        "sha256": "a28a2a73dd0a26078333b2dce994d40a6e0a6ee9d9d62aabbb994db11304a021",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
       }
     },
     {
@@ -151,8 +155,8 @@
       "destination": "services/backend/src/avelren/schema_verify.py",
       "sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
       "revision": {
-        "sha256": "ccc140622abd6680328f38179677c3123ec416dd9b29558905528b552f12fa15",
-        "notes": "docs/SURGE-MONITOR-IMPLEMENTATION.md"
+        "sha256": "463ccf28b8d5fc669060e749c0895f69d150c7b2241161e1e7069e4286c6d45a",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
       }
     },
     {
