@@ -249,7 +249,14 @@ async def fetch_workload(
     body_sha256 = hashlib.sha256(r.content).hexdigest()
     try:
         payload = r.json()
-        for item in payload.get("data", []):
+        if not isinstance(payload, dict):
+            raise ValueError("response body must be an object")
+        data = payload.get("data", [])
+        if not isinstance(data, list):
+            raise ValueError("response data must be a list")
+        for item in data:
+            if not isinstance(item, dict):
+                raise ValueError("response data item must be an object")
             timing = item.get("timing") or {}
             header = timing.get("header") or {}
             text = header.get("text")

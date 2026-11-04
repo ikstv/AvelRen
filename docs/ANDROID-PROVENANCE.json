@@ -7,8 +7,8 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "e0566fe3da86e21252a6b5db8b5e8c0a5af43e4f6e1a9390b46390702fc18691",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "fcb580016ae97bc9a4bafd7f4b2367f3c379d7007e20300cf955f0d2084bdf4e",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md"
       }
     },
     {
