@@ -179,12 +179,14 @@ def command(argv, *, env=None, seconds=180, termination_seconds=45, reap_seconds
     return stdout
 
 
-def wait(predicate, seconds=40):
+def wait(predicate, seconds=40, *, on_timeout=None):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if predicate():
             return
         time.sleep(0.5)
+    if on_timeout is not None:
+        on_timeout()
     raise AssertionError("fixture_condition_timeout")
 
 
@@ -1549,7 +1551,23 @@ def run(args):
             s["pending_count"] == 0 and s["capture_only"] is False and s["mode_ack"] is False
             for s in result["writer_status"]
         )
-        wait(lambda: completed_cycle_after(status(), completion), 90)
+        def snapshot_final_replay_timeout():
+            snapshot = {
+                "completion_monotonic": completion,
+                "calls": status().get("calls"),
+                "status": status().get("status"),
+                "receipt_exists": receipt.exists(),
+                "lifecycle_exists": (fixture / "lifecycle.jsonl").exists(),
+            }
+            (fixture / "final-replay-timeout.json").write_text(json.dumps(snapshot, indent=2))
+            if FAILURE_LOG.parent.exists():
+                FAILURE_LOG.write_text(json.dumps(snapshot, indent=2))
+
+        wait(
+            lambda: completed_cycle_after(status(), completion),
+            90,
+            on_timeout=snapshot_final_replay_timeout,
+        )
         after_call = status()["calls"][-1]
         after = after_call["at"]
         assert after_call["native_attempt_monotonic"] > completion
