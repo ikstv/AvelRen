@@ -739,6 +739,12 @@ def run(args):
                 "    original=httpx.AsyncClient",
             )
             .replace(
+                "        if is_details:\n",
+                "        if is_details:\n"
+                "            assert len(attempts)==1\n"
+                "            attempts.pop(0)\n",
+            )
+            .replace(
                 "        trace=Path(",
                 "        assert len(attempts)==1\n"
                 "        native_attempt=attempts.pop(0)\n"
