@@ -1566,7 +1566,10 @@ def run(args):
 
         wait(
             lambda: completed_cycle_after(status(), completion),
-            90,
+            # Native workload starts are 120s apart because workload and
+            # details each consume one paced request. Allow one full interval
+            # plus time for the post-backup capture to finish.
+            180,
             on_timeout=snapshot_final_replay_timeout,
         )
         after_call = status()["calls"][-1]
