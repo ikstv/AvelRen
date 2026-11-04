@@ -1560,6 +1560,7 @@ def run(args):
                 "lifecycle_exists": (fixture / "lifecycle.jsonl").exists(),
             }
             (fixture / "final-replay-timeout.json").write_text(json.dumps(snapshot, indent=2))
+            print("final_replay_timeout_snapshot=" + json.dumps(snapshot), flush=True)
             if FAILURE_LOG.parent.exists():
                 FAILURE_LOG.write_text(json.dumps(snapshot, indent=2))
 
