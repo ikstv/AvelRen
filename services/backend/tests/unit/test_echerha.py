@@ -118,6 +118,39 @@ def test_parses_workload_and_reports_status(monkeypatch: pytest.MonkeyPatch) -> 
     assert res.body_sha256 is not None
 
 
+def test_preserves_source_timing_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(echerha, "settings", _settings())
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [{
+                    "id": 17,
+                    "title": "Synthetic checkpoint",
+                    "for_vehicle_type": 1,
+                    "vehicle_in_active_queues_counts": 42,
+                    "timing": {
+                        "header": {
+                            "label": "Мінімальний час на в’їзд",
+                            "text": "240 хвилин",
+                        }
+                    },
+                }],
+                "filters": {"countries": []},
+            },
+            request=request,
+        )
+
+    async def run() -> echerha.FetchResult:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await echerha.fetch_workload(client)
+
+    result = asyncio.run(run())
+    assert result.response is not None
+    assert result.response.data[0].source_wait_text == "240 хвилин"
+
+
 def test_source_non_200_is_reported_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
     """A source error is not our outage: we return it as a result, do not raise."""
     monkeypatch.setattr(echerha, "settings", _settings())

@@ -15,6 +15,10 @@ class WaitPresentationTest {
         assertEquals("1 год 0 хв очікування", WaitPresentation.label(Api.WaitEstimate("legacy_unknown", 3600, null)))
         assertEquals("2 дн 3 год 40 хв очікування", WaitPresentation.label(Api.WaitEstimate("reported", 186000, null)))
     }
+    @Test fun `source wait text is shown independently of numeric estimate`() {
+        val workload = Api.Workload(17, "Тест", vehicles_in_queue = 80, wait_time_seconds = 0, is_paused = false, source_wait_text = "240 хвилин")
+        assertEquals("240 хвилин", WaitPresentation.label(workload))
+    }
     @Test fun `new absent ETA never falls back to legacy ETA`() {
         val legacy = Api.Workload(17, "Тест", vehicles_in_queue = 80, wait_time_seconds = 0, is_paused = false, entry_eta = "legacy")
         assertEquals("legacy", WaitPresentation.entryEta(legacy))

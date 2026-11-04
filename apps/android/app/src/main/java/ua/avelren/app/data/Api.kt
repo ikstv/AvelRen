@@ -132,6 +132,7 @@ object Api {
         val time: String? = null,
         val wait_estimate: WaitEstimate? = null,
         val stable_entry_time: String? = null,
+        val source_wait_text: String? = null,
     )
 
     @Serializable
