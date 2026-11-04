@@ -22,9 +22,15 @@ if os.environ.get('AVELREN_RUNTIME_TEST_SYNTHETIC') == '1':
     from pathlib import Path
     original=httpx.AsyncClient
     def response(request):
-        assert str(request.url)=='https://back.echerha.gov.ua/api/v5/workload/1'
+        url=str(request.url)
+        is_details='/details/1/30' in url
+        assert is_details or url=='https://back.echerha.gov.ua/api/v5/workload/1'
         assert request.headers['X-Device-Id']=='11111111-1111-4111-8111-111111111111'
         assert 'Authorization' not in request.headers and 'Cookie' not in request.headers
+        if is_details:
+            return httpx.Response(200,json={'meta':{'last_page':1},'data':[{
+                'estimated_time':'2026-10-01T12:00:00+00:00','additional':{'icons':[]}
+            }]})
         trace=Path('/var/lib/avelren/collector-spool/synthetic-requests.jsonl')
         number=len(trace.read_text().splitlines())+1 if trace.exists() else 1
         with trace.open('a') as stream:
@@ -371,8 +377,9 @@ def main(source):
                 )
 
             print("capture two pending cycles with database offline", flush=True)
-            # Startup pause + two captures at t=60/120, with scheduling margin.
-            wait(lambda: check()["status"]["pending_count"] >= 2, 150)
+            # Startup pause plus two workload/details pairs paced at 60 seconds;
+            # 300 seconds covers the ~240-second schedule with recovery margin.
+            wait(lambda: check()["status"]["pending_count"] >= 2, 300)
             command(
                 [
                     "docker",
