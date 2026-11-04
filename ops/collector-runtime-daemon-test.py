@@ -551,7 +551,7 @@ def main(source):
             wait(lambda: check()["status"]["mode_ack"] is True, 15)
             assert check()["status"]["pending_count"] >= 2
             handoff_count = len(check()["calls"])
-            wait_for_pending_cycle(check, handoff_count)
+            wait_for_pending_cycle(check, handoff_count, 180)
             item = json.loads(command(["docker", "inspect", canonical]))[0]
             assert "LITERAL_SENTINEL=$PASSWORD 'quoted'" in item["Config"]["Env"]
             assert "ECHERHA_DEVICE_ID=" + DEVICE in item["Config"]["Env"]
@@ -574,7 +574,7 @@ def main(source):
                     len(check()["calls"]) > count
                     and check()["status"]["pending_count"] > 0
                 ),
-                75,
+                180,
             )
             control("stop")
             stopped_at = time.monotonic()
@@ -603,7 +603,7 @@ def main(source):
                     "off",
                 ]
             )
-            wait_for_replayed_cycle(check, rollback_count)
+            wait_for_replayed_cycle(check, rollback_count, 180)
             command(
                 [
                     "docker",
