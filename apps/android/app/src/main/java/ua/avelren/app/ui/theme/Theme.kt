@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.SideEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.view.WindowCompat
+import ua.avelren.app.BuildConfig
 import ua.avelren.app.data.UiPrefs
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +57,7 @@ fun AvelRenTheme(content: @Composable () -> Unit) {
     val theme by remember(context) { UiPrefs.themeFlow(context) }.collectAsStateWithLifecycle(ThemeChoice.DARK)
     val dark = theme == ThemeChoice.DARK
     val palette = appPalette(theme)
+    val fullTestColors = if (BuildConfig.ENABLE_TEST_DRAWER) fullTestColorScheme(theme) else null
     if (!view.isInEditMode) {
         SideEffect {
             (context as? Activity)?.window?.let { window ->
@@ -74,10 +76,15 @@ fun AvelRenTheme(content: @Composable () -> Unit) {
         LocalThemeChoice provides theme,
         LocalAvelRenColors provides (if (dark) DarkAvelRenColors else LightAvelRenColors).copy(
             paper = palette.background, ink = palette.ink, panel = palette.background,
-        )
+        ).let { colors ->
+            if (fullTestColors != null) colors.copy(
+                panel = fullTestColors.surfaceContainer,
+                data = palette.accent,
+            ) else colors
+        }
     ) {
         MaterialTheme(
-            colorScheme = (if (dark) DarkColors else LightColors).copy(
+            colorScheme = fullTestColors ?: (if (dark) DarkColors else LightColors).copy(
                 primary = palette.accent, onPrimary = palette.onAccent,
                 background = palette.background, surface = palette.background,
                 onBackground = palette.ink, onSurface = palette.ink,
