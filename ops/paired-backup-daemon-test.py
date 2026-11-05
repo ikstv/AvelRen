@@ -1531,7 +1531,23 @@ def run(args):
         locker = lock_sql()
         start_coordinator()
         wait(owned_job, 60)
-        wait(lambda: len(status()["calls"]) >= 2 and status()["status"]["pending_count"] >= 1, 90)
+        def snapshot_during_capture_timeout():
+            snapshot = {
+                "calls": status().get("calls"),
+                "status": status().get("status"),
+                "lifecycle_exists": (fixture / "lifecycle.jsonl").exists(),
+            }
+            print("during_capture_timeout_snapshot=" + json.dumps(snapshot), flush=True)
+            (fixture / "during-capture-timeout.json").write_text(
+                json.dumps(snapshot, indent=2)
+            )
+
+        wait(
+            lambda: len(status()["calls"]) >= 2
+            and status()["status"]["pending_count"] >= 1,
+            90,
+            on_timeout=snapshot_during_capture_timeout,
+        )
         during = status()["calls"][-1]["at"]
         assert status()["status"]["mode_ack"] is True
         smoke()
