@@ -179,12 +179,14 @@ def command(argv, *, env=None, seconds=180, termination_seconds=45, reap_seconds
     return stdout
 
 
-def wait(predicate, seconds=40):
+def wait(predicate, seconds=40, *, on_timeout=None):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if predicate():
             return
         time.sleep(0.5)
+    if on_timeout is not None:
+        on_timeout()
     raise AssertionError("fixture_condition_timeout")
 
 
@@ -737,6 +739,12 @@ def run(args):
                 "        attempts.append(self.last_start)\n"
                 "    RequestPacer.wait=observed_wait\n"
                 "    original=httpx.AsyncClient",
+            )
+            .replace(
+                "        if is_details:\n",
+                "        if is_details:\n"
+                "            assert len(attempts)==1\n"
+                "            attempts.pop(0)\n",
             )
             .replace(
                 "        trace=Path(",
@@ -1523,7 +1531,23 @@ def run(args):
         locker = lock_sql()
         start_coordinator()
         wait(owned_job, 60)
-        wait(lambda: len(status()["calls"]) >= 2 and status()["status"]["pending_count"] >= 1, 90)
+        def snapshot_during_capture_timeout():
+            snapshot = {
+                "calls": status().get("calls"),
+                "status": status().get("status"),
+                "lifecycle_exists": (fixture / "lifecycle.jsonl").exists(),
+            }
+            print("during_capture_timeout_snapshot=" + json.dumps(snapshot), flush=True)
+            (fixture / "during-capture-timeout.json").write_text(
+                json.dumps(snapshot, indent=2)
+            )
+
+        wait(
+            lambda: len(status()["calls"]) >= 2
+            and status()["status"]["pending_count"] >= 1,
+            90,
+            on_timeout=snapshot_during_capture_timeout,
+        )
         during = status()["calls"][-1]["at"]
         assert status()["status"]["mode_ack"] is True
         smoke()
@@ -1543,7 +1567,27 @@ def run(args):
             s["pending_count"] == 0 and s["capture_only"] is False and s["mode_ack"] is False
             for s in result["writer_status"]
         )
-        wait(lambda: completed_cycle_after(status(), completion), 90)
+        def snapshot_final_replay_timeout():
+            snapshot = {
+                "completion_monotonic": completion,
+                "calls": status().get("calls"),
+                "status": status().get("status"),
+                "receipt_exists": receipt.exists(),
+                "lifecycle_exists": (fixture / "lifecycle.jsonl").exists(),
+            }
+            (fixture / "final-replay-timeout.json").write_text(json.dumps(snapshot, indent=2))
+            print("final_replay_timeout_snapshot=" + json.dumps(snapshot), flush=True)
+            if FAILURE_LOG.parent.exists():
+                FAILURE_LOG.write_text(json.dumps(snapshot, indent=2))
+
+        wait(
+            lambda: completed_cycle_after(status(), completion),
+            # Native workload starts are 120s apart because workload and
+            # details each consume one paced request. Allow one full interval
+            # plus time for the post-backup capture to finish.
+            180,
+            on_timeout=snapshot_final_replay_timeout,
+        )
         after_call = status()["calls"][-1]
         after = after_call["at"]
         assert after_call["native_attempt_monotonic"] > completion

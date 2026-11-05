@@ -248,7 +248,21 @@ async def fetch_workload(
 
     body_sha256 = hashlib.sha256(r.content).hexdigest()
     try:
-        parsed = WorkloadResponse.model_validate(r.json())
+        payload = r.json()
+        if not isinstance(payload, dict):
+            raise ValueError("response body must be an object")
+        data = payload.get("data", [])
+        if not isinstance(data, list):
+            raise ValueError("response data must be a list")
+        for item in data:
+            if not isinstance(item, dict):
+                raise ValueError("response data item must be an object")
+            timing = item.get("timing") or {}
+            header = timing.get("header") or {}
+            text = header.get("text")
+            if isinstance(text, str) and text.strip():
+                item["source_wait_text"] = text.strip()
+        parsed = WorkloadResponse.model_validate(payload)
     except ValueError as exc:
         log.error("failed to parse response: %s", exc)
         return FetchResult(None, r.status_code, duration_ms, body_sha256, f"parse: {exc}")

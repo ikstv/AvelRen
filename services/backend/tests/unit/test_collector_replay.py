@@ -231,6 +231,8 @@ def test_readback_preserves_wait_presence(source_wait, persisted_status, reject)
         "wait_time_status": persisted_status,
         "vehicles_in_queue": 80,
         "is_paused": False,
+        "stable_entry_time": None,
+        "source_wait_text": None,
     }
     one = SimpleNamespace(fetchone=AsyncMock(return_value=run))
     many = SimpleNamespace(fetchall=AsyncMock(return_value=[row]))

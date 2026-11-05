@@ -107,8 +107,8 @@
       "destination": "services/backend/src/avelren/db.py",
       "sha256": "4e3f40271e64d943de02a3f8e53200185afef97e195c349937b60ef3eb691309",
       "revision": {
-        "sha256": "d77c9082c728b9bde2621eac978bdc932e81a6e84006f91227802692010cbc08",
-        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md",
+        "sha256": "8f23915b50cd318997e329f7bfe7e5dad49f24c22db8de45529fc3c611746b4d",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md",
         "previous": {
           "sha256": "8b363ef2b09adb73c3bc3cea7e7718c54bca9c01c16b052b068e970864d51adf",
           "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
@@ -122,8 +122,8 @@
       "destination": "services/backend/src/avelren/echerha.py",
       "sha256": "9f3200c463ebe9b16ec6eb4f25fd2259d32184853f161b10b890ead62a27328f",
       "revision": {
-        "sha256": "6e3b93f95047d390bf1422817b31e5f8242fef4933c0b1285cc1a7831c7fe97c",
-        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
+        "sha256": "b27442f840df171e312cddfe9db6a5d9ac0384cf08d16edd5a1f2b018ec58d40",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md"
       }
     },
     {
@@ -133,8 +133,8 @@
       "destination": "services/backend/src/avelren/models.py",
       "sha256": "1aa2cb96c8fec9dc7e67d5759c97fcebc732ae67060643c99848df2571acd2ae",
       "revision": {
-        "sha256": "a28a2a73dd0a26078333b2dce994d40a6e0a6ee9d9d62aabbb994db11304a021",
-        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
+        "sha256": "596fbf039aaf35806e3322d65f1d8c4a70e18f6460dcf2f897e6cbc167e193c5",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md"
       }
     },
     {
@@ -155,8 +155,8 @@
       "destination": "services/backend/src/avelren/schema_verify.py",
       "sha256": "3201573dc9531057aee43abdeccd6bda83e3d21570ab4a779ce6d33e78e6f07b",
       "revision": {
-        "sha256": "463ccf28b8d5fc669060e749c0895f69d150c7b2241161e1e7069e4286c6d45a",
-        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
+        "sha256": "352efd516b1e81d69194fdecc783e4ee69198b21a0b7c6e9170b899bef660ee9",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md"
       }
     },
     {
@@ -195,8 +195,8 @@
       "destination": "services/backend/tests/unit/test_echerha.py",
       "sha256": "5789b2ba8b9d59874184eb47fdaaa3a8ac17468928a7b2cb588410f3ab505076",
       "revision": {
-        "sha256": "ef667190315a5427ad78e5ad9d1294ff9142ef288e21299c5b9ae625709d33c1",
-        "notes": "docs/WAIT-ESTIMATE-IMPLEMENTATION.md"
+        "sha256": "fdd20cb10803bc7373edb0d6dea9ff0740c0f780a17c0d1e53efa386fb5c945b",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md"
       }
     },
     {

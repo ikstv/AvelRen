@@ -45,6 +45,7 @@ class WorkloadItem(BaseModel):
     lat: float | None = None
     lng: float | None = None
     stable_entry_time: str | None = None
+    source_wait_text: str | None = None
     wait_time: int | None = Field(default=None, strict=True, ge=0)
     vehicles_in_queue: int = Field(0, alias="vehicle_in_active_queues_counts")
 

@@ -7,8 +7,8 @@
       "destination": "services/backend/src/avelren/api.py",
       "sha256": "67c4db7a7cd5f53a489e241acdd9a442dcdd9553d633befc3fcc101615af2d72",
       "revision": {
-        "sha256": "d02cdee89d9ddb1f3996e9a4e374036d7bda860fa739d72f9d90c46617f69af3",
-        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md",
+        "sha256": "5e31e570881be5c6e2bb93d1f3511fb6e98dfa9fc0e01390c09c2f4bd6e12be4",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md",
         "previous": {
           "sha256": "3e164f20eaac9f08b390346047c73603b8c28f88b4da70142041f8832fe0e5c9",
           "notes": "docs/RELEASE-READINESS.md"

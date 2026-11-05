@@ -61,19 +61,20 @@ async def verify_committed_cycle(
     rows = await (
         await conn.execute(
             """SELECT checkpoint_id,wait_time_seconds,wait_time_status,vehicles_in_queue,is_paused,
-                              stable_entry_time
+                              stable_entry_time,source_wait_text
                FROM observations WHERE time=%s ORDER BY checkpoint_id""",
             (cycle.at,),
         )
     ).fetchall()
     actual = [tuple(row.get(name) for name in (
         "checkpoint_id", "wait_time_seconds", "wait_time_status", "vehicles_in_queue", "is_paused",
-        "stable_entry_time"
+        "stable_entry_time", "source_wait_text"
     )) for row in rows]
     expected = sorted(
         (item.id, item.wait_time if item.wait_time is not None else 0,
          "legacy_unknown" if legacy_unknown else item.wait_time_status,
-         item.vehicles_in_queue, item.is_paused, item.stable_entry_time)
+         item.vehicles_in_queue, item.is_paused, item.stable_entry_time,
+         item.source_wait_text)
         for item in cycle.items
     )
     if actual != expected:

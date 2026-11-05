@@ -2131,7 +2131,7 @@ private fun HeroPanel(item: Api.Workload, onOpenPicker: () -> Unit) {
             )
         }
         // Макет: `≈ {wait} очікування` — рядок часу очікування, коли він є.
-        (WaitPresentation.label(item.wait_estimate)
+        (WaitPresentation.label(item)
             ?: formatWait(item.wait_time_seconds)?.let { "≈ $it очікування" })?.let { wait ->
             Text(
                 wait,

@@ -102,6 +102,16 @@ def _validate(snapshot):
         "relation": "public.observations",
         "type": "text",
     })
+    reference["columns"].append({
+        "default_expression": None,
+        "generated": "",
+        "identity": "",
+        "name": "source_wait_text",
+        "not_null": False,
+        "position": 8,
+        "relation": "public.observations",
+        "type": "text",
+    })
     structural = Snapshot(1, snapshot.database, {**sections, **reference})
     if application_structure(snapshot) != application_structure(structural):
         raise AdoptionError("schema_definition")

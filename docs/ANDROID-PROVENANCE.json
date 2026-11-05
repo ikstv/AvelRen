@@ -7,8 +7,8 @@
       "destination": "apps/android/app/build.gradle.kts",
       "sha256": "bcfb83eae2224fe50283d835089e6e2a1ea1590d1039f7339c4542653f8cbf1d",
       "revision": {
-        "sha256": "e0566fe3da86e21252a6b5db8b5e8c0a5af43e4f6e1a9390b46390702fc18691",
-        "notes": "docs/RELEASE-READINESS.md"
+        "sha256": "fcb580016ae97bc9a4bfd7f4b2367f3c379d7007e20300cf955f0d2084bdf4e0",
+        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-04.md"
       }
     },
     {
@@ -87,7 +87,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/data/Api.kt",
       "sha256": "2a165f98b363bbfc3db195eea3f2d0485de2d297247f51aa62c750bb5377f997",
       "revision": {
-        "sha256": "f7bc6a1963310caa824ddbad1a8452a7981d7abc403db23faa5ae27e39dc19e0",
+        "sha256": "84c12880c2b613da5c98094d6893120c830359007ee9770d6fd60c204e487083",
         "previous": {
           "sha256": "b17a5f6c61a76afefadfef751bc0624610bef93e3f4c3b950a682ce177d82eb8",
           "notes": "docs/RELEASE-READINESS.md"
@@ -285,7 +285,7 @@
       "destination": "apps/android/app/src/main/java/ua/avelren/app/ui/AvelRenScreen.kt",
       "sha256": "22489a76e4b7ae287628a7ee69bf578067cfcc7a23b85b4e6af61c07966ea0c4",
       "revision": {
-        "sha256": "fd2c640242cc11f2676207237223276a66b1ef579d712d8e24eecf3440cf8eff",
+        "sha256": "769ff433b25dea0cc80115e38938c636206bd3e031a3244e745fb5673c81a0d9",
         "previous": {
           "sha256": "cb672f3223c1656655c216bbfa34999491132e1960b33b62af67e20d368b4eb4",
           "notes": "docs/FCM-TOKEN-OWNERSHIP-2026-10-12.md",

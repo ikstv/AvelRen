@@ -27,4 +27,8 @@ object WaitPresentation {
         }
         return "$duration очікування"
     }
+
+    fun label(workload: Api.Workload): String? =
+        workload.source_wait_text?.takeIf { it.isNotBlank() }
+            ?: label(workload.wait_estimate)
 }
