@@ -415,12 +415,21 @@ class Publisher:
                 "process_supervision_unavailable",
             }:
                 category = "runner_failed"
+            # A newly published, fully verified backup must not be reported as
+            # failed only because retention could not remove an old artifact.
+            # Uploads, manifests, checksums, and reads remain fail-closed.
+            if operation == "deletefile":
+                return
             raise BackupError(reason + category) from None
         except OSError:
+            if operation == "deletefile":
+                return
             raise BackupError(reason + "runner_os_error") from None
         if type(code) is not int or not -255 <= code <= 255:
             raise BackupError(reason + "runner_failed") from None
         if code:
+            if operation == "deletefile":
+                return
             raise BackupError(reason + "exit_" + str(code)) from None
 
     def read(self, arguments):
@@ -1057,3 +1066,4 @@ if __name__ == "__main__":
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     raise SystemExit(main())
+
