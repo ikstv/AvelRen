@@ -14,3 +14,12 @@ The backup retention path treats failure to delete an old remote artifact as a
 non-fatal retention warning. Creation, upload, manifest, checksum, and remote
 read verification remain fail-closed.
 
+
+
+## Phone verification
+
+- Package: `ua.avelren.app`
+- Installed version: `0.1.4` (`versionCode=8`)
+- Last update observed: `2026-11-04 15:13:57`
+- Source baseline identified in the local Git bundle: `5b8d0c23c765751295e2a44e6b7c3d60634f1e55`
+- ADB device was online during verification; APK contents were not modified.
