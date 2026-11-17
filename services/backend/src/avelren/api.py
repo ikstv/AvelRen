@@ -179,11 +179,19 @@ async def workload(request: Request) -> list[dict]:
         rows = await (
             await conn.execute(
                 """
+                WITH source_times AS MATERIALIZED (
+                    SELECT DISTINCT ON (checkpoint_id) checkpoint_id, stable_entry_time
+                    FROM observations
+                    WHERE stable_entry_time IS NOT NULL
+                      AND time > now()-INTERVAL '1 day'
+                    ORDER BY checkpoint_id,time DESC
+                )
                 SELECT DISTINCT ON (o.checkpoint_id)
                     o.checkpoint_id, c.title, c.country_id, c.country_name,
                     c.flag_emoji, c.lat, c.lng,
                     o.time, o.wait_time_seconds, o.vehicles_in_queue, o.is_paused,
-                    o.wait_time_status, o.stable_entry_time,
+                    o.wait_time_status, o.source_wait_text,
+                    v.stable_entry_time,
                     -- Same rule as eta.py and forecast.py (#127): a zero wait is
                     -- "no estimate", not "enter now", both when the queue is
                     -- paused and when cars are still queued (#111 writes a
@@ -194,6 +202,7 @@ async def workload(request: Request) -> list[dict]:
                     END AS entry_eta
                 FROM observations o
                 JOIN checkpoints c ON c.id = o.checkpoint_id
+                LEFT JOIN source_times v ON v.checkpoint_id=o.checkpoint_id
                 WHERE o.time > now() - INTERVAL '1 hour'
                 ORDER BY o.checkpoint_id, o.time DESC
                 """
@@ -201,11 +210,14 @@ async def workload(request: Request) -> list[dict]:
         ).fetchall()
     for row in rows:
         status = row.pop("wait_time_status")
-        stable_entry_time = row.pop("stable_entry_time")
         row["wait_estimate"] = measured_wait(
             row["time"], row["wait_time_seconds"], status, row["is_paused"]
         )
-        row["stable_entry_time"] = stable_entry_time
+        source_time = row.get("stable_entry_time")
+        row["entry_eta"] = source_time
+        row["wait_estimate"]["entry_eta"] = source_time
+        row["last_stable_car"] = None if source_time is None else {
+            "estimated_time": source_time, "confirmed_source_timestamp": None}
     return rows
 
 

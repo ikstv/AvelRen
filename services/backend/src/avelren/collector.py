@@ -15,7 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 from .collector_replay import ReplayConflict, replay_loop
 from .collector_spool import SpoolStore
 from .config import settings, validate_collector_settings
-from .echerha import RequestPacer, describe_exception, fetch_stable_entry_time, fetch_workload
+from .echerha import RequestPacer, describe_exception, fetch_workload
 from .schema_gate import assert_schema_at_least
 
 log = logging.getLogger("avelren.collector")
@@ -35,9 +35,6 @@ async def run_cycle(
     at = datetime.now(UTC).replace(microsecond=0)
     seq = store.begin(at)
     result = await fetch_workload(client, pacer=pacer)
-    if result.response is not None:
-        for item in result.response.data:
-            item.stable_entry_time = await fetch_stable_entry_time(client, item.id, pacer=pacer)
     store.finish(seq, result, settings.echerha_vehicle_type)
     log.info("cycle %s captured in spool as %s", at.isoformat(), seq)
 
@@ -173,12 +170,17 @@ async def main() -> None:
         settings.workload_url, settings.poll_interval_seconds,
     )
 
+    from .source_vehicle_time import refresh_loop
+    details_worker = asyncio.create_task(refresh_loop(_stop))
     supervisor = asyncio.create_task(writer_supervisor(store, _stop))
     try:
         async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
             await poll_loop(client, store, _stop)
     finally:
         _stop.set()
+        details_worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await details_worker
         supervisor.cancel()
         with suppress(asyncio.CancelledError):
             await supervisor
