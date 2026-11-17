@@ -14,8 +14,12 @@
       "destination": "services/backend/src/avelren/collector.py",
       "sha256": "e63a0d287ec78df235b2b686c7398b389c6ccc2f804c368a0ee54484b8d1d661",
       "revision": {
-        "sha256": "94b897cddc9fd7f87996906b52914237058cc6832ce856d7da3199d43e59bb87",
-        "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
+        "sha256": "d63adbf1750d64d6f9ccbb3974445038b7c92b8b31773a422f30f9b789f691d3",
+        "notes": "docs/SOURCE-TIMING-RECONCILIATION-2026-11-17.md",
+        "previous": {
+          "sha256": "94b897cddc9fd7f87996906b52914237058cc6832ce856d7da3199d43e59bb87",
+          "notes": "docs/STABLE-ENTRY-RESTORE-2026-11-03.md"
+        }
       }
     },
     {
